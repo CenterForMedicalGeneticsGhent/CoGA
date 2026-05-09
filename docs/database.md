@@ -27,6 +27,7 @@ Reference data:
 Review and annotation state:
 
 - `small_variant_reviews`
+- `structural_variant_reviews`
 - `small_variant_filter_presets`
 - `small_variant_tag_definitions`
 - `small_variant_tag_definition_project_links`
@@ -58,12 +59,18 @@ Canonical schema files:
 - [006_project_scoped_variant_tags.sql](../backend/db/schema/postgres/006_project_scoped_variant_tags.sql)
 - [007_family_import_jobs.sql](../backend/db/schema/postgres/007_family_import_jobs.sql)
 - [008_paraphase_results.sql](../backend/db/schema/postgres/008_paraphase_results.sql)
+- [009_structural_variant_reviews.sql](../backend/db/schema/postgres/009_structural_variant_reviews.sql)
 
 ## ClickHouse Tables
 
-Variant storage is created per assembly from the CoGA schema in:
+The ClickHouse SQL bootstrap creates the database:
 
 - [001_coga_variant_storage.sql](../backend/db/schema/clickhouse/001_coga_variant_storage.sql)
+
+Per-assembly variant and interval tables are created at runtime by:
+
+- [clickhouse_variant_storage.py](../backend/app/services/clickhouse_variant_storage.py)
+- [clickhouse_interval_tracks.py](../backend/app/services/clickhouse_interval_tracks.py)
 
 The important logical entities are:
 

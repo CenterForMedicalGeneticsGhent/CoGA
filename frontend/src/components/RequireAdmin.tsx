@@ -1,10 +1,12 @@
 import React from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { isAdmin, isAuthenticated } from '../lib/auth';
 
 const RequireAdmin: React.FC = () => {
+  const location = useLocation();
   if (!isAuthenticated()) {
-    return <Navigate to="/login" replace />;
+    const next = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
   }
 
   return isAdmin() ? <Outlet /> : <Navigate to="/dashboard" replace />;

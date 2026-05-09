@@ -1,5 +1,3 @@
-DROP TABLE IF EXISTS sample_interval_tracks;
-
 CREATE TABLE IF NOT EXISTS sample_interval_track_sources (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sample_id UUID NOT NULL REFERENCES samples(id) ON DELETE CASCADE,

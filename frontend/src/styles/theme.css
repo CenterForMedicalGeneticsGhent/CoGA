@@ -524,11 +524,15 @@ tbody tr:hover {
   justify-content: center;
   gap: 0.45rem;
   min-width: 9rem;
+  max-width: 16rem;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.72);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-main-inner {
@@ -6484,9 +6488,45 @@ a.button-danger:hover {
   color: #244a47;
 }
 
+.status-note--info {
+  background: rgba(85, 111, 135, 0.09);
+  color: #33475d;
+}
+
 .status-note--error {
   background: rgba(141, 63, 68, 0.1);
   color: #7f333a;
+}
+
+.auth-inline-status {
+  margin-top: 0;
+}
+
+.error-detail {
+  flex: 1 1 100%;
+  max-width: min(100%, 34rem);
+  text-align: left;
+}
+
+.error-detail summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.error-detail pre {
+  margin: 0.75rem 0 0;
+  max-height: 12rem;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.96);
+  padding: 0.85rem;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
 }
 
 .mono-panel {

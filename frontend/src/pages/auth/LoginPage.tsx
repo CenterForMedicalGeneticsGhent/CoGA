@@ -1,23 +1,41 @@
 import React, { useState } from 'react';
-import { Navigate, useNavigate, Link } from 'react-router-dom';
+import { Navigate, useNavigate, Link, useLocation } from 'react-router-dom';
 import api from '../../lib/api';
 import { isAuthenticated, persistSession } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import circosPlotUrl from '../../assets/CIRCOS.jpg';
 import haplotypeUrl from '../../assets/haplotypes.jpg';
 
+const resolveNextPath = (rawNext: string | null): string => {
+  if (!rawNext) return '/dashboard';
+  if (!rawNext.startsWith('/') || rawNext.startsWith('//')) {
+    return '/dashboard';
+  }
+  if (rawNext.startsWith('/login') || rawNext.startsWith('/signup')) {
+    return '/dashboard';
+  }
+  return rawNext;
+};
+
 const LoginPage: React.FC = () => {
+  const location = useLocation();
+  const query = new URLSearchParams(location.search);
+  const nextPath = resolveNextPath(query.get('next'));
+  const loggedOut = query.get('logged_out') === '1';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   if (isAuthenticated()) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={nextPath} replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+    setIsSubmitting(true);
     try {
       const response = await api.post('/auth/login', {
         email,
@@ -30,7 +48,7 @@ const LoginPage: React.FC = () => {
         },
       });
       persistSession(accessToken, me.data.email ?? email, me.data.role);
-      navigate('/dashboard');
+      navigate(nextPath, { replace: true });
     } catch (err: unknown) {
       if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
         console.error(err);
@@ -40,6 +58,8 @@ const LoginPage: React.FC = () => {
           networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
         })
       );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -103,15 +123,28 @@ const LoginPage: React.FC = () => {
               <p className="page-subtitle">
                 Continue to the family workspace with your institutional account.
               </p>
+              {loggedOut && (
+                <p className="status-note status-note--success auth-inline-status" role="status">
+                  You have been signed out.
+                </p>
+              )}
+              {nextPath !== '/dashboard' && !loggedOut && (
+                <p className="status-note status-note--info auth-inline-status" role="status">
+                  Sign in to continue to your requested page.
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleSubmit} className="field-grid">
               <label className="field-label">
                 Email
                 <input
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Email"
+                  autoComplete="email"
+                  required
                 />
               </label>
               <label className="field-label">
@@ -121,10 +154,17 @@ const LoginPage: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
+                  autoComplete="current-password"
+                  required
                 />
               </label>
-              <button type="submit" className="form-button w-full justify-center">
-                Login
+              <button
+                type="submit"
+                className="form-button w-full justify-center"
+                disabled={isSubmitting}
+                aria-busy={isSubmitting ? 'true' : 'false'}
+              >
+                {isSubmitting ? 'Signing in...' : 'Login'}
               </button>
               {error && (
                 <p className="status-note status-note--error text-center" aria-live="polite">

@@ -12,7 +12,7 @@ CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpre
 ## Quick Start
 
 1. Copy `.env.example` to `.env`.
-2. Start the services:
+2. Start the production-style local stack:
 
 ```bash
 docker compose up --build -d
@@ -27,6 +27,18 @@ docker compose up --build -d
 - ClickHouse native: `localhost:9000`
 
 ## Local Development
+
+Docker dev stack with backend reload and the Vite dev server:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
+```
+
+Stop either Docker stack:
+
+```bash
+docker compose down
+```
 
 Backend:
 

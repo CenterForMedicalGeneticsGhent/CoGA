@@ -13,8 +13,6 @@ CREATE TABLE IF NOT EXISTS users (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
-DROP INDEX IF EXISTS idx_users_legacy_mongo_id;
-ALTER TABLE users DROP COLUMN IF EXISTS legacy_mongo_id;
 
 CREATE TABLE IF NOT EXISTS species (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -23,8 +21,6 @@ CREATE TABLE IF NOT EXISTS species (
     tax_id INTEGER NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
-DROP INDEX IF EXISTS idx_species_legacy_mongo_id;
-ALTER TABLE species DROP COLUMN IF EXISTS legacy_mongo_id;
 
 CREATE TABLE IF NOT EXISTS assemblies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -35,8 +31,6 @@ CREATE TABLE IF NOT EXISTS assemblies (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     UNIQUE (species_id, assembly_name, version)
 );
-DROP INDEX IF EXISTS idx_assemblies_legacy_mongo_id;
-ALTER TABLE assemblies DROP COLUMN IF EXISTS legacy_mongo_id;
 
 CREATE INDEX IF NOT EXISTS idx_assemblies_name ON assemblies (assembly_name);
 
@@ -49,8 +43,6 @@ CREATE TABLE IF NOT EXISTS projects (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
-DROP INDEX IF EXISTS idx_projects_legacy_mongo_id;
-ALTER TABLE projects DROP COLUMN IF EXISTS legacy_mongo_id;
 
 CREATE TABLE IF NOT EXISTS project_users (
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -72,8 +64,6 @@ CREATE TABLE IF NOT EXISTS families (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
-DROP INDEX IF EXISTS idx_families_legacy_mongo_id;
-ALTER TABLE families DROP COLUMN IF EXISTS legacy_mongo_id;
 
 CREATE TABLE IF NOT EXISTS family_projects (
     family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
@@ -89,8 +79,6 @@ CREATE TABLE IF NOT EXISTS samples (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );
-DROP INDEX IF EXISTS idx_samples_legacy_mongo_id;
-ALTER TABLE samples DROP COLUMN IF EXISTS legacy_mongo_id;
 
 CREATE INDEX IF NOT EXISTS idx_samples_family_id ON samples (family_id);
 

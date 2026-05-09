@@ -1,0 +1,59 @@
+# Version control and local metadata
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+
+# Secrets and local environment files
+.env
+*.env
+!.env.example
+
+# Python local artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+backend/.venv/
+backend/env/
+backend/venv/
+
+# Node local artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor and OS state
+.vscode/
+.idea/
+
+# Runtime data should be mounted, not sent as Docker build context.
+data/
+
+# Large or generated demo/import payloads are not needed to build images.
+demo/**/*.cram
+demo/**/*.cram.crai
+demo/**/*.bam
+demo/**/*.bam.bai
+demo/**/*.bcf
+demo/**/*.bcf.csi
+demo/**/*.fastq
+demo/**/*.fastq.gz
+demo/**/*.vcf.gz
+demo/**/*.vcf.gz.tbi
+demo/**/*.vcf.gz.csi
+
+# Build and package outputs
+build/
+dist/
+*.egg-info/

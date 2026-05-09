@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
 import RequireAdmin from './components/RequireAdmin';
 import SessionRedirect from './components/SessionRedirect';
+import PageState from './components/PageState';
 import { createAppQueryClient } from './lib/queryClient';
 import './styles/theme.css';
 import './index.css';
@@ -83,9 +84,12 @@ const FamilyIgvPage = lazy(() => import('./pages/families/FamilyIgvPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const RouteFallback: React.FC = () => (
-  <div className="page-shell py-24 text-center text-sm text-[var(--color-text-muted)]">
-    Loading...
-  </div>
+  <PageState
+    kicker="Workspace"
+    title="Loading workspace"
+    message="Preparing the requested view."
+    narrow
+  />
 );
 
 const routeElement = (element: React.ReactElement) => (
