@@ -25,6 +25,9 @@ Schema source:
 - [004_audit_logs.sql](../backend/db/schema/postgres/004_audit_logs.sql)
 - [005_gene_panel_description.sql](../backend/db/schema/postgres/005_gene_panel_description.sql)
 - [006_project_scoped_variant_tags.sql](../backend/db/schema/postgres/006_project_scoped_variant_tags.sql)
+- [007_family_import_jobs.sql](../backend/db/schema/postgres/007_family_import_jobs.sql)
+- [008_paraphase_results.sql](../backend/db/schema/postgres/008_paraphase_results.sql)
+- [009_structural_variant_reviews.sql](../backend/db/schema/postgres/009_structural_variant_reviews.sql)
 
 ## ClickHouse
 
@@ -35,9 +38,14 @@ Primary responsibilities:
 - Family and sample genotypes/calls over flattened CoGA rows
 - Assembly-scoped interval-track rows for coverage, WisecondorX segments, APCAD, and haplotypes
 
-Schema source:
+Database bootstrap:
 
 - [001_coga_variant_storage.sql](../backend/db/schema/clickhouse/001_coga_variant_storage.sql)
+
+Runtime table creation:
+
+- [clickhouse_variant_storage.py](../backend/app/services/clickhouse_variant_storage.py)
+- [clickhouse_interval_tracks.py](../backend/app/services/clickhouse_interval_tracks.py)
 
 ## Runtime Flow
 

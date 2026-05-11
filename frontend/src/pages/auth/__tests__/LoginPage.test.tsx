@@ -3,12 +3,14 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, it, vi } from 'vitest';
 import LoginPage from '../LoginPage';
 import api from '../../../lib/api';
+import { clearSession } from '../../../lib/auth';
 
 vi.mock('../../../lib/api');
 
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearSession();
     localStorage.clear();
   });
 
@@ -156,5 +158,50 @@ describe('LoginPage', () => {
     );
     expect(localStorage.getItem('token')).toBe('token-123');
     expect(localStorage.getItem('role')).toBe('admin');
+  });
+
+  it('continues to the requested protected page after login', async () => {
+    (api.post as any).mockResolvedValue({
+      data: {
+        access_token: 'token-123',
+        role: 'viewer',
+      },
+    });
+    (api.get as any).mockResolvedValue({
+      data: {
+        email: 'viewer@example.com',
+        role: 'viewer',
+      },
+    });
+
+    render(
+      <MemoryRouter
+        initialEntries={[
+          '/login?next=/families/demo_family/small-variants%3Fpage%3D2',
+        ]}
+      >
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/families/:familyId/small-variants"
+            element={<div>Small variant workspace</div>}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(
+      screen.getByText(/sign in to continue to your requested page/i)
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/email/i), {
+      target: { value: 'viewer@example.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/password/i), {
+      target: { value: 'viewer-password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+
+    expect(await screen.findByText('Small variant workspace')).toBeInTheDocument();
   });
 });

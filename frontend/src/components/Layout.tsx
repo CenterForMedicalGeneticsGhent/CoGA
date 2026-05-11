@@ -15,7 +15,7 @@ const Layout: React.FC = () => {
 
   const handleLogout = () => {
     clearSession();
-    navigate('/login');
+    navigate('/login?logged_out=1', { replace: true });
   };
 
   return (
@@ -77,7 +77,9 @@ const Layout: React.FC = () => {
               >
                 Settings
               </button>
-              <span className="app-userpill app-header-control">{username}</span>
+              <span className="app-userpill app-header-control" title={username}>
+                {username}
+              </span>
               <button
                 type="button"
                 onClick={handleLogout}
@@ -126,7 +128,16 @@ const Layout: React.FC = () => {
             >
               Close
             </button>
-            <Suspense fallback={<PageState kicker="Preferences" title="Loading settings" message="Preparing your local viewer preferences." narrow />}>
+            <Suspense
+              fallback={
+                <PageState
+                  kicker="Preferences"
+                  title="Loading settings"
+                  message="Preparing your local viewer preferences."
+                  narrow
+                />
+              }
+            >
               <SettingsPage />
             </Suspense>
           </div>

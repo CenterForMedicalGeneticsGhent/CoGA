@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import PageState from './PageState';
 
 type Props = { children: React.ReactNode };
@@ -25,12 +26,23 @@ export default class ErrorBoundary extends React.Component<Props, State> {
       return (
         <PageState
           kicker="Error"
-          title="Something went wrong."
-          message={this.state.message}
+          title="This view could not be displayed"
+          message="The page hit an unexpected error. You can retry the view or return to the dashboard."
           action={
-            <button onClick={() => this.setState({ hasError: false, message: undefined })}>
-              Try again
-            </button>
+            <>
+              <button onClick={() => this.setState({ hasError: false, message: undefined })}>
+                Try again
+              </button>
+              <Link to="/dashboard" className="button-secondary">
+                Dashboard
+              </Link>
+              {this.state.message ? (
+                <details className="error-detail">
+                  <summary>Technical detail</summary>
+                  <pre>{this.state.message}</pre>
+                </details>
+              ) : null}
+            </>
           }
           narrow
         />
