@@ -2,9 +2,6 @@
 .DS_Store
 Thumbs.db
 
-# Misc
-To_Do.md
-
 # Environment variables
 .env
 *.env
