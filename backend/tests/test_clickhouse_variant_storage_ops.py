@@ -64,7 +64,7 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
     assert status["small_variant_rows"] == 5000
     assert status["structural_variant_rows"] == 1200
     assert status["pending_mutations"] == 2
-    assert "GRCh38/SNV_INDEL/key_lookup" in status["missing_tables"]
+    assert "GRCh38/SNV_INDEL/variants/annotation_index" in status["missing_tables"]
     assert "GRCh38/SNV_INDEL/family_variant_summary" in status["missing_tables"]
     assert any(
         table["name"] == "GRCh38/SV/entries" and table["pending_mutations"] == 2

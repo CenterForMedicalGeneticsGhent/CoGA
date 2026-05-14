@@ -119,7 +119,10 @@ async def get_small_variant_family_record(
             e.calls.gt,
             d.annotationsJson
         FROM {entries_table} AS e
-        LEFT JOIN {details_table} AS d ON d.key = e.key
+        LEFT JOIN {details_table} AS d
+          ON d.key = e.key
+         AND d.annotation_version = e.annotation_version
+         AND d.annotationSetHash = e.annotationSetHash
         WHERE e.family_guid = %(family_guid)s
           AND e.variantId = %(variant_id)s
           AND e.sign = 1

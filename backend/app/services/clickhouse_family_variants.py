@@ -236,6 +236,10 @@ def _small_annotation_table_name(assembly_name: str) -> str:
     return _small_table_name(assembly_name, "variants/annotations")
 
 
+def _small_annotation_index_table_name(assembly_name: str) -> str:
+    return _small_table_name(assembly_name, "variants/annotation_index")
+
+
 def _small_summary_table_name(assembly_name: str, suffix: str) -> str:
     return _small_table_name(assembly_name, suffix)
 
@@ -2340,7 +2344,15 @@ def _small_variant_where_clauses(
         where_clauses.append("positionCaseInsensitive(e.source, %(source)s) > 0")
     if filters.rsid:
         params["rsid"] = filters.rsid
-        where_clauses.append("positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0")
+        annotation_rsid_condition = _small_annotation_key_membership_condition(
+            context,
+            filters,
+            params=params,
+            condition="positionCaseInsensitive(ifNull(ai.rsid, ''), %(rsid)s) > 0",
+        )
+        where_clauses.append(
+            f"(positionCaseInsensitive(ifNull(e.rsid, ''), %(rsid)s) > 0 OR {annotation_rsid_condition})"
+        )
     if filters.chromosome:
         where_clauses.append("e.chrom IN %(chromosomes)s")
         params["chromosomes"] = _chromosome_options(filters.chromosome)
@@ -2376,6 +2388,26 @@ def _text_contains_any(expr: str, *, prefix: str, values: Sequence[str], params:
     return f"({' OR '.join(clauses)})" if clauses else None
 
 
+def _array_text_contains_any(
+    expr: str,
+    *,
+    prefix: str,
+    values: Sequence[str],
+    params: dict[str, Any],
+) -> str | None:
+    clauses: list[str] = []
+    for index, value in enumerate(values):
+        text_value = str(value or "").strip()
+        if not text_value:
+            continue
+        param = f"{prefix}_{index}"
+        params[param] = text_value
+        clauses.append(
+            f"arrayExists(value -> positionCaseInsensitive(value, %({param})s) > 0, {expr})"
+        )
+    return f"({' OR '.join(clauses)})" if clauses else None
+
+
 def _small_gene_filter_condition(
     gene_values: Sequence[str],
     *,
@@ -2401,11 +2433,11 @@ def _small_annotation_gene_filter_condition(
     if not normalized_gene_values:
         return None
     terms_param = f"{prefix}_terms"
-    params[terms_param] = tuple(_casefold(term) for term in normalized_gene_values)
+    params[terms_param] = [_casefold(term) for term in normalized_gene_values]
     return (
         "("
-        f"a.gene_symbol IN %({terms_param})s "
-        f"OR a.gene_id IN %({terms_param})s"
+        f"hasAny(ai.gene_symbols, %({terms_param})s) "
+        f"OR hasAny(ai.gene_ids, %({terms_param})s)"
         ")"
     )
 
@@ -2435,6 +2467,8 @@ def _small_region_filter_condition(
 
 
 def _small_panel_filter_condition(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
     panel_constraints: PanelFilterConstraints,
     *,
     params: dict[str, Any],
@@ -2454,6 +2488,20 @@ def _small_panel_filter_condition(
     )
     if gene_condition:
         conditions.append(gene_condition)
+    annotation_gene_condition = _small_annotation_gene_filter_condition(
+        panel_constraints.genes,
+        prefix="panel_annotation_gene",
+        params=params,
+    )
+    if annotation_gene_condition:
+        conditions.append(
+            _small_annotation_key_membership_condition(
+                context,
+                filters,
+                params=params,
+                condition=annotation_gene_condition,
+            )
+        )
     return f"({' OR '.join(conditions)})" if conditions else None
 
 
@@ -2612,18 +2660,16 @@ def _small_annotation_scope_clauses(
     *,
     params: dict[str, Any],
 ) -> list[str]:
-    clauses = ["a.family_guid = %(family_guid)s", "a.sign = 1"]
-    if context.project_ids:
-        clauses.append("a.project_guid IN %(project_ids)s")
+    clauses: list[str] = []
     if filters.chromosome and "chromosomes" in params:
-        clauses.append("a.chrom IN %(chromosomes)s")
+        clauses.append("ai.chrom IN %(chromosomes)s")
     if filters.start is not None:
         if filters.overlap and filters.end is not None:
-            clauses.append("(a.pos <= %(end)s AND (a.pos + length(a.ref) - 1) >= %(start)s)")
+            clauses.append("(ai.pos <= %(end)s AND (ai.pos + length(ai.ref) - 1) >= %(start)s)")
         else:
-            clauses.append("a.pos >= %(start)s")
+            clauses.append("ai.pos >= %(start)s")
     if filters.end is not None and not (filters.overlap and filters.start is not None):
-        clauses.append("a.pos <= %(end)s")
+        clauses.append("ai.pos <= %(end)s")
     return clauses
 
 
@@ -2637,13 +2683,54 @@ def _small_annotation_key_membership_condition(
 ) -> str:
     if not context.assembly_name:
         return "0" if not negate else "1"
-    annotations_table = _small_annotation_table_name(context.assembly_name)
+    annotation_index_table = _small_annotation_index_table_name(context.assembly_name)
     scope_clauses = _small_annotation_scope_clauses(context, filters, params=params)
     operator = "NOT IN" if negate else "IN"
+    index_where = [*scope_clauses, f"({condition})"]
     return (
-        f"e.key {operator} ("
-        f"SELECT a.key FROM {annotations_table} AS a "
-        f"WHERE {' AND '.join(scope_clauses)} AND ({condition})"
+        f"(e.key, e.annotation_version, e.annotationSetHash) {operator} ("
+        f"SELECT ai.key, ai.annotation_version, ai.annotationSetHash FROM {annotation_index_table} AS ai "
+        f"WHERE {' AND '.join(index_where)}"
+        ")"
+    )
+
+
+def _small_annotation_row_scope_clauses(
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+) -> list[str]:
+    clauses: list[str] = []
+    if filters.chromosome and "chromosomes" in params:
+        clauses.append("a.chrom IN %(chromosomes)s")
+    if filters.start is not None:
+        if filters.overlap and filters.end is not None:
+            clauses.append("(a.pos <= %(end)s AND (a.pos + length(a.ref) - 1) >= %(start)s)")
+        else:
+            clauses.append("a.pos >= %(start)s")
+    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        clauses.append("a.pos <= %(end)s")
+    return clauses
+
+
+def _small_annotation_row_membership_condition(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    params: dict[str, Any],
+    condition: str,
+    negate: bool = False,
+) -> str:
+    if not context.assembly_name:
+        return "0" if not negate else "1"
+    annotations_table = _small_annotation_table_name(context.assembly_name)
+    scope_clauses = _small_annotation_row_scope_clauses(filters, params=params)
+    operator = "NOT IN" if negate else "IN"
+    annotation_where = [*scope_clauses, f"({condition})"]
+    return (
+        f"(e.key, e.annotation_version, e.annotationSetHash) {operator} ("
+        f"SELECT a.key, a.annotation_version, a.annotationSetHash FROM {annotations_table} AS a "
+        f"WHERE {' AND '.join(annotation_where)}"
         ")"
     )
 
@@ -2831,34 +2918,50 @@ async def _count_small_variant_rows_bounded(
 
 async def _fetch_small_variant_detail_map(
     assembly_name: str,
-    variant_keys: Sequence[int],
-) -> dict[int, dict[str, Any]]:
-    keys = tuple(dict.fromkeys(key for key in variant_keys if key is not None))
+    variants: Sequence[tuple[int, str, int]],
+) -> dict[tuple[int, str, int], dict[str, Any]]:
+    pairs = [
+        (int(key), str(annotation_version or "current"), int(annotation_set_hash))
+        for key, annotation_version, annotation_set_hash in variants
+        if key is not None and annotation_set_hash is not None
+    ]
+    keys = tuple(dict.fromkeys(key for key, _annotation_version, _annotation_set_hash in pairs))
     if not keys:
         return {}
+    annotation_versions = tuple(
+        dict.fromkeys(annotation_version for _key, annotation_version, _annotation_set_hash in pairs)
+    )
+    annotation_set_hashes = tuple(
+        dict.fromkeys(annotation_set_hash for _key, _annotation_version, annotation_set_hash in pairs)
+    )
     details_table = _small_table_name(assembly_name, "variants/details")
     rows = await _execute_clickhouse(
         f"""
         SELECT
             key,
-            any(source) AS source,
-            any(filters) AS filters,
+            annotation_version,
+            annotationSetHash,
             any(rsid) AS rsid,
             any(annotationsJson) AS annotations_json
         FROM {details_table}
         WHERE key IN %(variant_keys)s
-        GROUP BY key
+          AND annotation_version IN %(annotation_versions)s
+          AND annotationSetHash IN %(annotation_set_hashes)s
+        GROUP BY key, annotation_version, annotationSetHash
         """,
-        {"variant_keys": keys},
+        {
+            "variant_keys": keys,
+            "annotation_versions": annotation_versions,
+            "annotation_set_hashes": annotation_set_hashes,
+        },
     )
-    details: dict[int, dict[str, Any]] = {}
-    for key, source, filters, rsid, annotations_json in rows:
+    details: dict[tuple[int, str, int], dict[str, Any]] = {}
+    for key, annotation_version, annotation_set_hash, rsid, annotations_json in rows:
         parsed_key = _coerce_int(key)
-        if parsed_key is None:
+        parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
+        if parsed_key is None or parsed_annotation_set_hash is None:
             continue
-        details[parsed_key] = {
-            "source": source,
-            "filters": filters,
+        details[(parsed_key, str(annotation_version or "current"), parsed_annotation_set_hash)] = {
             "rsid": rsid,
             "annotations_json": annotations_json,
         }
@@ -3052,7 +3155,7 @@ def _small_query_filter_parts(
     )
     annotation_gene_condition = _small_annotation_gene_filter_condition(
         _split_gene_terms(filters.gene),
-        prefix="entry_gene",
+        prefix="annotation_gene",
         params=params,
     )
     if gene_condition and annotation_gene_condition:
@@ -3070,7 +3173,7 @@ def _small_query_filter_parts(
     params.update(detail_params)
     for detail_where_clause in detail_where_clauses:
         where_clauses.append(
-            _small_annotation_key_membership_condition(
+            _small_annotation_row_membership_condition(
                 context,
                 filters,
                 params=params,
@@ -3081,7 +3184,7 @@ def _small_query_filter_parts(
     exclude_annotation_condition = _small_annotation_exclude_filter_condition(filters, params=params)
     if exclude_annotation_condition:
         where_clauses.append(
-            _small_annotation_key_membership_condition(
+            _small_annotation_row_membership_condition(
                 context,
                 filters,
                 params=params,
@@ -3091,7 +3194,7 @@ def _small_query_filter_parts(
         )
 
     panel_constraints = panel_constraints or PanelFilterConstraints()
-    panel_condition = _small_panel_filter_condition(panel_constraints, params=params)
+    panel_condition = _small_panel_filter_condition(context, filters, panel_constraints, params=params)
     if panel_condition:
         where_clauses.append(panel_condition)
 
@@ -3119,7 +3222,7 @@ def _small_query_filter_parts(
     )
     exclude_annotation_gene_condition = _small_annotation_gene_filter_condition(
         exclude_gene_terms,
-        prefix="entry_exclude_gene",
+        prefix="annotation_exclude_gene",
         params=params,
     )
     if exclude_gene_condition and exclude_annotation_gene_condition:
@@ -3168,6 +3271,8 @@ async def _fetch_small_variant_rows(
         SELECT
             e.key AS key,
             e.variantId AS variant_id,
+            e.annotation_version AS annotation_version,
+            e.annotationSetHash AS annotation_set_hash,
             e.chrom AS chrom,
             e.pos AS pos,
             e.ref AS ref,
@@ -3193,9 +3298,10 @@ async def _fetch_small_variant_rows(
     detail_map = await _fetch_small_variant_detail_map(
         context.assembly_name,
         [
-            parsed_key
+            (parsed_key, str(row[2] or "current"), int(row[3]))
             for row in rows
             if (parsed_key := _coerce_int(row[0])) is not None
+            and _coerce_int(row[3]) is not None
         ],
     )
     records: list[SmallVariantRecord] = []
@@ -3203,6 +3309,8 @@ async def _fetch_small_variant_rows(
         (
             variant_key,
             variant_id,
+            annotation_version,
+            annotation_set_hash,
             chrom,
             pos,
             ref,
@@ -3221,10 +3329,16 @@ async def _fetch_small_variant_rows(
             sample_phase_sets,
         ) = row
         parsed_variant_key = _coerce_int(variant_key)
-        detail = detail_map.get(parsed_variant_key or -1, {})
-        detail_filters = detail.get("filters")
+        parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
+        detail = detail_map.get(
+            (
+                parsed_variant_key or -1,
+                str(annotation_version or "current"),
+                parsed_annotation_set_hash or -1,
+            ),
+            {},
+        )
         annotations_json = detail.get("annotations_json")
-        source = source if source not in (None, "") else detail.get("source")
         rsid = rsid if rsid not in (None, "") else detail.get("rsid")
         calls: list[SmallVariantCall] = []
         sample_id_list = _listify(sample_ids)
@@ -3262,9 +3376,7 @@ async def _fetch_small_variant_rows(
                 alt=str(alt or ""),
                 source=str(source) if source is not None else None,
                 rsid=str(rsid) if rsid not in (None, "") else None,
-                filters=_string_list(entry_filters) + [
-                    item for item in _string_list(detail_filters) if item not in set(_string_list(entry_filters))
-                ],
+                filters=_string_list(entry_filters),
                 gene_symbols=_string_list(gene_symbols),
                 annotations=_collect_annotations(_decode_json_payload(annotations_json)),
                 calls=calls,

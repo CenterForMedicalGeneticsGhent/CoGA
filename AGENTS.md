@@ -25,7 +25,7 @@
 ## Database Schema
 - Project data: `users`, `projects`, `project_users`.
 - Reference data: `species` (unique `name`, `tax_id`), `assemblies` (unique `species_id` + `assembly_name` + `version`), `chromosomes` with band info, `genes`, `blacklist`, and `clinical_cnvs`.
-- Application data: `samples`, `families`, `family_members`, `family_projects`, `sample_projects`, `small_variant_reviews`, `repeat_expansions`, `sample_interval_tracks`, and gene-panel tables in Postgres; `small_variants` and `structural_variants` live in ClickHouse.
+- Application data: `samples`, `families`, `family_members`, `family_projects`, `sample_projects`, `small_variant_reviews`, `repeat_expansions`, and gene-panel tables in Postgres; `sample_interval_tracks`, `small_variants` and `structural_variants` live in ClickHouse.
 - Relationships: `species` → `assemblies` → `chromosomes` / `genes` / reference intervals; `projects` bind access and assembly scope; `families` → `samples`; ClickHouse variant rows are joined back to Postgres metadata at request time.
 
 ## Frontend & Integration
