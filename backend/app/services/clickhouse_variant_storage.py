@@ -30,6 +30,7 @@ from .clickhouse_family_variants import (
 from .data_scope import normalize_chromosome
 
 _VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
+_DEFAULT_SMALL_ANNOTATION_VERSION = "current"
 _SMALL_GT_REF = {"0/0", "0|0"}
 _SMALL_GT_MISSING = {"./.", ".|.", "", "."}
 _ensured_variant_table_assemblies: set[str] = set()
@@ -61,7 +62,7 @@ def _expected_clickhouse_variant_tables(assembly_name: str) -> list[tuple[str, s
     return [
         ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/details"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/annotations"),
-        ("small_variants", "table", f"{dataset}/SNV_INDEL/key_lookup"),
+        ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/annotation_index"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/entries"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/project_gt_stats"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/gt_stats"),
@@ -110,8 +111,8 @@ def build_structural_variant_id(
     return "-".join(parts)
 
 
-def small_variant_key(assembly_name: str, family_uuid: str, variant_id: str) -> int:
-    return _stable_uint64("small", assembly_name, family_uuid, variant_id)
+def small_variant_key(assembly_name: str, variant_id: str) -> int:
+    return _stable_uint64("small", assembly_name, variant_id)
 
 
 def structural_variant_key(assembly_name: str, family_uuid: str, variant_id: str) -> int:
@@ -147,6 +148,28 @@ def _string_list(values: Iterable[Any]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+def _small_annotation_version(value: Any = None) -> str:
+    version = str(value or "").strip()
+    if version:
+        return version
+    return _DEFAULT_SMALL_ANNOTATION_VERSION
+
+
+def _annotation_payload_hash(annotation: dict[str, Any]) -> int:
+    payload = json.dumps(annotation, sort_keys=True, separators=(",", ":"), default=str)
+    return _stable_uint64("small_annotation", payload)
+
+
+def _annotation_set_hash(annotations: Sequence[dict[str, Any]]) -> int:
+    payload = json.dumps(list(annotations or []), sort_keys=True, separators=(",", ":"), default=str)
+    return _stable_uint64("small_annotation_set", payload)
+
+
+def _max_or_none(values: Iterable[float | int | None]) -> Any:
+    candidates = [value for value in values if value is not None]
+    return max(candidates) if candidates else None
 
 
 def _annotation_gene_symbols(annotations: Sequence[dict[str, Any]]) -> list[str]:
@@ -223,18 +246,17 @@ def _small_annotation_row(
     *,
     variant_key: int,
     variant_id: str,
-    project_id: str,
-    family_uuid: str,
-    sample_type: str,
+    annotation_version: str,
+    annotation_set_hash: int,
     record: SmallVariantRecord,
     annotation: dict[str, Any],
 ) -> tuple[Any, ...]:
     return (
         variant_key,
         variant_id,
-        project_id,
-        family_uuid,
-        sample_type,
+        annotation_version,
+        annotation_set_hash,
+        _annotation_payload_hash(annotation),
         normalize_chromosome(record.chr),
         int(record.start),
         record.ref,
@@ -265,7 +287,94 @@ def _small_annotation_row(
         _casefold(_annotation_text(annotation, "sift", "siftPrediction")),
         _casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction")),
         json.dumps(annotation),
-        1,
+    )
+
+
+def _small_annotation_index_row(
+    *,
+    variant_key: int,
+    variant_id: str,
+    annotation_version: str,
+    annotation_set_hash: int,
+    record: SmallVariantRecord,
+    annotations: Sequence[dict[str, Any]],
+) -> tuple[Any, ...]:
+    annotation_list = [annotation for annotation in annotations if isinstance(annotation, dict)]
+    gene_symbols = _string_list(_casefold(_annotation_gene(annotation)) for annotation in annotation_list)
+    gene_ids = _string_list(_casefold(_annotation_gene_id(annotation)) for annotation in annotation_list)
+    transcript_ids = _string_list(
+        _clean_text(_annotation_text(annotation, "transcript_id", "transcriptId"))
+        for annotation in annotation_list
+    )
+    hgvsc_values = _string_list(
+        _clean_text(_annotation_text(annotation, "hgvsc"))
+        for annotation in annotation_list
+    )
+    hgvsp_values = _string_list(
+        _clean_text(_annotation_text(annotation, "hgvsp"))
+        for annotation in annotation_list
+    )
+    impacts = _string_list(
+        _casefold(_annotation_text(annotation, "impact"))
+        for annotation in annotation_list
+    )
+    effects = _string_list(
+        term
+        for annotation in annotation_list
+        for term in _annotation_terms(_annotation_effect(annotation))
+    )
+    clinvar_terms = _string_list(
+        term
+        for annotation in annotation_list
+        for term in _status_terms(_annotation_clinvar(annotation))
+    )
+    sift_terms = _string_list(
+        _casefold(_annotation_text(annotation, "sift", "siftPrediction"))
+        for annotation in annotation_list
+    )
+    polyphen_terms = _string_list(
+        _casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction"))
+        for annotation in annotation_list
+    )
+    lof_terms = {
+        _casefold(_annotation_text(annotation, "lof") or "")
+        for annotation in annotation_list
+    }
+    return (
+        variant_key,
+        variant_id,
+        annotation_version,
+        annotation_set_hash,
+        normalize_chromosome(record.chr),
+        int(record.start),
+        record.ref,
+        record.alt,
+        record.rsid or _annotation_rsid(annotation_list),
+        gene_symbols,
+        gene_ids,
+        transcript_ids,
+        hgvsc_values,
+        hgvsp_values,
+        impacts,
+        effects,
+        clinvar_terms,
+        any(_annotation_bool(annotation, "canonical") for annotation in annotation_list),
+        any(_annotation_bool(annotation, "mane_select", "maneSelect") for annotation in annotation_list),
+        any(_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical") for annotation in annotation_list),
+        any(term not in {"", ".", "na", "n/a"} for term in lof_terms),
+        _max_or_none(_population_float(annotation, "gnomad_af", "gnomadAf") for annotation in annotation_list),
+        _max_or_none(_population_float(annotation, "gnomad_exomes_af", "gnomadExomesAf") for annotation in annotation_list),
+        _max_or_none(_population_float(annotation, "gnomad_genomes_af", "gnomadGenomesAf") for annotation in annotation_list),
+        _max_or_none(_population_float(annotation, "gnomad_popmax_af", "gnomadPopmaxAf") for annotation in annotation_list),
+        _max_or_none(_population_float(annotation, "topmed_af", "topmedAf") for annotation in annotation_list),
+        _max_or_none(_annotation_int(annotation, "gnomad_ac") for annotation in annotation_list),
+        _max_or_none(_annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount") for annotation in annotation_list),
+        _max_or_none(_annotation_int(annotation, "gnomad_hemi_count") for annotation in annotation_list),
+        _max_or_none(_annotation_float(annotation, "cadd_phred", "caddPhred") for annotation in annotation_list),
+        _max_or_none(_annotation_float(annotation, "revel") for annotation in annotation_list),
+        _max_or_none(_annotation_spliceai_max(annotation) for annotation in annotation_list),
+        sift_terms,
+        polyphen_terms,
     )
 
 
@@ -313,12 +422,20 @@ def _small_variant_entry_rows(
     family_uuid: str,
     project_ids: Sequence[str],
     records: Sequence[SmallVariantRecord],
-) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]], list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+    *,
+    annotation_version: str | None = None,
+) -> tuple[
+    list[tuple[Any, ...]],
+    list[tuple[Any, ...]],
+    list[tuple[Any, ...]],
+    list[tuple[Any, ...]],
+]:
     detail_rows: list[tuple[Any, ...]] = []
-    lookup_rows: list[tuple[Any, ...]] = []
     entry_rows: list[tuple[Any, ...]] = []
     annotation_rows: list[tuple[Any, ...]] = []
+    annotation_index_rows: list[tuple[Any, ...]] = []
     normalized_project_ids = _normalized_project_ids(project_ids)
+    active_annotation_version = _small_annotation_version(annotation_version)
     for record in records:
         variant_id = record.variant_id or build_small_variant_id(
             record.chr,
@@ -326,7 +443,9 @@ def _small_variant_entry_rows(
             record.ref,
             record.alt,
         )
-        variant_key = record.variant_key or small_variant_key(assembly_name, family_uuid, variant_id)
+        variant_key = record.variant_key or small_variant_key(assembly_name, variant_id)
+        record_annotation_version = active_annotation_version
+        record_annotation_set_hash = _annotation_set_hash(record.annotations)
         gene_symbols = _string_list(record.gene_symbols or _annotation_gene_symbols(record.annotations))
         rsid = record.rsid or _annotation_rsid(record.annotations)
         filters = _string_list(record.filters)
@@ -335,20 +454,28 @@ def _small_variant_entry_rows(
             (
                 variant_key,
                 variant_id,
-                family_uuid,
+                record_annotation_version,
+                record_annotation_set_hash,
                 normalize_chromosome(record.chr),
                 int(record.start),
                 record.ref,
                 record.alt,
                 rsid,
-                filters,
                 annotations_json,
-                record.source or "",
                 None,
                 None,
             )
         )
-        lookup_rows.append((family_uuid, variant_id, variant_key))
+        annotation_index_rows.append(
+            _small_annotation_index_row(
+                variant_key=variant_key,
+                variant_id=variant_id,
+                annotation_version=record_annotation_version,
+                annotation_set_hash=record_annotation_set_hash,
+                record=record,
+                annotations=record.annotations,
+            )
+        )
         sample_ids = [call.sample for call in record.calls]
         sample_gts = [call.gt for call in record.calls]
         sample_gqs = [_small_call_gq(call) for call in record.calls]
@@ -362,6 +489,8 @@ def _small_variant_entry_rows(
                 (
                     variant_key,
                     variant_id,
+                    record_annotation_version,
+                    record_annotation_set_hash,
                     project_id,
                     family_uuid,
                     "WGS",
@@ -392,14 +521,13 @@ def _small_variant_entry_rows(
                     _small_annotation_row(
                         variant_key=variant_key,
                         variant_id=variant_id,
-                        project_id=project_id,
-                        family_uuid=family_uuid,
-                        sample_type="WGS",
+                        annotation_version=record_annotation_version,
+                        annotation_set_hash=record_annotation_set_hash,
                         record=record,
                         annotation=annotation,
                     )
                 )
-    return detail_rows, lookup_rows, entry_rows, annotation_rows
+    return detail_rows, entry_rows, annotation_rows, annotation_index_rows
 
 
 def _structural_variant_entry_rows(
@@ -499,31 +627,30 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         (
             `key` UInt64,
             `variantId` String,
-            `family_guid` String,
+            `annotation_version` LowCardinality(String),
+            `annotationSetHash` UInt64,
             `chrom` LowCardinality(String),
             `pos` UInt32,
             `ref` String,
             `alt` String,
             `rsid` Nullable(String),
-            `filters` Array(LowCardinality(String)),
             `annotationsJson` String,
-            `source` LowCardinality(String),
             `liftedOverChrom` LowCardinality(Nullable(String)),
             `liftedOverPos` Nullable(UInt32),
             `updatedAt` DateTime DEFAULT now()
         )
         ENGINE = ReplacingMergeTree(updatedAt)
-        PRIMARY KEY key
-        ORDER BY key
+        PRIMARY KEY (key, annotation_version, annotationSetHash)
+        ORDER BY (key, annotation_version, annotationSetHash)
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/variants/annotations`
         (
             `key` UInt64,
             `variantId` String,
-            `project_guid` LowCardinality(String),
-            `family_guid` String,
-            `sample_type` LowCardinality(String),
+            `annotation_version` LowCardinality(String),
+            `annotationSetHash` UInt64,
+            `annotationHash` UInt64,
             `chrom` LowCardinality(String),
             `pos` UInt32,
             `ref` String,
@@ -554,7 +681,8 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `sift` LowCardinality(String),
             `polyphen` LowCardinality(String),
             `annotation_json` String,
-            `sign` Int8,
+            `updatedAt` DateTime DEFAULT now(),
+            INDEX idx_ann_key key TYPE bloom_filter(0.01) GRANULARITY 4,
             INDEX idx_ann_gene gene_symbol TYPE set(1000) GRANULARITY 4,
             INDEX idx_ann_gene_id gene_id TYPE set(1000) GRANULARITY 4,
             INDEX idx_ann_impact impact TYPE set(64) GRANULARITY 4,
@@ -569,26 +697,73 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             INDEX idx_ann_revel ifNull(revel, -1) TYPE minmax GRANULARITY 4,
             INDEX idx_ann_spliceai ifNull(spliceai_max, -1) TYPE minmax GRANULARITY 4
         )
-        ENGINE = CollapsingMergeTree(sign)
-        PARTITION BY project_guid
-        ORDER BY (project_guid, family_guid, chrom, pos, key, gene_symbol, transcript_id)
+        ENGINE = ReplacingMergeTree(updatedAt)
+        PARTITION BY annotation_version
+        PRIMARY KEY (annotation_version, chrom, pos, key, annotationSetHash)
+        ORDER BY (annotation_version, chrom, pos, key, annotationSetHash, annotationHash)
         """,
         f"""
-        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/key_lookup`
+        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/variants/annotation_index`
         (
-            `family_guid` String,
+            `key` UInt64,
             `variantId` String,
-            `key` UInt64
+            `annotation_version` LowCardinality(String),
+            `annotationSetHash` UInt64,
+            `chrom` LowCardinality(String),
+            `pos` UInt32,
+            `ref` String,
+            `alt` String,
+            `rsid` Nullable(String),
+            `gene_symbols` Array(String),
+            `gene_ids` Array(String),
+            `transcript_ids` Array(String),
+            `hgvsc_values` Array(String),
+            `hgvsp_values` Array(String),
+            `impacts` Array(String),
+            `effects` Array(String),
+            `clinvar_terms` Array(String),
+            `has_canonical` Bool,
+            `has_mane_select` Bool,
+            `has_mane_plus_clinical` Bool,
+            `has_lof` Bool,
+            `max_gnomad_af` Nullable(Float32),
+            `max_gnomad_exomes_af` Nullable(Float32),
+            `max_gnomad_genomes_af` Nullable(Float32),
+            `max_gnomad_popmax_af` Nullable(Float32),
+            `max_topmed_af` Nullable(Float32),
+            `max_gnomad_ac` Nullable(UInt32),
+            `max_gnomad_hom_count` Nullable(UInt32),
+            `max_gnomad_hemi_count` Nullable(UInt32),
+            `max_cadd_phred` Nullable(Float32),
+            `max_revel` Nullable(Float32),
+            `max_spliceai` Nullable(Float32),
+            `sift_terms` Array(String),
+            `polyphen_terms` Array(String),
+            `updatedAt` DateTime DEFAULT now(),
+            INDEX idx_ann_idx_key key TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_ann_idx_gene gene_symbols TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_ann_idx_gene_id gene_ids TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_ann_idx_impact impacts TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_ann_idx_effect effects TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_ann_idx_clinvar clinvar_terms TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_ann_idx_gnomad ifNull(max_gnomad_af, 0) TYPE minmax GRANULARITY 4,
+            INDEX idx_ann_idx_gnomad_popmax ifNull(max_gnomad_popmax_af, 0) TYPE minmax GRANULARITY 4,
+            INDEX idx_ann_idx_cadd ifNull(max_cadd_phred, -1) TYPE minmax GRANULARITY 4,
+            INDEX idx_ann_idx_revel ifNull(max_revel, -1) TYPE minmax GRANULARITY 4,
+            INDEX idx_ann_idx_spliceai ifNull(max_spliceai, -1) TYPE minmax GRANULARITY 4
         )
-        ENGINE = ReplacingMergeTree
-        PRIMARY KEY (family_guid, variantId)
-        ORDER BY (family_guid, variantId)
+        ENGINE = ReplacingMergeTree(updatedAt)
+        PARTITION BY annotation_version
+        PRIMARY KEY (annotation_version, chrom, pos, key, annotationSetHash)
+        ORDER BY (annotation_version, chrom, pos, key, annotationSetHash)
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/entries`
         (
             `key` UInt64,
             `variantId` String,
+            `annotation_version` LowCardinality(String),
+            `annotationSetHash` UInt64,
             `project_guid` LowCardinality(String),
             `family_guid` String,
             `sample_type` LowCardinality(String),
@@ -613,6 +788,8 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `calls.ps` Array(Nullable(UInt64)),
             `sign` Int8,
             INDEX idx_entry_variant variantId TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_entry_annotation_version annotation_version TYPE set(32) GRANULARITY 4,
+            INDEX idx_entry_annotation_set annotationSetHash TYPE bloom_filter(0.01) GRANULARITY 4,
             INDEX idx_entry_source source TYPE set(64) GRANULARITY 4,
             INDEX idx_entry_rsid ifNull(rsid, '') TYPE bloom_filter(0.01) GRANULARITY 4,
             INDEX idx_entry_gene_symbols gene_symbols TYPE bloom_filter(0.01) GRANULARITY 4,
@@ -778,9 +955,6 @@ async def delete_family_small_variants(assembly_name: str, family_uuid: str) -> 
     params = {"family_guid": family_uuid}
     for suffix in (
         "entries",
-        "variants/annotations",
-        "variants/details",
-        "key_lookup",
         "family_variant_summary",
         "family_sample_variant_summary",
     ):
@@ -817,13 +991,16 @@ async def insert_small_variant_records(
     family_uuid: str,
     project_ids: Sequence[str],
     records: Sequence[SmallVariantRecord],
+    *,
+    annotation_version: str | None = None,
 ) -> None:
     await ensure_clickhouse_variant_tables(assembly_name)
-    detail_rows, lookup_rows, entry_rows, annotation_rows = _small_variant_entry_rows(
+    detail_rows, entry_rows, annotation_rows, annotation_index_rows = _small_variant_entry_rows(
         assembly_name,
         family_uuid,
         project_ids,
         records,
+        annotation_version=annotation_version,
     )
     if detail_rows:
         await _execute(
@@ -831,25 +1008,19 @@ async def insert_small_variant_records(
             INSERT INTO {_small_table_name(assembly_name, 'variants/details')} (
                 key,
                 variantId,
-                family_guid,
+                annotation_version,
+                annotationSetHash,
                 chrom,
                 pos,
                 ref,
                 alt,
                 rsid,
-                filters,
                 annotationsJson,
-                source,
                 liftedOverChrom,
                 liftedOverPos
             ) VALUES
             """,
             data=detail_rows,
-        )
-    if lookup_rows:
-        await _execute(
-            f"INSERT INTO {_small_table_name(assembly_name, 'key_lookup')} (family_guid, variantId, key) VALUES",
-            data=lookup_rows,
         )
     if entry_rows:
         await _execute(
@@ -857,6 +1028,8 @@ async def insert_small_variant_records(
             INSERT INTO {_small_table_name(assembly_name, 'entries')} (
                 key,
                 variantId,
+                annotation_version,
+                annotationSetHash,
                 project_guid,
                 family_guid,
                 sample_type,
@@ -890,9 +1063,9 @@ async def insert_small_variant_records(
             INSERT INTO {_small_table_name(assembly_name, 'variants/annotations')} (
                 key,
                 variantId,
-                project_guid,
-                family_guid,
-                sample_type,
+                annotation_version,
+                annotationSetHash,
+                annotationHash,
                 chrom,
                 pos,
                 ref,
@@ -922,11 +1095,52 @@ async def insert_small_variant_records(
                 spliceai_max,
                 sift,
                 polyphen,
-                annotation_json,
-                sign
+                annotation_json
             ) VALUES
             """,
             data=annotation_rows,
+        )
+    if annotation_index_rows:
+        await _execute(
+            f"""
+            INSERT INTO {_small_table_name(assembly_name, 'variants/annotation_index')} (
+                key,
+                variantId,
+                annotation_version,
+                annotationSetHash,
+                chrom,
+                pos,
+                ref,
+                alt,
+                rsid,
+                gene_symbols,
+                gene_ids,
+                transcript_ids,
+                hgvsc_values,
+                hgvsp_values,
+                impacts,
+                effects,
+                clinvar_terms,
+                has_canonical,
+                has_mane_select,
+                has_mane_plus_clinical,
+                has_lof,
+                max_gnomad_af,
+                max_gnomad_exomes_af,
+                max_gnomad_genomes_af,
+                max_gnomad_popmax_af,
+                max_topmed_af,
+                max_gnomad_ac,
+                max_gnomad_hom_count,
+                max_gnomad_hemi_count,
+                max_cadd_phred,
+                max_revel,
+                max_spliceai,
+                sift_terms,
+                polyphen_terms
+            ) VALUES
+            """,
+            data=annotation_index_rows,
         )
 
 
@@ -935,10 +1149,18 @@ async def replace_family_small_variants(
     family_uuid: str,
     project_ids: Sequence[str],
     records: Sequence[SmallVariantRecord],
+    *,
+    annotation_version: str | None = None,
 ) -> None:
     await delete_family_small_variants(assembly_name, family_uuid)
     if records:
-        await insert_small_variant_records(assembly_name, family_uuid, project_ids, records)
+        await insert_small_variant_records(
+            assembly_name,
+            family_uuid,
+            project_ids,
+            records,
+            annotation_version=annotation_version,
+        )
         await refresh_family_small_variant_summaries(assembly_name, family_uuid)
 
 

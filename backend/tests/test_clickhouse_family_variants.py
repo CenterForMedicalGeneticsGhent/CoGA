@@ -94,6 +94,8 @@ def _small_entry_row(
     return (
         key,
         variant_id,
+        "vep_tsv",
+        123456,
         "1",
         start,
         "A",
@@ -120,8 +122,8 @@ def _small_detail_row(
 ) -> tuple[object, ...]:
     return (
         key,
-        "clair3",
-        [],
+        "vep_tsv",
+        123456,
         None,
         f'{{"annotations":[{{"gene":"{gene}"}}]}}',
     )
@@ -372,7 +374,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     query, params = queries[0]
     assert "INNER JOIN" not in query
     assert "GRCh38/SNV_INDEL/variants/annotations" in query
-    assert "e.key IN (SELECT a.key" in query
+    assert "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT a.key, a.annotation_version, a.annotationSetHash" in query
     assert "GROUP BY e.key, e.variantId" not in query
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
@@ -570,7 +572,7 @@ async def test_fetch_small_variant_rows_uses_entry_source_column(
 
     assert len(rows) == 1
     assert rows[0].source == "clair3"
-    assert "any(source) AS source" in captured_queries[1]
+    assert "annotation_version" in captured_queries[1]
     assert "e.source AS source" in captured_queries[0]
 
 

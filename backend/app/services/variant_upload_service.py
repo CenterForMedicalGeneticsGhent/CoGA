@@ -586,6 +586,7 @@ async def upload_family_small_variant_file(
     vep_annotations: VepAnnotationLookup | None = None
     if annotation_file is not None:
         vep_annotations = _parse_vep_tsv_annotation_upload(annotation_file)
+    annotation_version = "vep_tsv" if vep_annotations is not None else "vcf_info"
     try:
         resolved_format = _detect_small_variant_format_from_upload(file, format_hint)
         existing_variants = await count_family_small_variants(
@@ -637,6 +638,7 @@ async def upload_family_small_variant_file(
                 context.family_uuid,
                 context.project_ids,
                 variant_batch,
+                annotation_version=annotation_version,
             )
             variant_batch.clear()
             if progress is not None and inserted - last_reported >= 50000:
@@ -845,6 +847,7 @@ async def upload_family_small_variant_file(
             "source_format": resolved_format,
             "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
             "annotation_source": "vep_tsv" if vep_annotations else None,
+            "annotation_version": annotation_version,
             "insert_batch_size": 5000,
         }
         if progress is not None:

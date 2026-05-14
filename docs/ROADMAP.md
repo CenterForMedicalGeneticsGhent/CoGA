@@ -10,9 +10,10 @@
 ## Near-Term Work
 
 - Add broader backend integration tests against Postgres and ClickHouse containers
+- Expand upload for other file formats e.g. QDNAseq, GLIMPSE2, APCAD, ..
 - Expand upload validation and transactional safeguards for multi-file ingestion
 - Improve operational tooling for reference-data bootstrap and demo-data loading
-- Add migration utilities for moving historical datasets into the current split store
+- Add mito-DNA analysis with focus on analysis of heteroplasmy
 
 ## Product Work
 

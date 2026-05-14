@@ -1,5 +1,4 @@
-![logo](frontend/src/assets/CoGA_3.png)
-
+logo
 
 # CoGA
 
@@ -161,4 +160,3 @@ npm run build
 - Startup seeds the built-in repeat catalog into Postgres and starts the gene-reference refresh worker.
 - Admin users can inspect and repair ClickHouse variant tables from the data-management page or via `/admin/clickhouse/variants`, `/admin/clickhouse/variants/{assembly_name}/ensure`, and `/admin/clickhouse/variants/{assembly_name}/optimize`.
 - The in-app `New features` page reads GitHub releases through `/product/releases`; private repositories require `GITHUB_API_TOKEN` on the backend to keep that page synced.
-
