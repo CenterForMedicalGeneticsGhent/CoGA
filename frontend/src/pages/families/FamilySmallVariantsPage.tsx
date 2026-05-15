@@ -337,34 +337,37 @@ const FamilySmallVariantsPage: React.FC = () => {
               <div className="space-y-2">
                 <p className="page-kicker">Small Variants</p>
                 <h1 className="catalog-card-title">Family {familyId}</h1>
-                <p className="catalog-card-copy">{referenceLabel}</p>
-                <div className="variant-summary-row">
-                  <span className="badge-chip">
-                    Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
-                  </span>
-                  <span className="badge-chip">
-                    All variants {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated)}
-                  </span>
-                  {smallVariantSummary ? (
-                    <>
-                      <span className="badge-chip">SNVs {formatSummaryCount(smallVariantSummary.snv_count)}</span>
-                      <span className="badge-chip">Indels {formatSummaryCount(smallVariantSummary.indel_count)}</span>
-                    </>
-                  ) : null}
-                  <span className="badge-chip">Active filters {activeFilterCount}</span>
-                  <span className="badge-chip">Tag library {tags.length}</span>
-                </div>
                 {smallVariantSummary?.sample_counts?.length ? (
                   <div className="variant-sample-summary">
-                    <p className="analysis-section-title">Per sample</p>
-                    <div className="variant-summary-row">
-                      {smallVariantSummary.sample_counts.map((sampleSummary) => (
-                        <span key={sampleSummary.sample_id} className="badge-chip">
-                          {sampleSummary.sample_id} ALT {formatSummaryCount(sampleSummary.non_ref_count)} HET{' '}
-                          {formatSummaryCount(sampleSummary.het_count)} HOM {formatSummaryCount(sampleSummary.hom_alt_count)}
-                        </span>
-                      ))}
+                    <div className="data-table-shell overflow-x-auto">
+                      <table className="analysis-table variant-sample-summary-table">
+                        <thead>
+                          <tr>
+                            <th>Sample</th>
+                            <th>ALT</th>
+                            <th>HET</th>
+                            <th>HOM</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {smallVariantSummary.sample_counts.map((sampleSummary) => (
+                            <tr key={sampleSummary.sample_id}>
+                              <td>{sampleSummary.sample_id}</td>
+                              <td>{formatSummaryCount(sampleSummary.non_ref_count)}</td>
+                              <td>{formatSummaryCount(sampleSummary.het_count)}</td>
+                              <td>{formatSummaryCount(sampleSummary.hom_alt_count)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
+                    <div className="variant-summary-row">
+                      <span className="badge-chip">
+                        Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
+                      </span>
+                    </div>
+                    <span className="badge-chip">Active filters {activeFilterCount}</span>
+                    <span className="badge-chip">Tag library {tags.length}</span>
                   </div>
                 ) : null}
               </div>

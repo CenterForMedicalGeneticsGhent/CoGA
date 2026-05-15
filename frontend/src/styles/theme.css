@@ -3170,6 +3170,31 @@ tbody tr:hover {
   margin-top: 0.9rem;
 }
 
+.variant-sample-summary-table {
+  width: auto;
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+}
+
+.variant-sample-summary-table th,
+.variant-sample-summary-table td {
+  padding: 0.25rem 0.4rem;
+  white-space: nowrap;
+}
+
+.variant-sample-summary-table thead th {
+  font-size: 0.68rem;
+}
+
+.variant-sample-summary .analysis-section-title {
+  font-size: 0.82rem;
+  margin-bottom: 0.25rem;
+}
+
+.table-subtle {
+  font-size: 0.7rem;
+}
+
 .analysis-checkbox {
   display: inline-flex;
   align-items: center;
@@ -6095,7 +6120,7 @@ a.button-danger:hover {
   border: 1px solid var(--color-border);
   background: rgba(246, 249, 252, 0.94);
   padding: 0.42rem 0.8rem;
-  font-size: 0.68rem;
+  font-size: 0.55rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
