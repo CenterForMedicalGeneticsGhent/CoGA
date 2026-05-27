@@ -64,6 +64,7 @@ jobs:
 
       - name: Build and push backend with Cloud Build
         run: |
+          cd backend && \
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
@@ -71,7 +72,6 @@ jobs:
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
-            --dockerfile=backend/Dockerfile \
             .
 
   build-frontend:
@@ -99,6 +99,7 @@ jobs:
 
       - name: Build and push frontend with Cloud Build
         run: |
+          cd frontend && \
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
