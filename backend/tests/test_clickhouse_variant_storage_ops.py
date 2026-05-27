@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
 from backend.app.services import clickhouse_variant_storage
 
 
@@ -59,7 +60,7 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
     assert status["assembly_name"] == "GRCh38"
     assert status["health"] == "missing"
-    assert status["expected_table_count"] == 13
+    assert status["expected_table_count"] == 14
     assert status["existing_table_count"] == 3
     assert status["small_variant_rows"] == 5000
     assert status["structural_variant_rows"] == 1200
@@ -110,10 +111,123 @@ async def test_optimize_clickhouse_variant_tables_skips_materialized_views(
     )
 
     assert status["assembly_name"] == "GRCh38"
-    assert len(executed_queries) == 11
+    assert len(executed_queries) == 12
     assert all("OPTIMIZE TABLE" in query for query in executed_queries)
     assert all("FINAL" in query for query in executed_queries)
     assert not any("_mv" in query for query in executed_queries)
+
+
+@pytest.mark.asyncio
+async def test_insert_small_variant_records_uses_compact_annotations_and_gene_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, list[tuple[object, ...]] | None]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(
+        query: str,
+        params: dict[str, object] | None = None,
+        data=None,
+    ):
+        executed.append((query, data))
+        return []
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage,
+        "ensure_clickhouse_variant_tables",
+        fake_ensure,
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    record = SmallVariantRecord(
+        variant_key=None,
+        variant_id="1-100-A-G",
+        chr="1",
+        start=100,
+        end=100,
+        ref="A",
+        alt="G",
+        source="glimpse2",
+        rsid=None,
+        filters=[],
+        gene_symbols=["APC"],
+        annotations=[{"gene": "APC", "gene_id": "ENSG00000134982", "impact": "HIGH"}],
+        calls=[SmallVariantCall(sample="sample-1", gt="0/1", gq=None, dp=None, af=[], ad=[], ps=None)],
+    )
+
+    await clickhouse_variant_storage.insert_small_variant_records(
+        "GRCh38",
+        "family-1",
+        ["project-1", "project-2"],
+        [record],
+    )
+
+    annotation_query, annotation_data = next(
+        (query, data)
+        for query, data in executed
+        if "INSERT INTO coga.`GRCh38/SNV_INDEL/variants/annotations`" in query
+    )
+    entry_data = next(
+        data
+        for query, data in executed
+        if "INSERT INTO coga.`GRCh38/SNV_INDEL/entries`" in query
+    )
+    gene_index_data = next(
+        data
+        for query, data in executed
+        if "INSERT INTO coga.`GRCh38/SNV_INDEL/variants/gene_index`" in query
+    )
+
+    assert "annotation_json" not in annotation_query
+    assert annotation_data is not None
+    assert len(annotation_data) == 1
+    assert entry_data is not None
+    assert len(entry_data) == 2
+    assert gene_index_data is not None
+    assert {row[4] for row in gene_index_data} == {"apc", "ensg00000134982"}
+
+
+@pytest.mark.asyncio
+async def test_rebuild_small_variant_gene_index_is_explicit_batched_maintenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed_queries: list[str] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(
+        query: str,
+        params: dict[str, object] | None = None,
+        data=None,
+    ):
+        executed_queries.append(query)
+        return []
+
+    async def fake_status(assembly_name: str) -> dict[str, object]:
+        return {"assembly_name": assembly_name, "health": "ready"}
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage,
+        "ensure_clickhouse_variant_tables",
+        fake_ensure,
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+    monkeypatch.setattr(
+        clickhouse_variant_storage,
+        "get_clickhouse_variant_storage_status",
+        fake_status,
+    )
+
+    status = await clickhouse_variant_storage.rebuild_small_variant_gene_index("GRCh38")
+
+    assert status["assembly_name"] == "GRCh38"
+    assert executed_queries[0] == "TRUNCATE TABLE coga.`GRCh38/SNV_INDEL/variants/gene_index`"
+    assert "INSERT INTO coga.`GRCh38/SNV_INDEL/variants/gene_index`" in executed_queries[1]
+    assert "SELECT DISTINCT" in executed_queries[1]
+    assert "arrayConcat(gene_symbols, gene_ids)" in executed_queries[1]
 
 
 @pytest.mark.asyncio

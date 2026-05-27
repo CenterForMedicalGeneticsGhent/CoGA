@@ -241,6 +241,10 @@ def _small_annotation_index_table_name(assembly_name: str) -> str:
     return _small_table_name(assembly_name, "variants/annotation_index")
 
 
+def _small_annotation_gene_index_table_name(assembly_name: str) -> str:
+    return _small_table_name(assembly_name, "variants/gene_index")
+
+
 def _small_summary_table_name(assembly_name: str, suffix: str) -> str:
     return _small_table_name(assembly_name, suffix)
 
@@ -2424,25 +2428,6 @@ def _small_gene_filter_condition(
     return entry_gene_condition
 
 
-def _small_annotation_gene_filter_condition(
-    gene_values: Sequence[str],
-    *,
-    prefix: str,
-    params: dict[str, Any],
-) -> str | None:
-    normalized_gene_values = [str(value).strip() for value in gene_values if str(value).strip()]
-    if not normalized_gene_values:
-        return None
-    terms_param = f"{prefix}_terms"
-    params[terms_param] = [_casefold(term) for term in normalized_gene_values]
-    return (
-        "("
-        f"hasAny(ai.gene_symbols, %({terms_param})s) "
-        f"OR hasAny(ai.gene_ids, %({terms_param})s)"
-        ")"
-    )
-
-
 def _small_region_filter_condition(
     regions: Sequence[Region],
     *,
@@ -2489,20 +2474,15 @@ def _small_panel_filter_condition(
     )
     if gene_condition:
         conditions.append(gene_condition)
-    annotation_gene_condition = _small_annotation_gene_filter_condition(
+    annotation_gene_membership = _small_annotation_gene_membership_condition(
+        context,
+        filters,
         panel_constraints.genes,
         prefix="panel_annotation_gene",
         params=params,
     )
-    if annotation_gene_condition:
-        conditions.append(
-            _small_annotation_key_membership_condition(
-                context,
-                filters,
-                params=params,
-                condition=annotation_gene_condition,
-            )
-        )
+    if annotation_gene_membership:
+        conditions.append(annotation_gene_membership)
     return f"({' OR '.join(conditions)})" if conditions else None
 
 
@@ -2660,18 +2640,51 @@ def _small_annotation_scope_clauses(
     filters: SmallVariantQueryFilters,
     *,
     params: dict[str, Any],
+    alias: str = "ai",
 ) -> list[str]:
     clauses: list[str] = []
     if filters.chromosome and "chromosomes" in params:
-        clauses.append("ai.chrom IN %(chromosomes)s")
+        clauses.append(f"{alias}.chrom IN %(chromosomes)s")
     if filters.start is not None:
         if filters.overlap and filters.end is not None:
-            clauses.append("(ai.pos <= %(end)s AND (ai.pos + length(ai.ref) - 1) >= %(start)s)")
+            clauses.append(
+                f"({alias}.pos <= %(end)s AND ({alias}.pos + length({alias}.ref) - 1) >= %(start)s)"
+            )
         else:
-            clauses.append("ai.pos >= %(start)s")
+            clauses.append(f"{alias}.pos >= %(start)s")
     if filters.end is not None and not (filters.overlap and filters.start is not None):
-        clauses.append("ai.pos <= %(end)s")
+        clauses.append(f"{alias}.pos <= %(end)s")
     return clauses
+
+
+def _small_annotation_gene_membership_condition(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    gene_values: Sequence[str],
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    normalized_gene_values = tuple(
+        _casefold(value)
+        for value in gene_values
+        if str(value or "").strip()
+    )
+    if not normalized_gene_values:
+        return None
+    if not context.assembly_name:
+        return "0"
+    terms_param = f"{prefix}_terms"
+    params[terms_param] = normalized_gene_values
+    gene_index_table = _small_annotation_gene_index_table_name(context.assembly_name)
+    scope_clauses = _small_annotation_scope_clauses(context, filters, params=params, alias="gi")
+    index_where = [*scope_clauses, f"gi.gene_term IN %({terms_param})s"]
+    return (
+        "(e.key, e.annotation_version, e.annotationSetHash) IN ("
+        f"SELECT gi.key, gi.annotation_version, gi.annotationSetHash FROM {gene_index_table} AS gi "
+        f"WHERE {' AND '.join(index_where)}"
+        ")"
+    )
 
 
 def _small_annotation_key_membership_condition(
@@ -3154,21 +3167,20 @@ def _small_query_filter_parts(
         prefix="entry_gene",
         params=params,
     )
-    annotation_gene_condition = _small_annotation_gene_filter_condition(
-        _split_gene_terms(filters.gene),
+    gene_terms = _split_gene_terms(filters.gene)
+    annotation_gene_membership = _small_annotation_gene_membership_condition(
+        context,
+        filters,
+        gene_terms,
         prefix="annotation_gene",
         params=params,
     )
-    if gene_condition and annotation_gene_condition:
-        annotation_gene_membership = _small_annotation_key_membership_condition(
-            context,
-            filters,
-            params=params,
-            condition=annotation_gene_condition,
-        )
+    if gene_condition and annotation_gene_membership:
         where_clauses.append(f"({gene_condition} OR {annotation_gene_membership})")
     elif gene_condition:
         where_clauses.append(gene_condition)
+    elif annotation_gene_membership:
+        where_clauses.append(annotation_gene_membership)
 
     detail_where_clauses, detail_params = _small_detail_filter_clauses(filters)
     params.update(detail_params)
@@ -3221,21 +3233,19 @@ def _small_query_filter_parts(
         prefix="entry_exclude_gene",
         params=params,
     )
-    exclude_annotation_gene_condition = _small_annotation_gene_filter_condition(
+    exclude_annotation_membership = _small_annotation_gene_membership_condition(
+        context,
+        filters,
         exclude_gene_terms,
         prefix="annotation_exclude_gene",
         params=params,
     )
-    if exclude_gene_condition and exclude_annotation_gene_condition:
-        exclude_annotation_membership = _small_annotation_key_membership_condition(
-            context,
-            filters,
-            params=params,
-            condition=exclude_annotation_gene_condition,
-        )
+    if exclude_gene_condition and exclude_annotation_membership:
         where_clauses.append(f"NOT ({exclude_gene_condition} OR {exclude_annotation_membership})")
     elif exclude_gene_condition:
         where_clauses.append(f"NOT {exclude_gene_condition}")
+    elif exclude_annotation_membership:
+        where_clauses.append(f"NOT {exclude_annotation_membership}")
 
     return where_clauses, params, False
 

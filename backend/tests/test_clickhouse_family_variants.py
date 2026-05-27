@@ -699,7 +699,10 @@ async def test_fetch_small_variant_rows_pushes_panel_and_review_filters_to_click
     assert "ANY INNER JOIN" not in query
     assert "e.variantId IN %(include_variant_ids)s" in query
     assert "e.variantId NOT IN %(exclude_variant_ids)s" in query
+    assert "GRCh38/SNV_INDEL/variants/gene_index" in query
+    assert "gi.gene_term IN %(panel_annotation_gene_terms)s" in query
     assert "panel_gene_terms" in params
+    assert params["panel_annotation_gene_terms"] == ("gene2",)
     assert "panel_region_chromosomes_0" in params
     assert params["include_variant_ids"] == ("v2",)
     assert params["exclude_variant_ids"] == ("v9",)
