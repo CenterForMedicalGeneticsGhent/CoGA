@@ -44,7 +44,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
           <p className="page-kicker">ClickHouse</p>
           <h2 className="section-title">Variant operations</h2>
           <p className="section-copy">
-            Inspect CoGA variant tables per assembly, then ensure or optimize them when
+            Inspect CoGA variant tables per assembly, then ensure, rebuild or optimize them when
             operational cleanup is needed.
           </p>
         </div>
@@ -97,6 +97,24 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
                     }
                   >
                     Ensure tables
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={busyKey === `clickhouse-rebuild-gene-index:${assembly.assembly_name}`}
+                    onClick={() =>
+                      onRunAction(
+                        `clickhouse-rebuild-gene-index:${assembly.assembly_name}`,
+                        `Rebuild the small variant gene index for assembly ${assembly.assembly_name}?`,
+                        () =>
+                          api.post(
+                            `/admin/clickhouse/variants/${assembly.assembly_name}/rebuild-small-variant-gene-index`,
+                          ),
+                        `Rebuilt small variant gene index for ${assembly.assembly_name}.`,
+                      )
+                    }
+                  >
+                    Rebuild gene index
                   </button>
                   <button
                     type="button"

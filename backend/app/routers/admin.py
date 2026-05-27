@@ -30,6 +30,7 @@ from ..services.admin_service import (
     list_data_inventory_page,
     list_clickhouse_variant_status,
     optimize_clickhouse_variant_status,
+    rebuild_clickhouse_small_variant_gene_index_status,
     update_sample_projects_data,
 )
 from ..services.gene_info_jobs_pg import (
@@ -125,6 +126,17 @@ async def optimize_clickhouse_variants(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ClickHouseVariantAssemblyStatusOut:
     return await optimize_clickhouse_variant_status(assembly_name, final=final)
+
+
+@router.post(
+    "/clickhouse/variants/{assembly_name}/rebuild-small-variant-gene-index",
+    response_model=ClickHouseVariantAssemblyStatusOut,
+)
+async def rebuild_clickhouse_small_variant_gene_index(
+    assembly_name: str,
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> ClickHouseVariantAssemblyStatusOut:
+    return await rebuild_clickhouse_small_variant_gene_index_status(assembly_name)
 
 
 @router.get("/data/families/{family_id}", response_model=FamilyInventoryDetailOut)

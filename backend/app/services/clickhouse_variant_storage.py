@@ -63,6 +63,7 @@ def _expected_clickhouse_variant_tables(assembly_name: str) -> list[tuple[str, s
         ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/details"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/annotations"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/annotation_index"),
+        ("small_variants", "table", f"{dataset}/SNV_INDEL/variants/gene_index"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/entries"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/project_gt_stats"),
         ("small_variants", "table", f"{dataset}/SNV_INDEL/gt_stats"),
@@ -286,7 +287,6 @@ def _small_annotation_row(
         _annotation_spliceai_max(annotation),
         _casefold(_annotation_text(annotation, "sift", "siftPrediction")),
         _casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction")),
-        json.dumps(annotation),
     )
 
 
@@ -378,6 +378,41 @@ def _small_annotation_index_row(
     )
 
 
+def _small_annotation_gene_index_rows(
+    *,
+    variant_key: int,
+    variant_id: str,
+    annotation_version: str,
+    annotation_set_hash: int,
+    record: SmallVariantRecord,
+    annotations: Sequence[dict[str, Any]],
+) -> list[tuple[Any, ...]]:
+    annotation_list = [annotation for annotation in annotations if isinstance(annotation, dict)]
+    gene_terms = _string_list(
+        [
+            *(_casefold(symbol) for symbol in record.gene_symbols),
+            *(_casefold(_annotation_gene(annotation)) for annotation in annotation_list),
+            *(_casefold(_annotation_gene_id(annotation)) for annotation in annotation_list),
+        ]
+    )
+    chrom = normalize_chromosome(record.chr)
+    pos = int(record.start)
+    return [
+        (
+            variant_key,
+            variant_id,
+            annotation_version,
+            annotation_set_hash,
+            gene_term,
+            chrom,
+            pos,
+            record.ref,
+            record.alt,
+        )
+        for gene_term in gene_terms
+    ]
+
+
 def _normalized_project_ids(project_ids: Sequence[str]) -> list[str]:
     deduped = _string_list(project_ids)
     return deduped or ["unassigned"]
@@ -429,11 +464,13 @@ def _small_variant_entry_rows(
     list[tuple[Any, ...]],
     list[tuple[Any, ...]],
     list[tuple[Any, ...]],
+    list[tuple[Any, ...]],
 ]:
     detail_rows: list[tuple[Any, ...]] = []
     entry_rows: list[tuple[Any, ...]] = []
     annotation_rows: list[tuple[Any, ...]] = []
     annotation_index_rows: list[tuple[Any, ...]] = []
+    annotation_gene_index_rows: list[tuple[Any, ...]] = []
     normalized_project_ids = _normalized_project_ids(project_ids)
     active_annotation_version = _small_annotation_version(annotation_version)
     for record in records:
@@ -476,6 +513,27 @@ def _small_variant_entry_rows(
                 annotations=record.annotations,
             )
         )
+        annotation_gene_index_rows.extend(
+            _small_annotation_gene_index_rows(
+                variant_key=variant_key,
+                variant_id=variant_id,
+                annotation_version=record_annotation_version,
+                annotation_set_hash=record_annotation_set_hash,
+                record=record,
+                annotations=record.annotations,
+            )
+        )
+        for annotation in record.annotations or [{}]:
+            annotation_rows.append(
+                _small_annotation_row(
+                    variant_key=variant_key,
+                    variant_id=variant_id,
+                    annotation_version=record_annotation_version,
+                    annotation_set_hash=record_annotation_set_hash,
+                    record=record,
+                    annotation=annotation,
+                )
+            )
         sample_ids = [call.sample for call in record.calls]
         sample_gts = [call.gt for call in record.calls]
         sample_gqs = [_small_call_gq(call) for call in record.calls]
@@ -516,18 +574,7 @@ def _small_variant_entry_rows(
                     1,
                 )
             )
-            for annotation in record.annotations or [{}]:
-                annotation_rows.append(
-                    _small_annotation_row(
-                        variant_key=variant_key,
-                        variant_id=variant_id,
-                        annotation_version=record_annotation_version,
-                        annotation_set_hash=record_annotation_set_hash,
-                        record=record,
-                        annotation=annotation,
-                    )
-                )
-    return detail_rows, entry_rows, annotation_rows, annotation_index_rows
+    return detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows
 
 
 def _structural_variant_entry_rows(
@@ -680,7 +727,6 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `spliceai_max` Nullable(Float32),
             `sift` LowCardinality(String),
             `polyphen` LowCardinality(String),
-            `annotation_json` String,
             `updatedAt` DateTime DEFAULT now(),
             INDEX idx_ann_key key TYPE bloom_filter(0.01) GRANULARITY 4,
             INDEX idx_ann_gene gene_symbol TYPE set(1000) GRANULARITY 4,
@@ -701,6 +747,10 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         PARTITION BY annotation_version
         PRIMARY KEY (annotation_version, chrom, pos, key, annotationSetHash)
         ORDER BY (annotation_version, chrom, pos, key, annotationSetHash, annotationHash)
+        """,
+        f"""
+        ALTER TABLE {database}.`{dataset}/SNV_INDEL/variants/annotations`
+        DROP COLUMN IF EXISTS annotation_json
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/variants/annotation_index`
@@ -756,6 +806,27 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         PARTITION BY annotation_version
         PRIMARY KEY (annotation_version, chrom, pos, key, annotationSetHash)
         ORDER BY (annotation_version, chrom, pos, key, annotationSetHash)
+        """,
+        f"""
+        CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/variants/gene_index`
+        (
+            `key` UInt64,
+            `variantId` String,
+            `annotation_version` LowCardinality(String),
+            `annotationSetHash` UInt64,
+            `gene_term` String,
+            `chrom` LowCardinality(String),
+            `pos` UInt32,
+            `ref` String,
+            `alt` String,
+            `updatedAt` DateTime DEFAULT now(),
+            INDEX idx_gene_index_key key TYPE bloom_filter(0.01) GRANULARITY 4,
+            INDEX idx_gene_index_chrom chrom TYPE set(128) GRANULARITY 4
+        )
+        ENGINE = ReplacingMergeTree(updatedAt)
+        PARTITION BY annotation_version
+        PRIMARY KEY (annotation_version, gene_term, chrom, pos, key, annotationSetHash)
+        ORDER BY (annotation_version, gene_term, chrom, pos, key, annotationSetHash)
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/entries`
@@ -995,7 +1066,7 @@ async def insert_small_variant_records(
     annotation_version: str | None = None,
 ) -> None:
     await ensure_clickhouse_variant_tables(assembly_name)
-    detail_rows, entry_rows, annotation_rows, annotation_index_rows = _small_variant_entry_rows(
+    detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows = _small_variant_entry_rows(
         assembly_name,
         family_uuid,
         project_ids,
@@ -1094,8 +1165,7 @@ async def insert_small_variant_records(
                 revel,
                 spliceai_max,
                 sift,
-                polyphen,
-                annotation_json
+                polyphen
             ) VALUES
             """,
             data=annotation_rows,
@@ -1141,6 +1211,23 @@ async def insert_small_variant_records(
             ) VALUES
             """,
             data=annotation_index_rows,
+        )
+    if annotation_gene_index_rows:
+        await _execute(
+            f"""
+            INSERT INTO {_small_table_name(assembly_name, 'variants/gene_index')} (
+                key,
+                variantId,
+                annotation_version,
+                annotationSetHash,
+                gene_term,
+                chrom,
+                pos,
+                ref,
+                alt
+            ) VALUES
+            """,
+            data=annotation_gene_index_rows,
         )
 
 
@@ -1537,6 +1624,47 @@ async def get_clickhouse_variant_storage_status(assembly_name: str) -> dict[str,
 async def ensure_clickhouse_variant_storage_ready(assembly_name: str) -> dict[str, Any]:
     await ensure_clickhouse_variant_tables(assembly_name)
     return await get_clickhouse_variant_storage_status(assembly_name)
+
+
+async def rebuild_small_variant_gene_index(assembly_name: str) -> dict[str, Any]:
+    dataset = _require_clickhouse_identifier(assembly_name)
+    await ensure_clickhouse_variant_tables(dataset)
+    gene_index_table = _small_table_name(dataset, "variants/gene_index")
+    annotation_index_table = _small_table_name(dataset, "variants/annotation_index")
+    await _execute(f"TRUNCATE TABLE {gene_index_table}")
+    await _execute(
+        f"""
+        INSERT INTO {gene_index_table} (
+            key,
+            variantId,
+            annotation_version,
+            annotationSetHash,
+            gene_term,
+            chrom,
+            pos,
+            ref,
+            alt
+        )
+        SELECT DISTINCT
+            key,
+            variantId,
+            annotation_version,
+            annotationSetHash,
+            gene_term,
+            chrom,
+            pos,
+            ref,
+            alt
+        FROM {annotation_index_table}
+        ARRAY JOIN arrayDistinct(
+            arrayFilter(
+                term -> length(term) > 0,
+                arrayMap(term -> lowerUTF8(term), arrayConcat(gene_symbols, gene_ids))
+            )
+        ) AS gene_term
+        """
+    )
+    return await get_clickhouse_variant_storage_status(dataset)
 
 
 async def optimize_clickhouse_variant_tables(

@@ -35,6 +35,7 @@ from .clickhouse_variant_storage import (
     get_clickhouse_variant_storage_status,
     list_clickhouse_variant_assemblies,
     optimize_clickhouse_variant_tables,
+    rebuild_small_variant_gene_index,
     replace_family_small_variants,
     replace_family_structural_variants,
 )
@@ -610,6 +611,14 @@ async def optimize_clickhouse_variant_status(
 ) -> ClickHouseVariantAssemblyStatusOut:
     return ClickHouseVariantAssemblyStatusOut.model_validate(
         await optimize_clickhouse_variant_tables(assembly_name, final=final)
+    )
+
+
+async def rebuild_clickhouse_small_variant_gene_index_status(
+    assembly_name: str,
+) -> ClickHouseVariantAssemblyStatusOut:
+    return ClickHouseVariantAssemblyStatusOut.model_validate(
+        await rebuild_small_variant_gene_index(assembly_name)
     )
 
 
