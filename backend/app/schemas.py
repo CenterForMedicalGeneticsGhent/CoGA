@@ -1072,6 +1072,97 @@ class FamilyParaphaseTableOut(BaseModel):
     genes: List[ParaphaseGeneResultOut] = Field(default_factory=list)
 
 
+class MitoDNACoverageOut(BaseModel):
+    mean_depth: Optional[float] = None
+    min_depth: Optional[float] = None
+    max_depth: Optional[float] = None
+    breadth: Optional[float] = None
+    source: Optional[str] = None
+    regions: int = 0
+
+
+class MitoDNAQcOut(BaseModel):
+    status: Literal["pass", "warning", "fail", "unknown"] = "unknown"
+    notes: List[str] = Field(default_factory=list)
+    contamination: Optional[float] = None
+    mean_depth: Optional[float] = None
+    min_mean_depth: Optional[float] = None
+
+
+class MitoDNASampleOut(BaseModel):
+    sample_id: str
+    role: Optional[str] = None
+    affected: Optional[bool] = None
+    sex: Optional[str] = None
+    haplogroup: Optional[str] = None
+    coverage: MitoDNACoverageOut = Field(default_factory=MitoDNACoverageOut)
+    qc: MitoDNAQcOut = Field(default_factory=MitoDNAQcOut)
+
+
+class MitoDNAVariantSampleCallOut(BaseModel):
+    sample: str
+    role: Optional[str] = None
+    affected: Optional[bool] = None
+    sex: Optional[str] = None
+    genotype: str
+    allele_fraction: Optional[float] = None
+    depth: Optional[int] = None
+    alt_depth: Optional[int] = None
+    zygosity: Literal["homoplasmic", "heteroplasmic", "low_level", "reference", "no_call", "unknown"] = "unknown"
+    display: str
+
+
+class MitoDNAVariantAnnotationOut(BaseModel):
+    region: str
+    gene: Optional[str] = None
+    consequence: Optional[str] = None
+    category: Optional[str] = None
+    clinical_significance: Literal[
+        "pathogenic",
+        "likely_pathogenic",
+        "benign",
+        "likely_benign",
+        "reported",
+        "uncertain",
+        "polymorphism",
+        "unknown",
+    ] = "unknown"
+    disorders: List[str] = Field(default_factory=list)
+    polymorphism_notes: List[str] = Field(default_factory=list)
+    mitomap_query: str
+    mitomap_url: str
+    source_keys: List[str] = Field(default_factory=list)
+
+
+class MitoDNAVariantOut(BaseModel):
+    variant_id: str
+    position: int
+    ref: str
+    alt: str
+    label: str
+    type: str
+    rsid: Optional[str] = None
+    annotation: MitoDNAVariantAnnotationOut
+    calls: Dict[str, MitoDNAVariantSampleCallOut] = Field(default_factory=dict)
+    maternal_transmission: Literal[
+        "maternal_shared",
+        "maternal_not_observed",
+        "maternal_only",
+        "father_only",
+        "family_private",
+        "no_alt_calls",
+        "unknown",
+    ] = "unknown"
+
+
+class FamilyMitoDNAAnalysisOut(BaseModel):
+    samples: List[MitoDNASampleOut] = Field(default_factory=list)
+    variants: List[MitoDNAVariantOut] = Field(default_factory=list)
+    qc_notes: List[str] = Field(default_factory=list)
+    heteroplasmy_threshold: float = 0.02
+    homoplasmy_threshold: float = 0.95
+
+
 class RepeatExpansionTrackItemOut(BaseModel):
     sample: str
     locus_id: str

@@ -8,7 +8,8 @@ def normalize_chromosome(chromosome: str) -> str:
 
 def chromosome_aliases(chromosome: str) -> list[str]:
     normalized = normalize_chromosome(chromosome)
-    prefixed = f"chr{normalized}"
-    if prefixed == chromosome:
-        return [chromosome, normalized]
-    return [normalized, prefixed]
+    if normalized.upper() in {"M", "MT"}:
+        candidates = [normalized, f"chr{normalized}", "MT", "chrMT", "M", "chrM"]
+    else:
+        candidates = [normalized, f"chr{normalized}"]
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))

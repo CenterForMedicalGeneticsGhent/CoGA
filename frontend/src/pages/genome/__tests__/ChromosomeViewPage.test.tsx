@@ -262,6 +262,70 @@ describe('ChromosomeViewPage', () => {
     expect(screen.getByTestId('location-search')).toHaveTextContent('sample=FATHER');
   });
 
+  it('normalizes mitochondrial chromosome routes for track and IGV links', async () => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [
+              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+            ],
+            projects: ['p1'],
+            roi: null,
+          },
+        });
+      }
+      if (url === '/chromosomes/GRCh38/MT') {
+        return Promise.resolve({ data: { chr: 'MT', size: 16_569 } });
+      }
+      if (url.startsWith('/families/F1/track-availability?')) {
+        return Promise.resolve({
+          data: {
+            samples: {
+              PROBAND: {
+                coverage: true,
+                apcad: false,
+                variants: false,
+                small_variants: true,
+                haplotypes: false,
+              },
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/chromosome/chrM?start=3200&end=3300&project_id=p1']}>
+          <Routes>
+            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('3200:3300'));
+
+    const chromosomeCall = (api.get as unknown as Mock).mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.startsWith('/chromosomes/GRCh38/'));
+    expect(chromosomeCall).toBe('/chromosomes/GRCh38/MT');
+
+    const availabilityCall = (api.get as unknown as Mock).mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.startsWith('/families/F1/track-availability?'));
+    expect(availabilityCall).toContain('chrom=MT');
+
+    const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
+    expect(lastWorkspaceProps.chrom).toBe('MT');
+    expect(decodeURIComponent(lastWorkspaceProps.igvHref)).toContain('locus=chrM:3200-3300');
+  });
+
   it('skips small-variant availability on broad unfiltered chromosome views', async () => {
     (api.get as unknown as Mock).mockImplementation((url: string) => {
       if (url === '/families/F1') {

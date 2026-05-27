@@ -417,6 +417,12 @@ const FamilyDetailPage: React.FC = () => {
             >
               Paraphase
             </Link>
+            <Link
+              to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
+              className="button-secondary hover:no-underline"
+            >
+              mtDNA analysis
+            </Link>
           </div>
           {variantCountsLoaded && !hasVariants && !hasSmallVariants && (
             <p className="dashboard-link-note">No family variant data is loaded yet.</p>

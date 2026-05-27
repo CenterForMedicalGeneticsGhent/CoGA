@@ -82,7 +82,7 @@ describe('ProjectsPage', () => {
     await waitFor(() => expect(screen.getByText(/Project One/)).toBeInTheDocument());
     expect(screen.getByLabelText(/Search projects/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create new project/i })).toBeInTheDocument();
-    expect(screen.getByText(/1 family · 2 samples/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/1 family · 2 samples/)).toBeInTheDocument());
     expect(screen.getAllByText(/Homo sapiens/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/GRCh38 p14/i).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getAllByDisplayValue('Project One').length).toBeGreaterThan(0));

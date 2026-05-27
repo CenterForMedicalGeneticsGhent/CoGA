@@ -73,7 +73,7 @@ const GenomeOverviewPage: React.FC = () => {
     if (chromParams.length === 0) {
       return CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: true }), {} as Record<string, boolean>);
     }
-    const selectedChroms = new Set(chromParams.map((chrom) => chrom.replace(/^chr/i, '')));
+    const selectedChroms = new Set(chromParams.map(normalizeChrom));
     return CHROMS.reduce(
       (acc, chrom) => ({ ...acc, [chrom]: selectedChroms.has(chrom) }),
       {} as Record<string, boolean>,
@@ -92,7 +92,7 @@ const GenomeOverviewPage: React.FC = () => {
       return;
     }
 
-    const next = new Set(chromParams.map((chrom) => chrom.replace(/^chr/i, '')));
+    const next = new Set(chromParams.map(normalizeChrom));
     setChromSelected(
       CHROMS.reduce(
         (acc, chrom) => ({ ...acc, [chrom]: next.has(chrom) }),

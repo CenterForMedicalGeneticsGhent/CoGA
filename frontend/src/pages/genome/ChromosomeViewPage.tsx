@@ -28,6 +28,7 @@ import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
 import {
   DEFAULT_TRACK_WIDTH,
   TRACK_WIDTH_PADDING,
+  formatChromosomeLabel,
   normalizeChrom,
 } from './viewerShared';
 
@@ -116,7 +117,7 @@ const ChromosomeViewPage: React.FC = () => {
     haplotypes: true,
     repeatExpansions: true,
   });
-  const chrom = chromParam || '1';
+  const chrom = normalizeChrom(chromParam || '1');
   const [region, setRegion] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const [trackAreaRef, trackAreaWidth] = useMeasuredWidth<HTMLElement>();
 
@@ -210,7 +211,7 @@ const ChromosomeViewPage: React.FC = () => {
   );
 
   const igvHref = useMemo(() => {
-    const chrLabel = chrom.startsWith('chr') ? chrom : `chr${chrom}`;
+    const chrLabel = formatChromosomeLabel(chrom);
     const start1 = Math.max(1, region.start);
     const end1 = Math.max(start1, region.end || start1 + 1);
     const locus = `${chrLabel}:${start1}-${end1}`;

@@ -248,6 +248,95 @@ export interface ApiFamilyParaphaseTable {
   genes: ApiParaphaseGeneResult[];
 }
 
+export interface ApiMitoDNACoverage {
+  mean_depth?: number | null;
+  min_depth?: number | null;
+  max_depth?: number | null;
+  breadth?: number | null;
+  source?: string | null;
+  regions: number;
+}
+
+export interface ApiMitoDNAQc {
+  status: 'pass' | 'warning' | 'fail' | 'unknown';
+  notes: string[];
+  contamination?: number | null;
+  mean_depth?: number | null;
+  min_mean_depth?: number | null;
+}
+
+export interface ApiMitoDNASample {
+  sample_id: string;
+  role?: string | null;
+  affected?: boolean | null;
+  sex?: string | null;
+  haplogroup?: string | null;
+  coverage: ApiMitoDNACoverage;
+  qc: ApiMitoDNAQc;
+}
+
+export interface ApiMitoDNAVariantSampleCall {
+  sample: string;
+  role?: string | null;
+  affected?: boolean | null;
+  sex?: string | null;
+  genotype: string;
+  allele_fraction?: number | null;
+  depth?: number | null;
+  alt_depth?: number | null;
+  zygosity: 'homoplasmic' | 'heteroplasmic' | 'low_level' | 'reference' | 'no_call' | 'unknown';
+  display: string;
+}
+
+export interface ApiMitoDNAVariantAnnotation {
+  region: string;
+  gene?: string | null;
+  consequence?: string | null;
+  category?: string | null;
+  clinical_significance:
+    | 'pathogenic'
+    | 'likely_pathogenic'
+    | 'benign'
+    | 'likely_benign'
+    | 'reported'
+    | 'uncertain'
+    | 'polymorphism'
+    | 'unknown';
+  disorders: string[];
+  polymorphism_notes: string[];
+  mitomap_query: string;
+  mitomap_url: string;
+  source_keys: string[];
+}
+
+export interface ApiMitoDNAVariant {
+  variant_id: string;
+  position: number;
+  ref: string;
+  alt: string;
+  label: string;
+  type: string;
+  rsid?: string | null;
+  annotation: ApiMitoDNAVariantAnnotation;
+  calls: Record<string, ApiMitoDNAVariantSampleCall>;
+  maternal_transmission:
+    | 'maternal_shared'
+    | 'maternal_not_observed'
+    | 'maternal_only'
+    | 'father_only'
+    | 'family_private'
+    | 'no_alt_calls'
+    | 'unknown';
+}
+
+export interface ApiFamilyMitoDNAAnalysis {
+  samples: ApiMitoDNASample[];
+  variants: ApiMitoDNAVariant[];
+  qc_notes: string[];
+  heteroplasmy_threshold: number;
+  homoplasmy_threshold: number;
+}
+
 export interface ApiRepeatExpansionTrackItem {
   sample: string;
   locus_id: string;

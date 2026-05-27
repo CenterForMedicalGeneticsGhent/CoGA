@@ -9,6 +9,7 @@ from backend.app.services.clickhouse_family_variants import (
     SmallVariantRecord,
     _apply_small_inheritance_filter,
     _compound_het_partner_map,
+    _chromosome_options,
     _fetch_small_variant_rows,
     _flexible_status_match,
     _small_detail_filter_clauses,
@@ -65,6 +66,11 @@ def _small_variant(
         annotations=annotations,
         calls=calls,
     )
+
+
+def test_mitochondrial_chromosome_options_include_common_aliases() -> None:
+    assert _chromosome_options("MT") == ("MT", "chrMT", "M", "chrM")
+    assert _chromosome_options("chrM") == ("M", "chrM", "MT", "chrMT")
 
 
 def _family_context() -> FamilyMetadataContext:
