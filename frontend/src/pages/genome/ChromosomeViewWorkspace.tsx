@@ -26,6 +26,7 @@ import type {
 import {
   CHROMS,
   buildTrackFilterSummary,
+  formatChromosomeLabel,
   formatBp,
   formatRoiCoordinates,
   normalizeChrom,
@@ -295,7 +296,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           <p className="page-kicker">Visualization</p>
           <h1 className="catalog-card-title">Chromosome view for family {familyDisplayId}</h1>
           <p className="catalog-card-copy">
-            {referenceLabel} • chr{chrom} • {formatBp(Math.max(region.end - region.start, 0))}
+            {referenceLabel} • {formatChromosomeLabel(chrom)} • {formatBp(Math.max(region.end - region.start, 0))}
           </p>
         </div>
         <div className="inline-actions">
@@ -354,7 +355,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
             <datalist id={suggestionListId}>
               {geneSuggestions.map((suggestion) => (
                 <option key={`${suggestion.symbol}-${suggestion.gene_id}`} value={suggestion.symbol}>
-                  {`chr${suggestion.chr}:${suggestion.start.toLocaleString()}-${suggestion.end.toLocaleString()}`}
+                  {`${formatChromosomeLabel(suggestion.chr)}:${suggestion.start.toLocaleString()}-${suggestion.end.toLocaleString()}`}
                 </option>
               ))}
             </datalist>

@@ -144,6 +144,7 @@ async def build_family_metadata_context(
                 s.id::text AS sample_uuid,
                 s.sample_id,
                 s.sex,
+                s.metadata AS sample_metadata,
                 fm.role,
                 fm.affected
             FROM family_members fm

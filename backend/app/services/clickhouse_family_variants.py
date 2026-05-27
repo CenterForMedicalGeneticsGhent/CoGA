@@ -23,7 +23,7 @@ from ..schemas import (
     VariantOut,
     VariantPage,
 )
-from .data_scope import normalize_chromosome
+from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
     SmallVariantQueryFilters,
@@ -291,9 +291,7 @@ def _clickhouse_ids_for_sample(context: FamilyMetadataContext, sample_name: str)
 
 
 def _chromosome_options(chromosome: str) -> tuple[str, ...]:
-    normalized = normalize_chromosome(chromosome)
-    prefixed = f"chr{normalized}"
-    return (normalized, prefixed) if prefixed != chromosome else (chromosome, normalized)
+    return tuple(chromosome_aliases(chromosome))
 
 
 def _xpos(chrom: str, pos: int) -> int:

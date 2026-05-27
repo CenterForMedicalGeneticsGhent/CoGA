@@ -4,6 +4,7 @@ export const CHROMS = [
   ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
   'X',
   'Y',
+  'MT',
 ];
 
 export const DEFAULT_TRACK_WIDTH = 1200;
@@ -15,12 +16,20 @@ export const formatBp = (bp: number): string => {
   return `${bp} bp`;
 };
 
-export const normalizeChrom = (value: string): string =>
-  value.toLowerCase().startsWith('chr') ? value.slice(3) : value;
+export const normalizeChrom = (value: string): string => {
+  const stripped = value.trim().replace(/^chr/i, '');
+  if (/^m(t)?$/i.test(stripped)) return 'MT';
+  if (/^\d+$/.test(stripped)) return String(Number(stripped));
+  return stripped.toUpperCase();
+};
+
+export const formatChromosomeLabel = (value: string): string => {
+  const chrom = normalizeChrom(value);
+  return chrom === 'MT' ? 'chrM' : `chr${chrom}`;
+};
 
 export const formatRoiCoordinates = (roi: ApiFamilyRegionOfInterest): string => {
-  const chrom = roi.chr.startsWith('chr') ? roi.chr : `chr${roi.chr}`;
-  return `${chrom}:${roi.start.toLocaleString()}-${roi.end.toLocaleString()}`;
+  return `${formatChromosomeLabel(roi.chr)}:${roi.start.toLocaleString()}-${roi.end.toLocaleString()}`;
 };
 
 export const buildTrackFilterSummary = (

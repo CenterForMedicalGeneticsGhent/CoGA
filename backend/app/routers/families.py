@@ -7,6 +7,7 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import (
     FamilyOut,
+    FamilyMitoDNAAnalysisOut,
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
     FamilyRegionOfInterestUpdate,
@@ -42,6 +43,7 @@ from ..services.family_service import (
     update_family_roi_for_admin,
 )
 from ..services.metadata_service import CurrentUser
+from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.paraphase_pg import get_family_paraphase_table_response
 from ..services.repeat_expansion_pg import (
     get_family_repeat_expansion_table_response,
@@ -858,6 +860,25 @@ async def get_family_paraphase(
     )
 
 
+@router.get("/{family_id}/mitochondrial-dna", response_model=FamilyMitoDNAAnalysisOut)
+async def get_family_mitochondrial_dna(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FamilyMitoDNAAnalysisOut:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    return await get_family_mitochondrial_analysis_response(
+        session,
+        context=context,
+    )
+
+
 @router.get(
     "/{family_id}/repeat-expansions/sample/{sample_id}",
     response_model=RepeatExpansionTrackResponse,
@@ -909,7 +930,7 @@ async def get_family_track_availability(
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyTrackAvailabilityOut:
     if not chroms:
-        chroms = [str(value) for value in range(1, 23)] + ["X", "Y"]
+        chroms = [str(value) for value in range(1, 23)] + ["X", "Y", "MT"]
     return await get_family_track_availability_for_user(
         session,
         family_id=family_id,
