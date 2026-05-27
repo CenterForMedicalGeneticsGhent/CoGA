@@ -69,7 +69,7 @@ jobs:
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
-            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name }}-backend:${{ needs.prepare.outputs.tag }} \
+            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name | lower }}-backend:${{ needs.prepare.outputs.tag }} \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
@@ -105,7 +105,7 @@ jobs:
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
-            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name }}-frontend:${{ needs.prepare.outputs.tag }} \
+            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name | lower }}-frontend:${{ needs.prepare.outputs.tag }} \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
