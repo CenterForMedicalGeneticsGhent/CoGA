@@ -1,0 +1,68 @@
+name: Build and push image
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main, master, add/tf-deploy-scripts]
+    tags: ['*']
+  pull_request:
+    branches: [main, master]
+
+env:
+  REGISTRY_PROJECT_ID: ${{ secrets.GCP_REGISTRY_PROJECT_ID }}
+  CLOUDBUILD_BUCKET: ${{ secrets.GCP_CLOUDBUILD_STAGING_BUCKET }}
+  WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+  GCP_ENV: dev
+  GCP_REGION_SHORT: ${{ vars.GCP_REGION_SHORT }}
+  GCP_REGION: europe-west1
+  REGISTRY_HOST: europe-west1-docker.pkg.dev
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CLEAN_TAG=$(echo "${{ github.head_ref }}" | tr '/.' '_')
+            echo "tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
+            echo "tag=main" >> $GITHUB_OUTPUT
+          else
+            CLEAN_TAG=$(echo "${{ github.ref_name }}" | tr '/.' '_')
+            echo "tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push with Cloud Build
+        run: |
+          gcloud builds submit \
+            --project=${{ env.REGISTRY_PROJECT_ID }} \
+            --region=${{ env.GCP_REGION }} \
+            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name }}:${{ steps.tag.outputs.tag }} \
+            --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
+            --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
+            --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
+            .
