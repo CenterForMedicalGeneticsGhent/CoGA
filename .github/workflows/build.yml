@@ -58,6 +58,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
+          project_id: ${{ env.REGISTRY_PROJECT_ID }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -93,6 +94,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
+          project_id: ${{ env.REGISTRY_PROJECT_ID }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
