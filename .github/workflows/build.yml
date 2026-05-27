@@ -19,18 +19,11 @@ env:
   REGISTRY_HOST: europe-west1-docker.pkg.dev
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
-
       - name: Set image tag
         id: tag
         run: |
@@ -46,6 +39,19 @@ jobs:
             echo "tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
           fi
 
+  build-backend:
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
       - name: Authenticate to Google Cloud (WIF)
         id: auth
         uses: google-github-actions/auth@v2
@@ -56,13 +62,49 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build and push with Cloud Build
+      - name: Build and push backend with Cloud Build
         run: |
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
-            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name }}:${{ steps.tag.outputs.tag }} \
+            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name }}-backend:${{ needs.prepare.outputs.tag }} \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
+            --dockerfile=backend/Dockerfile \
+            .
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    needs: prepare
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
+
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push frontend with Cloud Build
+        run: |
+          gcloud builds submit \
+            --project=${{ env.REGISTRY_PROJECT_ID }} \
+            --region=${{ env.GCP_REGION }} \
+            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name }}-frontend:${{ needs.prepare.outputs.tag }} \
+            --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
+            --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
+            --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
+            --dockerfile=frontend/Dockerfile \
             .
