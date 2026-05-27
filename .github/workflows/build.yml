@@ -23,7 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
+      repo_name: ${{ steps.repo.outputs.repo_name }}
     steps:
+      - name: Set lowercase repo name
+        id: repo
+        run: echo "repo_name=$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Set image tag
         id: tag
         run: |
@@ -69,7 +74,7 @@ jobs:
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
-            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name | lower }}-backend:${{ needs.prepare.outputs.tag }} \
+            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ needs.prepare.outputs.repo_name }}-backend:${{ needs.prepare.outputs.tag }} \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
@@ -105,7 +110,7 @@ jobs:
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
-            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ github.event.repository.name | lower }}-frontend:${{ needs.prepare.outputs.tag }} \
+            --tag=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }} \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
