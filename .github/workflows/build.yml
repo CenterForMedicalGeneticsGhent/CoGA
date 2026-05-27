@@ -114,5 +114,4 @@ jobs:
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --gcs-log-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/logs \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
-            --dockerfile=frontend/Dockerfile \
             .
