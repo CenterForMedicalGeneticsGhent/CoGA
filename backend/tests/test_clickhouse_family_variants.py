@@ -20,6 +20,18 @@ from backend.app.services.clickhouse_family_variants import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters, parse_genotype_filter
+from backend.app.schemas import SmallVariantSummaryOut
+
+
+@pytest.fixture(autouse=True)
+def _stub_small_variant_summary(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_fetch_small_variant_summary(_context):
+        return None
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_summary",
+        fake_fetch_small_variant_summary,
+    )
 
 
 def _small_call(sample: str, gt: str) -> SmallVariantCall:
@@ -152,6 +164,9 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     async def fake_get_metric_map(*_args, **_kwargs):
         return {}
 
+    async def fake_fetch_summary(*_args, **_kwargs):
+        return SmallVariantSummaryOut(total_variants=3, snv_count=2, indel_count=1)
+
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._execute_clickhouse",
         fake_execute_clickhouse,
@@ -163,6 +178,10 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
         fake_get_metric_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_summary",
+        fake_fetch_summary,
     )
 
     page = await get_family_small_variants_page(
@@ -177,7 +196,7 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     assert page.total_is_estimated is False
     assert page.unfiltered_total == 3
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 4
+    assert len(queries) == 3
     assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
     assert "GROUP BY e.key, e.variantId" not in queries[0][0]
     assert queries[0][1]["visible_sample_ids"] == [
@@ -233,7 +252,6 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
         "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
         fake_get_metric_map,
     )
-
     page = await get_family_small_variants_page(
         None,  # type: ignore[arg-type]
         context=_family_context(),
@@ -245,7 +263,7 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert page.total == 1
     assert page.total_is_estimated is False
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 4
+    assert len(queries) == 3
     assert "arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> sample_id IN %(sample_filter_0_samples)s" in queries[0][0]
     assert "arrayMax(af) >= %(sample_filter_0_min_af)s" in queries[0][0]
     assert "ad[2] >= %(sample_filter_0_min_ad_alt)s" in queries[0][0]
@@ -284,6 +302,9 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
     async def fake_get_metric_map(*_args, **_kwargs):
         return {}
 
+    async def fake_fetch_summary(*_args, **_kwargs):
+        return SmallVariantSummaryOut(total_variants=1001, snv_count=1001, indel_count=0)
+
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._execute_clickhouse",
         fake_execute_clickhouse,
@@ -296,6 +317,10 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
         "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
         fake_get_metric_map,
     )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_summary",
+        fake_fetch_summary,
+    )
 
     page = await get_family_small_variants_page(
         None,  # type: ignore[arg-type]
@@ -307,11 +332,52 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
     assert page.total == 1001
     assert page.total_is_estimated is True
     assert page.unfiltered_total == 1001
-    assert page.unfiltered_total_is_estimated is True
+    assert page.unfiltered_total_is_estimated is False
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 4
+    assert len(queries) == 3
     assert "LIMIT %(count_limit)s" in "\n".join(queries)
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0]
+
+
+@pytest.mark.asyncio
+async def test_get_family_small_variants_track_mode_stops_before_heavy_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    count_limits: list[int] = []
+
+    async def fake_count_small_variant_rows_bounded(*_args, count_limit: int, **_kwargs):
+        count_limits.append(count_limit)
+        return 1000, True
+
+    async def fake_fetch_small_variant_rows(*_args, **_kwargs):
+        raise AssertionError("track mode must not fetch rows when the count is capped")
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._count_small_variant_rows_bounded",
+        fake_count_small_variant_rows_bounded,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_rows",
+        fake_fetch_small_variant_rows,
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=999,
+        chr="1",
+        start=0,
+        end=100,
+        track_mode=True,
+        track_result_limit=5000,
+    )
+
+    assert count_limits == [1000]
+    assert page.total == 1000
+    assert page.total_is_estimated is True
+    assert page.count_limit == 1000
+    assert page.variants == []
 
 
 @pytest.mark.asyncio
@@ -370,7 +436,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
 
     assert page.total == 1
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 4
+    assert len(queries) == 3
     query, params = queries[0]
     assert "INNER JOIN" not in query
     assert "GRCh38/SNV_INDEL/variants/annotations" in query
@@ -941,7 +1007,6 @@ async def test_get_family_small_variants_page_applies_compound_het_inheritance(
         "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
         fake_get_metric_map,
     )
-
     page = await get_family_small_variants_page(
         None,  # type: ignore[arg-type]
         context=_family_context(),
@@ -1092,6 +1157,10 @@ async def test_get_family_small_variants_page_supports_coga_like_inheritance_mod
     async def fake_get_metric_map(*_args, **_kwargs):
         return {}
 
+    async def fake_count_small_variant_rows_bounded(_context, filters, **_kwargs):
+        rows = await fake_fetch_small_variant_rows(_context, filters)
+        return len(rows), False
+
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._fetch_small_variant_rows",
         fake_fetch_small_variant_rows,
@@ -1107,6 +1176,10 @@ async def test_get_family_small_variants_page_supports_coga_like_inheritance_mod
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
         fake_get_metric_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._count_small_variant_rows_bounded",
+        fake_count_small_variant_rows_bounded,
     )
 
     page_dominant = await get_family_small_variants_page(
@@ -1199,7 +1272,6 @@ async def test_get_family_compound_het_candidates_uses_pair_logic(
         "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
         fake_get_metric_map,
     )
-
     page = await get_family_compound_het_candidates(
         None,  # type: ignore[arg-type]
         context=_family_context(),
@@ -1236,6 +1308,9 @@ async def test_get_family_small_variants_page_excludes_review_tags(
     async def fake_get_metric_map(*_args, **_kwargs):
         return {}
 
+    async def fake_count_small_variant_rows_bounded(*_args, **_kwargs):
+        return 2, False
+
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._fetch_small_variant_rows",
         fake_fetch_small_variant_rows,
@@ -1251,6 +1326,10 @@ async def test_get_family_small_variants_page_excludes_review_tags(
     monkeypatch.setattr(
         "backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map",
         fake_get_metric_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._count_small_variant_rows_bounded",
+        fake_count_small_variant_rows_bounded,
     )
 
     page = await get_family_small_variants_page(

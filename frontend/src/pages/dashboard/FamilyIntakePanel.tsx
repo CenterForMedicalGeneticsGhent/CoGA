@@ -9,6 +9,9 @@ import { useProjectCatalog } from '../../lib/reference';
 
 type IntakeMode = 'manual' | 'upload';
 type Sex = 'male' | 'female' | 'und';
+type CarrierType = 'obligate' | 'proven';
+
+const INHERITANCE_MODELS = ['', 'AD', 'AR', 'XLD', 'XLR', 'mitochondrial'];
 
 type DraftMember = {
   localId: string;
@@ -18,6 +21,8 @@ type DraftMember = {
   sex: Sex;
   affected: boolean;
   isProband: boolean;
+  carrierStatus: boolean;
+  carrierType: CarrierType;
 };
 
 type PedRow = {
@@ -46,6 +51,8 @@ const createDraftMember = (overrides: Partial<DraftMember> = {}): DraftMember =>
   sex: 'und',
   affected: false,
   isProband: false,
+  carrierStatus: false,
+  carrierType: 'proven',
   ...overrides,
 });
 
@@ -85,6 +92,15 @@ const pedigreeRowsFor = (familyId: string, members: DraftMember[]): PedRow[] => 
 
 const pedPreviewFor = (rows: PedRow[]): string =>
   rows.map((row) => [row.fid, row.iid, row.pid, row.mid, row.sex, row.phen].join(' ')).join('\n');
+
+const pedigreeMembersFor = (members: DraftMember[]) =>
+  members
+    .filter((member) => member.sampleId.trim())
+    .map((member) => ({
+      sample_id: member.sampleId.trim(),
+      carrier_status: member.carrierStatus,
+      carrier_type: member.carrierStatus ? member.carrierType : null,
+    }));
 
 const validateManualFamily = (familyId: string, members: DraftMember[]): string[] => {
   const errors: string[] = [];
@@ -157,6 +173,10 @@ const FamilyIntakePanel: React.FC = () => {
   const userIsAdmin = isAdmin();
   const [mode, setMode] = useState<IntakeMode>('manual');
   const [pedFile, setPedFile] = useState<File | null>(null);
+  const [pedRoiQuery, setPedRoiQuery] = useState('');
+  const [pedInheritanceModel, setPedInheritanceModel] = useState('');
+  const [pedObligateCarriers, setPedObligateCarriers] = useState('');
+  const [pedProvenCarriers, setPedProvenCarriers] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [familyId, setFamilyId] = useState('');
   const [members, setMembers] = useState<DraftMember[]>([
@@ -326,6 +346,18 @@ const FamilyIntakePanel: React.FC = () => {
 
     const formData = new FormData();
     formData.append('file', pedFile);
+    if (pedRoiQuery.trim()) {
+      formData.append('roi_query', pedRoiQuery.trim());
+    }
+    if (pedInheritanceModel) {
+      formData.append('inheritance_model', pedInheritanceModel);
+    }
+    if (pedObligateCarriers.trim()) {
+      formData.append('obligate_carriers', pedObligateCarriers.trim());
+    }
+    if (pedProvenCarriers.trim()) {
+      formData.append('proven_carriers', pedProvenCarriers.trim());
+    }
 
     const runUpload = async (overwrite: boolean) => {
       const params = new URLSearchParams({ project_id: selectedProjectId });
@@ -348,6 +380,10 @@ const FamilyIntakePanel: React.FC = () => {
         `Imported ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
       );
       setPedFile(null);
+      setPedRoiQuery('');
+      setPedInheritanceModel('');
+      setPedObligateCarriers('');
+      setPedProvenCarriers('');
     } catch (err: unknown) {
       if ((err as { response?: { status?: number } })?.response?.status === 409) {
         if (!userIsAdmin) {
@@ -366,6 +402,11 @@ const FamilyIntakePanel: React.FC = () => {
             setStatus(
               `Replaced ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
             );
+            setPedFile(null);
+            setPedRoiQuery('');
+            setPedInheritanceModel('');
+            setPedObligateCarriers('');
+            setPedProvenCarriers('');
           } catch (overwriteError: unknown) {
             setStatusTone('error');
             setStatus(getErrorMessage(overwriteError, 'PED upload failed.'));
@@ -407,6 +448,8 @@ const FamilyIntakePanel: React.FC = () => {
         sex: member.sex,
         affected: member.affected,
         is_proband: member.isProband,
+        carrier_status: member.carrierStatus,
+        carrier_type: member.carrierStatus ? member.carrierType : null,
       })),
     };
 
@@ -464,6 +507,7 @@ const FamilyIntakePanel: React.FC = () => {
   const validationErrors = validateManualFamily(familyId, members);
   const pedigreeRows = pedigreeRowsFor(familyId, members);
   const pedPreview = pedPreviewFor(pedigreeRows);
+  const pedigreeMembers = pedigreeMembersFor(members);
   const namedMembersCount = members.filter((member) => member.sampleId.trim()).length;
   const affectedCount = members.filter((member) => member.affected).length;
 
@@ -565,6 +609,49 @@ const FamilyIntakePanel: React.FC = () => {
               onChange={(event) => setPedFile(event.target.files?.[0] || null)}
             />
           </label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="field-label" htmlFor="dashboard-ped-roi">
+              ROI gene or region
+              <input
+                id="dashboard-ped-roi"
+                value={pedRoiQuery}
+                onChange={(event) => setPedRoiQuery(event.target.value)}
+                placeholder="CFTR or chr7:117120000-117310000"
+              />
+            </label>
+            <label className="field-label" htmlFor="dashboard-ped-inheritance">
+              Inheritance model
+              <select
+                id="dashboard-ped-inheritance"
+                value={pedInheritanceModel}
+                onChange={(event) => setPedInheritanceModel(event.target.value)}
+              >
+                {INHERITANCE_MODELS.map((model) => (
+                  <option key={model || 'none'} value={model}>
+                    {model || 'Not specified'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field-label" htmlFor="dashboard-ped-obligate-carriers">
+              Obligate carriers
+              <input
+                id="dashboard-ped-obligate-carriers"
+                value={pedObligateCarriers}
+                onChange={(event) => setPedObligateCarriers(event.target.value)}
+                placeholder="Sample IDs, comma-separated"
+              />
+            </label>
+            <label className="field-label" htmlFor="dashboard-ped-proven-carriers">
+              Proven carriers
+              <input
+                id="dashboard-ped-proven-carriers"
+                value={pedProvenCarriers}
+                onChange={(event) => setPedProvenCarriers(event.target.value)}
+                placeholder="Sample IDs, comma-separated"
+              />
+            </label>
+          </div>
           <div className="action-row">
             <button
               type="button"
@@ -676,6 +763,11 @@ const FamilyIntakePanel: React.FC = () => {
                           <span className="badge-chip">{member.sex}</span>
                           {member.isProband && <span className="badge-chip">Proband</span>}
                           {member.affected && <span className="badge-chip">Affected</span>}
+                          {member.carrierStatus && (
+                            <span className="badge-chip">
+                              Carrier {member.carrierType === 'obligate' ? 'obligate' : 'proven'}
+                            </span>
+                          )}
                         </div>
                         {children.length > 0 && (
                           <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-text-muted)]">
@@ -771,6 +863,31 @@ const FamilyIntakePanel: React.FC = () => {
                         />
                         Proband
                       </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={member.carrierStatus}
+                          onChange={(event) =>
+                            updateMember(member.localId, { carrierStatus: event.target.checked })
+                          }
+                        />
+                        Carrier
+                      </label>
+                      <label className="field-label min-w-[12rem]">
+                        Carrier type
+                        <select
+                          value={member.carrierType}
+                          disabled={!member.carrierStatus}
+                          onChange={(event) =>
+                            updateMember(member.localId, {
+                              carrierType: event.target.value as CarrierType,
+                            })
+                          }
+                        >
+                          <option value="proven">Proven</option>
+                          <option value="obligate">Obligate</option>
+                        </select>
+                      </label>
                     </div>
                   </article>
                 );
@@ -827,7 +944,7 @@ const FamilyIntakePanel: React.FC = () => {
                   className="mono-panel mt-4 overflow-x-auto !bg-[rgba(255,255,255,0.92)]"
                   data-testid="pedigree-sketch"
                 >
-                  <Pedigree rows={pedigreeRows} />
+                  <Pedigree rows={pedigreeRows} members={pedigreeMembers} />
                 </div>
               ) : (
                 <p className="mt-4 text-sm text-[var(--color-text-muted)]">

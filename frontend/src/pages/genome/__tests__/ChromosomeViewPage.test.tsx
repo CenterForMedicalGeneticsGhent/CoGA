@@ -1,7 +1,7 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { describe, expect, it, vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import ChromosomeViewPage from '../ChromosomeViewPage';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
@@ -67,6 +67,10 @@ const LocationProbe = () => {
 };
 
 describe('ChromosomeViewPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('sorts members proband-first, keeps query region, and forwards ROI plus sample filters', async () => {
     (api.get as unknown as Mock).mockImplementation((url: string) => {
       if (url === '/families/F1') {
@@ -256,5 +260,64 @@ describe('ChromosomeViewPage', () => {
     ]);
     expect(screen.getByTestId('location-search')).toHaveTextContent('sample=PROBAND');
     expect(screen.getByTestId('location-search')).toHaveTextContent('sample=FATHER');
+  });
+
+  it('skips small-variant availability on broad unfiltered chromosome views', async () => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [
+              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
+            ],
+            projects: ['p1'],
+            roi: null,
+          },
+        });
+      }
+      if (url === '/chromosomes/GRCh38/1') {
+        return Promise.resolve({ data: { chr: '1', size: 10_000_000 } });
+      }
+      if (url.startsWith('/families/F1/track-availability?')) {
+        return Promise.resolve({
+          data: {
+            samples: {
+              PROBAND: {
+                coverage: true,
+                apcad: false,
+                variants: false,
+                small_variants: false,
+                haplotypes: false,
+              },
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/chromosome/1?project_id=p1']}>
+          <Routes>
+            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toBeInTheDocument());
+
+    await waitFor(() => {
+      const availabilityCall = (api.get as unknown as Mock).mock.calls
+        .map(([url]) => String(url))
+        .find((url) => url.startsWith('/families/F1/track-availability?'));
+      expect(availabilityCall).toContain('include_small_variants=false');
+    });
+    const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
+    expect(lastWorkspaceProps.availability.PROBAND.smallVariants).toBe(true);
   });
 });

@@ -1,6 +1,12 @@
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
 
+export const SMALL_VARIANT_DETAIL_MAX_BP = 5_000_000;
+export const SMALL_VARIANT_TRACK_RESULT_LIMIT = 1000;
+
+export const shouldShowSmallVariantDetails = (span: number): boolean =>
+  Number.isFinite(span) && span > 0 && span <= SMALL_VARIANT_DETAIL_MAX_BP;
+
 export const getTrackVariantLimit = (width: number): number => {
   if (!Number.isFinite(width) || width <= 0) {
     return 800;

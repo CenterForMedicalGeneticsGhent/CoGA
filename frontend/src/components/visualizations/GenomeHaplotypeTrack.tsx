@@ -16,6 +16,7 @@ interface Segment {
   end: number;
   hap1: string;
   hap2: string;
+  ps?: number | null;
 }
 
 interface HaplotypeSourceSample {
@@ -39,6 +40,8 @@ interface Props {
   sampleId: string;
   role: string;
   affected: boolean;
+  carrierStatus?: boolean | null;
+  highlightRiskHaplotype?: boolean;
   layout: Layout | null;
   width?: number;
   height?: number;
@@ -53,6 +56,8 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   sampleId,
   role,
   affected,
+  carrierStatus = false,
+  highlightRiskHaplotype,
   layout,
   width = 800,
   height = 40,
@@ -124,6 +129,8 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
 
     const half = height / 2;
     const affectedColor = affectedColors[disorder];
+    const shouldHighlightRiskHaplotype =
+      highlightRiskHaplotype ?? (affected || Boolean(carrierStatus));
 
     const recombXs: number[] = [];
     const prevByChr: Record<string, Segment> = {};
@@ -157,12 +164,12 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       } else {
         c2 = isNaN(h2) ? unknownColor : motherColors[h2] || unknownColor;
       }
-      if (affected) {
+      if (shouldHighlightRiskHaplotype) {
         if (seg.hap1 === "1") c1 = affectedColor;
         if (seg.hap2 === "1") c2 = affectedColor;
       }
       const prev = prevByChr[chr];
-      if (prev && (seg.hap1 !== prev.hap1 || seg.hap2 !== prev.hap2)) {
+      if (prev && (seg.ps !== prev.ps || seg.hap1 !== prev.hap1 || seg.hap2 !== prev.hap2)) {
         recombXs.push(x1);
       }
       prevByChr[chr] = seg;
@@ -198,7 +205,19 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       ctx.stroke();
     });
     ctx.setLineDash([]);
-  }, [segments, role, affected, layout, width, height, disorder, chroms, isLoading]);
+  }, [
+    segments,
+    role,
+    affected,
+    carrierStatus,
+    highlightRiskHaplotype,
+    layout,
+    width,
+    height,
+    disorder,
+    chroms,
+    isLoading,
+  ]);
 
   return (
     <div className="relative" style={{ width, height }}>

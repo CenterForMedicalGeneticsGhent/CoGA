@@ -68,7 +68,7 @@ export interface StructuralVariantAnnotationExtra {
 }
 
 export type StructuralVariantFamilyMember = ApiFamilyMember;
-export type StructuralVariantFamily = Pick<ApiFamilyRecord, 'members' | 'pedigree' | 'projects'>;
+export type StructuralVariantFamily = Pick<ApiFamilyRecord, 'members' | 'pedigree' | 'projects' | 'metadata'>;
 export type StructuralVariantFilterPreset = SmallVariantFilterPreset;
 export type StructuralVariantTagDefinition = SmallVariantTagDefinition;
 export type StructuralVariantReview = SmallVariantReview;

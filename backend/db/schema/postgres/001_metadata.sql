@@ -97,7 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_sample_projects_project_id ON sample_projects (pr
 CREATE TABLE IF NOT EXISTS family_members (
     family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
     sample_id UUID NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
-    role TEXT NOT NULL CHECK (role IN ('proband', 'father', 'mother', 'sibling')),
+    role TEXT NOT NULL CHECK (role IN ('proband', 'father', 'mother', 'sibling', 'embryo', 'relative')),
     affected BOOLEAN NOT NULL DEFAULT FALSE,
     PRIMARY KEY (family_id, sample_id)
 );

@@ -12,7 +12,12 @@ import PageState from '../../components/PageState';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { getChromosomeWindow } from '../../lib/settings';
 import { parseExplicitSampleFilterMap } from '../../lib/sampleFilterState';
-import { getAdaptiveTrackWindow, getTrackBinLimit, getTrackSegmentLimit } from '../../lib/trackSampling';
+import {
+  getAdaptiveTrackWindow,
+  getTrackBinLimit,
+  getTrackSegmentLimit,
+  shouldShowSmallVariantDetails,
+} from '../../lib/trackSampling';
 import { useFamilyReference } from '../../lib/reference';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import ChromosomeViewSidebar, {
@@ -122,6 +127,10 @@ const ChromosomeViewPage: React.FC = () => {
 
   const win = useMemo(() => getChromosomeWindow(), []);
   const regionSpan = Math.max(region.end - region.start, 1);
+  const showSmallVariantDetails = useMemo(
+    () => shouldShowSmallVariantDetails(regionSpan),
+    [regionSpan],
+  );
   const detailWindow = useMemo(
     () => getAdaptiveTrackWindow(regionSpan, trackWidth, win),
     [regionSpan, trackWidth, win],
@@ -152,6 +161,11 @@ const ChromosomeViewPage: React.FC = () => {
     });
     return filters;
   }, [location.search]);
+  const hasSmallVariantUserFilters = useMemo(() => {
+    const hasVariantFilters = Object.values(variantFilters).some((value) => value.trim());
+    const hasSampleFilters = Object.values(sampleFilterMap).some((value) => value.trim());
+    return hasVariantFilters || hasSampleFilters;
+  }, [sampleFilterMap, variantFilters]);
 
   const projectIdParam = new URLSearchParams(location.search).get('project_id') || undefined;
   const {
@@ -256,13 +270,23 @@ const ChromosomeViewPage: React.FC = () => {
       chrom,
       start: String(region.start),
       end: String(region.end),
-      include_small_variants: 'true',
+      include_small_variants:
+        showSmallVariantDetails || hasSmallVariantUserFilters ? 'true' : 'false',
     });
     if (resolvedProjectId) params.set('project_id', resolvedProjectId);
     Object.entries(variantFilters).forEach(([key, value]) => params.append(key, value));
     Object.values(sampleFilterMap).forEach((entry) => params.append('sample_filter', entry));
     return params.toString();
-  }, [chrom, resolvedProjectId, region.end, region.start, sampleFilterMap, variantFilters]);
+  }, [
+    chrom,
+    hasSmallVariantUserFilters,
+    resolvedProjectId,
+    region.end,
+    region.start,
+    sampleFilterMap,
+    showSmallVariantDetails,
+    variantFilters,
+  ]);
 
   const {
     data: availabilityData,
@@ -286,7 +310,8 @@ const ChromosomeViewPage: React.FC = () => {
             coverage: entry.coverage,
             apcad: entry.apcad,
             variants: entry.variants,
-            smallVariants: entry.small_variants,
+            smallVariants:
+              entry.small_variants || (!showSmallVariantDetails && !hasSmallVariantUserFilters),
             haplotypes: entry.haplotypes,
             repeatExpansions: entry.repeat_expansions,
           },
@@ -295,7 +320,7 @@ const ChromosomeViewPage: React.FC = () => {
         string,
         ApiChromosomeTrackAvailability & { smallVariants: boolean; repeatExpansions: boolean }
       >,
-    [availabilityData],
+    [availabilityData, hasSmallVariantUserFilters, showSmallVariantDetails],
   );
 
   const availableTracks = useMemo(() => {

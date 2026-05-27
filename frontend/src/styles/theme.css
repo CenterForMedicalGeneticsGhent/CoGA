@@ -52,8 +52,8 @@
   --color-haplotype-father-light: #d7e0e9;
   --color-haplotype-mother-dark: #44625e;
   --color-haplotype-mother-light: #d4dedc;
-  --color-haplotype-dominant: #8d3f44;
-  --color-haplotype-recessive: #7a8ea4;
+  --color-haplotype-dominant: #b85b63;
+  --color-haplotype-recessive: #cf7a82;
   --color-haplotype-unknown: #9ca3af;
   --color-haplotype-deleted-fill: rgba(198, 31, 45, 0.08);
   --color-haplotype-deleted-stroke: rgba(157, 22, 35, 0.65);
@@ -62,8 +62,8 @@
   --color-repeat-pathogenic: #b42318;
   --color-repeat-unknown: #c6ccd3;
 
-  --color-apcad-paternal: #556f87;
-  --color-apcad-maternal: #44625e;
+  --color-apcad-paternal: var(--color-haplotype-father-dark);
+  --color-apcad-maternal: var(--color-haplotype-recessive);
   --color-apcad-default: var(--color-gray);
 
   --color-coverage-gain: #556f87;
@@ -75,6 +75,7 @@
   --color-gene-fill: #556f87;
   --color-gene-stroke: #556f87;
   --color-blacklist: #9ca3af;
+  --color-segmental-duplication: #1f2937;
 
   --color-stain-gneg: #ffffff;
   --color-stain-gpos25: #c8c8c8;
@@ -1480,7 +1481,7 @@ tbody tr:hover {
 }
 
 .family-members-card .analysis-table td {
-  font-size: 0.92rem;
+  font-size: 0.72rem;
 }
 
 @media (min-width: 980px) {
@@ -3036,8 +3037,8 @@ tbody tr:hover {
   border-radius: 999px;
   background: rgba(166, 26, 46, 0.06);
   color: var(--color-heading);
-  padding: 0.4rem 0.75rem;
-  font-size: 0.75rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.60rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
@@ -3167,7 +3168,32 @@ tbody tr:hover {
 .variant-sample-summary {
   display: grid;
   gap: 0.7rem;
-  margin-top: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+.variant-sample-summary-table {
+  width: auto;
+  font-size: 0.6rem;
+  letter-spacing: 0.01em;
+}
+
+.variant-sample-summary-table th,
+.variant-sample-summary-table td {
+  padding: 0.25rem 0.4rem;
+  white-space: nowrap;
+}
+
+.variant-sample-summary-table thead th {
+  font-size: 0.5rem;
+}
+
+.variant-sample-summary .analysis-section-title {
+  font-size: 0.4rem;
+  margin-bottom: 0.25rem;
+}
+
+.table-subtle {
+  font-size: 0.7rem;
 }
 
 .analysis-checkbox {
@@ -4769,7 +4795,7 @@ tbody tr:hover {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 0.92rem;
+  font-size: 0.72rem;
 }
 
 .data-table-shell thead tr,
@@ -6095,7 +6121,7 @@ a.button-danger:hover {
   border: 1px solid var(--color-border);
   background: rgba(246, 249, 252, 0.94);
   padding: 0.42rem 0.8rem;
-  font-size: 0.68rem;
+  font-size: 0.55rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;

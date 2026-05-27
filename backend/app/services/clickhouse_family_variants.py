@@ -61,6 +61,7 @@ _SMALL_INHERITANCE_MIN_CANDIDATE_ROWS = 1000
 _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS = 5000
 _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER = 25
 _SMALL_COUNT_LIMIT = 1001
+_SMALL_TRACK_RESULT_LIMIT = 1000
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
     "recessive_hom": _RECESSIVE_HOMOZYGOUS_INHERITANCE,
@@ -3526,6 +3527,15 @@ def _can_use_small_native_page(
     )
 
 
+def _small_track_limit_response(*, track_result_limit: int) -> VariantPage:
+    return VariantPage(
+        total=track_result_limit,
+        total_is_estimated=True,
+        count_limit=track_result_limit,
+        variants=[],
+    )
+
+
 def _can_use_structural_native_page(
     filters: StructuralVariantQueryFilters,
     *,
@@ -3732,6 +3742,7 @@ async def get_family_small_variants_page(
     has_notes: bool = False,
     overlap: bool = False,
     track_mode: bool = False,
+    track_result_limit: int | None = None,
 ) -> VariantPage:
     normalized_inheritance = _normalize_small_variant_inheritance(inheritance)
     filters = SmallVariantQueryFilters(
@@ -3819,6 +3830,78 @@ async def get_family_small_variants_page(
         else []
     )
     exclude_gene_terms = _split_gene_terms(filters.exclude_gene)
+
+    if track_mode and track_result_limit is not None:
+        safe_track_result_limit = min(
+            max(int(track_result_limit), 1),
+            _SMALL_TRACK_RESULT_LIMIT,
+        )
+        if not _can_use_small_native_page(
+            filters,
+            review_classifications=review_classifications,
+            review_tags=review_tags,
+            exclude_review_tags=exclude_review_tags,
+            has_notes=has_notes,
+            track_mode=False,
+        ):
+            return _small_track_limit_response(
+                track_result_limit=safe_track_result_limit
+            )
+
+        total, total_is_estimated = await _count_small_variant_rows_bounded(
+            context,
+            filters,
+            count_limit=safe_track_result_limit,
+            panel_constraints=panel_constraints,
+            include_variant_ids=review_variant_ids if include_review_filter_active else None,
+            exclude_variant_ids=excluded_review_variant_ids,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+        )
+        if total_is_estimated or total >= safe_track_result_limit:
+            return VariantPage(
+                total=total,
+                total_is_estimated=True,
+                count_limit=safe_track_result_limit,
+                variants=[],
+            )
+
+        fetch_limit = min(max(page_size, 0), max(safe_track_result_limit - 1, 1))
+        if fetch_limit <= 0 or total <= 0:
+            return VariantPage(
+                total=total,
+                total_is_estimated=False,
+                count_limit=safe_track_result_limit,
+                variants=[],
+            )
+
+        fetched_records = await _fetch_small_variant_rows(
+            context,
+            filters,
+            limit=fetch_limit,
+            offset=_page_offset(page, page_size),
+            panel_constraints=panel_constraints,
+            include_variant_ids=review_variant_ids if include_review_filter_active else None,
+            exclude_variant_ids=excluded_review_variant_ids,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+        )
+        variants = [_small_variant_out(record) for record in fetched_records]
+        await _hydrate_small_variant_outs(
+            session,
+            context=context,
+            variants=variants,
+        )
+        return VariantPage(
+            total=total,
+            total_is_estimated=False,
+            count_limit=safe_track_result_limit,
+            variants=variants,
+        )
 
     if _can_use_small_native_page(
         filters,

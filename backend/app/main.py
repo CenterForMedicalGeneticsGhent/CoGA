@@ -32,6 +32,7 @@ from .services.family_package_import import (
     stop_family_package_import_worker,
 )
 from .services.repeat_expansion_pg import seed_builtin_repeat_catalog
+from .services.reference_metadata_service import seed_builtin_reference_tracks
 from .services.audit_log_pg import start_audit_log_worker, stop_audit_log_worker
 
 
@@ -94,6 +95,7 @@ async def lifespan(app: FastAPI):
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
         await seed_builtin_repeat_catalog(session)
+        await seed_builtin_reference_tracks(session)
 
     await wait_for_clickhouse()
     await init_clickhouse_schema()

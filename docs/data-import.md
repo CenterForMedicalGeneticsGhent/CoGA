@@ -21,13 +21,30 @@ Manual uploads remain available per assembly through:
 - `POST /assemblies/{assembly_id}/reference-upload/genes`
 - `POST /assemblies/{assembly_id}/reference-upload/blacklist`
 - `POST /assemblies/{assembly_id}/reference-upload/clinical_cnvs`
+- `POST /assemblies/{assembly_id}/reference-upload/segmental_duplications`
+
+Startup bootstrap:
+
+- On backend startup, CoGA can automatically seed `clinical_cnvs` and
+  `segmental_duplications` for one assembly when those tables are empty.
+- Defaults:
+  - assembly: `GRCh38`
+  - CNV file: `/data/ref-data/clinical_cnv_syndromes_hg38_combined.tsv`
+  - SegDup/LCR file:
+    `/data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`
+- Controls:
+  - `REFERENCE_BOOTSTRAP_ENABLED=true|false`
+  - `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME=GRCh38`
+  - `REFERENCE_CLINICAL_CNVS_PATH=...`
+  - `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH=...`
 
 Expected content:
 
 - `cytobands`: UCSC-style cytoband TSV
 - `genes`: transcript/gene BED-style export matching the backend loader contract
 - `blacklist`: BED-like interval list
-- `clinical_cnvs`: BED-like interval list with label/details columns
+- `clinical_cnvs`: BED-like interval list with label/details columns; also accepts 9-column TSV bundles with `chrom/start/end/name/source/source_detail/...`
+- `segmental_duplications`: BED-like interval list for segmental duplications/LCRs (ClinGen recurrent-CNV BED black bars are supported)
 
 ## Gene Reference Sync
 
@@ -136,8 +153,16 @@ FAM001/
     SAMPLE1/
       bins.bed
       segments.bed
+  QDNAseq/
+    EMBRYO1/
+      bins.csv
+      segments.csv
   apcad/
     SAMPLE1.apcad.bed
+  APCAD/
+    EMBRYO1.apcad.vcf
+  GLIMPSE2/
+    FAM001.vcf.gz
   haplotypes/
     SAMPLE1.glimpse2.bcf
     SAMPLE1.glimpse2.bcf.csi
@@ -151,9 +176,28 @@ The built-in `standard_v1` naming scheme checks these paths:
 - SV Needlr: `needlr/{family_id}.sv.annotated.vcf.gz` plus `.tbi`, with `needlr/family.sv.annotated.vcf.gz` and `sv_needlr/...` fallbacks
 - TRGT family VCF: `repeats/{family_id}.trgt.vcf.gz` plus `.tbi`/`.csi`, `repeats/{family_id}_tr.vcf`, or `repeats/family.trgt.vcf.gz`/`.vcf` fallbacks. Plain uncompressed `.vcf` files do not require an index.
 - WisecondorX: `wisecondorx/{sample_id}/bins.bed` and `segments.bed`, with `sample_bins.bed`, `{sample_id}_bins.bed`, `sample_segments.bed`, and `{sample_id}_segments.bed` fallbacks
-- APCAD: `apcad/{sample_id}.apcad.bed`, with `.bed` and `.apcad.tsv` fallbacks
-- Haplotypes: `haplotypes/{sample_id}.glimpse2.bcf` plus `.csi`
+- QDNAseq: `QDNAseq/{sample_id}/bins.csv`, `{sample_id}.bins.csv`, `{sample_id}.csv`, or `{sample_id}_cnv_results.csv`, with optional `segments.csv`/`{sample_id}.segments.csv`; lower-case `qdnaseq` is also detected. If a QDNAseq CSV contains both `copynumber` and `segmented`, the same file can be used for both bins and segments.
+- APCAD: family VCFs at `APCAD/{family_id}.apcad.vcf[.gz]`, `APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz`, or per-sample `APCAD/{sample_id}.apcad.vcf`, with BED and `.apcad.tsv` fallbacks; lower-case `apcad` is also detected
+- Haplotypes: family GLIMPSE2 VCFs at `GLIMPSE2/{family_id}.vcf[.gz]`, `GLIMPSE2/{family_id}_phased_final.vcf.gz`, or `GLIMPSE2/family.vcf[.gz]`; legacy per-sample `haplotypes/{sample_id}.glimpse2.bcf` plus `.csi` is still registered as provenance
 - Paraphase: `paraphase/{sample_id}.paraphase.json`, with nested `{sample_id}/{sample_id}.paraphase.json` and `{sample_id}.json` fallbacks
+
+PED phenotype codes follow the GATK PED convention: `0` or `-9` means missing,
+`1` means unaffected, and `2` means affected. PGT carrier state is stored separately from the
+sixth PED column. Extra PED tokens such as `role=embryo`, `role=relative`, `carrier=true`,
+`carrier_type=obligate`, or `carrier_type=proven` are accepted and stored on sample metadata.
+The PED upload form also accepts an ROI gene/region, inheritance model (`AD`, `AR`, `XLD`,
+`XLR`, or `mitochondrial`), and comma-separated obligate/proven carrier sample IDs. Manual
+family creation has the same separate carrier flag and carrier type per person; this does not
+change the sixth PED phenotype column. Package manifests can provide the same PGT context under
+`metadata.pgt`:
+
+```yaml
+metadata:
+  pgt:
+    inheritance_model: AR
+    obligate_carriers: [FATHER]
+    proven_carriers: [MOTHER]
+```
 
 TRGT locus reference data is seeded from `TRGT_STRCHIVE_LOCI_PATH`, defaulting to
 `/data/ref-data/STRchive-loci.json`. For local development, the bundled
@@ -167,6 +211,7 @@ Manifest example:
 schema_version: 1
 family_id: FAM001
 ped: family.ped
+roi: CFTR
 
 metadata:
   hpo:
@@ -201,6 +246,13 @@ datasets:
         bins: wisecondorx/SAMPLE1/bins.bed
         segments: wisecondorx/SAMPLE1/segments.bed
 
+  qdnaseq:
+    enabled: true
+    per_sample:
+      EMBRYO1:
+        bins: QDNAseq/EMBRYO1/bins.csv
+        segments: QDNAseq/EMBRYO1/segments.csv
+
   apcad:
     enabled: true
     per_sample:
@@ -209,10 +261,8 @@ datasets:
 
   haplotypes:
     enabled: true
-    per_sample:
-      SAMPLE1:
-        file: haplotypes/SAMPLE1.glimpse2.bcf
-        index: haplotypes/SAMPLE1.glimpse2.bcf.csi
+    family_vcf: GLIMPSE2/FAM001.vcf.gz
+    source_format: glimpse2
 
   paraphase:
     enabled: true
@@ -237,10 +287,12 @@ Validation rules:
 First-version import behavior is conservative. The importer always validates and registers package
 provenance on the family/sample metadata. It deeply imports datasets where storage exists:
 family SNV VCFs, WisecondorX `_bins.bed` as `coverage`, WisecondorX `_segments.bed` as `segments`,
-Needlr family SV VCFs as ClickHouse structural variants with source `needlr`, sample-scoped APCAD
-BEDs, sample-scoped TRGT VCFs, family TRGT VCFs into the repeat expansion table, and
-sample-scoped Paraphase JSON into `sample_paraphase_results`. Direct GLIMPSE2 BCF haplotypes are
-still registered as provenance until a dedicated importer is added. Imported Paraphase results are
+QDNAseq CSV bins as `coverage`, QDNAseq segment CSVs as `segments`, Needlr family SV VCFs as
+ClickHouse structural variants with source `needlr`, family or sample APCAD VCF/TSV/BED files as
+APCAD interval tracks, sample-scoped TRGT VCFs, family TRGT VCFs into the repeat expansion table,
+family GLIMPSE2 VCFs as small variants plus haplotype blocks, and sample-scoped Paraphase JSON into
+`sample_paraphase_results`. Direct per-sample GLIMPSE2 BCF haplotypes are still registered as
+provenance until a dedicated BCF importer is added. Imported Paraphase results are
 available from the family workspace Paraphase page and `GET /families/{family_id}/paraphase`.
 The Paraphase page uses the curated medically relevant region catalog at
 `/data/ref-data/paraphase-medical-regions.json`, with the bundled

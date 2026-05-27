@@ -10,7 +10,7 @@ CoGA uses a split storage model:
 Primary responsibilities:
 
 - Users and project access
-- Species, assemblies, chromosomes, genes, blacklist, clinical CNVs
+- Species, assemblies, chromosomes, genes, blacklist, clinical CNVs, and segmental duplications/LCRs
 - Families, samples, pedigree structure, project assignments
 - Review state, filter presets, tag definitions
 - Repeat expansion catalog and sample calls

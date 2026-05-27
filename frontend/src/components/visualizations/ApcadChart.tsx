@@ -169,12 +169,16 @@ const ApcadChart: React.FC<Props> = ({
             if (!allowedChroms.has(chromName)) {
               return;
             }
+            const origin = (item.origin || 'und').toLowerCase();
+            if (origin !== 'paternal' && origin !== 'maternal') {
+              return;
+            }
             bins.push({
               chr: chromName,
               start: item.start,
               end: item.end,
               value: item.value,
-              origin: (item.origin || 'und').toLowerCase(),
+              origin,
             });
           });
         });

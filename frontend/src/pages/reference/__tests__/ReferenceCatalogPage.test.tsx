@@ -65,6 +65,7 @@ describe('ReferenceCatalogPage', () => {
               genes: 19876,
               blacklist_regions: 132,
               clinical_cnvs: 48,
+              segmental_duplications: 64,
             },
           ],
         });
@@ -117,9 +118,11 @@ describe('ReferenceCatalogPage', () => {
     expect(screen.getByRole('columnheader', { name: /genes/i })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: /blacklist/i })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: /clin cnvs/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /segdup\/lcr/i })).toBeInTheDocument();
     expect(screen.getByText('19,876')).toBeInTheDocument();
     expect(screen.getByText('132')).toBeInTheDocument();
     expect(screen.getByText('48')).toBeInTheDocument();
+    expect(screen.getByText('64')).toBeInTheDocument();
   });
 
   it('imports an organism and assembly from the automatic UCSC flow', async () => {

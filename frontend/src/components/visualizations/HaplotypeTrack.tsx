@@ -10,6 +10,7 @@ interface Segment {
   end: number;
   hap1: string;
   hap2: string;
+  ps?: number | null;
 }
 
 interface SampleSegments {
@@ -36,6 +37,8 @@ interface Props {
   height: number;
   role: string;
   affected: boolean;
+  carrierStatus?: boolean | null;
+  highlightRiskHaplotype?: boolean;
   disorder?: "dominant" | "recessive";
 }
 
@@ -49,6 +52,8 @@ const HaplotypeTrack: React.FC<Props> = ({
   height,
   role,
   affected,
+  carrierStatus = false,
+  highlightRiskHaplotype,
   disorder = "dominant",
 }) => {
   const { data, isLoading } = useQuery<HaplotypeResponse>({
@@ -92,6 +97,8 @@ const HaplotypeTrack: React.FC<Props> = ({
     const span = regionEnd - regionStart || 1;
     const half = height / 2;
     const affectedColor = affectedColors[disorder];
+    const shouldHighlightRiskHaplotype =
+      highlightRiskHaplotype ?? (affected || Boolean(carrierStatus));
 
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
@@ -126,13 +133,13 @@ const HaplotypeTrack: React.FC<Props> = ({
       } else {
         c2 = isNaN(h2) ? unknownColor : motherColors[h2] || unknownColor;
       }
-      if (affected) {
+      if (shouldHighlightRiskHaplotype) {
         if (seg.hap1 === "1") c1 = affectedColor;
         if (seg.hap2 === "1") c2 = affectedColor;
       }
       if (idx > 0) {
         const prev = segments[idx - 1];
-        if (seg.hap1 !== prev.hap1 || seg.hap2 !== prev.hap2) {
+        if (seg.ps !== prev.ps || seg.hap1 !== prev.hap1 || seg.hap2 !== prev.hap2) {
           recombXs.push(x1);
         }
       }
@@ -192,6 +199,8 @@ const HaplotypeTrack: React.FC<Props> = ({
     height,
     role,
     affected,
+    carrierStatus,
+    highlightRiskHaplotype,
     disorder,
     isLoading,
   ]);

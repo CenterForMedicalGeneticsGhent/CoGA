@@ -337,33 +337,51 @@ const FamilySmallVariantsPage: React.FC = () => {
               <div className="space-y-2">
                 <p className="page-kicker">Small Variants</p>
                 <h1 className="catalog-card-title">Family {familyId}</h1>
-                <p className="catalog-card-copy">{referenceLabel}</p>
-                <div className="variant-summary-row">
-                  <span className="badge-chip">
-                    Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
-                  </span>
-                  <span className="badge-chip">
-                    All variants {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated)}
-                  </span>
-                  {smallVariantSummary ? (
-                    <>
-                      <span className="badge-chip">SNVs {formatSummaryCount(smallVariantSummary.snv_count)}</span>
-                      <span className="badge-chip">Indels {formatSummaryCount(smallVariantSummary.indel_count)}</span>
-                    </>
-                  ) : null}
-                  <span className="badge-chip">Active filters {activeFilterCount}</span>
-                  <span className="badge-chip">Tag library {tags.length}</span>
-                </div>
-                {smallVariantSummary?.sample_counts?.length ? (
+                {data ? (
                   <div className="variant-sample-summary">
-                    <p className="analysis-section-title">Per sample</p>
+                    {smallVariantSummary?.sample_counts?.length ? (
+                      <div className="data-table-shell overflow-x-auto">
+                        <table className="analysis-table variant-sample-summary-table">
+                          <thead>
+                            <tr>
+                              <th>Sample</th>
+                              <th>Variants</th>
+                              <th>Het</th>
+                              <th>Hom</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {smallVariantSummary.sample_counts.map((sampleSummary) => (
+                              <tr key={sampleSummary.sample_id}>
+                                <td>{sampleSummary.sample_id}</td>
+                                <td>{formatSummaryCount(sampleSummary.non_ref_count)}</td>
+                                <td>{formatSummaryCount(sampleSummary.het_count)}</td>
+                                <td>{formatSummaryCount(sampleSummary.hom_alt_count)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : null}
                     <div className="variant-summary-row">
-                      {smallVariantSummary.sample_counts.map((sampleSummary) => (
-                        <span key={sampleSummary.sample_id} className="badge-chip">
-                          {sampleSummary.sample_id} ALT {formatSummaryCount(sampleSummary.non_ref_count)} HET{' '}
-                          {formatSummaryCount(sampleSummary.het_count)} HOM {formatSummaryCount(sampleSummary.hom_alt_count)}
-                        </span>
-                      ))}
+                      <span className="badge-chip">
+                        Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
+                      </span>
+                      <span className="badge-chip">
+                        All variants {formatVariantTotal(allVariantTotal, allVariantTotalIsEstimated)}
+                      </span>
+                      {smallVariantSummary ? (
+                        <>
+                          <span className="badge-chip">
+                            SNVs {formatSummaryCount(smallVariantSummary.snv_count)}
+                          </span>
+                          <span className="badge-chip">
+                            Indels {formatSummaryCount(smallVariantSummary.indel_count)}
+                          </span>
+                        </>
+                      ) : null}
+                      <span className="badge-chip">Active filters {activeFilterCount}</span>
+                      <span className="badge-chip">Tag library {tags.length}</span>
                     </div>
                   </div>
                 ) : null}
@@ -379,7 +397,11 @@ const FamilySmallVariantsPage: React.FC = () => {
             <div className="page-top-card-visual">
               <div className="page-top-card-pedigree">
                 <p className="analysis-section-title">Pedigree</p>
-                <Pedigree rows={pedRows} />
+                <Pedigree
+                  rows={pedRows}
+                  members={family?.members}
+                  inheritanceModel={(family?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
+                />
               </div>
             </div>
           )}

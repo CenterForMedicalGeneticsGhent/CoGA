@@ -10,22 +10,55 @@ interface PedRow {
   phen: string;
 }
 
+interface PedigreeMember {
+  sample_id: string;
+  role?: string | null;
+  carrier_status?: boolean | null;
+  carrier_type?: "obligate" | "proven" | null;
+  clinical_status?: string | null;
+}
+
 interface Props {
   rows: PedRow[];
+  members?: PedigreeMember[];
+  inheritanceModel?: string | null;
 }
 
 const NODE_SIZE = 20;
 // Increase spacing to reduce label overlap
 const GEN_VERTICAL_GAP = 100;
 const SIBLING_HORIZONTAL_GAP = 100;
+const EMBRYO_LEAF_WIDTH = 32;
+const EMBRYO_HORIZONTAL_GAP = 20;
 const COUPLE_GAP = 50;
 const SIBLING_LINE_OFFSET = 20;
 
-const Pedigree: React.FC<Props> = ({ rows }) => {
+const isAffectedPhenotype = (phenotype: string): boolean => phenotype === "2";
+
+const Pedigree: React.FC<Props> = ({ rows, members = [], inheritanceModel }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     const rowMap = new Map(rows.map((r) => [r.iid, r]));
+    const memberMap = new Map(members.map((member) => [member.sample_id, member]));
+    const normalizedInheritance = (inheritanceModel || "").trim().toUpperCase();
+
+    const isEmbryo = (sampleId: string): boolean => {
+      const row = rowMap.get(sampleId);
+      const member = memberMap.get(sampleId);
+      return Boolean(
+        member?.role === "embryo" ||
+          (row?.sex === "0" && (row.phen === "0" || row.phen === "-9")),
+      );
+    };
+
+    const leafWidthFor = (sampleId: string): number =>
+      isEmbryo(sampleId) ? EMBRYO_LEAF_WIDTH : SIBLING_HORIZONTAL_GAP;
+
+    const siblingGapBetween = (leftSampleId: string, rightSampleId: string): number =>
+      isEmbryo(leftSampleId) && isEmbryo(rightSampleId)
+        ? EMBRYO_HORIZONTAL_GAP
+        : SIBLING_HORIZONTAL_GAP;
 
     const getGeneration = (iid: string): number => {
       const r = rowMap.get(iid);
@@ -78,9 +111,10 @@ const Pedigree: React.FC<Props> = ({ rows }) => {
         const cf = familiesByParent.get(cid);
         const childWidth = cf
           ? calcFamilyWidth(cf.father, cf.mother)
-          : SIBLING_HORIZONTAL_GAP;
+          : leafWidthFor(cid);
         width += childWidth;
-        if (idx < children.length - 1) width += SIBLING_HORIZONTAL_GAP;
+        const nextChildId = children[idx + 1];
+        if (nextChildId) width += siblingGapBetween(cid, nextChildId);
       });
       familyWidths.set(key, width);
       return width;
@@ -106,18 +140,19 @@ const Pedigree: React.FC<Props> = ({ rows }) => {
       const children = familyMap.get(key)?.children || [];
       let childLeft = leftX;
       const childY = yParent + GEN_VERTICAL_GAP;
-      children.forEach((cid) => {
+      children.forEach((cid, idx) => {
         const cf = familiesByParent.get(cid);
         const cKey = cf
           ? `${cf.father ?? "0"}_${cf.mother ?? "0"}`
           : null;
         const childWidth = cKey
           ? familyWidths.get(cKey)!
-          : SIBLING_HORIZONTAL_GAP;
+          : leafWidthFor(cid);
         const childCenter = childLeft + childWidth / 2;
         positions.set(cid, { x: childCenter, y: childY });
         if (cf) layoutFamily(cf.father, cf.mother, generation + 1, childLeft);
-        childLeft += childWidth + SIBLING_HORIZONTAL_GAP;
+        const nextChildId = children[idx + 1];
+        childLeft += childWidth + (nextChildId ? siblingGapBetween(cid, nextChildId) : 0);
       });
 
       // Anchor parents above the span of their children so single parents sit over the correct child.
@@ -254,10 +289,31 @@ const Pedigree: React.FC<Props> = ({ rows }) => {
     rows.forEach((r) => {
       const pos = positions.get(r.iid);
       if (!pos) return;
-      const fill = r.phen === "2" ? "black" : "white";
+      const member = memberMap.get(r.iid);
+      const affected = isAffectedPhenotype(r.phen);
+      const carrier = Boolean(member?.carrier_status || member?.clinical_status === "carrier");
+      const xLinkedRecessiveFemaleCarrier = carrier && normalizedInheritance === "XLR" && r.sex === "2";
+      const fill = affected ? "black" : "white";
       const stroke = "black";
-      if (r.sex === "1") {
+      const drawCarrierHalfFill = (shape: d3.Selection<any, unknown, null, undefined>) => {
+        if (!carrier || affected || xLinkedRecessiveFemaleCarrier) return;
+        const clipId = `pedigree-carrier-${r.iid.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
         svg
+          .append("clipPath")
+          .attr("id", clipId)
+          .append("rect")
+          .attr("x", pos.x - NODE_SIZE / 2)
+          .attr("y", pos.y - NODE_SIZE / 2)
+          .attr("width", NODE_SIZE / 2)
+          .attr("height", NODE_SIZE);
+        shape
+          .clone(true)
+          .attr("fill", "black")
+          .attr("stroke", "none")
+          .attr("clip-path", `url(#${clipId})`);
+      };
+      if (r.sex === "1") {
+        const shape = svg
           .append("rect")
           .attr("x", pos.x - NODE_SIZE / 2)
           .attr("y", pos.y - NODE_SIZE / 2)
@@ -265,36 +321,47 @@ const Pedigree: React.FC<Props> = ({ rows }) => {
           .attr("height", NODE_SIZE)
           .attr("fill", fill)
           .attr("stroke", stroke);
+        drawCarrierHalfFill(shape);
       } else if (r.sex === "2") {
-        svg
+        const shape = svg
           .append("circle")
           .attr("cx", pos.x)
           .attr("cy", pos.y)
           .attr("r", NODE_SIZE / 2)
           .attr("fill", fill)
           .attr("stroke", stroke);
+        drawCarrierHalfFill(shape);
+        if (xLinkedRecessiveFemaleCarrier && !affected) {
+          svg
+            .append("circle")
+            .attr("cx", pos.x)
+            .attr("cy", pos.y)
+            .attr("r", NODE_SIZE / 4)
+            .attr("fill", "black")
+            .attr("stroke", "none");
+        }
       } else {
         const diamondPath =
           `M${pos.x} ${pos.y - NODE_SIZE / 2} ` +
           `L${pos.x + NODE_SIZE / 2} ${pos.y} ` +
           `L${pos.x} ${pos.y + NODE_SIZE / 2} ` +
           `L${pos.x - NODE_SIZE / 2} ${pos.y} Z`;
-        svg
+        const shape = svg
           .append("path")
           .attr("d", diamondPath)
           .attr("fill", fill)
           .attr("stroke", stroke);
+        drawCarrierHalfFill(shape);
       }
       svg
         .append("text")
         .attr("x", pos.x)
         .attr("y", pos.y + NODE_SIZE)
         .attr("text-anchor", "middle")
-        // Slightly reduce label font size
-        .attr("font-size", 8)
+        .attr("font-size", isEmbryo(r.iid) ? 7 : 8)
         .text(r.iid);
     });
-  }, [rows]);
+  }, [rows, members, inheritanceModel]);
 
   return (
     <svg

@@ -106,6 +106,11 @@ describe('FamilyIntakePage', () => {
     fireEvent.change(screen.getByLabelText(/sample id/i), {
       target: { value: 'PROB-1' },
     });
+    fireEvent.click(screen.getByLabelText(/^affected$/i));
+    fireEvent.click(screen.getByLabelText(/^carrier$/i));
+    fireEvent.change(screen.getByLabelText(/carrier type/i), {
+      target: { value: 'obligate' },
+    });
 
     await waitFor(() => {
       const sketch = screen.getByTestId('pedigree-sketch');
@@ -124,8 +129,10 @@ describe('FamilyIntakePage', () => {
             father_id: null,
             mother_id: null,
             sex: 'und',
-            affected: true,
+            affected: false,
             is_proband: true,
+            carrier_status: true,
+            carrier_type: 'obligate',
           },
         ],
       })

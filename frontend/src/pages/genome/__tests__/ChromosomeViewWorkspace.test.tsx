@@ -51,6 +51,10 @@ vi.mock('../../../components/visualizations/CnvTrack', () => ({
   default: () => <div data-testid="cnv-track" />,
 }));
 
+vi.mock('../../../components/visualizations/SegmentalDuplicationTrack', () => ({
+  default: () => <div data-testid="segmental-duplication-track" />,
+}));
+
 vi.mock('../../../components/visualizations/SmallVariantTrack', () => ({
   default: () => <div data-testid="small-variant-track" />,
 }));

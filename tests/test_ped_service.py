@@ -62,9 +62,12 @@ async def test_create_family_inserts_samples_one_by_one_for_returning_ids() -> N
 
     sample_insert_calls = [params for sql, params in session.calls if "INSERT INTO samples" in sql]
     assert sample_insert_calls == [
-        {"sample_id": "father", "family_uuid": "family-uuid", "sex": "male"},
-        {"sample_id": "proband", "family_uuid": "family-uuid", "sex": "female"},
+        {"sample_id": "father", "family_uuid": "family-uuid", "sex": "male", "metadata_json": "{}"},
+        {"sample_id": "proband", "family_uuid": "family-uuid", "sex": "female", "metadata_json": "{}"},
     ]
+    family_insert = next(params for sql, params in session.calls if "INSERT INTO families" in sql)
+    assert family_insert["metadata_json"] == "{}"
+    assert family_insert["roi_query"] is None
 
     family_member_insert = next(
         params for sql, params in session.calls if "INSERT INTO family_members" in sql
@@ -104,3 +107,27 @@ async def test_create_family_inserts_samples_one_by_one_for_returning_ids() -> N
         },
     ]
     assert result == {"family_id": "demo_family", "samples": ["father", "proband"]}
+
+
+def test_ped_phenotype_conventions_follow_requested_mapping() -> None:
+    assert ped_service._pedigree_status_from_phenotype("1") == "unaffected"
+    assert ped_service._pedigree_status_from_phenotype("2") == "affected"
+    assert ped_service._pedigree_status_from_phenotype("0") == "unknown"
+    assert ped_service._pedigree_status_from_phenotype("-9") == "unknown"
+
+
+def test_manual_member_metadata_preserves_carrier_status_separately() -> None:
+    member = ped_service.ManualPedMemberCreate(
+        sample_id="parent",
+        affected=False,
+        carrier_status=True,
+        carrier_type="obligate",
+    )
+
+    assert ped_service._manual_member_metadata(member) == {
+        "pedigree": {
+            "pedigree_status": "unaffected",
+            "carrier_status": True,
+            "carrier_type": "obligate",
+        }
+    }
