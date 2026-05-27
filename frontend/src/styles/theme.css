@@ -52,8 +52,8 @@
   --color-haplotype-father-light: #d7e0e9;
   --color-haplotype-mother-dark: #44625e;
   --color-haplotype-mother-light: #d4dedc;
-  --color-haplotype-dominant: #8d3f44;
-  --color-haplotype-recessive: #7a8ea4;
+  --color-haplotype-dominant: #b85b63;
+  --color-haplotype-recessive: #cf7a82;
   --color-haplotype-unknown: #9ca3af;
   --color-haplotype-deleted-fill: rgba(198, 31, 45, 0.08);
   --color-haplotype-deleted-stroke: rgba(157, 22, 35, 0.65);
@@ -62,8 +62,8 @@
   --color-repeat-pathogenic: #b42318;
   --color-repeat-unknown: #c6ccd3;
 
-  --color-apcad-paternal: #556f87;
-  --color-apcad-maternal: #44625e;
+  --color-apcad-paternal: var(--color-haplotype-father-dark);
+  --color-apcad-maternal: var(--color-haplotype-recessive);
   --color-apcad-default: var(--color-gray);
 
   --color-coverage-gain: #556f87;
@@ -75,6 +75,7 @@
   --color-gene-fill: #556f87;
   --color-gene-stroke: #556f87;
   --color-blacklist: #9ca3af;
+  --color-segmental-duplication: #1f2937;
 
   --color-stain-gneg: #ffffff;
   --color-stain-gpos25: #c8c8c8;

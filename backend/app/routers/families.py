@@ -311,6 +311,7 @@ async def get_family_small_variants(
     project_id: str | None = None,
     overlap: bool = False,
     track_mode: bool = False,
+    track_result_limit: int | None = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> VariantPage:
@@ -369,6 +370,7 @@ async def get_family_small_variants(
         has_notes=has_notes,
         overlap=overlap,
         track_mode=track_mode,
+        track_result_limit=track_result_limit,
     )
 
 

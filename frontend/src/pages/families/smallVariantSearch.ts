@@ -171,7 +171,7 @@ export interface SmallVariantTagDefinition {
 }
 
 export type FamilyMember = ApiFamilyMember;
-export type SmallVariantFamily = Pick<ApiFamilyRecord, 'members' | 'pedigree' | 'projects'>;
+export type SmallVariantFamily = Pick<ApiFamilyRecord, 'members' | 'pedigree' | 'projects' | 'metadata'>;
 
 export interface PedRow {
   fid: string;

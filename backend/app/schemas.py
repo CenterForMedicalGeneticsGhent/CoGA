@@ -94,9 +94,12 @@ class FamilyMemberOut(BaseModel):
     """Schema for a family member with a human-friendly sample ID."""
 
     sample_id: str
-    role: Literal["proband", "father", "mother", "sibling"]
+    role: Literal["proband", "father", "mother", "sibling", "embryo", "relative"]
     affected: bool
     sex: Literal["male", "female", "und"] = "und"
+    clinical_status: Optional[str] = None
+    carrier_status: Optional[bool] = None
+    carrier_type: Optional[Literal["obligate", "proven"]] = None
 
 
 class FamilyRegionOfInterestOut(BaseModel):
@@ -260,6 +263,8 @@ class ManualPedMemberCreate(BaseModel):
     sex: Literal["male", "female", "und"] = "und"
     affected: bool = False
     is_proband: bool = False
+    carrier_status: bool = False
+    carrier_type: Optional[Literal["obligate", "proven"]] = None
 
 
 class ManualPedFamilyCreate(BaseModel):
@@ -397,6 +402,7 @@ class AssemblyReferenceStatusOut(BaseModel):
     genes: int
     blacklist_regions: int
     clinical_cnvs: int
+    segmental_duplications: int
 
 
 class ReferenceImportSourceOrganismOut(BaseModel):
@@ -448,7 +454,7 @@ class ReferenceAutoImportResult(BaseModel):
 class ReferenceUploadResult(BaseModel):
     assembly_id: str
     assembly_name: str
-    dataset_type: Literal["cytobands", "genes", "blacklist", "clinical_cnvs"]
+    dataset_type: Literal["cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications"]
     inserted: int
     replaced: bool
 
@@ -656,6 +662,14 @@ class ClinicalCnvOut(ApiDocumentModel):
     type: Optional[str] = None
     label: str
     details_html: Optional[str] = None
+
+
+class SegmentalDuplicationOut(ApiDocumentModel):
+    chr: str
+    start: int
+    end: int
+    label: str
+    source: Optional[str] = None
 
 
 class GenePanelOut(ApiDocumentModel):
@@ -897,6 +911,7 @@ class HaplotypeSegment(BaseModel):
     end: int
     hap1: str
     hap2: str
+    ps: Optional[int] = None
 
 
 class HaplotypeSample(BaseModel):

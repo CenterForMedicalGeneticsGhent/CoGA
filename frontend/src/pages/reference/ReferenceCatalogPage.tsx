@@ -27,6 +27,7 @@ interface AssemblyReferenceStatus {
   genes: number;
   blacklist_regions: number;
   clinical_cnvs: number;
+  segmental_duplications: number;
 }
 
 interface ReferenceImportSourceOrganism {
@@ -214,6 +215,11 @@ const ReferenceCatalogPage: React.FC = () => {
       title: 'Clinical CNVs',
       description:
         'Upload a UCSC bedDetail-style file with at least 11 columns for curated CNV syndromes.',
+    },
+    segmental_duplications: {
+      title: 'Segmental duplications/LCRs',
+      description:
+        'Upload a BED-like file with segmental duplication/LCR intervals; ClinGen recurrent CNV BED keeps black LCR bars.',
     },
   };
 
@@ -498,6 +504,7 @@ const ReferenceCatalogPage: React.FC = () => {
                                         <th>Genes</th>
                                         <th>Blacklist</th>
                                         <th>Clin CNVs</th>
+                                        <th>SegDup/LCR</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -529,6 +536,9 @@ const ReferenceCatalogPage: React.FC = () => {
                                             </td>
                                             <td className="table-mono">
                                               {formatCatalogCount(status?.clinical_cnvs)}
+                                            </td>
+                                            <td className="table-mono">
+                                              {formatCatalogCount(status?.segmental_duplications)}
                                             </td>
                                           </tr>
                                         );
@@ -730,6 +740,7 @@ const ReferenceCatalogPage: React.FC = () => {
                     <option value="genes">Genes</option>
                     <option value="blacklist">Blacklist</option>
                     <option value="clinical_cnvs">Clinical CNVs</option>
+                    <option value="segmental_duplications">Segmental duplications/LCRs</option>
                   </select>
                 </label>
                 <label className="field-label">
@@ -758,7 +769,8 @@ const ReferenceCatalogPage: React.FC = () => {
                 <p className="dashboard-link-note">
                   Current assembly status for <strong>{selectedAssemblyStatus.assembly_name}</strong>:
                   {' '}cytobands {selectedAssemblyStatus.chromosomes}, genes {selectedAssemblyStatus.genes},
-                  {' '}blacklist {selectedAssemblyStatus.blacklist_regions}, clinical CNVs {selectedAssemblyStatus.clinical_cnvs}.
+                  {' '}blacklist {selectedAssemblyStatus.blacklist_regions}, clinical CNVs {selectedAssemblyStatus.clinical_cnvs},
+                  {' '}SegDup/LCR {selectedAssemblyStatus.segmental_duplications ?? 0}.
                 </p>
               )}
             </div>

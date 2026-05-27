@@ -118,6 +118,22 @@ class Settings(BaseSettings):
         default="/data/ref-data/STRchive-loci.json",
         alias="TRGT_STRCHIVE_LOCI_PATH",
     )
+    reference_bootstrap_enabled: bool = Field(
+        default=True,
+        alias="REFERENCE_BOOTSTRAP_ENABLED",
+    )
+    reference_bootstrap_assembly_name: str = Field(
+        default="GRCh38",
+        alias="REFERENCE_BOOTSTRAP_ASSEMBLY_NAME",
+    )
+    reference_clinical_cnvs_path: str | None = Field(
+        default="/data/ref-data/clinical_cnv_syndromes_hg38_combined.tsv",
+        alias="REFERENCE_CLINICAL_CNVS_PATH",
+    )
+    reference_segmental_duplications_path: str | None = Field(
+        default="/data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed",
+        alias="REFERENCE_SEGMENTAL_DUPLICATIONS_PATH",
+    )
     paraphase_medical_regions_path: str | None = Field(
         default="/data/ref-data/paraphase-medical-regions.json",
         alias="PARAPHASE_MEDICAL_REGIONS_PATH",

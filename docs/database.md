@@ -23,6 +23,7 @@ Reference data:
 - `genes`
 - `blacklist`
 - `clinical_cnvs`
+- `segmental_duplications`
 
 Review and annotation state:
 
@@ -89,7 +90,7 @@ The important logical entities are:
 ## Relationships
 
 - `species -> assemblies`
-- `assemblies -> chromosomes / genes / blacklist / clinical_cnvs`
+- `assemblies -> chromosomes / genes / blacklist / clinical_cnvs / segmental_duplications`
 - `projects -> species + assemblies`
 - `families <-> projects`
 - `samples -> families`

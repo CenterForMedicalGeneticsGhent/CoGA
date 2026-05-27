@@ -242,6 +242,7 @@ async def _fetch_raw_track_rows(
     sample_uuid: str,
     track_type: str,
     chrom: str,
+    origins: list[str] | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     _ = session
@@ -252,6 +253,7 @@ async def _fetch_raw_track_rows(
         sample_uuid=sample_uuid,
         track_type=track_type,
         chromosomes=[chrom],
+        origins=origins,
         limit=limit,
     )
 
@@ -333,6 +335,7 @@ async def _fetch_bed_records_for_chrom(
             sample_uuid=sample_context.sample_uuid,
             track_type=bed_type,
             chrom=chrom_clean,
+            origins=["paternal", "maternal"],
         )
         return _windowed_apcad_rows(rows, window, limit)
     rows = await _fetch_raw_track_rows(
@@ -341,6 +344,7 @@ async def _fetch_bed_records_for_chrom(
         sample_uuid=sample_context.sample_uuid,
         track_type=bed_type,
         chrom=chrom_clean,
+        origins=["paternal", "maternal"] if bed_type == "apcad" else None,
         limit=limit,
     )
     return [_serialize_bed_record(bed_type, row) for row in rows]
@@ -493,6 +497,7 @@ async def get_family_haplotypes_response(
                 "end": int(row["end"]),
                 "hap1": str(row.get("hap1") or ""),
                 "hap2": str(row.get("hap2") or ""),
+                "ps": row.get("ps"),
             }
         )
     return HaplotypeResponse(
@@ -536,6 +541,7 @@ async def get_family_haplotypes_batch_response(
                 "end": int(row["end"]),
                 "hap1": str(row.get("hap1") or ""),
                 "hap2": str(row.get("hap2") or ""),
+                "ps": row.get("ps"),
             }
         )
     return HaplotypeResponse(

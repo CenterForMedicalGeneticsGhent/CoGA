@@ -189,6 +189,7 @@ async def fetch_interval_track_rows(
     sample_uuids: Sequence[str] | None = None,
     track_type: str,
     chromosomes: Sequence[str],
+    origins: Sequence[str] | None = None,
     start: int | None = None,
     end: int | None = None,
     limit: int | None = None,
@@ -209,6 +210,9 @@ async def fetch_interval_track_rows(
     if chrom_values:
         clauses.append("chrom IN %(chromosomes)s")
         params["chromosomes"] = tuple(chrom_values)
+    if origins:
+        clauses.append("origin IN %(origins)s")
+        params["origins"] = tuple(str(value) for value in origins)
     if start is not None and end is not None:
         clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
         params["window_start"] = int(start)

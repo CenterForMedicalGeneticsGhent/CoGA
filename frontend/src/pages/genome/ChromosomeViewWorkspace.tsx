@@ -12,6 +12,7 @@ import HaplotypeTrack from '../../components/visualizations/HaplotypeTrack';
 import GeneTrack from '../../components/visualizations/GeneTrack';
 import BlacklistTrack from '../../components/visualizations/BlacklistTrack';
 import CnvTrack from '../../components/visualizations/CnvTrack';
+import SegmentalDuplicationTrack from '../../components/visualizations/SegmentalDuplicationTrack';
 import SmallVariantTrack from '../../components/visualizations/SmallVariantTrack';
 import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansionTrack';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
@@ -32,9 +33,10 @@ import {
 
 const TRACK_HEIGHT = 120;
 const VARIANT_TRACK_HEIGHT = 80;
-const HAPLOTYPE_TRACK_HEIGHT = 40;
+const HAPLOTYPE_TRACK_HEIGHT = 15;
 const ZOOMED_IDEOGRAM_HEIGHT = 40;
 const CNV_TRACK_HEIGHT = 20;
+const SEGMENTAL_DUPLICATION_TRACK_HEIGHT = 20;
 const BLACKLIST_TRACK_HEIGHT = 20;
 const SMALL_VARIANT_TRACK_HEIGHT = 20;
 const REPEAT_TRACK_HEIGHT = 20;
@@ -227,6 +229,11 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         onChange: onRegionSelect,
       }
     : undefined;
+  const hasCarrierSegregation = membersWithData.some((member) => Boolean(member.carrier_status));
+  const haplotypeDisorder = hasCarrierSegregation ? 'recessive' : 'dominant';
+  const highlightRiskHaplotype = membersWithData.some(
+    (member) => member.affected || Boolean(member.carrier_status),
+  );
   const { data: geneSuggestions = [] } = useQuery<GeneSuggestion[]>({
     queryKey: ['chromosome-jump-suggestions', assemblyId, trimmedJumpQuery],
     enabled: trimmedJumpQuery.length >= 2 && !isLocationJump,
@@ -566,7 +573,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                 <ViewerTrackBlock
                   label="Haplotypes"
                   width={trackWidth}
-                  frameClassName="h-[40px]"
+                  frameClassName="h-[15px]"
                   roiRange={regionRoiRange}
                   roiTitle={roiTitle}
                   viewportInteraction={viewportInteraction}
@@ -581,6 +588,9 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                     height={HAPLOTYPE_TRACK_HEIGHT}
                     role={member.role}
                     affected={member.affected}
+                    carrierStatus={member.carrier_status}
+                    highlightRiskHaplotype={highlightRiskHaplotype}
+                    disorder={haplotypeDisorder}
                   />
                 </ViewerTrackBlock>
               )}
@@ -671,6 +681,23 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
               chrom={chrom}
               width={trackWidth}
               height={BLACKLIST_TRACK_HEIGHT}
+              regionStart={region.start}
+              regionEnd={region.end}
+            />
+          </ViewerTrackBlock>
+          <ViewerTrackBlock
+            label="SegDup/LCR"
+            width={trackWidth}
+            frameClassName="h-[20px]"
+            roiRange={regionRoiRange}
+            roiTitle={roiTitle}
+            viewportInteraction={viewportInteraction}
+          >
+            <SegmentalDuplicationTrack
+              assembly={assembly}
+              chrom={chrom}
+              width={trackWidth}
+              height={SEGMENTAL_DUPLICATION_TRACK_HEIGHT}
               regionStart={region.start}
               regionEnd={region.end}
             />

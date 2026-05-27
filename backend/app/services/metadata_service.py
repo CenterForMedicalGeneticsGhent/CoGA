@@ -704,7 +704,8 @@ async def _fetch_project_family_rows(
             s.sample_id,
             fm.role,
             fm.affected,
-            s.sex
+            s.sex,
+            s.metadata AS sample_metadata
         FROM family_members fm
         JOIN samples s ON s.id = fm.sample_id
         WHERE fm.family_id IN :family_ids
@@ -715,12 +716,16 @@ async def _fetch_project_family_rows(
     member_rows = [dict(row) for row in member_result.mappings().all()]
     members_by_family: dict[str, list[FamilyMemberOut]] = defaultdict(list)
     for row in member_rows:
+        pedigree_metadata = _normalize_metadata(row.get("sample_metadata")).get("pedigree") or {}
         members_by_family[row["family_uuid"]].append(
             FamilyMemberOut(
                 sample_id=row["sample_id"],
                 role=row["role"],
                 affected=bool(row["affected"]),
                 sex=row["sex"],
+                clinical_status=pedigree_metadata.get("pedigree_status"),
+                carrier_status=pedigree_metadata.get("carrier_status"),
+                carrier_type=pedigree_metadata.get("carrier_type"),
             )
         )
 
@@ -995,7 +1000,8 @@ async def _fetch_family_sample_rows(
             s.sample_id,
             s.sex,
             fm.role,
-            fm.affected
+            fm.affected,
+            s.metadata AS sample_metadata
         FROM family_members fm
         JOIN samples s ON s.id = fm.sample_id
         WHERE fm.family_id IN :family_uuids
@@ -1015,15 +1021,20 @@ def _family_out_from_rows(
     sample_rows: list[dict[str, Any]],
     project_ids: list[str] | None = None,
 ) -> FamilyOut:
-    members = [
-        FamilyMemberOut(
-            sample_id=row["sample_id"],
-            role=row["role"],
-            affected=bool(row["affected"]),
-            sex=row["sex"],
+    members: list[FamilyMemberOut] = []
+    for row in sample_rows:
+        pedigree_metadata = _normalize_metadata(row.get("sample_metadata")).get("pedigree") or {}
+        members.append(
+            FamilyMemberOut(
+                sample_id=row["sample_id"],
+                role=row["role"],
+                affected=bool(row["affected"]),
+                sex=row["sex"],
+                clinical_status=pedigree_metadata.get("pedigree_status"),
+                carrier_status=pedigree_metadata.get("carrier_status"),
+                carrier_type=pedigree_metadata.get("carrier_type"),
+            )
         )
-        for row in sample_rows
-    ]
     return _family_out_from_mapping(
         family_row,
         members,

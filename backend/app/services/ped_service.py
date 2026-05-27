@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -10,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
 from .metadata_service import CurrentUser
+
+INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
 
 
 def _parse_ped_text(text_value: str) -> dict[str, list[dict[str, str]]]:
@@ -42,6 +45,58 @@ def _phenotype_code_from_affected(affected: bool) -> str:
     return "2" if affected else "1"
 
 
+def _pedigree_status_from_phenotype(phenotype: str) -> str:
+    normalized = phenotype.strip().lower()
+    if normalized == "1":
+        return "unaffected"
+    if normalized == "2":
+        return "affected"
+    if normalized in {"0", "-9"}:
+        return "unknown"
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unsupported PED phenotype '{phenotype}'. Use 0/-9 for missing, 1 for unaffected, or 2 for affected.",
+    )
+
+
+def _split_sample_id_list(value: str | None) -> list[str]:
+    if value is None:
+        return []
+    return [
+        item.strip()
+        for item in value.replace(";", ",").split(",")
+        if item.strip()
+    ]
+
+
+def _normalize_inheritance_model(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    cleaned = value.strip()
+    normalized = cleaned.upper()
+    if normalized in {"MITO", "MITOCHONDRIAL"}:
+        return "mitochondrial"
+    if normalized in INHERITANCE_MODELS:
+        return normalized
+    raise HTTPException(
+        status_code=400,
+        detail="Inheritance model must be one of AD, AR, XLD, XLR, or mitochondrial",
+    )
+
+
+def _carrier_annotations(
+    sample_id: str,
+    *,
+    obligate_carriers: set[str],
+    proven_carriers: set[str],
+) -> dict[str, Any]:
+    if sample_id in proven_carriers:
+        return {"carrier_status": True, "carrier_type": "proven"}
+    if sample_id in obligate_carriers:
+        return {"carrier_status": True, "carrier_type": "obligate"}
+    return {"carrier_status": False}
+
+
 def _build_ped_text_from_manual_family(family: ManualPedFamilyCreate) -> str:
     return "\n".join(
         [
@@ -58,6 +113,17 @@ def _build_ped_text_from_manual_family(family: ManualPedFamilyCreate) -> str:
             for member in family.members
         ]
     )
+
+
+def _manual_member_metadata(member: ManualPedMemberCreate) -> dict[str, Any]:
+    carrier_status = bool(member.carrier_status or member.carrier_type)
+    pedigree_metadata: dict[str, Any] = {
+        "pedigree_status": "affected" if member.affected else "unaffected",
+        "carrier_status": carrier_status,
+    }
+    if carrier_status and member.carrier_type:
+        pedigree_metadata["carrier_type"] = member.carrier_type
+    return {"pedigree": pedigree_metadata}
 
 
 def _normalize_parent_id(value: str | None) -> str | None:
@@ -153,6 +219,10 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
                     "sample_id": sample_id,
                     "father_id": _normalize_parent_id(member.father_id),
                     "mother_id": _normalize_parent_id(member.mother_id),
+                    "carrier_status": bool(member.carrier_status or member.carrier_type),
+                    "carrier_type": (
+                        member.carrier_type if member.carrier_status or member.carrier_type else None
+                    ),
                 }
             )
         )
@@ -284,16 +354,51 @@ async def _create_family(
     pedigree: str,
     members: list[dict[str, Any]],
     project_id: str | None,
+    family_metadata: dict[str, Any] | None = None,
+    roi: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     created = await session.execute(
         text(
             """
-            INSERT INTO families (family_id, pedigree, metadata)
-            VALUES (:family_id, :pedigree, '{}'::jsonb)
+            INSERT INTO families (
+                family_id,
+                pedigree,
+                metadata,
+                roi_query,
+                roi_label,
+                roi_source,
+                roi_assembly_id,
+                roi_chr,
+                roi_start,
+                roi_end
+            )
+            VALUES (
+                :family_id,
+                :pedigree,
+                CAST(:metadata_json AS jsonb),
+                :roi_query,
+                :roi_label,
+                :roi_source,
+                CAST(:roi_assembly_id AS uuid),
+                :roi_chr,
+                :roi_start,
+                :roi_end
+            )
             RETURNING id::text AS family_uuid, family_id
             """
         ),
-        {"family_id": family_id, "pedigree": pedigree},
+        {
+            "family_id": family_id,
+            "pedigree": pedigree,
+            "metadata_json": json.dumps(family_metadata or {}),
+            "roi_query": roi.get("query") if roi else None,
+            "roi_label": roi.get("label") if roi else None,
+            "roi_source": roi.get("source") if roi else None,
+            "roi_assembly_id": roi.get("assembly_id") if roi else None,
+            "roi_chr": roi.get("chr") if roi else None,
+            "roi_start": roi.get("start") if roi else None,
+            "roi_end": roi.get("end") if roi else None,
+        },
     )
     family_row = dict(created.mappings().one())
     sample_ids = [member["sample_id"] for member in members]
@@ -303,7 +408,12 @@ async def _create_family(
             text(
                 """
                 INSERT INTO samples (sample_id, family_id, sex, metadata)
-                VALUES (:sample_id, CAST(:family_uuid AS uuid), :sex, '{}'::jsonb)
+                VALUES (
+                    :sample_id,
+                    CAST(:family_uuid AS uuid),
+                    :sex,
+                    CAST(:metadata_json AS jsonb)
+                )
                 RETURNING id::text AS sample_uuid, sample_id
                 """
             ),
@@ -311,6 +421,7 @@ async def _create_family(
                 "sample_id": member["sample_id"],
                 "family_uuid": family_row["family_uuid"],
                 "sex": member["sex"],
+                "metadata_json": json.dumps(member.get("metadata") or {}),
             },
         )
         sample_rows.append(dict(sample_result.mappings().one()))
@@ -368,6 +479,10 @@ async def upload_ped_data(
     overwrite: bool,
     user: CurrentUser,
     project_id: str | None,
+    roi_query: str | None = None,
+    inheritance_model: str | None = None,
+    obligate_carriers: str | None = None,
+    proven_carriers: str | None = None,
 ) -> PedUploadResult:
     resolved_project_id = await _resolve_accessible_project_id(session, user, project_id)
     text_value = (await file.read()).decode()
@@ -375,6 +490,46 @@ async def upload_ped_data(
     await _replace_existing_families(session, list(families.keys()), overwrite, user)
     sample_ids = sorted({member["iid"] for members in families.values() for member in members})
     await _ensure_sample_ids_are_available(session, sample_ids)
+    inheritance = _normalize_inheritance_model(inheritance_model)
+    obligate_carrier_ids = set(_split_sample_id_list(obligate_carriers))
+    proven_carrier_ids = set(_split_sample_id_list(proven_carriers))
+    unknown_carrier_ids = sorted((obligate_carrier_ids | proven_carrier_ids) - set(sample_ids))
+    if unknown_carrier_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Carrier sample IDs are not present in the PED: {', '.join(unknown_carrier_ids)}",
+        )
+    roi_payload: dict[str, Any] | None = None
+    if roi_query and roi_query.strip():
+        if resolved_project_id is None:
+            raise HTTPException(status_code=400, detail="Project assignment is required when setting an ROI")
+        project_result = await session.execute(
+            text(
+                """
+                SELECT assembly_id::text AS assembly_id
+                FROM projects
+                WHERE id = CAST(:project_id AS uuid)
+                """
+            ),
+            {"project_id": resolved_project_id},
+        )
+        assembly_id = project_result.scalar_one_or_none()
+        if assembly_id is None:
+            raise HTTPException(status_code=404, detail="Project assembly not found")
+        from .family_service import _build_family_roi_payload
+
+        roi_payload = await _build_family_roi_payload(
+            session,
+            assembly_id=str(assembly_id),
+            query=roi_query,
+        )
+    family_metadata: dict[str, Any] = {}
+    if inheritance or obligate_carrier_ids or proven_carrier_ids:
+        family_metadata["pgt"] = {
+            "inheritance_model": inheritance,
+            "obligate_carriers": sorted(obligate_carrier_ids),
+            "proven_carriers": sorted(proven_carrier_ids),
+        }
 
     inserted: list[dict[str, Any]] = []
     for family_id, members in families.items():
@@ -390,12 +545,24 @@ async def upload_ped_data(
                 role = "mother"
             elif family_members:
                 role = "sibling"
+            pedigree_status = _pedigree_status_from_phenotype(member["phen"])
+            carrier_metadata = _carrier_annotations(
+                sample_id,
+                obligate_carriers=obligate_carrier_ids,
+                proven_carriers=proven_carrier_ids,
+            )
             family_members.append(
                 {
                     "sample_id": sample_id,
                     "sex": {"1": "male", "2": "female"}.get(member["sex"], "und"),
                     "role": role,
-                    "affected": member["phen"] == "2",
+                    "affected": pedigree_status == "affected",
+                    "metadata": {
+                        "pedigree": {
+                            "pedigree_status": pedigree_status,
+                            **carrier_metadata,
+                        }
+                    },
                 }
             )
         inserted.append(
@@ -417,6 +584,8 @@ async def upload_ped_data(
                 ),
                 members=family_members,
                 project_id=resolved_project_id,
+                family_metadata=family_metadata,
+                roi=roi_payload,
             )
         )
     await session.commit()
@@ -447,6 +616,7 @@ async def create_manual_family_data(
                 "sex": member.sex,
                 "role": roles[member.sample_id],
                 "affected": member.affected,
+                "metadata": _manual_member_metadata(member),
             }
             for member in normalized_members
         ],

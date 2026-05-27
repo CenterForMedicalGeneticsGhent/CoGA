@@ -284,7 +284,11 @@ const FamilyParaphasePage: React.FC = () => {
               <div className="page-top-card-pedigree family-workspace-pedigree">
                 <p className="stat-label">Pedigree</p>
                 <div className="mono-panel overflow-x-auto !bg-[rgba(255,255,255,0.92)]">
-                  <Pedigree rows={pedRows} />
+                  <Pedigree
+                    rows={pedRows}
+                    members={family?.members}
+                    inheritanceModel={(family?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
+                  />
                 </div>
               </div>
             </div>

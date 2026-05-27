@@ -53,6 +53,8 @@ from .variant_annotation_parser import (
 
 SmallVariantFormat = Literal["auto", "clair3", "glimpse2"]
 StructuralVariantFormat = Literal["auto", "manual", "sniffles", "spectre"]
+SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS = 50
+SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN = 500_000
 
 
 @dataclass(slots=True)
@@ -133,11 +135,13 @@ def _iter_upload_text_lines(file: UploadFile, *, kind: str):
     try:
         if is_gzip:
             with gzip.open(raw, mode="rt", encoding="utf-8", errors="replace") as handle:
-                yield from handle
+                for line in handle:
+                    yield line
         else:
             wrapper = io.TextIOWrapper(raw, encoding="utf-8", errors="replace")
             try:
-                yield from wrapper
+                for line in wrapper:
+                    yield line
             finally:
                 wrapper.detach()
     except OSError as exc:
@@ -355,17 +359,48 @@ def _parse_int_list(value: str | None) -> list[int]:
     return parsed
 
 
-def _detect_small_variant_format(text: str, format_hint: SmallVariantFormat) -> Literal["clair3", "glimpse2"]:
+def _format_has_phased_gt(format_keys: list[str], sample_fields: list[str]) -> bool:
+    try:
+        gt_index = format_keys.index("GT")
+    except ValueError:
+        return False
+    for sample_field in sample_fields:
+        values = sample_field.split(":")
+        if gt_index < len(values) and "|" in values[gt_index]:
+            return True
+    return False
+
+
+def _has_phasing_source_hint(header_lines: list[str], filename: str | None = None) -> bool:
+    header_preview = "\n".join(header_lines).lower()
+    file_name = (filename or "").lower()
+    return any(
+        marker in header_preview or marker in file_name
+        for marker in ("glimpse", "shapeit", "phased")
+    )
+
+
+def _detect_small_variant_format(
+    text: str,
+    format_hint: SmallVariantFormat,
+) -> Literal["clair3", "glimpse2"]:
     if format_hint != "auto":
         return format_hint
+    header_lines: list[str] = []
     for line in text.splitlines():
-        if not line or line.startswith("#"):
+        if not line:
+            continue
+        if line.startswith("#"):
+            header_lines.append(line)
             continue
         parts = line.split("\t")
         if len(parts) < 9:
             break
         fmt = parts[8].split(":")
-        if "GP" in fmt:
+        if "GP" in fmt or (
+            _has_phasing_source_hint(header_lines)
+            and _format_has_phased_gt(fmt, parts[9:])
+        ):
             return "glimpse2"
         return "clair3"
     raise HTTPException(status_code=400, detail="No valid VCF records found")
@@ -377,14 +412,23 @@ def _detect_small_variant_format_from_upload(
 ) -> Literal["clair3", "glimpse2"]:
     if format_hint != "auto":
         return format_hint
+    header_lines: list[str] = []
     for line in _iter_upload_text_lines(file, kind="VCF"):
-        if not line or line.startswith("#"):
+        if not line:
+            continue
+        if line.startswith("#"):
+            header_lines.append(line.rstrip("\n\r"))
             continue
         parts = line.rstrip("\n\r").split("\t")
         if len(parts) < 9:
             break
         fmt = parts[8].split(":")
-        return "glimpse2" if "GP" in fmt else "clair3"
+        if "GP" in fmt or (
+            _has_phasing_source_hint(header_lines, file.filename)
+            and _format_has_phased_gt(fmt, parts[9:])
+        ):
+            return "glimpse2"
+        return "clair3"
     raise HTTPException(status_code=400, detail="No valid VCF records found")
 
 
@@ -503,6 +547,322 @@ def _haplotype_state_end(
     return max(state_last_pos + 1, state_start + 1)
 
 
+def _phased_haplotype_alleles(gt_value: str | None) -> tuple[str, str] | None:
+    if not gt_value or "|" not in gt_value:
+        return None
+    hap1, hap2 = gt_value.split("|", 1)
+    if not hap1 or not hap2 or hap1 == "." or hap2 == ".":
+        return None
+    return hap1, hap2
+
+
+def _new_haplotype_state(
+    *,
+    chrom: str,
+    start: int,
+    hap1: str,
+    hap2: str,
+    ps: int | None,
+) -> dict[str, Any]:
+    return {
+        "start": start,
+        "hap1": hap1,
+        "hap2": hap2,
+        "ps": ps,
+        "chr": chrom,
+        "last_pos": start,
+    }
+
+
+def _empty_haplotype_state() -> dict[str, Any]:
+    return {
+        "start": None,
+        "hap1": None,
+        "hap2": None,
+        "ps": None,
+        "chr": None,
+        "last_pos": None,
+    }
+
+
+def _empty_segregation_side_state() -> dict[str, Any]:
+    return {
+        "chr": None,
+        "hap": None,
+        "pending_hap": None,
+        "pending_start": None,
+        "pending_last": None,
+        "pending_count": 0,
+    }
+
+
+def _clear_segregation_pending(state: dict[str, Any]) -> None:
+    state["pending_hap"] = None
+    state["pending_start"] = None
+    state["pending_last"] = None
+    state["pending_count"] = 0
+
+
+def _observe_segregation_haplotype(
+    state: dict[str, Any],
+    *,
+    chrom: str,
+    start: int,
+    hap: str | None,
+) -> tuple[int, str] | None:
+    if hap not in {"0", "1"}:
+        return None
+    if state["chr"] != chrom:
+        state["chr"] = chrom
+        state["hap"] = hap
+        _clear_segregation_pending(state)
+        return start, hap
+    if state["hap"] is None:
+        state["hap"] = hap
+        _clear_segregation_pending(state)
+        return start, hap
+    if hap == state["hap"]:
+        _clear_segregation_pending(state)
+        return None
+    if state["pending_hap"] == hap:
+        state["pending_count"] = int(state["pending_count"]) + 1
+        state["pending_last"] = start
+    else:
+        state["pending_hap"] = hap
+        state["pending_start"] = start
+        state["pending_last"] = start
+        state["pending_count"] = 1
+
+    pending_start = int(state["pending_start"] or start)
+    pending_last = int(state["pending_last"] or start)
+    if (
+        int(state["pending_count"]) >= SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS
+        and pending_last - pending_start >= SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN
+    ):
+        state["hap"] = hap
+        _clear_segregation_pending(state)
+        return pending_start, hap
+    return None
+
+
+def _confirmed_segregation_haplotype(state: dict[str, Any], chrom: str) -> str:
+    if state["chr"] == chrom and state["hap"] in {"0", "1"}:
+        return str(state["hap"])
+    return "?"
+
+
+def _haplotype_state_matches_block(
+    state: dict[str, Any],
+    *,
+    chrom: str,
+    ps: int | None,
+) -> bool:
+    if state["chr"] != chrom:
+        return False
+    if state["ps"] is not None or ps is not None:
+        return state["ps"] == ps
+    return True
+
+
+def _haplotype_state_matches_segment(
+    state: dict[str, Any],
+    *,
+    chrom: str,
+    hap1: str,
+    hap2: str,
+    ps: int | None,
+) -> bool:
+    return (
+        state["chr"] == chrom
+        and state["hap1"] == hap1
+        and state["hap2"] == hap2
+        and state["ps"] == ps
+    )
+
+
+def _append_haplotype_state_row(
+    rows: list[dict[str, Any]],
+    sample_context: SampleMetadataContext,
+    state: dict[str, Any],
+    *,
+    next_chrom: str | None,
+    next_start: int | None,
+    chromosome_sizes: dict[str, int],
+    metadata_json: str,
+) -> None:
+    if state["start"] is None:
+        return
+    rows.append(
+        _haplotype_row(
+            sample_context,
+            chrom=str(state["chr"]),
+            start=int(state["start"]),
+            end=_haplotype_state_end(
+                state,
+                next_chrom=next_chrom,
+                next_start=next_start,
+                chromosome_sizes=chromosome_sizes,
+            ),
+            hap1=str(state["hap1"]),
+            hap2=str(state["hap2"]),
+            ps=state["ps"],
+            metadata_json=metadata_json,
+        )
+    )
+
+
+def _update_haplotype_state(
+    *,
+    states: dict[str, dict[str, Any]],
+    rows: list[dict[str, Any]],
+    sample_contexts: dict[str, SampleMetadataContext],
+    sample_name: str,
+    chrom: str,
+    start: int,
+    hap1: str,
+    hap2: str,
+    ps: int | None,
+    chromosome_sizes: dict[str, int],
+    metadata_json: str,
+    split_on_haplotype_change: bool,
+) -> None:
+    state = states[sample_name]
+    if state["start"] is None:
+        states[sample_name] = _new_haplotype_state(
+            chrom=chrom,
+            start=start,
+            hap1=hap1,
+            hap2=hap2,
+            ps=ps,
+        )
+        return
+    if split_on_haplotype_change:
+        matches = _haplotype_state_matches_segment(
+            state,
+            chrom=chrom,
+            hap1=hap1,
+            hap2=hap2,
+            ps=ps,
+        )
+    else:
+        matches = _haplotype_state_matches_block(state, chrom=chrom, ps=ps)
+    if matches:
+        state["last_pos"] = start
+        return
+    _append_haplotype_state_row(
+        rows,
+        sample_contexts[sample_name],
+        state,
+        next_chrom=chrom,
+        next_start=start,
+        chromosome_sizes=chromosome_sizes,
+        metadata_json=metadata_json,
+    )
+    states[sample_name] = _new_haplotype_state(
+        chrom=chrom,
+        start=start,
+        hap1=hap1,
+        hap2=hap2,
+        ps=ps,
+    )
+
+
+def _close_haplotype_state(
+    *,
+    states: dict[str, dict[str, Any]],
+    rows: list[dict[str, Any]],
+    sample_contexts: dict[str, SampleMetadataContext],
+    sample_name: str,
+    next_chrom: str | None,
+    next_start: int | None,
+    chromosome_sizes: dict[str, int],
+    metadata_json: str,
+) -> None:
+    state = states[sample_name]
+    _append_haplotype_state_row(
+        rows,
+        sample_contexts[sample_name],
+        state,
+        next_chrom=next_chrom,
+        next_start=next_start,
+        chromosome_sizes=chromosome_sizes,
+        metadata_json=metadata_json,
+    )
+    states[sample_name] = _empty_haplotype_state()
+
+
+def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:
+    father_name: str | None = None
+    mother_name: str | None = None
+    for row in context.sample_rows:
+        role = str(row.get("role") or "").strip().lower()
+        sample_name = str(row.get("sample_id") or "")
+        if role == "father" and sample_name:
+            father_name = father_name or sample_name
+        elif role == "mother" and sample_name:
+            mother_name = mother_name or sample_name
+    return father_name, mother_name
+
+
+def _transmitted_parent_haplotype(
+    parent_alleles: tuple[str, str] | None,
+    other_parent_alleles: tuple[str, str] | None,
+    child_alleles: tuple[str, str] | None,
+) -> str | None:
+    if parent_alleles is None or other_parent_alleles is None or child_alleles is None:
+        return None
+    child_state = tuple(sorted(child_alleles))
+    possible: set[int] = set()
+    for parent_index, parent_allele in enumerate(parent_alleles):
+        for other_allele in other_parent_alleles:
+            if tuple(sorted((parent_allele, other_allele))) == child_state:
+                possible.add(parent_index)
+    if len(possible) != 1:
+        return None
+    return str(next(iter(possible)))
+
+
+def _flip_parent_haplotype(value: str, *, flip: bool) -> str:
+    if not flip:
+        return value
+    if value == "0":
+        return "1"
+    if value == "1":
+        return "0"
+    return value
+
+
+def _orient_haplotype_rows_by_affected_child(
+    rows: list[dict[str, Any]],
+    *,
+    sample_contexts: dict[str, SampleMetadataContext],
+    father_name: str,
+    mother_name: str,
+    affected_parent_counts: dict[str, dict[str, int]],
+) -> None:
+    father_counts = affected_parent_counts["father"]
+    mother_counts = affected_parent_counts["mother"]
+    father_flip = father_counts.get("0", 0) > father_counts.get("1", 0)
+    mother_flip = mother_counts.get("0", 0) > mother_counts.get("1", 0)
+    if not father_flip and not mother_flip:
+        return
+    sample_name_by_uuid = {
+        sample_context.sample_uuid: sample_name
+        for sample_name, sample_context in sample_contexts.items()
+    }
+    for row in rows:
+        sample_name = sample_name_by_uuid.get(str(row.get("sample_id")))
+        if sample_name == father_name:
+            row["hap1"] = _flip_parent_haplotype(str(row["hap1"]), flip=father_flip)
+            row["hap2"] = _flip_parent_haplotype(str(row["hap2"]), flip=father_flip)
+        elif sample_name == mother_name:
+            row["hap1"] = _flip_parent_haplotype(str(row["hap1"]), flip=mother_flip)
+            row["hap2"] = _flip_parent_haplotype(str(row["hap2"]), flip=mother_flip)
+        else:
+            row["hap1"] = _flip_parent_haplotype(str(row["hap1"]), flip=father_flip)
+            row["hap2"] = _flip_parent_haplotype(str(row["hap2"]), flip=mother_flip)
+
+
 def _haplotype_row(
     sample_context: SampleMetadataContext,
     *,
@@ -511,7 +871,7 @@ def _haplotype_row(
     end: int,
     hap1: str,
     hap2: str,
-    ps: int,
+    ps: int | None,
     metadata_json: str,
 ) -> dict[str, Any]:
     return {
@@ -621,8 +981,20 @@ async def upload_family_small_variant_file(
         last_reported = 0
         haplotype_rows: list[dict[str, Any]] = []
         hap_prev: dict[str, dict[str, Any]] = {}
+        segregation_side_prev: dict[str, dict[str, dict[str, Any]]] = {}
         variant_batch: list[SmallVariantRecord] = []
         metadata_json = _upload_metadata(resolved_format, file)
+        father_name, mother_name = _parent_sample_names(context)
+        use_segregation_haplotypes = (
+            resolved_format == "glimpse2"
+            and father_name in sample_contexts
+            and mother_name in sample_contexts
+        )
+        affected_sample_names = set(context.affected_sample_names)
+        affected_parent_counts = {
+            "father": {"0": 0, "1": 0},
+            "mother": {"0": 0, "1": 0},
+        }
         chromosome_sizes = (
             await _fetch_chromosome_sizes(session, context.assembly_id)
             if resolved_format == "glimpse2"
@@ -661,13 +1033,10 @@ async def upload_family_small_variant_file(
                 for name in unique_names:
                     if name not in sample_contexts:
                         raise HTTPException(status_code=400, detail=f"Sample '{name}' not found in family")
-                    hap_prev[name] = {
-                        "start": None,
-                        "hap1": None,
-                        "hap2": None,
-                        "ps": None,
-                        "chr": None,
-                        "last_pos": None,
+                    hap_prev[name] = _empty_haplotype_state()
+                    segregation_side_prev[name] = {
+                        "father": _empty_segregation_side_state(),
+                        "mother": _empty_segregation_side_state(),
                     }
                 continue
             if not line or line.startswith("#"):
@@ -690,6 +1059,7 @@ async def upload_family_small_variant_file(
             ) or extract_small_variant_annotations(info, annotation_state)
 
             calls: list[SmallVariantCall] = []
+            calls_by_sample: dict[str, SmallVariantCall] = {}
             for sample_name, sample_field in zip(sample_names, sample_fields):
                 fmt_vals = _parse_format(fmt, sample_field)
                 gt_val = fmt_vals.get("GT", "./.")
@@ -703,81 +1073,158 @@ async def upload_family_small_variant_file(
                     ps=_first_present_int(fmt_vals, "PS"),
                 )
                 calls.append(call)
-                if resolved_format == "glimpse2":
+                calls_by_sample[sample_name] = call
+                if resolved_format == "glimpse2" and not use_segregation_haplotypes:
                     state = hap_prev[sample_name]
                     ps_val = call.ps
-                    if "|" in gt_val and ps_val is not None:
-                        hap1, hap2 = gt_val.split("|", 1)
-                        if state["start"] is None:
-                            hap_prev[sample_name] = {
-                                "start": start,
-                                "hap1": hap1,
-                                "hap2": hap2,
-                                "ps": ps_val,
-                                "chr": chrom,
-                                "last_pos": start,
-                            }
-                        elif (
-                            state["ps"] != ps_val
-                            or state["hap1"] != hap1
-                            or state["hap2"] != hap2
-                            or state["chr"] != chrom
-                        ):
-                            sample_context = sample_contexts[sample_name]
-                            haplotype_rows.append(
-                                _haplotype_row(
-                                    sample_context,
-                                    chrom=str(state["chr"]),
-                                    start=int(state["start"]),
-                                    end=_haplotype_state_end(
-                                        state,
-                                        next_chrom=chrom,
-                                        next_start=start,
-                                        chromosome_sizes=chromosome_sizes,
-                                    ),
-                                    hap1=str(state["hap1"]),
-                                    hap2=str(state["hap2"]),
-                                    ps=int(state["ps"]),
-                                    metadata_json=metadata_json,
-                                )
-                            )
-                            hap_prev[sample_name] = {
-                                "start": start,
-                                "hap1": hap1,
-                                "hap2": hap2,
-                                "ps": ps_val,
-                                "chr": chrom,
-                                "last_pos": start,
-                            }
-                        else:
-                            state["last_pos"] = start
-                    elif state["start"] is not None:
-                        sample_context = sample_contexts[sample_name]
-                        haplotype_rows.append(
-                            _haplotype_row(
-                                sample_context,
-                                chrom=str(state["chr"]),
-                                start=int(state["start"]),
-                                end=_haplotype_state_end(
-                                    state,
-                                    next_chrom=chrom,
-                                    next_start=start,
-                                    chromosome_sizes=chromosome_sizes,
-                                ),
-                                hap1=str(state["hap1"]),
-                                hap2=str(state["hap2"]),
-                                ps=int(state["ps"]),
-                                metadata_json=metadata_json,
-                            )
+                    phased_alleles = _phased_haplotype_alleles(gt_val)
+                    if phased_alleles is not None:
+                        hap1, hap2 = phased_alleles
+                        _update_haplotype_state(
+                            states=hap_prev,
+                            rows=haplotype_rows,
+                            sample_contexts=sample_contexts,
+                            sample_name=sample_name,
+                            chrom=chrom,
+                            start=start,
+                            hap1=hap1,
+                            hap2=hap2,
+                            ps=ps_val,
+                            chromosome_sizes=chromosome_sizes,
+                            metadata_json=metadata_json,
+                            split_on_haplotype_change=False,
                         )
-                        hap_prev[sample_name] = {
-                            "start": None,
-                            "hap1": None,
-                            "hap2": None,
-                            "ps": None,
-                            "chr": None,
-                            "last_pos": None,
-                        }
+                    elif state["start"] is not None:
+                        _close_haplotype_state(
+                            states=hap_prev,
+                            rows=haplotype_rows,
+                            sample_contexts=sample_contexts,
+                            sample_name=sample_name,
+                            next_chrom=chrom,
+                            next_start=start,
+                            chromosome_sizes=chromosome_sizes,
+                            metadata_json=metadata_json,
+                        )
+
+            if use_segregation_haplotypes and father_name and mother_name:
+                father_call = calls_by_sample.get(father_name)
+                mother_call = calls_by_sample.get(mother_name)
+                father_alleles = _phased_haplotype_alleles(father_call.gt if father_call else None)
+                mother_alleles = _phased_haplotype_alleles(mother_call.gt if mother_call else None)
+
+                if father_call is not None and father_alleles is not None:
+                    _update_haplotype_state(
+                        states=hap_prev,
+                        rows=haplotype_rows,
+                        sample_contexts=sample_contexts,
+                        sample_name=father_name,
+                        chrom=chrom,
+                        start=start,
+                        hap1="0",
+                        hap2="1",
+                        ps=father_call.ps,
+                        chromosome_sizes=chromosome_sizes,
+                        metadata_json=metadata_json,
+                        split_on_haplotype_change=True,
+                    )
+                if mother_call is not None and mother_alleles is not None:
+                    _update_haplotype_state(
+                        states=hap_prev,
+                        rows=haplotype_rows,
+                        sample_contexts=sample_contexts,
+                        sample_name=mother_name,
+                        chrom=chrom,
+                        start=start,
+                        hap1="0",
+                        hap2="1",
+                        ps=mother_call.ps,
+                        chromosome_sizes=chromosome_sizes,
+                        metadata_json=metadata_json,
+                        split_on_haplotype_change=True,
+                    )
+
+                for sample_name in sample_names:
+                    if sample_name in {father_name, mother_name}:
+                        continue
+                    child_call = calls_by_sample.get(sample_name)
+                    child_alleles = _phased_haplotype_alleles(child_call.gt if child_call else None)
+                    paternal_hap = _transmitted_parent_haplotype(
+                        father_alleles,
+                        mother_alleles,
+                        child_alleles,
+                    )
+                    maternal_hap = _transmitted_parent_haplotype(
+                        mother_alleles,
+                        father_alleles,
+                        child_alleles,
+                    )
+                    if paternal_hap is None and maternal_hap is None:
+                        continue
+                    if sample_name in affected_sample_names:
+                        if paternal_hap is not None:
+                            affected_parent_counts["father"][paternal_hap] += 1
+                        if maternal_hap is not None:
+                            affected_parent_counts["mother"][maternal_hap] += 1
+                    side_states = segregation_side_prev[sample_name]
+                    changes: dict[int, dict[str, str]] = {}
+                    paternal_change = _observe_segregation_haplotype(
+                        side_states["father"],
+                        chrom=chrom,
+                        start=start,
+                        hap=paternal_hap,
+                    )
+                    maternal_change = _observe_segregation_haplotype(
+                        side_states["mother"],
+                        chrom=chrom,
+                        start=start,
+                        hap=maternal_hap,
+                    )
+                    if paternal_change is not None:
+                        switch_start, confirmed_hap = paternal_change
+                        changes.setdefault(switch_start, {})["hap1"] = confirmed_hap
+                    if maternal_change is not None:
+                        switch_start, confirmed_hap = maternal_change
+                        changes.setdefault(switch_start, {})["hap2"] = confirmed_hap
+                    for switch_start, change in sorted(changes.items()):
+                        state = hap_prev[sample_name]
+                        if state["chr"] == chrom and state["start"] is not None:
+                            hap1 = str(state["hap1"])
+                            hap2 = str(state["hap2"])
+                        else:
+                            hap1 = _confirmed_segregation_haplotype(side_states["father"], chrom)
+                            hap2 = _confirmed_segregation_haplotype(side_states["mother"], chrom)
+                        hap1 = change.get("hap1", hap1)
+                        hap2 = change.get("hap2", hap2)
+                        if (
+                            state["chr"] == chrom
+                            and state["start"] is not None
+                            and switch_start <= int(state["start"])
+                        ):
+                            state["hap1"] = hap1
+                            state["hap2"] = hap2
+                            state["ps"] = child_call.ps if child_call else None
+                            continue
+                        _update_haplotype_state(
+                            states=hap_prev,
+                            rows=haplotype_rows,
+                            sample_contexts=sample_contexts,
+                            sample_name=sample_name,
+                            chrom=chrom,
+                            start=switch_start,
+                            hap1=hap1,
+                            hap2=hap2,
+                            ps=child_call.ps if child_call else None,
+                            chromosome_sizes=chromosome_sizes,
+                            metadata_json=metadata_json,
+                            split_on_haplotype_change=True,
+                        )
+                    state = hap_prev[sample_name]
+                    if (
+                        state["chr"] == chrom
+                        and state["start"] is not None
+                        and start >= int(state["start"])
+                    ):
+                        state["last_pos"] = start
 
             variant_batch.append(
                 SmallVariantRecord(
@@ -813,23 +1260,22 @@ async def upload_family_small_variant_file(
             for sample_name, state in hap_prev.items():
                 if state["start"] is None:
                     continue
-                sample_context = sample_contexts[sample_name]
-                haplotype_rows.append(
-                    _haplotype_row(
-                        sample_context,
-                        chrom=str(state["chr"]),
-                        start=int(state["start"]),
-                        end=_haplotype_state_end(
-                            state,
-                            next_chrom=None,
-                            next_start=None,
-                            chromosome_sizes=chromosome_sizes,
-                        ),
-                        hap1=str(state["hap1"]),
-                        hap2=str(state["hap2"]),
-                        ps=int(state["ps"]),
-                        metadata_json=metadata_json,
-                    )
+                _append_haplotype_state_row(
+                    haplotype_rows,
+                    sample_contexts[sample_name],
+                    state,
+                    next_chrom=None,
+                    next_start=None,
+                    chromosome_sizes=chromosome_sizes,
+                    metadata_json=metadata_json,
+                )
+            if use_segregation_haplotypes and father_name and mother_name:
+                _orient_haplotype_rows_by_affected_child(
+                    haplotype_rows,
+                    sample_contexts=sample_contexts,
+                    father_name=father_name,
+                    mother_name=mother_name,
+                    affected_parent_counts=affected_parent_counts,
                 )
 
         await _insert_haplotype_rows(

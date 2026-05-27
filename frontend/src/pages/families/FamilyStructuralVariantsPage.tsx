@@ -313,7 +313,11 @@ const FamilyStructuralVariantsPage: React.FC = () => {
             <div className="page-top-card-visual">
               <div className="page-top-card-pedigree">
                 <p className="analysis-section-title">Pedigree</p>
-                <Pedigree rows={pedRows} />
+                <Pedigree
+                  rows={pedRows}
+                  members={familyData?.members}
+                  inheritanceModel={(familyData?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
+                />
               </div>
             </div>
           )}

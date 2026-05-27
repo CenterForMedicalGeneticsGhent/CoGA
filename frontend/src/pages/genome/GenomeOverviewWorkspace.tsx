@@ -80,6 +80,7 @@ interface GenomeOverviewWorkspaceProps {
 }
 
 const MIN_REGION_SELECT_WIDTH_PX = 5;
+const GENOME_HAPLOTYPE_TRACK_HEIGHT = 15;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -253,6 +254,11 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
     'Reference not linked',
   );
   const suppressedChromClick = useRef<{ chrom: string; ts: number } | null>(null);
+  const hasCarrierSegregation = membersWithData.some((member) => Boolean(member.carrier_status));
+  const haplotypeDisorder = hasCarrierSegregation ? 'recessive' : 'dominant';
+  const highlightRiskHaplotype = membersWithData.some(
+    (member) => member.affected || Boolean(member.carrier_status),
+  );
 
   const handleChromosomeRegionJump = (chrom: string, start: number, end: number) => {
     suppressedChromClick.current = { chrom, ts: Date.now() };
@@ -404,7 +410,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                 <ViewerTrackBlock
                   label="Haplotypes"
                   width={trackWidth}
-                  frameClassName="mb-2 h-[40px]"
+                  frameClassName="mb-2 h-[15px]"
                   roiRange={genomeRoiRange}
                   roiTitle={roiTitle}
                 >
@@ -412,7 +418,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                     <GenomeRegionSelectionSurface
                       layout={layout}
                       width={trackWidth}
-                      height={40}
+                      height={GENOME_HAPLOTYPE_TRACK_HEIGHT}
                       onSelectRegion={navigateToChromosome}
                       testId={`genome-region-select-haplotype-${member.sample_id}`}
                     >
@@ -421,9 +427,12 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                         sampleId={member.sample_id}
                         role={member.role}
                         affected={member.affected}
+                        carrierStatus={member.carrier_status}
+                        highlightRiskHaplotype={highlightRiskHaplotype}
+                        disorder={haplotypeDisorder}
                         layout={layout}
                         width={trackWidth}
-                        height={40}
+                        height={GENOME_HAPLOTYPE_TRACK_HEIGHT}
                         chroms={layout.chroms}
                       />
                     </GenomeRegionSelectionSurface>

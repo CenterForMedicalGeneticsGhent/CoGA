@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
+import csv
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import gzip
 import json
@@ -10,6 +11,7 @@ import logging
 import math
 import os
 from pathlib import Path
+import re
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
@@ -70,6 +72,7 @@ SUPPORTED_DATASETS = (
     "sv_needlr",
     "repeats_trgt",
     "wisecondorx",
+    "qdnaseq",
     "apcad",
     "haplotypes",
     "paraphase",
@@ -157,16 +160,153 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "wisecondorx/{sample_id}/{sample_id}_segments.bed",
                 ],
             },
+            "qdnaseq": {
+                "bins": [
+                    "QDNAseq/{sample_id}/bins.csv",
+                    "QDNAseq/{sample_id}/sample_bins.csv",
+                    "QDNAseq/{sample_id}/{sample_id}_bins.csv",
+                    "QDNAseq/{sample_id}.bins.csv",
+                    "QDNAseq/{sample_id}_bins.csv",
+                    "QDNAseq/{sample_id}_cnv_results.csv",
+                    "QDNAseq/{sample_id}.csv",
+                    "qdnaseq/{sample_id}/bins.csv",
+                    "qdnaseq/{sample_id}/sample_bins.csv",
+                    "qdnaseq/{sample_id}/{sample_id}_bins.csv",
+                    "qdnaseq/{sample_id}.bins.csv",
+                    "qdnaseq/{sample_id}_bins.csv",
+                    "qdnaseq/{sample_id}_cnv_results.csv",
+                    "qdnaseq/{sample_id}.csv",
+                ],
+                "segments": [
+                    "QDNAseq/{sample_id}/segments.csv",
+                    "QDNAseq/{sample_id}/sample_segments.csv",
+                    "QDNAseq/{sample_id}/{sample_id}_segments.csv",
+                    "QDNAseq/{sample_id}.segments.csv",
+                    "QDNAseq/{sample_id}_segments.csv",
+                    "QDNAseq/{sample_id}_cnv_results.csv",
+                    "qdnaseq/{sample_id}/segments.csv",
+                    "qdnaseq/{sample_id}/sample_segments.csv",
+                    "qdnaseq/{sample_id}/{sample_id}_segments.csv",
+                    "qdnaseq/{sample_id}.segments.csv",
+                    "qdnaseq/{sample_id}_segments.csv",
+                    "qdnaseq/{sample_id}_cnv_results.csv",
+                ],
+            },
             "apcad": {
+                "family_vcf": [
+                    "APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz",
+                    "APCAD/{family_id}_embryo_filtered_imp_parent.vcf",
+                    "APCAD/{family_id}.apcad.vcf.gz",
+                    "APCAD/{family_id}.apcad.vcf",
+                    "APCAD/{family_id}.vcf.gz",
+                    "APCAD/{family_id}.vcf",
+                    "APCAD/family.apcad.vcf.gz",
+                    "APCAD/family.apcad.vcf",
+                    "APCAD/family.vcf.gz",
+                    "APCAD/family.vcf",
+                    "apcad/{family_id}_embryo_filtered_imp_parent.vcf.gz",
+                    "apcad/{family_id}_embryo_filtered_imp_parent.vcf",
+                    "apcad/{family_id}.apcad.vcf.gz",
+                    "apcad/{family_id}.apcad.vcf",
+                    "apcad/{family_id}.vcf.gz",
+                    "apcad/{family_id}.vcf",
+                    "apcad/family.apcad.vcf.gz",
+                    "apcad/family.apcad.vcf",
+                    "apcad/family.vcf.gz",
+                    "apcad/family.vcf",
+                ],
+                "index": [
+                    "APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz.tbi",
+                    "APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz.csi",
+                    "APCAD/{family_id}.apcad.vcf.gz.tbi",
+                    "APCAD/{family_id}.apcad.vcf.gz.csi",
+                    "APCAD/{family_id}.vcf.gz.tbi",
+                    "APCAD/{family_id}.vcf.gz.csi",
+                    "APCAD/family.apcad.vcf.gz.tbi",
+                    "APCAD/family.apcad.vcf.gz.csi",
+                    "APCAD/family.vcf.gz.tbi",
+                    "APCAD/family.vcf.gz.csi",
+                    "apcad/{family_id}_embryo_filtered_imp_parent.vcf.gz.tbi",
+                    "apcad/{family_id}_embryo_filtered_imp_parent.vcf.gz.csi",
+                    "apcad/{family_id}.apcad.vcf.gz.tbi",
+                    "apcad/{family_id}.apcad.vcf.gz.csi",
+                    "apcad/{family_id}.vcf.gz.tbi",
+                    "apcad/{family_id}.vcf.gz.csi",
+                    "apcad/family.apcad.vcf.gz.tbi",
+                    "apcad/family.apcad.vcf.gz.csi",
+                    "apcad/family.vcf.gz.tbi",
+                    "apcad/family.vcf.gz.csi",
+                ],
                 "bed": [
+                    "APCAD/{sample_id}.apcad.vcf.gz",
+                    "APCAD/{sample_id}.apcad.vcf",
+                    "APCAD/{sample_id}.vcf.gz",
+                    "APCAD/{sample_id}.vcf",
+                    "APCAD/{sample_id}.apcad.bed",
+                    "APCAD/{sample_id}.bed",
+                    "APCAD/{sample_id}.apcad.tsv",
                     "apcad/{sample_id}.apcad.bed",
                     "apcad/{sample_id}.bed",
                     "apcad/{sample_id}.apcad.tsv",
+                    "apcad/{sample_id}.apcad.vcf.gz",
+                    "apcad/{sample_id}.apcad.vcf",
+                    "apcad/{sample_id}.vcf.gz",
+                    "apcad/{sample_id}.vcf",
                 ],
             },
             "haplotypes": {
-                "file": ["haplotypes/{sample_id}.glimpse2.bcf"],
-                "index": ["haplotypes/{sample_id}.glimpse2.bcf.csi"],
+                "family_vcf": [
+                    "GLIMPSE2/{family_id}_phased_final.vcf.gz",
+                    "GLIMPSE2/{family_id}_phased_final.vcf",
+                    "GLIMPSE2/{family_id}.glimpse2.vcf.gz",
+                    "GLIMPSE2/{family_id}.glimpse2.vcf",
+                    "GLIMPSE2/{family_id}.vcf.gz",
+                    "GLIMPSE2/{family_id}.vcf",
+                    "GLIMPSE2/family.glimpse2.vcf.gz",
+                    "GLIMPSE2/family.glimpse2.vcf",
+                    "GLIMPSE2/family.vcf.gz",
+                    "GLIMPSE2/family.vcf",
+                    "haplotypes/{family_id}_phased_final.vcf.gz",
+                    "haplotypes/{family_id}_phased_final.vcf",
+                    "haplotypes/{family_id}.glimpse2.vcf.gz",
+                    "haplotypes/{family_id}.glimpse2.vcf",
+                    "haplotypes/{family_id}.vcf.gz",
+                    "haplotypes/{family_id}.vcf",
+                    "haplotypes/family.glimpse2.vcf.gz",
+                    "haplotypes/family.glimpse2.vcf",
+                    "haplotypes/family.vcf.gz",
+                    "haplotypes/family.vcf",
+                ],
+                "index": [
+                    "GLIMPSE2/{family_id}_phased_final.vcf.gz.tbi",
+                    "GLIMPSE2/{family_id}_phased_final.vcf.gz.csi",
+                    "GLIMPSE2/{family_id}.glimpse2.vcf.gz.tbi",
+                    "GLIMPSE2/{family_id}.glimpse2.vcf.gz.csi",
+                    "GLIMPSE2/{family_id}.vcf.gz.tbi",
+                    "GLIMPSE2/{family_id}.vcf.gz.csi",
+                    "GLIMPSE2/family.glimpse2.vcf.gz.tbi",
+                    "GLIMPSE2/family.glimpse2.vcf.gz.csi",
+                    "GLIMPSE2/family.vcf.gz.tbi",
+                    "GLIMPSE2/family.vcf.gz.csi",
+                    "haplotypes/{family_id}_phased_final.vcf.gz.tbi",
+                    "haplotypes/{family_id}_phased_final.vcf.gz.csi",
+                    "haplotypes/{family_id}.glimpse2.vcf.gz.tbi",
+                    "haplotypes/{family_id}.glimpse2.vcf.gz.csi",
+                    "haplotypes/{family_id}.vcf.gz.tbi",
+                    "haplotypes/{family_id}.vcf.gz.csi",
+                    "haplotypes/family.glimpse2.vcf.gz.tbi",
+                    "haplotypes/family.glimpse2.vcf.gz.csi",
+                    "haplotypes/family.vcf.gz.tbi",
+                    "haplotypes/family.vcf.gz.csi",
+                ],
+                "file": [
+                    "GLIMPSE2/{sample_id}.glimpse2.bcf",
+                    "haplotypes/{sample_id}.glimpse2.bcf",
+                ],
+                "bcf_index": [
+                    "GLIMPSE2/{sample_id}.glimpse2.bcf.csi",
+                    "haplotypes/{sample_id}.glimpse2.bcf.csi",
+                ],
             },
             "paraphase": {
                 "json": [
@@ -186,6 +326,7 @@ class ManifestDataset(BaseModel):
     annotation_tsv: str | None = None
     index: str | None = None
     bed: str | None = None
+    vcf: str | None = None
     file: str | None = None
     json_path: str | None = Field(default=None, alias="json")
     per_sample: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -197,6 +338,7 @@ class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
     ped: str
+    roi: str | dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     samples: dict[str, Any] | list[Any] | None = None
     datasets: dict[str, ManifestDataset] = Field(default_factory=dict)
@@ -213,6 +355,10 @@ class PedMember:
     sex: str
     phen: str
     line_no: int
+    clinical_status: str
+    role_hint: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+    extra_columns: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -367,11 +513,223 @@ def _metadata_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+_PED_SEX_CODES = {
+    "0": "0",
+    "unknown": "0",
+    "und": "0",
+    "u": "0",
+    "1": "1",
+    "male": "1",
+    "m": "1",
+    "2": "2",
+    "female": "2",
+    "f": "2",
+}
+_PED_STATUS_VALUES = {
+    "unknown": "unknown",
+    "unk": "unknown",
+    "normal": "unaffected",
+    "unaffected": "unaffected",
+    "healthy": "unaffected",
+    "control": "unaffected",
+    "affected": "affected",
+    "case": "affected",
+}
+_PED_NUMERIC_STATUS_VALUES = {
+    "-9": "unknown",
+    "0": "unknown",
+    "1": "unaffected",
+    "2": "affected",
+}
+_PED_ROLE_VALUES = {"proband", "father", "mother", "sibling", "embryo", "relative"}
+_TRUE_VALUES = {"1", "true", "yes", "y", "carrier"}
+_INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
+_HEADER_NORMALIZER = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_header_key(value: str) -> str:
+    return _HEADER_NORMALIZER.sub("", value.strip().lower())
+
+
+def _normalize_ped_sex(value: str) -> str | None:
+    return _PED_SEX_CODES.get(value.strip().lower())
+
+
+def _parse_ped_annotations(extra_columns: list[str]) -> tuple[dict[str, str], set[str]]:
+    annotations: dict[str, str] = {}
+    flags: set[str] = set()
+    for raw_token in extra_columns:
+        token = raw_token.strip()
+        if not token:
+            continue
+        if "=" in token:
+            key, value = token.split("=", 1)
+            annotations[_normalize_header_key(key)] = value.strip()
+        else:
+            flags.add(token.lower())
+    return annotations, flags
+
+
+def _ped_clinical_status(
+    phenotype: str,
+    *,
+    annotations: dict[str, str],
+    flags: set[str],
+    numeric_status_values: dict[str, str],
+) -> str | None:
+    for key in ("clinicalstatus", "status", "phenotype"):
+        value = annotations.get(key)
+        if value is None:
+            continue
+        normalized = _normalize_ped_status(value, numeric_status_values)
+        if normalized is not None:
+            return normalized
+    for flag in flags:
+        normalized = _normalize_ped_status(flag, numeric_status_values)
+        if normalized is not None:
+            return normalized
+    return _normalize_ped_status(phenotype, numeric_status_values)
+
+
+def _normalize_ped_status(value: str, numeric_status_values: dict[str, str]) -> str | None:
+    token = value.strip().lower()
+    return numeric_status_values.get(token) or _PED_STATUS_VALUES.get(token)
+
+
+def _ped_numeric_status_values(rows: list[list[str]]) -> dict[str, str]:
+    del rows
+    return _PED_NUMERIC_STATUS_VALUES
+
+
+def _ped_role_hint(
+    *,
+    annotations: dict[str, str],
+    flags: set[str],
+) -> str | None:
+    for key in ("role", "sampletype", "type"):
+        value = annotations.get(key)
+        if value is None:
+            continue
+        normalized = value.strip().lower()
+        if normalized in _PED_ROLE_VALUES:
+            return normalized
+    for flag in flags:
+        if flag in _PED_ROLE_VALUES:
+            return flag
+    return None
+
+
+def _ped_carrier_type(member: PedMember) -> str | None:
+    for key in ("carriertype", "carrierkind", "carrierstatus"):
+        value = member.extra.get(key)
+        if value is None:
+            continue
+        normalized = str(value).strip().lower()
+        if normalized in {"obligate", "proven"}:
+            return normalized
+    flags = {flag.lower() for flag in member.extra_columns}
+    if {"obligatecarrier", "obligate_carrier", "obligate-carrier"}.intersection(flags):
+        return "obligate"
+    if {"provencarrier", "proven_carrier", "proven-carrier"}.intersection(flags):
+        return "proven"
+    return None
+
+
+def _ped_is_carrier(member: PedMember) -> bool:
+    if _ped_carrier_type(member) is not None:
+        return True
+    for key in ("carrier", "carrierstatus"):
+        value = member.extra.get(key)
+        if value is None:
+            continue
+        normalized = str(value).strip().lower()
+        if normalized in _TRUE_VALUES or normalized in {"obligate", "proven"}:
+            return True
+    flags = {flag.lower() for flag in member.extra_columns}
+    return bool({"carrier", "obligatecarrier", "provencarrier"}.intersection(flags))
+
+
+def _lookup_normalized_key(payload: dict[str, Any], *keys: str) -> Any:
+    normalized_keys = {_normalize_header_key(key) for key in keys}
+    for key, value in payload.items():
+        if _normalize_header_key(str(key)) in normalized_keys:
+            return value
+    return None
+
+
+def _manifest_pgt_source(manifest: PackageManifest) -> dict[str, Any]:
+    metadata = _metadata_dict(manifest.metadata)
+    pgt_metadata = _metadata_dict(metadata.get("pgt"))
+    extras = _metadata_dict(getattr(manifest, "model_extra", None))
+    return {
+        **extras,
+        **metadata,
+        **pgt_metadata,
+    }
+
+
+def _manifest_sample_id_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item for item in re.split(r"[\s,;]+", value.strip()) if item]
+    if isinstance(value, (list, tuple, set)):
+        sample_ids: list[str] = []
+        for item in value:
+            sample_ids.extend(_manifest_sample_id_list(item))
+        return sample_ids
+    return [str(value).strip()] if str(value).strip() else []
+
+
+def _normalize_manifest_inheritance_model(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if not normalized:
+        return None
+    for model in _INHERITANCE_MODELS:
+        if normalized.lower() == model.lower():
+            return model
+    return None
+
+
+def _manifest_pgt_metadata(manifest: PackageManifest) -> dict[str, Any]:
+    source = _manifest_pgt_source(manifest)
+    inheritance_model = _normalize_manifest_inheritance_model(
+        _lookup_normalized_key(source, "inheritance_model", "inheritanceModel", "inheritance", "model")
+    )
+    obligate_carriers = sorted(
+        set(_manifest_sample_id_list(_lookup_normalized_key(source, "obligate_carriers", "obligateCarriers")))
+    )
+    proven_carriers = sorted(
+        set(_manifest_sample_id_list(_lookup_normalized_key(source, "proven_carriers", "provenCarriers")))
+    )
+    metadata: dict[str, Any] = {}
+    if inheritance_model:
+        metadata["inheritance_model"] = inheritance_model
+    if obligate_carriers:
+        metadata["obligate_carriers"] = obligate_carriers
+    if proven_carriers:
+        metadata["proven_carriers"] = proven_carriers
+    return metadata
+
+
+def _manifest_carrier_types(manifest: PackageManifest) -> dict[str, str]:
+    pgt_metadata = _manifest_pgt_metadata(manifest)
+    carrier_types: dict[str, str] = {}
+    for sample_id in pgt_metadata.get("obligate_carriers", []):
+        carrier_types[str(sample_id)] = "obligate"
+    for sample_id in pgt_metadata.get("proven_carriers", []):
+        carrier_types[str(sample_id)] = "proven"
+    return carrier_types
+
+
 def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[FamilyImportValidationIssue]]:
     errors: list[FamilyImportValidationIssue] = []
     members: list[PedMember] = []
     seen_samples: set[str] = set()
     duplicate_samples: set[str] = set()
+    rows: list[tuple[int, list[str]]] = []
     for line_no, line in enumerate(text_value.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
@@ -385,11 +743,25 @@ def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[Fami
                 )
             )
             continue
+        rows.append((line_no, parts))
+
+    numeric_status_values = _ped_numeric_status_values([parts for _line_no, parts in rows])
+    for line_no, parts in rows:
         family_id, individual_id, father_id, mother_id, sex, phenotype = parts[:6]
+        extra_columns = parts[6:]
+        annotations, flags = _parse_ped_annotations(extra_columns)
+        normalized_sex = _normalize_ped_sex(sex)
+        clinical_status = _ped_clinical_status(
+            phenotype,
+            annotations=annotations,
+            flags=flags,
+            numeric_status_values=numeric_status_values,
+        )
+        role_hint = _ped_role_hint(annotations=annotations, flags=flags)
         if individual_id in seen_samples:
             duplicate_samples.add(individual_id)
         seen_samples.add(individual_id)
-        if sex not in {"0", "1", "2"}:
+        if normalized_sex is None:
             errors.append(
                 _issue(
                     "ped_invalid_sex",
@@ -397,23 +769,29 @@ def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[Fami
                     sample_id=individual_id,
                 )
             )
-        if phenotype not in {"0", "1", "2", "-9"}:
+            normalized_sex = sex
+        if clinical_status is None:
             errors.append(
                 _issue(
                     "ped_invalid_phenotype",
-                    f"PED row {line_no} has unsupported phenotype code '{phenotype}'",
+                    f"PED row {line_no} has unsupported phenotype/status '{phenotype}'",
                     sample_id=individual_id,
                 )
             )
+            clinical_status = "unknown"
         members.append(
             PedMember(
                 family_id=family_id,
                 iid=individual_id,
                 pid=father_id,
                 mid=mother_id,
-                sex=sex,
+                sex=normalized_sex,
                 phen=phenotype,
                 line_no=line_no,
+                clinical_status=clinical_status,
+                role_hint=role_hint,
+                extra=dict(annotations),
+                extra_columns=extra_columns,
             )
         )
 
@@ -468,7 +846,17 @@ def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[Fami
         members=members,
         sample_ids=sample_ids,
         text="\n".join(
-            " ".join([member.family_id, member.iid, member.pid, member.mid, member.sex, member.phen])
+            " ".join(
+                [
+                    member.family_id,
+                    member.iid,
+                    member.pid,
+                    member.mid,
+                    member.sex,
+                    member.phen,
+                    *member.extra_columns,
+                ]
+            )
             for member in members
         ),
     ), errors
@@ -736,6 +1124,77 @@ def _validate_wisecondorx_dataset(
     )
 
 
+def _validate_qdnaseq_dataset(
+    *,
+    root: Path,
+    dataset: ManifestDataset,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+) -> FamilyImportDatasetSummary:
+    files: list[str] = []
+    samples: list[str] = []
+    before = len(errors)
+    if not dataset.per_sample:
+        errors.append(
+            _issue(
+                "dataset_per_sample_missing",
+                "QDNAseq dataset must define per_sample entries",
+                dataset="qdnaseq",
+            )
+        )
+    for sample_id, raw_entry in dataset.per_sample.items():
+        samples.append(sample_id)
+        _validate_per_sample_id(
+            dataset_type="qdnaseq",
+            sample_id=sample_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+        entry = _sample_entry_mapping(
+            dataset_type="qdnaseq",
+            sample_id=sample_id,
+            entry=raw_entry,
+            errors=errors,
+        )
+        bins_value = entry.get("bins") or entry.get("file")
+        if bins_value is None:
+            errors.append(
+                _issue(
+                    "dataset_missing_path",
+                    "QDNAseq sample entries must define bins or file",
+                    dataset="qdnaseq",
+                    sample_id=sample_id,
+                )
+            )
+        else:
+            _require_file(
+                root=root,
+                dataset_type="qdnaseq",
+                value=bins_value,
+                field_name="bins",
+                errors=errors,
+                files=files,
+                sample_id=sample_id,
+            )
+        if entry.get("segments"):
+            _require_file(
+                root=root,
+                dataset_type="qdnaseq",
+                value=entry.get("segments"),
+                field_name="segments",
+                errors=errors,
+                files=files,
+                sample_id=sample_id,
+            )
+    return FamilyImportDatasetSummary(
+        dataset_type="qdnaseq",
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+        samples=samples,
+    )
+
+
 def _validate_apcad_dataset(
     *,
     root: Path,
@@ -746,7 +1205,30 @@ def _validate_apcad_dataset(
     files: list[str] = []
     samples: list[str] = []
     before = len(errors)
-    if dataset.per_sample:
+    if dataset.family_vcf:
+        family_vcf_path = _require_file(
+            root=root,
+            dataset_type="apcad",
+            value=dataset.family_vcf,
+            field_name="family_vcf",
+            errors=errors,
+            files=files,
+        )
+        if dataset.index:
+            _require_file(
+                root=root,
+                dataset_type="apcad",
+                value=dataset.index,
+                field_name="index",
+                errors=errors,
+                files=files,
+            )
+        elif family_vcf_path is not None:
+            for candidate in _vcf_index_candidates(family_vcf_path):
+                if candidate.is_file():
+                    files.append(_display_path(root, candidate))
+                    break
+    elif dataset.per_sample:
         for sample_id, raw_entry in dataset.per_sample.items():
             samples.append(sample_id)
             _validate_per_sample_id(
@@ -764,7 +1246,7 @@ def _validate_apcad_dataset(
             _require_file(
                 root=root,
                 dataset_type="apcad",
-                value=entry.get("bed") or entry.get("file"),
+                value=entry.get("bed") or entry.get("file") or entry.get("vcf"),
                 field_name="bed",
                 errors=errors,
                 files=files,
@@ -800,11 +1282,40 @@ def _validate_haplotypes_dataset(
     files: list[str] = []
     samples: list[str] = []
     before = len(errors)
+    if dataset.family_vcf:
+        family_vcf_path = _require_file(
+            root=root,
+            dataset_type="haplotypes",
+            value=dataset.family_vcf,
+            field_name="family_vcf",
+            errors=errors,
+            files=files,
+        )
+        if dataset.index:
+            _require_file(
+                root=root,
+                dataset_type="haplotypes",
+                value=dataset.index,
+                field_name="index",
+                errors=errors,
+                files=files,
+            )
+        elif family_vcf_path is not None:
+            for candidate in _vcf_index_candidates(family_vcf_path):
+                if candidate.is_file():
+                    files.append(_display_path(root, candidate))
+                    break
+        return FamilyImportDatasetSummary(
+            dataset_type="haplotypes",
+            enabled=True,
+            status="error" if len(errors) > before else "valid",
+            files=list(dict.fromkeys(files)),
+        )
     if not dataset.per_sample:
         errors.append(
             _issue(
                 "dataset_per_sample_missing",
-                "Haplotype dataset must define per_sample entries",
+                "Haplotype dataset must define family_vcf or per_sample entries",
                 dataset="haplotypes",
             )
         )
@@ -834,7 +1345,7 @@ def _validate_haplotypes_dataset(
         _require_file(
             root=root,
             dataset_type="haplotypes",
-            value=entry.get("index"),
+            value=entry.get("index") or entry.get("bcf_index"),
             field_name="index",
             errors=errors,
             files=files,
@@ -941,6 +1452,13 @@ def _validate_dataset(
             ped_sample_ids=ped_sample_ids,
             errors=errors,
         )
+    if dataset_type == "qdnaseq":
+        return _validate_qdnaseq_dataset(
+            root=root,
+            dataset=dataset,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
     if dataset_type == "apcad":
         return _validate_apcad_dataset(
             root=root,
@@ -1019,6 +1537,12 @@ def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackag
         "schema_version": manifest.schema_version,
         "manifest_metadata": manifest.metadata,
     }
+    roi_query = _manifest_roi_value(manifest)
+    if roi_query:
+        metadata["roi"] = roi_query
+    pgt_metadata = _manifest_pgt_metadata(manifest)
+    if pgt_metadata:
+        metadata["pgt"] = pgt_metadata
     if "schema_version" not in _json_dict(yaml.safe_load(manifest_path.read_text(encoding="utf-8")) if manifest_path.suffix.lower() != ".json" else json.loads(manifest_path.read_text(encoding="utf-8"))):
         warnings.append(
             _issue(
@@ -1352,6 +1876,149 @@ def _per_sample_dataset_availability(
     )
 
 
+def _qdnaseq_dataset_availability(
+    *,
+    root: Path,
+    family_id: str,
+    sample_ids: list[str],
+    patterns: dict[str, list[str]],
+) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
+    files: list[FamilyManifestFileAvailability] = []
+    per_sample: dict[str, dict[str, str]] = {}
+    complete_samples: list[str] = []
+    for sample_id in sample_ids:
+        bins_value, bins_exists = _choose_candidate_path(
+            root,
+            patterns["bins"],
+            family_id=family_id,
+            sample_id=sample_id,
+        )
+        files.append(_availability_file(root=root, role="bins", path_value=bins_value, sample_id=sample_id))
+        segments_value, segments_exists = _choose_candidate_path(
+            root,
+            patterns["segments"],
+            family_id=family_id,
+            sample_id=sample_id,
+        )
+        files.append(_availability_file(root=root, role="segments", path_value=segments_value, sample_id=sample_id))
+        entry = {"bins": bins_value}
+        if segments_exists:
+            entry["segments"] = segments_value
+        if bins_exists:
+            complete_samples.append(sample_id)
+            per_sample[sample_id] = entry
+        else:
+            per_sample[sample_id] = {"bins": bins_value, "segments": segments_value}
+    complete = bool(complete_samples)
+    return (
+        FamilyManifestDatasetAvailability(
+            dataset_type="qdnaseq",
+            enabled=complete,
+            complete=complete,
+            files=files,
+            samples=complete_samples,
+            message=(
+                f"Available for {len(complete_samples)} sample(s)"
+                if complete
+                else "No QDNAseq bin CSV files were found"
+            ),
+        ),
+        {"enabled": complete, "per_sample": per_sample},
+    )
+
+
+def _apcad_dataset_availability(
+    *,
+    root: Path,
+    family_id: str,
+    sample_ids: list[str],
+    patterns: dict[str, list[str]],
+) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
+    family_vcf_value, family_vcf_exists = _choose_candidate_path(
+        root,
+        patterns["family_vcf"],
+        family_id=family_id,
+    )
+    index_value, index_exists = _choose_candidate_path(
+        root,
+        patterns["index"],
+        family_id=family_id,
+    )
+    if family_vcf_exists:
+        files = [_availability_file(root=root, role="family_vcf", path_value=family_vcf_value)]
+        if index_exists:
+            files.append(_availability_file(root=root, role="index", path_value=index_value))
+        block: dict[str, Any] = {"enabled": True, "family_vcf": family_vcf_value}
+        if index_exists:
+            block["index"] = index_value
+        return (
+            FamilyManifestDatasetAvailability(
+                dataset_type="apcad",
+                enabled=True,
+                complete=True,
+                files=files,
+                message="Available as family APCAD VCF",
+            ),
+            block,
+        )
+    return _per_sample_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        dataset_type="apcad",
+        patterns=patterns,
+        required_roles=["bed"],
+    )
+
+
+def _haplotypes_dataset_availability(
+    *,
+    root: Path,
+    family_id: str,
+    sample_ids: list[str],
+    patterns: dict[str, list[str]],
+) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
+    family_vcf_value, family_vcf_exists = _choose_candidate_path(
+        root,
+        patterns["family_vcf"],
+        family_id=family_id,
+    )
+    index_value, index_exists = _choose_candidate_path(
+        root,
+        patterns["index"],
+        family_id=family_id,
+    )
+    if family_vcf_exists:
+        files = [_availability_file(root=root, role="family_vcf", path_value=family_vcf_value)]
+        if index_exists:
+            files.append(_availability_file(root=root, role="index", path_value=index_value))
+        block: dict[str, Any] = {
+            "enabled": True,
+            "family_vcf": family_vcf_value,
+            "source_format": "glimpse2",
+        }
+        if index_exists:
+            block["index"] = index_value
+        return (
+            FamilyManifestDatasetAvailability(
+                dataset_type="haplotypes",
+                enabled=True,
+                complete=True,
+                files=files,
+                message="Available as family GLIMPSE2 VCF",
+            ),
+            block,
+        )
+    return _per_sample_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        dataset_type="haplotypes",
+        patterns=patterns,
+        required_roles=["file", "bcf_index"],
+    )
+
+
 def _build_manifest_payload(
     *,
     root: Path,
@@ -1377,8 +2044,6 @@ def _build_manifest_payload(
 
     per_sample_roles = {
         "wisecondorx": ["bins", "segments"],
-        "apcad": ["bed"],
-        "haplotypes": ["file", "index"],
         "paraphase": ["json"],
     }
     for dataset_type, roles in per_sample_roles.items():
@@ -1392,6 +2057,33 @@ def _build_manifest_payload(
         )
         availability.append(item)
         datasets[dataset_type] = block
+
+    item, block = _qdnaseq_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        patterns=scheme["qdnaseq"],
+    )
+    availability.append(item)
+    datasets["qdnaseq"] = block
+
+    item, block = _apcad_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        patterns=scheme["apcad"],
+    )
+    availability.append(item)
+    datasets["apcad"] = block
+
+    item, block = _haplotypes_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        patterns=scheme["haplotypes"],
+    )
+    availability.append(item)
+    datasets["haplotypes"] = block
 
     metadata: dict[str, Any] = {}
     cleaned_hpo = [term.strip() for term in hpo_terms if term.strip()]
@@ -1887,24 +2579,70 @@ async def _local_upload(path: Path):
         await upload.close()
 
 
-def _ped_members_for_import(ped: ParsedPed) -> list[dict[str, Any]]:
+def _is_ped_embryo(member: PedMember, *, fathers: set[str], mothers: set[str]) -> bool:
+    if member.role_hint == "embryo":
+        return True
+    if member.iid in fathers or member.iid in mothers:
+        return False
+    has_recorded_parents = member.pid not in {"", "0"} and member.mid not in {"", "0"}
+    return has_recorded_parents and member.sex == "0" and member.clinical_status in {"unknown", "unaffected"}
+
+
+def _ped_embryo_sample_ids(ped: ParsedPed) -> set[str]:
     fathers = {member.pid for member in ped.members if member.pid not in {"", "0"}}
     mothers = {member.mid for member in ped.members if member.mid not in {"", "0"}}
+    return {
+        member.iid
+        for member in ped.members
+        if _is_ped_embryo(member, fathers=fathers, mothers=mothers)
+    }
+
+
+def _ped_members_for_import(
+    ped: ParsedPed,
+    *,
+    carrier_types: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    fathers = {member.pid for member in ped.members if member.pid not in {"", "0"}}
+    mothers = {member.mid for member in ped.members if member.mid not in {"", "0"}}
+    carrier_types = carrier_types or {}
     family_members: list[dict[str, Any]] = []
+    assigned_proband = False
     for member in ped.members:
-        role = "proband"
+        role = member.role_hint if member.role_hint in _PED_ROLE_VALUES else None
         if member.iid in fathers:
             role = "father"
         elif member.iid in mothers:
             role = "mother"
-        elif family_members:
+        elif role is None and _is_ped_embryo(member, fathers=fathers, mothers=mothers):
+            role = "embryo"
+        elif role is None and member.clinical_status == "affected" and not assigned_proband:
+            role = "proband"
+        elif role is None and family_members:
             role = "sibling"
+        elif role is None:
+            role = "proband"
+        if role == "proband":
+            assigned_proband = True
+        carrier_type = carrier_types.get(member.iid) or _ped_carrier_type(member)
+        carrier_status = member.iid in carrier_types or _ped_is_carrier(member)
+        sample_metadata = {
+            "pedigree_status": member.clinical_status,
+            "carrier_status": carrier_status,
+        }
+        if carrier_type:
+            sample_metadata["carrier_type"] = carrier_type
+        if member.role_hint:
+            sample_metadata["pedigree_role"] = member.role_hint
+        if member.extra:
+            sample_metadata["pedigree_annotations"] = member.extra
         family_members.append(
             {
                 "sample_id": member.iid,
                 "sex": {"1": "male", "2": "female"}.get(member.sex, "und"),
                 "role": role,
-                "affected": member.phen == "2",
+                "affected": member.clinical_status == "affected",
+                "metadata": sample_metadata,
             }
         )
     return family_members
@@ -1970,7 +2708,18 @@ def _dataset_provenance(validation: FamilyPackageValidationOut) -> dict[str, Any
 
 def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
     sample_payloads: dict[str, dict[str, Any]] = {}
-    path_keys = {"bins", "segments", "file", "index", "json", "bed", "vcf", "family_vcf", "annotation_tsv"}
+    path_keys = {
+        "bins",
+        "segments",
+        "file",
+        "index",
+        "bcf_index",
+        "json",
+        "bed",
+        "vcf",
+        "family_vcf",
+        "annotation_tsv",
+    }
     for dataset_type, dataset in bundle.manifest.datasets.items():
         if not dataset.enabled:
             continue
@@ -2001,6 +2750,12 @@ async def _register_package_provenance(
         {"family_uuid": family_uuid},
     )
     family_metadata = _metadata_dict(family_result.scalar_one_or_none())
+    pgt_metadata = _manifest_pgt_metadata(bundle.manifest)
+    if pgt_metadata:
+        family_metadata["pgt"] = {
+            **_metadata_dict(family_metadata.get("pgt")),
+            **pgt_metadata,
+        }
     family_metadata["package_import"] = {
         "source": "family_package",
         "folder_path": str(bundle.root),
@@ -2030,7 +2785,18 @@ async def _register_package_provenance(
 
     sample_metadata = _normalize_manifest_samples(bundle.manifest.samples)
     sample_provenance = _sample_provenance(bundle)
-    if sample_metadata or sample_provenance:
+    manifest_carrier_types = _manifest_carrier_types(bundle.manifest)
+    ped_sample_metadata: dict[str, dict[str, Any]] = {}
+    for member in bundle.ped.members:
+        carrier_type = manifest_carrier_types.get(member.iid) or _ped_carrier_type(member)
+        ped_sample_metadata[member.iid] = {
+            "pedigree_status": member.clinical_status,
+            "carrier_status": member.iid in manifest_carrier_types or _ped_is_carrier(member),
+            **({"carrier_type": carrier_type} if carrier_type else {}),
+            **({"pedigree_role": member.role_hint} if member.role_hint else {}),
+            **({"pedigree_annotations": member.extra} if member.extra else {}),
+        }
+    if sample_metadata or sample_provenance or ped_sample_metadata:
         result = await session.execute(
             text(
                 """
@@ -2044,6 +2810,8 @@ async def _register_package_provenance(
         for row in result.mappings().all():
             sample_id = str(row["sample_id"])
             metadata = _metadata_dict(row.get("metadata"))
+            if sample_id in ped_sample_metadata:
+                metadata["pedigree"] = ped_sample_metadata[sample_id]
             if sample_id in sample_metadata:
                 metadata["package_sample_metadata"] = sample_metadata[sample_id]
             if sample_id in sample_provenance:
@@ -2068,6 +2836,145 @@ async def _register_package_provenance(
     await session.commit()
 
 
+_ROI_REGION_PATTERN = re.compile(
+    r"^(?P<chrom>(?:chr)?[A-Za-z0-9_]+):(?P<start>[0-9,]+)(?:-(?P<end>[0-9,]+))?$",
+    re.IGNORECASE,
+)
+
+
+def _manifest_roi_value(manifest: PackageManifest) -> str | None:
+    raw_roi = manifest.roi if manifest.roi is not None else manifest.metadata.get("roi")
+    if raw_roi is None:
+        return None
+    if isinstance(raw_roi, str):
+        return raw_roi.strip() or None
+    if isinstance(raw_roi, dict):
+        for key in ("query", "gene", "region", "label"):
+            value = raw_roi.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    return None
+
+
+async def _resolve_manifest_roi(
+    session: AsyncSession,
+    *,
+    assembly_id: str | None,
+    query: str,
+) -> dict[str, Any] | None:
+    if not assembly_id:
+        return None
+    region_match = _ROI_REGION_PATTERN.match(query.strip())
+    if region_match:
+        chrom = normalize_chromosome(region_match.group("chrom"))
+        start = int(region_match.group("start").replace(",", ""))
+        end_value = region_match.group("end")
+        end = int(end_value.replace(",", "")) if end_value else start
+        if end < start:
+            start, end = end, start
+        return {
+            "query": query,
+            "label": query,
+            "source": "region",
+            "assembly_id": assembly_id,
+            "chr": chrom,
+            "start": start,
+            "end": end,
+        }
+    gene_result = await session.execute(
+        text(
+            """
+            SELECT hgnc_symbol, gene_id, chr, start, "end"
+            FROM genes
+            WHERE assembly_id = CAST(:assembly_id AS uuid)
+              AND (
+                lower(hgnc_symbol) = lower(:query)
+                OR lower(gene_id) = lower(:query)
+              )
+            ORDER BY ("end" - start) DESC, hgnc_symbol
+            LIMIT 1
+            """
+        ),
+        {"assembly_id": assembly_id, "query": query},
+    )
+    gene_row = gene_result.mappings().first()
+    if gene_row is None:
+        return None
+    return {
+        "query": query,
+        "label": gene_row.get("hgnc_symbol") or gene_row.get("gene_id") or query,
+        "source": "gene",
+        "assembly_id": assembly_id,
+        "chr": normalize_chromosome(str(gene_row["chr"])),
+        "start": int(gene_row["start"]),
+        "end": int(gene_row["end"]),
+    }
+
+
+async def _apply_manifest_roi(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    context: FamilyMetadataContext,
+) -> None:
+    roi_query = _manifest_roi_value(bundle.manifest)
+    if not roi_query:
+        return
+    roi = await _resolve_manifest_roi(
+        session,
+        assembly_id=context.assembly_id,
+        query=roi_query,
+    )
+    if roi is None:
+        family_result = await session.execute(
+            text("SELECT metadata FROM families WHERE id = CAST(:family_uuid AS uuid)"),
+            {"family_uuid": context.family_uuid},
+        )
+        metadata = _metadata_dict(family_result.scalar_one_or_none())
+        metadata["unresolved_roi"] = {"query": roi_query, "source": "manifest"}
+        await session.execute(
+            text(
+                """
+                UPDATE families
+                SET metadata = CAST(:metadata AS jsonb)
+                WHERE id = CAST(:family_uuid AS uuid)
+                """
+            ),
+            {
+                "family_uuid": context.family_uuid,
+                "metadata": json.dumps(metadata),
+            },
+        )
+        await session.commit()
+        return
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET roi_query = :query,
+                roi_label = :label,
+                roi_source = :source,
+                roi_assembly_id = CAST(:assembly_id AS uuid),
+                roi_chr = :chr,
+                roi_start = :start,
+                roi_end = :end
+            WHERE id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {
+            "family_uuid": context.family_uuid,
+            "query": roi["query"],
+            "label": roi["label"],
+            "source": roi["source"],
+            "assembly_id": roi["assembly_id"],
+            "chr": roi["chr"],
+            "start": roi["start"],
+            "end": roi["end"],
+        },
+    )
+    await session.commit()
+
+
 async def _ensure_family_from_ped(
     session: AsyncSession,
     *,
@@ -2086,7 +2993,10 @@ async def _ensure_family_from_ped(
             session,
             family_id=family_id,
             pedigree=bundle.ped.text,
-            members=_ped_members_for_import(bundle.ped),
+            members=_ped_members_for_import(
+                bundle.ped,
+                carrier_types=_manifest_carrier_types(bundle.manifest),
+            ),
             project_id=resolved_project_id,
         )
         await session.commit()
@@ -2139,6 +3049,7 @@ async def _ensure_family_from_ped(
         validation=validation,
         family_uuid=context.family_uuid,
     )
+    await _apply_manifest_roi(session, bundle=bundle, context=context)
     return context
 
 
@@ -2325,6 +3236,23 @@ def _read_package_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@asynccontextmanager
+async def _open_package_text(path: Path):
+    if path.name.endswith(".gz"):
+        handle = gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    else:
+        handle = path.open("r", encoding="utf-8", errors="replace")
+    try:
+        yield handle
+    finally:
+        handle.close()
+
+
+def _is_vcf_file(path: Path) -> bool:
+    name = path.name.lower()
+    return name.endswith(".vcf") or name.endswith(".vcf.gz")
+
+
 def _jsonb_safe(value: Any) -> Any:
     if isinstance(value, float):
         return value if math.isfinite(value) else None
@@ -2364,12 +3292,38 @@ def _parse_vcf_info(info_field: str) -> dict[str, str]:
     return info
 
 
+def _parse_format(format_field: str, sample_field: str) -> dict[str, str]:
+    keys = format_field.split(":") if format_field else []
+    values = sample_field.split(":") if sample_field else []
+    return {key: value for key, value in zip(keys, values)}
+
+
 def _first_info_value(info: dict[str, str], *keys: str) -> str | None:
     for key in keys:
         value = info.get(key)
         if not _missing_scalar(value):
             return value
     return None
+
+
+async def _delete_sample_interval_track(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    track_type: str,
+) -> None:
+    if not sample_context.assembly_name:
+        raise RuntimeError("Cannot delete interval tracks without an assembly name")
+    await delete_interval_tracks(
+        sample_context.assembly_name,
+        sample_uuid=sample_context.sample_uuid,
+        track_type=track_type,
+    )
+    await delete_interval_track_sources(
+        session,
+        sample_uuid=sample_context.sample_uuid,
+        track_type=track_type,
+    )
 
 
 async def _delete_sample_interval_source(
@@ -2414,12 +3368,168 @@ def _header_map(parts: list[str]) -> dict[str, int]:
     return {part.strip().lower(): index for index, part in enumerate(parts)}
 
 
+def _normalized_header_map(parts: list[str]) -> dict[str, int]:
+    return {_normalize_header_key(part): index for index, part in enumerate(parts)}
+
+
 def _header_value(parts: list[str], header: dict[str, int], *names: str) -> str | None:
     for name in names:
         index = header.get(name)
         if index is not None and index < len(parts):
             return parts[index]
     return None
+
+
+def _normalized_header_value(parts: list[str], header: dict[str, int], *names: str) -> str | None:
+    for name in names:
+        index = header.get(_normalize_header_key(name))
+        if index is not None and index < len(parts):
+            return parts[index]
+    return None
+
+
+def _split_delimited_line(line: str) -> list[str]:
+    stripped = line.strip()
+    if "," in stripped:
+        return next(csv.reader([stripped]))
+    if ";" in stripped:
+        return next(csv.reader([stripped], delimiter=";"))
+    if "\t" in stripped:
+        return stripped.split("\t")
+    return stripped.split()
+
+
+def _looks_like_header(parts: list[str], required: set[str]) -> bool:
+    normalized = {_normalize_header_key(part) for part in parts}
+    return required.issubset(normalized)
+
+
+def _looks_like_interval_header(parts: list[str]) -> bool:
+    normalized = {_normalize_header_key(part) for part in parts}
+    has_chrom = bool(normalized & {"chr", "chrom", "chromosome"})
+    has_start = bool(normalized & {"start", "windowstart", "from", "pos", "position"})
+    has_end = bool(normalized & {"end", "stop", "windowend", "to", "pos", "position"})
+    return has_chrom and has_start and has_end
+
+
+_COPY_NUMBER_VALUE_COLUMNS = (
+    "ratio",
+    "value",
+    "log2",
+    "log2ratio",
+    "log2copyratio",
+    "copynumber",
+    "copy",
+    "cn",
+    "segmented",
+    "segmentedratio",
+    "segmean",
+    "mean",
+)
+_COPY_NUMBER_SEGMENT_VALUE_COLUMNS = (
+    "segmented",
+    "segmentedratio",
+    "segmean",
+    "segmentmean",
+    "segment",
+    "ratio",
+    "value",
+    "log2",
+    "log2ratio",
+    "log2copyratio",
+    "copynumber",
+    "copy",
+    "cn",
+    "mean",
+)
+_COPY_NUMBER_METADATA_COLUMNS = (
+    "zscore",
+    "z",
+    "call",
+    "probes",
+    "nprobes",
+    "reads",
+    "gc",
+    "mappability",
+    "blacklist",
+    "residual",
+    "use",
+)
+
+
+def _first_header_value(
+    parts: list[str],
+    header: dict[str, int],
+    names: tuple[str, ...],
+) -> str | None:
+    return _normalized_header_value(parts, header, *names)
+
+
+def _parse_copy_number_interval_row(
+    parts: list[str],
+    *,
+    header: dict[str, int] | None,
+    sample_context: SampleMetadataContext,
+    track_type: str,
+    source: str,
+    path: Path,
+    line_no: int,
+) -> dict[str, Any] | None:
+    if header is not None:
+        chrom = _first_header_value(parts, header, ("chr", "chrom", "chromosome"))
+        start_raw = _first_header_value(parts, header, ("start", "window_start", "from"))
+        end_raw = _first_header_value(parts, header, ("end", "stop", "window_end", "to"))
+        record_id = _first_header_value(parts, header, ("id", "record_id", "name", "bin"))
+        value_raw = _first_header_value(
+            parts,
+            header,
+            _COPY_NUMBER_SEGMENT_VALUE_COLUMNS if track_type == "segments" else _COPY_NUMBER_VALUE_COLUMNS,
+        )
+    else:
+        if len(parts) < 4:
+            return None
+        chrom, start_raw, end_raw = parts[:3]
+        record_id = parts[3] if len(parts) > 4 and _coerce_finite_float(parts[3]) is None else None
+        value_candidates = parts[4:] if record_id is not None else parts[3:]
+        value_raw = next(
+            (value for value in value_candidates if _coerce_finite_float(value) is not None),
+            None,
+        )
+
+    start = _coerce_int(start_raw)
+    end = _coerce_int(end_raw)
+    value = _coerce_finite_float(value_raw)
+    if chrom is None or start is None or end is None or value is None:
+        return None
+
+    metadata: dict[str, Any] = {
+        "source": source,
+        "filename": path.name,
+        "line_no": line_no,
+    }
+    if header is not None:
+        for column in _COPY_NUMBER_METADATA_COLUMNS:
+            raw_value = _normalized_header_value(parts, header, column)
+            if raw_value in (None, ""):
+                continue
+            numeric_value = _coerce_finite_float(raw_value)
+            metadata[_normalize_header_key(column)] = numeric_value if numeric_value is not None else raw_value
+
+    return {
+        "sample_id": sample_context.sample_uuid,
+        "family_id": sample_context.family_uuid,
+        "assembly_id": sample_context.assembly_id or "",
+        "assembly_name": sample_context.assembly_name or "",
+        "track_type": track_type,
+        "source": source,
+        "chr": normalize_chromosome(str(chrom)),
+        "start": start,
+        "end": end,
+        "record_id": record_id or f"{chrom}:{start}-{end}",
+        "value": value,
+        "origin": None,
+        "metadata_json": json.dumps(_jsonb_safe(metadata)),
+    }
 
 
 def _parse_wisecondorx_interval_row(
@@ -2567,6 +3677,546 @@ async def _import_wisecondorx_track(
     if progress is not None:
         await progress(result)
     return result
+
+
+async def _import_copy_number_track(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    track_type: str,
+    source: str,
+    progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
+) -> dict[str, int]:
+    if not sample_context.assembly_name:
+        raise RuntimeError("Cannot import copy-number interval tracks without an assembly name")
+    await _delete_sample_interval_source(
+        session,
+        sample_context=sample_context,
+        track_type=track_type,
+        source=source,
+        filename=path.name,
+    )
+
+    processed = 0
+    inserted = 0
+    skipped = 0
+    last_reported = 0
+    batch: list[dict[str, Any]] = []
+    header: dict[str, int] | None = None
+    async with _open_package_text(path) as handle:
+        for line_no, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = _split_delimited_line(stripped)
+            if header is None and _looks_like_interval_header(parts):
+                header = _normalized_header_map(parts)
+                continue
+            processed += 1
+            row = _parse_copy_number_interval_row(
+                parts,
+                header=header,
+                sample_context=sample_context,
+                track_type=track_type,
+                source=source,
+                path=path,
+                line_no=line_no,
+            )
+            if row is None:
+                skipped += 1
+                continue
+            batch.append(row)
+            if len(batch) >= 5000:
+                await _insert_interval_track_rows(session, batch)
+                inserted += len(batch)
+                batch = []
+                if progress is not None and processed - last_reported >= 50000:
+                    last_reported = processed
+                    await progress(
+                        {
+                            "processed": processed,
+                            "inserted": inserted,
+                            "skipped": skipped,
+                        }
+                    )
+    if batch:
+        await _insert_interval_track_rows(session, batch)
+        inserted += len(batch)
+    await upsert_interval_track_source(
+        session,
+        sample_context=sample_context,
+        track_type=track_type,
+        source=source,
+        filename=path.name,
+        row_count=inserted,
+        metadata={
+            "source": source,
+            "filename": path.name,
+            "uploaded_from": "family_package",
+        },
+    )
+    await session.commit()
+    result = {
+        "processed": processed,
+        "inserted": inserted,
+        "skipped": skipped,
+    }
+    if progress is not None:
+        await progress(result)
+    return result
+
+
+_APCAD_VALUE_KEYS = (
+    "APCAD",
+    "AP",
+    "BAF",
+    "AF",
+    "AB",
+    "VAF",
+    "RATIO",
+    "VALUE",
+)
+_APCAD_ORIGIN_KEYS = (
+    "ORIGIN",
+    "PO",
+    "POO",
+    "PARENT",
+    "PARENT_ORIGIN",
+    "PARENTAL_ORIGIN",
+    "PARENT_OF_ORIGIN",
+    "TRANSMITTED_FROM",
+)
+
+
+def _first_mapping_value(mapping: dict[str, str], keys: tuple[str, ...]) -> str | None:
+    normalized_keys = {_normalize_header_key(key): value for key, value in mapping.items()}
+    for key in keys:
+        value = normalized_keys.get(_normalize_header_key(key))
+        if not _missing_scalar(value):
+            return value
+    return None
+
+
+def _first_finite_from_list(value: str | None) -> float | None:
+    if value is None:
+        return None
+    for item in str(value).replace("|", ",").split(","):
+        parsed = _coerce_finite_float(item)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _normalize_origin(value: str | None) -> str:
+    if value is None:
+        return "und"
+    token = str(value).split(",", 1)[0].strip().lower()
+    if token in {"paternal", "pat", "father", "dad", "p", "fa"}:
+        return "paternal"
+    if token in {"maternal", "mat", "mother", "mom", "m", "mo"}:
+        return "maternal"
+    return "und"
+
+
+def _apcad_value(
+    info: dict[str, str],
+    fmt_vals: dict[str, str],
+    *,
+    allow_info_fallback: bool = True,
+) -> float | None:
+    value = _first_finite_from_list(_first_mapping_value(fmt_vals, _APCAD_VALUE_KEYS))
+    if value is not None:
+        return value
+    ad_raw = _first_mapping_value(fmt_vals, ("AD",))
+    if ad_raw is not None:
+        depths = [_coerce_int(item) for item in ad_raw.split(",")]
+        depths = [depth for depth in depths if depth is not None]
+        if len(depths) >= 2:
+            total = sum(depths)
+            return depths[1] / total if total > 0 else None
+    if not allow_info_fallback:
+        return None
+    return _first_finite_from_list(_first_mapping_value(info, _APCAD_VALUE_KEYS))
+
+
+def _apcad_origin(info: dict[str, str], fmt_vals: dict[str, str]) -> str:
+    return _normalize_origin(
+        _first_mapping_value(fmt_vals, _APCAD_ORIGIN_KEYS)
+        or _first_mapping_value(info, _APCAD_ORIGIN_KEYS)
+    )
+
+
+def _gt_has_alt_allele(fmt_vals: dict[str, str], allele: str = "1") -> bool:
+    gt = _first_mapping_value(fmt_vals, ("GT",))
+    if gt in (None, "", "."):
+        return False
+    return allele in {token for token in re.split(r"[\/|]", gt) if token not in {"", "."}}
+
+
+def _infer_apcad_origin_from_parent_genotypes(
+    *,
+    father_fmt: dict[str, str] | None,
+    mother_fmt: dict[str, str] | None,
+) -> str:
+    paternal = _gt_has_alt_allele(father_fmt or {})
+    maternal = _gt_has_alt_allele(mother_fmt or {})
+    if paternal and not maternal:
+        return "paternal"
+    if maternal and not paternal:
+        return "maternal"
+    return "und"
+
+
+def _apcad_metadata(
+    *,
+    source: str,
+    path: Path,
+    line_no: int,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    return json.dumps(
+        _jsonb_safe(
+            {
+                "source": source,
+                "filename": path.name,
+                "line_no": line_no,
+                "uploaded_from": "family_package",
+                **(extra or {}),
+            }
+        )
+    )
+
+
+def _apcad_row(
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    line_no: int,
+    chrom: str,
+    start: int,
+    end: int,
+    record_id: str | None,
+    value: float,
+    origin: str,
+    extra_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "sample_id": sample_context.sample_uuid,
+        "family_id": sample_context.family_uuid,
+        "assembly_id": sample_context.assembly_id or "",
+        "assembly_name": sample_context.assembly_name or "",
+        "track_type": "apcad",
+        "source": "apcad",
+        "chr": normalize_chromosome(chrom),
+        "start": start,
+        "end": end,
+        "record_id": record_id,
+        "value": value,
+        "origin": origin,
+        "metadata_json": _apcad_metadata(
+            source="apcad",
+            path=path,
+            line_no=line_no,
+            extra=extra_metadata,
+        ),
+    }
+
+
+def _parse_apcad_interval_row(
+    parts: list[str],
+    *,
+    header: dict[str, int] | None,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    line_no: int,
+) -> dict[str, Any] | None:
+    if header is not None:
+        chrom = _normalized_header_value(parts, header, "chr", "chrom", "chromosome")
+        start_raw = _normalized_header_value(parts, header, "start", "window_start")
+        end_raw = _normalized_header_value(parts, header, "end", "stop", "window_end")
+        pos_raw = _normalized_header_value(parts, header, "pos", "position")
+        record_id = _normalized_header_value(parts, header, "id", "record_id", "name")
+        value_raw = _normalized_header_value(parts, header, *_APCAD_VALUE_KEYS)
+        origin_raw = _normalized_header_value(parts, header, *_APCAD_ORIGIN_KEYS)
+        ref = _normalized_header_value(parts, header, "ref")
+        alt = _normalized_header_value(parts, header, "alt")
+    else:
+        if len(parts) >= 7 and _coerce_int(parts[1]) is not None and _coerce_int(parts[2]) is None:
+            chrom = parts[0]
+            pos_raw = parts[1]
+            start_raw = None
+            end_raw = None
+            ref = parts[2]
+            alt = parts[3]
+            record_id = parts[4]
+            origin_raw = parts[5]
+            value_raw = parts[6]
+        elif len(parts) >= 6:
+            chrom, start_raw, end_raw, record_id, value_raw, origin_raw = parts[:6]
+            pos_raw = None
+            ref = None
+            alt = None
+        else:
+            return None
+    if chrom is None:
+        return None
+    pos = _coerce_int(pos_raw)
+    start = _coerce_int(start_raw)
+    end = _coerce_int(end_raw)
+    if pos is not None and (start is None or end is None):
+        start = max(0, pos - 1)
+        end = pos
+    value = _coerce_finite_float(value_raw)
+    if start is None or end is None or value is None:
+        return None
+    return _apcad_row(
+        sample_context=sample_context,
+        path=path,
+        line_no=line_no,
+        chrom=chrom,
+        start=start,
+        end=end,
+        record_id=None if record_id in (None, "", ".") else str(record_id),
+        value=value,
+        origin=_normalize_origin(origin_raw),
+        extra_metadata={"ref": ref, "alt": alt},
+    )
+
+
+async def _import_apcad_interval_file(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+) -> dict[str, int]:
+    if not sample_context.assembly_name:
+        raise RuntimeError("Cannot import APCAD interval tracks without an assembly name")
+    processed = 0
+    inserted = 0
+    skipped = 0
+    batch: list[dict[str, Any]] = []
+    header: dict[str, int] | None = None
+    async with _open_package_text(path) as handle:
+        for line_no, line in enumerate(handle, start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            parts = _split_delimited_line(stripped)
+            if header is None and _looks_like_interval_header(parts):
+                header = _normalized_header_map(parts)
+                continue
+            processed += 1
+            row = _parse_apcad_interval_row(
+                parts,
+                header=header,
+                sample_context=sample_context,
+                path=path,
+                line_no=line_no,
+            )
+            if row is None:
+                skipped += 1
+                continue
+            batch.append(row)
+            if len(batch) >= 5000:
+                await _insert_interval_track_rows(session, batch)
+                inserted += len(batch)
+                batch = []
+    if batch:
+        await _insert_interval_track_rows(session, batch)
+        inserted += len(batch)
+    return {"processed": processed, "inserted": inserted, "skipped": skipped}
+
+
+async def _import_apcad_vcf_file(
+    session: AsyncSession,
+    *,
+    path: Path,
+    sample_contexts: dict[str, SampleMetadataContext],
+    ped: ParsedPed | None = None,
+    selected_sample_id: str | None = None,
+    selected_vcf_sample: str | None = None,
+) -> dict[str, Any]:
+    sample_names: list[str] = []
+    sample_index_by_name: dict[str, int] = {}
+    sample_results: dict[str, dict[str, int]] = {}
+    batches: dict[str, list[dict[str, Any]]] = {}
+    parent_ids_by_sample = (
+        {
+            member.iid: {
+                "father": None if member.pid in {"", "0"} else member.pid,
+                "mother": None if member.mid in {"", "0"} else member.mid,
+            }
+            for member in ped.members
+        }
+        if ped is not None
+        else {}
+    )
+
+    async def flush_sample(sample_id: str) -> None:
+        batch = batches.get(sample_id) or []
+        if not batch:
+            return
+        await _insert_interval_track_rows(session, batch)
+        sample_results.setdefault(sample_id, {"processed": 0, "inserted": 0, "skipped": 0})
+        sample_results[sample_id]["inserted"] += len(batch)
+        batches[sample_id] = []
+
+    async with _open_package_text(path) as handle:
+        for line_no, line in enumerate(handle, start=1):
+            if line.startswith("#CHROM"):
+                header = line.strip().split("\t")
+                sample_names = header[9:]
+                sample_index_by_name = {name: index for index, name in enumerate(sample_names)}
+                continue
+            if not line or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n\r").split("\t")
+            if len(fields) < 8:
+                continue
+            chrom, pos_raw, record_id, ref, alt, qual, filt, info_raw = fields[:8]
+            pos = _coerce_int(pos_raw)
+            if pos is None:
+                continue
+            info = _parse_vcf_info(info_raw)
+            fmt_keys = fields[8].split(":") if len(fields) > 8 else []
+            sample_fields = fields[9:] if len(fields) > 9 else []
+            targets: list[tuple[str, SampleMetadataContext, dict[str, str]]] = []
+            if selected_sample_id is not None:
+                sample_context = sample_contexts.get(selected_sample_id)
+                if sample_context is None:
+                    continue
+                vcf_sample_name = selected_vcf_sample or selected_sample_id
+                sample_index = sample_index_by_name.get(vcf_sample_name)
+                fmt_vals = (
+                    _parse_format(":".join(fmt_keys), sample_fields[sample_index])
+                    if sample_index is not None and sample_index < len(sample_fields)
+                    else {}
+                )
+                targets.append((selected_sample_id, sample_context, fmt_vals))
+            elif sample_names:
+                for sample_name, sample_field in zip(sample_names, sample_fields):
+                    sample_context = sample_contexts.get(sample_name)
+                    if sample_context is None:
+                        continue
+                    targets.append((sample_name, sample_context, _parse_format(":".join(fmt_keys), sample_field)))
+            else:
+                for sample_id, sample_context in sample_contexts.items():
+                    targets.append((sample_id, sample_context, {}))
+
+            for sample_id, sample_context, fmt_vals in targets:
+                sample_results.setdefault(sample_id, {"processed": 0, "inserted": 0, "skipped": 0})
+                sample_results[sample_id]["processed"] += 1
+                value = _apcad_value(
+                    info,
+                    fmt_vals,
+                    allow_info_fallback=not bool(sample_names),
+                )
+                if value is None:
+                    sample_results[sample_id]["skipped"] += 1
+                    continue
+                origin = _apcad_origin(info, fmt_vals)
+                if origin == "und" and sample_names:
+                    parent_ids = parent_ids_by_sample.get(sample_id) or {}
+                    father_fmt: dict[str, str] | None = None
+                    mother_fmt: dict[str, str] | None = None
+                    father_id = parent_ids.get("father")
+                    if father_id:
+                        father_index = sample_index_by_name.get(father_id)
+                        if father_index is not None and father_index < len(sample_fields):
+                            father_fmt = _parse_format(":".join(fmt_keys), sample_fields[father_index])
+                    mother_id = parent_ids.get("mother")
+                    if mother_id:
+                        mother_index = sample_index_by_name.get(mother_id)
+                        if mother_index is not None and mother_index < len(sample_fields):
+                            mother_fmt = _parse_format(":".join(fmt_keys), sample_fields[mother_index])
+                    origin = _infer_apcad_origin_from_parent_genotypes(
+                        father_fmt=father_fmt,
+                        mother_fmt=mother_fmt,
+                    )
+                row = _apcad_row(
+                    sample_context=sample_context,
+                    path=path,
+                    line_no=line_no,
+                    chrom=chrom,
+                    start=max(0, pos - 1),
+                    end=pos,
+                    record_id=None if record_id in {"", "."} else record_id,
+                    value=value,
+                    origin=origin,
+                    extra_metadata={
+                        "ref": ref,
+                        "alt": alt,
+                        "qual": qual,
+                        "filter": filt,
+                        "vcf_sample": selected_vcf_sample or sample_id,
+                    },
+                )
+                batches.setdefault(sample_id, []).append(row)
+                if len(batches[sample_id]) >= 5000:
+                    await flush_sample(sample_id)
+    for sample_id in list(batches):
+        await flush_sample(sample_id)
+    return sample_results
+
+
+async def _import_apcad_track_file(
+    session: AsyncSession,
+    *,
+    sample_contexts: dict[str, SampleMetadataContext],
+    path: Path,
+    ped: ParsedPed | None = None,
+    selected_sample_id: str | None = None,
+    selected_vcf_sample: str | None = None,
+) -> dict[str, Any]:
+    target_contexts = (
+        {selected_sample_id: sample_contexts[selected_sample_id]}
+        if selected_sample_id is not None and selected_sample_id in sample_contexts
+        else sample_contexts
+    )
+    for sample_context in target_contexts.values():
+        await _delete_sample_interval_track(
+            session,
+            sample_context=sample_context,
+            track_type="apcad",
+        )
+    if _is_vcf_file(path):
+        sample_results = await _import_apcad_vcf_file(
+            session,
+            path=path,
+            sample_contexts=sample_contexts,
+            ped=ped,
+            selected_sample_id=selected_sample_id,
+            selected_vcf_sample=selected_vcf_sample,
+        )
+    else:
+        sample_results = {}
+        for sample_id, sample_context in target_contexts.items():
+            sample_results[sample_id] = await _import_apcad_interval_file(
+                session,
+                sample_context=sample_context,
+                path=path,
+            )
+    for sample_id, stats in sample_results.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None:
+            continue
+        inserted = int(stats.get("inserted", 0)) if isinstance(stats, dict) else 0
+        await upsert_interval_track_source(
+            session,
+            sample_context=sample_context,
+            track_type="apcad",
+            source="apcad",
+            filename=path.name,
+            row_count=inserted,
+            metadata={
+                "source": "apcad",
+                "filename": path.name,
+                "uploaded_from": "family_package",
+            },
+        )
+    await session.commit()
+    return sample_results
 
 
 def _needlr_query_sample_id(info: dict[str, str], sample_ids: set[str]) -> str | None:
@@ -2956,6 +4606,84 @@ async def _import_snv_dataset(
     )
 
 
+async def _import_haplotypes_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    family_context: FamilyMetadataContext,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+    progress: DatasetProgressCallback | None = None,
+) -> FamilyImportDatasetSummary:
+    if not dataset.family_vcf:
+        return await _register_only(
+            summary,
+            "Registered only; direct per-sample GLIMPSE2 BCF haplotype import is not implemented yet",
+        )
+    if not family_context.assembly_name:
+        return await _register_only(summary, "Registered only; family is not linked to a single assembly")
+    vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
+    if vcf_path is None:
+        return await _register_only(summary, "Registered only; family_vcf path is unavailable")
+    if conflict_mode == "update":
+        existing_count = await count_family_small_variants(
+            family_context.assembly_name,
+            family_context.family_uuid,
+            project_ids=family_context.project_ids,
+        )
+        existing_haplotype_count = await count_interval_track_source_rows(
+            session,
+            family_uuid=family_context.family_uuid,
+            track_type="haplotype",
+            source="glimpse2",
+        )
+        if existing_count or existing_haplotype_count:
+            return summary.model_copy(
+                update={
+                    "status": "skipped",
+                    "message": "Skipped GLIMPSE2 import in update mode because small variants or haplotypes already exist",
+                    "summary": {
+                        "existing_small_variants": existing_count,
+                        "existing_haplotypes": existing_haplotype_count,
+                    },
+                }
+            )
+
+    async def report_haplotype_progress(stats: dict[str, Any]) -> None:
+        if progress is None:
+            return
+        await progress(
+            summary.model_copy(
+                update={
+                    "status": "running",
+                    "message": "Importing GLIMPSE2 VCF and haplotype blocks",
+                    "summary": stats,
+                }
+            )
+        )
+
+    async with _local_upload(vcf_path) as upload:
+        result = await upload_family_small_variant_file(
+            session,
+            context=family_context,
+            sample_contexts=sample_contexts,
+            file=upload,
+            annotation_file=None,
+            overwrite=True,
+            format_hint="glimpse2",
+            progress=report_haplotype_progress,
+        )
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Imported GLIMPSE2 family VCF as small variants and haplotype blocks",
+            "summary": result,
+        }
+    )
+
+
 async def _import_wisecondorx_dataset(
     session: AsyncSession,
     *,
@@ -3041,6 +4769,93 @@ async def _import_wisecondorx_dataset(
     )
 
 
+async def _import_qdnaseq_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+    progress: DatasetProgressCallback | None = None,
+) -> FamilyImportDatasetSummary:
+    sample_results: dict[str, Any] = {}
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        sample_results[sample_id] = {}
+
+        async def report_track(role: str, stats: dict[str, int]) -> None:
+            sample_results.setdefault(sample_id, {})[role] = stats
+            if progress is not None:
+                await progress(
+                    summary.model_copy(
+                        update={
+                            "status": "running",
+                            "message": f"Importing QDNAseq {role} for {sample_id}",
+                            "summary": sample_results,
+                        }
+                    )
+                )
+
+        bins_path = _resolve_package_path(bundle.root, raw_entry.get("bins") or raw_entry.get("file"))
+        segments_path = _resolve_package_path(bundle.root, raw_entry.get("segments"))
+        if bins_path is not None:
+            existing_bins = await _interval_track_count(
+                session,
+                sample_context=sample_context,
+                track_type="coverage",
+                source="qdnaseq",
+            )
+            if conflict_mode == "update" and existing_bins:
+                sample_results[sample_id]["bins"] = {"skipped": True, "existing": existing_bins}
+            else:
+                sample_results[sample_id]["bins"] = await _import_copy_number_track(
+                    session,
+                    sample_context=sample_context,
+                    path=bins_path,
+                    track_type="coverage",
+                    source="qdnaseq",
+                    progress=lambda stats, role="bins": report_track(role, stats),
+                )
+        if segments_path is not None:
+            existing_segments = await _interval_track_count(
+                session,
+                sample_context=sample_context,
+                track_type="segments",
+                source="qdnaseq",
+            )
+            if conflict_mode == "update" and existing_segments:
+                sample_results[sample_id]["segments"] = {"skipped": True, "existing": existing_segments}
+            else:
+                sample_results[sample_id]["segments"] = await _import_copy_number_track(
+                    session,
+                    sample_context=sample_context,
+                    path=segments_path,
+                    track_type="segments",
+                    source="qdnaseq",
+                    progress=lambda stats, role="segments": report_track(role, stats),
+                )
+    skipped = [
+        f"{sample_id}:{role}"
+        for sample_id, roles in sample_results.items()
+        for role, stats in roles.items()
+        if isinstance(stats, dict) and stats.get("skipped")
+    ]
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": (
+                "Imported QDNAseq bins as coverage and segments as segment interval tracks"
+                if not skipped
+                else f"Imported QDNAseq data; skipped existing tracks in update mode: {', '.join(skipped)}"
+            ),
+            "summary": sample_results,
+        }
+    )
+
+
 async def _import_sv_needlr_dataset(
     session: AsyncSession,
     *,
@@ -3113,6 +4928,48 @@ async def _import_apcad_dataset(
     sample_contexts: dict[str, SampleMetadataContext],
     conflict_mode: str = "overwrite",
 ) -> FamilyImportDatasetSummary:
+    if dataset.family_vcf:
+        vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
+        if vcf_path is None:
+            return await _register_only(summary, "Registered only; family_vcf path is unavailable")
+        embryo_sample_ids = _ped_embryo_sample_ids(bundle.ped)
+        target_sample_contexts = (
+            {
+                sample_id: sample_context
+                for sample_id, sample_context in sample_contexts.items()
+                if sample_id in embryo_sample_ids
+            }
+            or sample_contexts
+        )
+        existing_by_sample = {
+            sample_id: await _interval_track_count(
+                session,
+                sample_context=sample_context,
+                track_type="apcad",
+            )
+            for sample_id, sample_context in target_sample_contexts.items()
+        }
+        if conflict_mode == "update" and any(existing_by_sample.values()):
+            return summary.model_copy(
+                update={
+                    "status": "skipped",
+                    "message": "Skipped APCAD import in update mode because APCAD tracks already exist",
+                    "summary": {"existing": existing_by_sample},
+                }
+            )
+        sample_results = await _import_apcad_track_file(
+            session,
+            sample_contexts=target_sample_contexts,
+            path=vcf_path,
+            ped=bundle.ped,
+        )
+        return summary.model_copy(
+            update={
+                "status": "imported",
+                "message": "Imported APCAD VCF into embryo APCAD interval tracks",
+                "summary": sample_results,
+            }
+        )
     if not dataset.per_sample:
         return await _register_only(
             summary,
@@ -3123,7 +4980,10 @@ async def _import_apcad_dataset(
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
             continue
-        bed_path = _resolve_package_path(bundle.root, raw_entry.get("bed") or raw_entry.get("file"))
+        bed_path = _resolve_package_path(
+            bundle.root,
+            raw_entry.get("bed") or raw_entry.get("file") or raw_entry.get("vcf"),
+        )
         if bed_path is None:
             continue
         existing_count = await _interval_track_count(
@@ -3134,14 +4994,28 @@ async def _import_apcad_dataset(
         if conflict_mode == "update" and existing_count:
             sample_results[sample_id] = {"skipped": True, "existing": existing_count}
             continue
-        async with _local_upload(bed_path) as upload:
-            sample_results[sample_id] = await upload_bed_data(
-                session,
-                sample_context=sample_context,
-                bed_type="apcad",
-                file=upload,
-                overwrite=True,
-            )
+        import_result = await _import_apcad_track_file(
+            session,
+            sample_contexts=sample_contexts,
+            path=bed_path,
+            ped=bundle.ped,
+            selected_sample_id=sample_id,
+            selected_vcf_sample=raw_entry.get("sample_name") or raw_entry.get("vcf_sample"),
+        )
+        sample_results[sample_id] = (
+            import_result.get(sample_id, import_result)
+            if isinstance(import_result, dict)
+            else import_result
+        )
+        if not import_result:
+            async with _local_upload(bed_path) as upload:
+                sample_results[sample_id] = await upload_bed_data(
+                    session,
+                    sample_context=sample_context,
+                    bed_type="apcad",
+                    file=upload,
+                    overwrite=True,
+                )
     skipped = [
         sample_id
         for sample_id, stats in sample_results.items()
@@ -3151,7 +5025,7 @@ async def _import_apcad_dataset(
         update={
             "status": "imported",
             "message": (
-                "Imported through existing APCAD interval-track loader"
+                "Imported APCAD data into interval tracks"
                 if not skipped
                 else f"Imported APCAD data; skipped existing samples in update mode: {', '.join(skipped)}"
             ),
@@ -3325,6 +5199,16 @@ async def _import_dataset(
             conflict_mode=conflict_mode,
             progress=progress,
         )
+    if summary.dataset_type == "qdnaseq":
+        return await _import_qdnaseq_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+            progress=progress,
+        )
     if summary.dataset_type == "apcad":
         return await _import_apcad_dataset(
             session,
@@ -3354,9 +5238,15 @@ async def _import_dataset(
             conflict_mode=conflict_mode,
         )
     if summary.dataset_type == "haplotypes":
-        return await _register_only(
-            summary,
-            "Registered only; direct GLIMPSE2 BCF haplotype import is not implemented yet",
+        return await _import_haplotypes_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            family_context=family_context,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+            progress=progress,
         )
     if summary.dataset_type == "paraphase":
         return await _import_paraphase_dataset(

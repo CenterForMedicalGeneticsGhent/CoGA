@@ -370,7 +370,10 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByText('All variants 1000+')).toBeInTheDocument();
     expect(screen.getByText('SNVs 900')).toBeInTheDocument();
     expect(screen.getByText('Indels 101')).toBeInTheDocument();
-    expect(screen.getByText('PROBAND ALT 345 HET 300 HOM 45')).toBeInTheDocument();
+    expect(screen.getByText('PROBAND')).toBeInTheDocument();
+    expect(screen.getByText('345')).toBeInTheDocument();
+    expect(screen.getByText('300')).toBeInTheDocument();
+    expect(screen.getByText('45')).toBeInTheDocument();
   });
 
   it('applies CoGA quick filters without opening each section', async () => {

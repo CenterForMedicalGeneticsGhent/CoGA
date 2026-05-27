@@ -131,7 +131,7 @@ async def upload_reference_data(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ReferenceUploadResult:
-    if dataset_type not in {"cytobands", "genes", "blacklist", "clinical_cnvs"}:
+    if dataset_type not in {"cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications"}:
         raise HTTPException(status_code=400, detail="Invalid reference dataset type")
 
     return await upload_reference_dataset(

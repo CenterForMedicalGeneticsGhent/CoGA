@@ -9,7 +9,9 @@ const ROLE_PRIORITY: Record<string, number> = {
   proband: 0,
   father: 1,
   mother: 2,
-  sibling: 3,
+  relative: 3,
+  sibling: 4,
+  embryo: 5,
 };
 
 export const isProband = (member: Pick<FamilyMemberLike, 'role'>): boolean =>

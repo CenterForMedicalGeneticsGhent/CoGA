@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -15,10 +15,24 @@ async def upload_ped(
     file: UploadFile = File(...),
     overwrite: bool = False,
     project_id: str | None = None,
+    roi_query: str | None = Form(default=None),
+    inheritance_model: str | None = Form(default=None),
+    obligate_carriers: str | None = Form(default=None),
+    proven_carriers: str | None = Form(default=None),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ):
-    return await upload_ped_data(session, file, overwrite, user, project_id)
+    return await upload_ped_data(
+        session,
+        file,
+        overwrite,
+        user,
+        project_id,
+        roi_query=roi_query,
+        inheritance_model=inheritance_model,
+        obligate_carriers=obligate_carriers,
+        proven_carriers=proven_carriers,
+    )
 
 
 @router.post("/manual", response_model=PedUploadResult)

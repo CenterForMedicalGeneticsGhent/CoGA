@@ -3,6 +3,8 @@ export interface ApiPaginatedTotalResponse {
 }
 
 export interface ApiVariantPage<TVariant> extends ApiPaginatedTotalResponse {
+  total_is_estimated?: boolean;
+  count_limit?: number | null;
   variants: TVariant[];
 }
 
@@ -14,6 +16,9 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   role: string;
   affected: boolean;
   sex: string;
+  clinical_status?: string | null;
+  carrier_status?: boolean | null;
+  carrier_type?: 'obligate' | 'proven' | null;
 }
 
 export interface ApiFamilyRegionOfInterest {

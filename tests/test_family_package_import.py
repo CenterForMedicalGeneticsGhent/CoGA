@@ -274,6 +274,271 @@ def test_wisecondorx_per_sample_validation_requires_bins_and_segments(tmp_path: 
     assert summary.files == ["wisecondorx/S1/bins.bed", "wisecondorx/S1/segments.bed"]
 
 
+def test_pgt_ped_accepts_carrier_status_and_embryo_roles() -> None:
+    ped, errors = package_import._parse_ped_text_strict(
+        "FAM001 FATHER 0 0 male 1 role=father carrier=true carrier_type=proven\n"
+        "FAM001 MOTHER 0 0 female 1 role=mother\n"
+        "FAM001 AFFECTED FATHER MOTHER 1 2 role=relative\n"
+        "FAM001 EMBRYO1 FATHER MOTHER 0 0 role=embryo\n"
+    )
+
+    assert errors == []
+    assert ped is not None
+    by_sample = {member.iid: member for member in ped.members}
+    assert by_sample["FATHER"].clinical_status == "unaffected"
+    assert by_sample["FATHER"].sex == "1"
+    assert by_sample["EMBRYO1"].role_hint == "embryo"
+
+    members = package_import._ped_members_for_import(ped)
+    assert [(member["sample_id"], member["role"], member["affected"]) for member in members] == [
+        ("FATHER", "father", False),
+        ("MOTHER", "mother", False),
+        ("AFFECTED", "relative", True),
+        ("EMBRYO1", "embryo", False),
+    ]
+    assert members[0]["metadata"]["carrier_status"] is True
+    assert members[0]["metadata"]["carrier_type"] == "proven"
+
+
+def test_ped_numeric_status_uses_gatk_mapping_with_separate_carrier_flags() -> None:
+    ped, errors = package_import._parse_ped_text_strict(
+        "co619 D2316046 D2417382 D2417380 1 2\n"
+        "co619 D2417380 0 0 2 1 carrier=true carrier_type=proven\n"
+        "co619 D2417382 0 0 1 1 carrier=true carrier_type=obligate\n"
+        "co619 K2501446 D2417382 D2417380 0 0\n"
+    )
+
+    assert errors == []
+    assert ped is not None
+    by_sample = {member.iid: member for member in ped.members}
+    assert by_sample["D2316046"].clinical_status == "affected"
+    assert by_sample["D2417380"].clinical_status == "unaffected"
+    members = package_import._ped_members_for_import(ped)
+    assert [(member["sample_id"], member["role"], member["affected"]) for member in members] == [
+        ("D2316046", "proband", True),
+        ("D2417380", "mother", False),
+        ("D2417382", "father", False),
+        ("K2501446", "embryo", False),
+    ]
+    assert members[1]["metadata"]["carrier_type"] == "proven"
+    assert members[2]["metadata"]["carrier_type"] == "obligate"
+
+
+def test_manifest_pgt_metadata_marks_carriers_without_changing_ped_phenotype() -> None:
+    ped, errors = package_import._parse_ped_text_strict(
+        "FAM001 FATHER 0 0 1 1\n"
+        "FAM001 MOTHER 0 0 2 1\n"
+        "FAM001 CHILD FATHER MOTHER 1 2\n"
+    )
+    manifest = package_import.PackageManifest.model_validate(
+        {
+            "schema_version": 1,
+            "family_id": "FAM001",
+            "ped": "family.ped",
+            "metadata": {
+                "pgt": {
+                    "inheritance_model": "ar",
+                    "obligate_carriers": "FATHER",
+                    "proven_carriers": ["MOTHER"],
+                }
+            },
+        }
+    )
+
+    assert errors == []
+    assert ped is not None
+    assert package_import._manifest_pgt_metadata(manifest) == {
+        "inheritance_model": "AR",
+        "obligate_carriers": ["FATHER"],
+        "proven_carriers": ["MOTHER"],
+    }
+    members = package_import._ped_members_for_import(
+        ped,
+        carrier_types=package_import._manifest_carrier_types(manifest),
+    )
+
+    by_sample = {member["sample_id"]: member for member in members}
+    assert by_sample["FATHER"]["affected"] is False
+    assert by_sample["FATHER"]["metadata"]["carrier_status"] is True
+    assert by_sample["FATHER"]["metadata"]["carrier_type"] == "obligate"
+    assert by_sample["MOTHER"]["metadata"]["carrier_type"] == "proven"
+    assert by_sample["CHILD"]["affected"] is True
+
+
+def test_pgt_manifest_validates_glimpse2_apcad_and_qdnaseq_files(tmp_path: Path) -> None:
+    package_root = tmp_path / "FAM001"
+    package_root.mkdir()
+    (package_root / "family.ped").write_text(
+        "FAM001 FATHER 0 0 1 1 role=father carrier=true carrier_type=proven\n"
+        "FAM001 MOTHER 0 0 2 1 role=mother\n"
+        "FAM001 EMBRYO1 FATHER MOTHER 0 0 role=embryo\n",
+        encoding="utf-8",
+    )
+    (package_root / "GLIMPSE2").mkdir()
+    (package_root / "GLIMPSE2" / "FAM001.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    (package_root / "APCAD").mkdir()
+    (package_root / "APCAD" / "EMBRYO1.apcad.vcf").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    qdna_root = package_root / "QDNAseq" / "EMBRYO1"
+    qdna_root.mkdir(parents=True)
+    (qdna_root / "bins.csv").write_text("chromosome,start,end,log2\n1,0,1000,0.1\n", encoding="utf-8")
+    (package_root / "manifest.yaml").write_text(
+        "schema_version: 1\n"
+        "family_id: FAM001\n"
+        "ped: family.ped\n"
+        "roi: CFTR\n"
+        "metadata:\n"
+        "  pgt:\n"
+        "    inheritance_model: AR\n"
+        "    obligate_carriers: [FATHER]\n"
+        "    proven_carriers: MOTHER\n"
+        "datasets:\n"
+        "  haplotypes:\n"
+        "    enabled: true\n"
+        "    family_vcf: GLIMPSE2/FAM001.vcf.gz\n"
+        "  apcad:\n"
+        "    enabled: true\n"
+        "    per_sample:\n"
+        "      EMBRYO1:\n"
+        "        bed: APCAD/EMBRYO1.apcad.vcf\n"
+        "  qdnaseq:\n"
+        "    enabled: true\n"
+        "    per_sample:\n"
+        "      EMBRYO1:\n"
+        "        bins: QDNAseq/EMBRYO1/bins.csv\n",
+        encoding="utf-8",
+    )
+
+    result = package_import.validate_family_package(package_root)
+
+    assert result.valid is True
+    assert result.metadata["roi"] == "CFTR"
+    assert result.metadata["pgt"] == {
+        "inheritance_model": "AR",
+        "obligate_carriers": ["FATHER"],
+        "proven_carriers": ["MOTHER"],
+    }
+    haplotypes = next(summary for summary in result.datasets if summary.dataset_type == "haplotypes")
+    assert haplotypes.status == "valid"
+    assert haplotypes.files == ["GLIMPSE2/FAM001.vcf.gz"]
+    qdnaseq = next(summary for summary in result.datasets if summary.dataset_type == "qdnaseq")
+    assert qdnaseq.samples == ["EMBRYO1"]
+
+
+def test_pgt_manifest_discovery_detects_co619_style_files(tmp_path: Path) -> None:
+    package_root = tmp_path / "co619"
+    package_root.mkdir()
+    (package_root / "family.ped").write_text(
+        "co619 D2316046 D2417382 D2417380 1 2\n"
+        "co619 D2417380 0 0 2 1 carrier=true carrier_type=proven\n"
+        "co619 D2417382 0 0 1 1 carrier=true carrier_type=proven\n"
+        "co619 K2501446 D2417382 D2417380 0 0\n",
+        encoding="utf-8",
+    )
+    glimpse_root = package_root / "GLIMPSE2"
+    glimpse_root.mkdir()
+    (glimpse_root / "co619_phased_final.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    (glimpse_root / "co619_phased_final.vcf.gz.tbi").write_text("", encoding="utf-8")
+    apcad_root = package_root / "APCAD"
+    apcad_root.mkdir()
+    (apcad_root / "co619_embryo_filtered_imp_parent.vcf.gz").write_text("##fileformat=VCFv4.2\n", encoding="utf-8")
+    qdna_root = package_root / "QDNAseq"
+    qdna_root.mkdir()
+    (qdna_root / "K2501446_cnv_results.csv").write_text(
+        '"","chr","start","end","position","copynumber","segmented"\n'
+        '"1:1-500000","1",1,500000,250000.5,0.12,0.08\n',
+        encoding="utf-8",
+    )
+
+    result = package_import.discover_family_package_manifest(
+        FamilyPackageManifestBuildRequest(folder_path=str(package_root), family_id="co619")
+    )
+
+    assert result.valid is True
+    assert result.errors == []
+    datasets = {item.dataset_type: item for item in result.datasets}
+    assert datasets["qdnaseq"].samples == ["K2501446"]
+    assert datasets["apcad"].complete is True
+    assert datasets["haplotypes"].complete is True
+    assert "QDNAseq/K2501446_cnv_results.csv" in result.manifest_yaml
+    assert "APCAD/co619_embryo_filtered_imp_parent.vcf.gz" in result.manifest_yaml
+    assert "GLIMPSE2/co619_phased_final.vcf.gz" in result.manifest_yaml
+
+
+def test_qdnaseq_parser_handles_csv_headers() -> None:
+    parsed = package_import._parse_copy_number_interval_row(
+        ["1", "1000", "2000", "-0.42", "loss"],
+        header={
+            "chromosome": 0,
+            "start": 1,
+            "end": 2,
+            "log2": 3,
+            "call": 4,
+        },
+        sample_context=_sample_context("EMBRYO1"),
+        track_type="coverage",
+        source="qdnaseq",
+        path=Path("EMBRYO1/bins.csv"),
+        line_no=2,
+    )
+
+    assert parsed is not None
+    assert parsed["source"] == "qdnaseq"
+    assert parsed["track_type"] == "coverage"
+    assert parsed["value"] == -0.42
+    assert json.loads(parsed["metadata_json"])["call"] == "loss"
+
+
+def test_qdnaseq_parser_prefers_segmented_column_for_segments() -> None:
+    parsed = package_import._parse_copy_number_interval_row(
+        ["1:1-500000", "1", "1", "500000", "250000.5", "0.12", "0.08"],
+        header={
+            "": 0,
+            "chr": 1,
+            "start": 2,
+            "end": 3,
+            "position": 4,
+            "copynumber": 5,
+            "segmented": 6,
+        },
+        sample_context=_sample_context("K2501446"),
+        track_type="segments",
+        source="qdnaseq",
+        path=Path("K2501446_cnv_results.csv"),
+        line_no=2,
+    )
+
+    assert parsed is not None
+    assert parsed["track_type"] == "segments"
+    assert parsed["value"] == 0.08
+
+
+def test_apcad_parser_supports_import_tsv_and_vcf_fields() -> None:
+    sample_context = _sample_context("EMBRYO1")
+    tsv_row = package_import._parse_apcad_interval_row(
+        ["1", "28994", "C", "T", "apcad_1", "maternal", "0.0696"],
+        header=None,
+        sample_context=sample_context,
+        path=Path("EMBRYO1.apcad.tsv"),
+        line_no=1,
+    )
+
+    assert tsv_row is not None
+    assert tsv_row["start"] == 28993
+    assert tsv_row["end"] == 28994
+    assert tsv_row["origin"] == "maternal"
+    assert tsv_row["value"] == 0.0696
+    assert package_import._apcad_value({"BAF": "0.73"}, {}) == 0.73
+    assert package_import._apcad_origin({"PARENTAL_ORIGIN": "father"}, {}) == "paternal"
+    assert package_import._apcad_value({"AF": "0.25"}, {}, allow_info_fallback=False) is None
+    assert (
+        package_import._infer_apcad_origin_from_parent_genotypes(
+            father_fmt={"GT": "0|0"},
+            mother_fmt={"GT": "0|1"},
+        )
+        == "maternal"
+    )
+
+
 def test_discover_manifest_generates_yaml_from_ped_and_available_files(tmp_path: Path) -> None:
     package_root = tmp_path / "FAM001"
     _write_minimal_package(package_root)
