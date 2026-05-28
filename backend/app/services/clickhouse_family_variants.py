@@ -20,6 +20,7 @@ from ..schemas import (
     SmallVariantReviewOut,
     SmallVariantSampleSummaryOut,
     SmallVariantSummaryOut,
+    SmallVariantTranscriptOut,
     VariantOut,
     VariantPage,
 )
@@ -534,6 +535,64 @@ def _annotation_rank(annotation: dict[str, Any]) -> tuple[int, int, int]:
 
 def _select_primary_annotation(annotations: Sequence[dict[str, Any]]) -> dict[str, Any]:
     return max(annotations, key=_annotation_rank, default={})
+
+
+def _transcript_source(transcript_id: str | None) -> str | None:
+    value = str(transcript_id or "").strip().upper()
+    if not value:
+        return None
+    if value.startswith("ENST"):
+        return "Ensembl"
+    if value.startswith(("NM_", "NR_", "XM_", "XR_", "NG_")):
+        return "RefSeq"
+    return "Other"
+
+
+def _small_transcript_annotations(
+    annotations: Sequence[dict[str, Any]],
+    primary_annotation: dict[str, Any],
+) -> list[SmallVariantTranscriptOut]:
+    transcripts: list[SmallVariantTranscriptOut] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for annotation in sorted(annotations, key=_annotation_rank, reverse=True):
+        transcript_id = _annotation_text(annotation, "transcript_id", "transcriptId")
+        hgvsc = _annotation_text(annotation, "hgvsc")
+        hgvsp = _annotation_text(annotation, "hgvsp")
+        effect = _annotation_effect(annotation)
+        impact = _annotation_text(annotation, "impact")
+        if not any((transcript_id, hgvsc, hgvsp, effect, impact)):
+            continue
+        key = (
+            transcript_id or "",
+            hgvsc or "",
+            hgvsp or "",
+            effect or "",
+            impact or "",
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        transcripts.append(
+            SmallVariantTranscriptOut(
+                gene=_annotation_gene(annotation),
+                gene_id=_annotation_gene_id(annotation),
+                transcript_id=transcript_id,
+                transcript_source=_transcript_source(transcript_id),
+                feature_type=_annotation_text(annotation, "feature_type", "featureType"),
+                transcript_biotype=_annotation_text(annotation, "transcript_biotype", "transcriptBiotype"),
+                impact=impact,
+                effect=effect,
+                hgvsc=hgvsc,
+                hgvsp=hgvsp,
+                exon=_annotation_text(annotation, "exon"),
+                intron=_annotation_text(annotation, "intron"),
+                canonical=_annotation_bool(annotation, "canonical"),
+                mane_select=_annotation_bool(annotation, "mane_select", "maneSelect"),
+                mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical"),
+                primary=annotation is primary_annotation,
+            )
+        )
+    return transcripts
 
 
 def _normalize_gt(value: Any) -> str:
@@ -1969,6 +2028,7 @@ async def _fetch_gene_constraint_metric_map(
 def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
     annotation = _select_primary_annotation(record.annotations)
     population_frequencies = _annotation_population_frequencies(annotation)
+    transcripts = _small_transcript_annotations(record.annotations, annotation)
     return VariantOut(
         _id=record.variant_id,
         chr=record.chr,
@@ -2013,6 +2073,7 @@ def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
         spliceai_ds_dl=_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl"),
         spliceai_max=_annotation_spliceai_max(annotation),
         annotation_extra=_annotation_extra(annotation),
+        transcripts=transcripts,
         genotypes=[
             GenotypeOut(
                 sample=call.sample,

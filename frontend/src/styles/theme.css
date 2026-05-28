@@ -3685,6 +3685,23 @@ tbody tr:hover {
   color: var(--color-signature-red-dark);
 }
 
+.variant-transcript-trigger {
+  width: 100%;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.variant-transcript-trigger-count {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .variant-card-section {
   display: grid;
   gap: 0.6rem;
@@ -3895,6 +3912,78 @@ tbody tr:hover {
   font-weight: 800;
 }
 
+.variant-transcript-modal {
+  display: grid;
+  gap: 0.8rem;
+  width: min(980px, 100%);
+  max-height: min(86vh, 760px);
+  overflow: auto;
+  border-radius: 10px;
+}
+
+.variant-transcript-summary-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.variant-transcript-summary-grid > div {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid rgba(10, 11, 12, 0.06);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.92);
+  padding: 0.65rem 0.72rem;
+  min-width: 0;
+}
+
+.variant-transcript-summary-grid span {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-transcript-summary-grid strong {
+  min-width: 0;
+  color: var(--color-heading);
+  overflow-wrap: anywhere;
+}
+
+.variant-transcript-table {
+  min-width: 820px;
+}
+
+.variant-transcript-table th,
+.variant-transcript-table td {
+  vertical-align: top;
+}
+
+.variant-transcript-id,
+.variant-transcript-hgvs {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.variant-transcript-id strong,
+.variant-transcript-hgvs span {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.variant-transcript-id span,
+.variant-transcript-hgvs span:last-child {
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.variant-transcript-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 @media (max-width: 1180px) {
   .variant-card-body {
     grid-template-columns: minmax(0, 1fr);
@@ -3943,6 +4032,10 @@ tbody tr:hover {
   .variant-card-link-row::before {
     width: 100%;
     margin-right: 0;
+  }
+
+  .variant-transcript-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
