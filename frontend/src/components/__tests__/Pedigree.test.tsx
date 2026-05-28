@@ -13,7 +13,7 @@ const svgWidth = async (container: HTMLElement): Promise<number> => {
   return Number(container.querySelector('svg')?.getAttribute('width'));
 };
 
-test('draws PGT embryo sibling groups with compact horizontal spacing', async () => {
+test('draws child sibling groups with compact horizontal spacing', async () => {
   const embryoRows = [
     ...baseRows,
     ...Array.from({ length: 8 }, (_, index) => ({
@@ -49,5 +49,5 @@ test('draws PGT embryo sibling groups with compact horizontal spacing', async ()
   const regularWidth = await svgWidth(childRender.container);
 
   expect(compactWidth).toBeLessThan(600);
-  expect(compactWidth).toBeLessThan(regularWidth / 2);
+  expect(regularWidth).toBe(compactWidth);
 });
