@@ -14,6 +14,7 @@ from backend.app.services.clickhouse_family_variants import (
     _fetch_small_variant_rows,
     _flexible_status_match,
     _small_detail_filter_clauses,
+    _small_variant_out,
     _small_record_matches,
     _normalize_small_variant_inheritance,
     get_family_compound_het_candidates,
@@ -72,6 +73,62 @@ def _small_variant(
 def test_mitochondrial_chromosome_options_include_common_aliases() -> None:
     assert _chromosome_options("MT") == ("MT", "chrMT", "M", "chrM")
     assert _chromosome_options("chrM") == ("M", "chrM", "MT", "chrMT")
+
+
+def test_small_variant_out_includes_all_transcript_annotations() -> None:
+    record = SmallVariantRecord(
+        variant_key=None,
+        variant_id="v-transcripts",
+        chr="13",
+        start=32316461,
+        end=32316461,
+        ref="G",
+        alt="A",
+        source="clair3",
+        rsid=None,
+        filters=[],
+        gene_symbols=["BRCA2"],
+        annotations=[
+            {
+                "gene": "BRCA2",
+                "gene_id": "ENSG00000139618",
+                "transcript_id": "ENST00000380152.8",
+                "transcript_biotype": "protein_coding",
+                "impact": "MODERATE",
+                "effect": "missense_variant",
+                "hgvsc": "ENST00000380152.8:c.7007G>A",
+                "hgvsp": "ENSP00000369497.3:p.Arg2336His",
+                "exon": "13/27",
+                "canonical": True,
+            },
+            {
+                "gene": "BRCA2",
+                "gene_id": "ENSG00000139618",
+                "transcript_id": "NM_000059.4",
+                "transcript_biotype": "protein_coding",
+                "impact": "MODERATE",
+                "effect": "missense_variant",
+                "hgvsc": "NM_000059.4:c.7007G>A",
+                "hgvsp": "NP_000050.3:p.Arg2336His",
+                "exon": "13/27",
+                "mane_select": True,
+            },
+        ],
+        calls=[_small_call("PROBAND", "0/1")],
+    )
+
+    variant = _small_variant_out(record)
+
+    assert [transcript.transcript_id for transcript in variant.transcripts] == [
+        "NM_000059.4",
+        "ENST00000380152.8",
+    ]
+    assert variant.transcripts[0].transcript_source == "RefSeq"
+    assert variant.transcripts[0].mane_select is True
+    assert variant.transcripts[0].primary is True
+    assert variant.transcripts[1].transcript_source == "Ensembl"
+    assert variant.transcripts[1].canonical is True
+    assert variant.transcripts[1].hgvsc == "ENST00000380152.8:c.7007G>A"
 
 
 def _family_context() -> FamilyMetadataContext:

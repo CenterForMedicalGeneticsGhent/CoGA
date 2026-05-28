@@ -852,6 +852,25 @@ class SmallVariantTagDefinitionOut(BaseModel):
     is_custom: bool = False
 
 
+class SmallVariantTranscriptOut(BaseModel):
+    gene: Optional[str] = None
+    gene_id: Optional[str] = None
+    transcript_id: Optional[str] = None
+    transcript_source: Optional[str] = None
+    feature_type: Optional[str] = None
+    transcript_biotype: Optional[str] = None
+    impact: Optional[str] = None
+    effect: Optional[str] = None
+    hgvsc: Optional[str] = None
+    hgvsp: Optional[str] = None
+    exon: Optional[str] = None
+    intron: Optional[str] = None
+    canonical: bool = False
+    mane_select: bool = False
+    mane_plus_clinical: bool = False
+    primary: bool = False
+
+
 class VariantOut(ApiDocumentModel):
     chr: str
     start: int
@@ -902,6 +921,7 @@ class VariantOut(ApiDocumentModel):
     spliceai_ds_dl: Optional[float] = None
     spliceai_max: Optional[float] = None
     annotation_extra: Dict[str, Any] = Field(default_factory=dict)
+    transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
     genotypes: List[GenotypeOut] = Field(default_factory=list)
     review: Optional[SmallVariantReviewOut] = None
 

@@ -48,6 +48,25 @@ export interface SmallVariantCompoundHetReview {
   updated_at?: string | null;
 }
 
+export interface SmallVariantTranscript {
+  gene?: string | null;
+  gene_id?: string | null;
+  transcript_id?: string | null;
+  transcript_source?: string | null;
+  feature_type?: string | null;
+  transcript_biotype?: string | null;
+  impact?: string | null;
+  effect?: string | null;
+  hgvsc?: string | null;
+  hgvsp?: string | null;
+  exon?: string | null;
+  intron?: string | null;
+  canonical?: boolean;
+  mane_select?: boolean;
+  mane_plus_clinical?: boolean;
+  primary?: boolean;
+}
+
 export interface SmallVariant {
   _id: string;
   chr: string;
@@ -93,6 +112,7 @@ export interface SmallVariant {
   spliceai_ds_dl?: number;
   spliceai_max?: number;
   annotation_extra?: Record<string, string | number | boolean | null>;
+  transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];
   review?: SmallVariantReview | null;
 }

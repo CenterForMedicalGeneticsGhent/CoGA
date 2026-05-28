@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   COLLABORATION_QUICK_TAGS,
   getTagDefinitionMap,
   type FamilyMember,
   type SmallVariant,
+  type SmallVariantTranscript,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
@@ -41,6 +42,183 @@ interface SmallVariantCardsProps {
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
 }
 
+const transcriptSourceFor = (transcriptId?: string | null) => {
+  const normalized = String(transcriptId || '').trim().toUpperCase();
+  if (!normalized) return null;
+  if (normalized.startsWith('ENST')) return 'Ensembl';
+  if (
+    normalized.startsWith('NM_') ||
+    normalized.startsWith('NR_') ||
+    normalized.startsWith('XM_') ||
+    normalized.startsWith('XR_') ||
+    normalized.startsWith('NG_')
+  ) {
+    return 'RefSeq';
+  }
+  return 'Other';
+};
+
+const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] => {
+  const transcripts = (variant.transcripts || []).filter(
+    (transcript) =>
+      transcript.transcript_id ||
+      transcript.hgvsc ||
+      transcript.hgvsp ||
+      transcript.effect ||
+      transcript.impact,
+  );
+  if (transcripts.length) return transcripts;
+  if (
+    !variant.transcript_id &&
+    !variant.hgvsc &&
+    !variant.hgvsp &&
+    !variant.effect &&
+    !variant.impact
+  ) {
+    return [];
+  }
+  return [
+    {
+      gene: variant.gene,
+      gene_id: variant.gene_id,
+      transcript_id: variant.transcript_id,
+      transcript_source: transcriptSourceFor(variant.transcript_id),
+      feature_type: variant.feature_type,
+      transcript_biotype: variant.transcript_biotype,
+      impact: variant.impact,
+      effect: variant.effect,
+      hgvsc: variant.hgvsc,
+      hgvsp: variant.hgvsp,
+      exon: variant.exon,
+      intron: variant.intron,
+      canonical: variant.canonical,
+      mane_select: variant.mane_select,
+      mane_plus_clinical: variant.mane_plus_clinical,
+      primary: true,
+    },
+  ];
+};
+
+const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
+  transcript.exon ? `Exon ${transcript.exon}` : transcript.intron ? `Intron ${transcript.intron}` : '—';
+
+const transcriptBadges = (transcript: SmallVariantTranscript) =>
+  [
+    transcript.mane_select ? 'MANE Select' : null,
+    transcript.mane_plus_clinical ? 'MANE Plus Clinical' : null,
+    transcript.canonical ? 'Canonical' : null,
+    transcript.primary ? 'Shown on card' : null,
+  ].filter((value): value is string => Boolean(value));
+
+const TranscriptPopup = ({
+  variant,
+  onClose,
+}: {
+  variant: SmallVariant;
+  onClose: () => void;
+}) => {
+  const transcripts = getVariantTranscripts(variant);
+  const geneName = variant.gene || variant.gene_id || transcripts[0]?.gene || 'Intergenic variant';
+  const variantLabel = `${formatLocus(variant)} · ${variant.ref || '—'} → ${variant.alt || '—'}`;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="modal-surface surface-card variant-transcript-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="small-variant-transcript-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="variant-review-modal-header">
+          <div className="variant-review-modal-summary">
+            <p className="page-kicker">Transcripts</p>
+            <h2 id="small-variant-transcript-title" className="catalog-card-title">
+              {geneName}
+            </h2>
+            <p className="variant-review-modal-subtitle">{variantLabel}</p>
+          </div>
+          <button type="button" className="button-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="variant-transcript-summary-grid">
+          <div>
+            <span>Gene</span>
+            <strong>{geneName}</strong>
+          </div>
+          <div>
+            <span>Variant</span>
+            <strong>{variant.hgvsp || variant.hgvsc || variantLabel}</strong>
+          </div>
+          <div>
+            <span>Transcript effects</span>
+            <strong>{transcripts.length}</strong>
+          </div>
+        </div>
+
+        <div className="data-table-shell overflow-x-auto">
+          <table className="analysis-table variant-transcript-table">
+            <thead>
+              <tr>
+                <th>Transcript</th>
+                <th>HGVS</th>
+                <th>Effect</th>
+                <th>Impact</th>
+                <th>Exon / intron</th>
+                <th>Flags</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transcripts.map((transcript, index) => {
+                const badges = transcriptBadges(transcript);
+                return (
+                  <tr key={`${transcript.transcript_id || 'transcript'}-${index}`}>
+                    <td>
+                      <div className="variant-transcript-id">
+                        <strong>{transcript.transcript_id || '—'}</strong>
+                        <span>
+                          {transcript.transcript_source ||
+                            transcriptSourceFor(transcript.transcript_id) ||
+                            'Transcript'}
+                          {transcript.transcript_biotype ? ` · ${transcript.transcript_biotype}` : ''}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="variant-transcript-hgvs">
+                        <span>{transcript.hgvsc || '—'}</span>
+                        <span>{transcript.hgvsp || '—'}</span>
+                      </div>
+                    </td>
+                    <td>{formatTokenLabel(transcript.effect || undefined)}</td>
+                    <td>{transcript.impact || '—'}</td>
+                    <td>{transcriptRegionLabel(transcript)}</td>
+                    <td>
+                      {badges.length ? (
+                        <div className="variant-transcript-badges">
+                          {badges.map((badge) => (
+                            <span key={badge} className="variant-card-chip variant-card-chip--soft">
+                              {badge}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="table-empty">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function SmallVariantCards({
   variants,
   members,
@@ -56,6 +234,7 @@ export default function SmallVariantCards({
   onToggleReviewTag,
 }: SmallVariantCardsProps) {
   const tagMap = getTagDefinitionMap(tags);
+  const [transcriptPopupVariant, setTranscriptPopupVariant] = useState<SmallVariant | null>(null);
 
   return (
     <div className="variant-card-list">
@@ -79,6 +258,8 @@ export default function SmallVariantCards({
         const additionalAnnotations = Object.entries(variant.annotation_extra || {}).filter(
           ([, value]) => value !== null && value !== '',
         );
+        const transcripts = getVariantTranscripts(variant);
+        const transcriptLabel = variant.transcript_id || transcripts[0]?.transcript_id || 'View transcripts';
         const scoreItems = [
           typeof variant.gene_pli === 'number'
             ? { label: 'pLI', value: formatScore(variant.gene_pli, 3) }
@@ -108,7 +289,23 @@ export default function SmallVariantCards({
             })),
         ].filter((item): item is { label: string; value: string } => Boolean(item));
         const transcriptItems = [
-          { label: 'Transcript', value: variant.transcript_id || '—' },
+          {
+            label: 'Transcript',
+            value: transcripts.length ? (
+              <button
+                type="button"
+                className="variant-card-inline-link variant-transcript-trigger"
+                onClick={() => setTranscriptPopupVariant(variant)}
+              >
+                <span>{transcriptLabel}</span>
+                <span className="variant-transcript-trigger-count">
+                  {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
+                </span>
+              </button>
+            ) : (
+              '—'
+            ),
+          },
           { label: 'Gene ID', value: variant.gene_id || '—' },
           { label: 'Biotype', value: variant.transcript_biotype || '—' },
           { label: 'Feature', value: variant.feature_type || '—' },
@@ -514,6 +711,12 @@ export default function SmallVariantCards({
           </article>
         );
       })}
+      {transcriptPopupVariant ? (
+        <TranscriptPopup
+          variant={transcriptPopupVariant}
+          onClose={() => setTranscriptPopupVariant(null)}
+        />
+      ) : null}
     </div>
   );
 }
