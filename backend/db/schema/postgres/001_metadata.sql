@@ -306,6 +306,12 @@ CREATE TABLE IF NOT EXISTS gene_panels (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
     description TEXT,
+    source TEXT NOT NULL DEFAULT 'local',
+    external_id TEXT,
+    external_version TEXT,
+    external_url TEXT,
+    source_updated_at TIMESTAMPTZ,
+    source_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
 );

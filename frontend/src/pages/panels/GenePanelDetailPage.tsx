@@ -21,6 +21,11 @@ interface GenePanel {
   created_by_email?: string | null;
   created_at: string;
   description?: string | null;
+  source?: string;
+  external_id?: string | null;
+  external_version?: string | null;
+  external_url?: string | null;
+  source_updated_at?: string | null;
 }
 
 const GenePanelDetailPage: React.FC = () => {
@@ -48,7 +53,6 @@ const GenePanelDetailPage: React.FC = () => {
     }
     return parsed.toLocaleString();
   };
-
   const handleSort = (key: keyof GeneRegion) => {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
@@ -95,6 +99,7 @@ const GenePanelDetailPage: React.FC = () => {
       />
     );
   }
+  const sourceLabel = panel.source === 'panelapp' ? 'PanelApp' : 'Local';
 
   return (
     <div className="page-shell space-y-6">
@@ -110,7 +115,18 @@ const GenePanelDetailPage: React.FC = () => {
               Created {formatDateTime(panel.created_at)} by {panel.created_by_email || panel.created_by} •{' '}
               {panel.gene_count ?? panel.genes.length} genes
             </p>
+            <p className="catalog-card-copy">
+              {sourceLabel}
+              {panel.external_id ? ` ${panel.external_id}` : ''}
+              {panel.external_version ? ` · version ${panel.external_version}` : ''}
+              {panel.source_updated_at ? ` · updated ${formatDateTime(panel.source_updated_at)}` : ''}
+            </p>
             {panel.description && <p className="catalog-card-copy">{panel.description}</p>}
+            {panel.external_url && (
+              <a className="table-link" href={panel.external_url} target="_blank" rel="noreferrer">
+                Open source panel
+              </a>
+            )}
           </div>
         </div>
       </section>

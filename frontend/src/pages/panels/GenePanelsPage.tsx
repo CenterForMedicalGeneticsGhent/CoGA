@@ -20,7 +20,44 @@ interface GenePanel {
   created_by_email?: string | null;
   created_at: string;
   description?: string | null;
+  source?: string;
+  external_id?: string | null;
+  external_version?: string | null;
+  external_url?: string | null;
+  source_updated_at?: string | null;
 }
+
+interface PanelAppPanelSummary {
+  panelapp_id: number;
+  name: string;
+  disease_group?: string | null;
+  disease_sub_group?: string | null;
+  status?: string | null;
+  version?: string | null;
+  version_created?: string | null;
+  relevant_disorders: string[];
+  gene_count: number;
+  str_count: number;
+  region_count: number;
+  types: string[];
+  url: string;
+}
+
+const apiErrorMessage = (err: any, fallback: string) => {
+  const detail = err.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((entry) => {
+        if (typeof entry === 'string') return entry;
+        if (entry && typeof entry.msg === 'string') return entry.msg;
+        return null;
+      })
+      .filter(Boolean);
+    return messages.length ? messages.join('; ') : fallback;
+  }
+  return fallback;
+};
 
 const GenePanelsPage: React.FC = () => {
   const { data: panels, refetch } = useQuery<GenePanel[]>({
@@ -35,6 +72,14 @@ const GenePanelsPage: React.FC = () => {
   const [genes, setGenes] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('');
+  const [panelAppQuery, setPanelAppQuery] = useState('');
+  const [panelAppResults, setPanelAppResults] = useState<PanelAppPanelSummary[]>([]);
+  const [panelAppLoading, setPanelAppLoading] = useState(false);
+  const [panelAppImporting, setPanelAppImporting] = useState<number | null>(null);
+  const [confidencePreset, setConfidencePreset] = useState('3');
+  const [panelAppAssembly, setPanelAppAssembly] = useState<'GRCh38' | 'GRCh37'>('GRCh38');
+  const [includePanelAppRegions, setIncludePanelAppRegions] = useState(true);
+  const [includePanelAppStrs, setIncludePanelAppStrs] = useState(true);
   const userIsAdmin = isAdmin();
 
   const formatDateTime = (value: string) => {
@@ -52,6 +97,11 @@ const GenePanelsPage: React.FC = () => {
     }
     return `${(total / 1000).toFixed(2)} kb`;
   };
+  const formatSource = (panel: GenePanel) => {
+    if (panel.source === 'panelapp') return 'PanelApp';
+    return 'Local';
+  };
+  const confidenceLevels = confidencePreset.split(',');
 
   const handleDelete = async (id: string) => {
     try {
@@ -70,6 +120,46 @@ const GenePanelsPage: React.FC = () => {
       } else {
         setStatus('Error deleting panel');
       }
+    }
+  };
+
+  const searchPanelApp = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPanelAppLoading(true);
+    setStatus('');
+    try {
+      const res = await api.get('/panels/panelapp/search', {
+        params: { query: panelAppQuery.trim(), page_size: 20 },
+      });
+      setPanelAppResults(res.data?.results || []);
+      if (!res.data?.results?.length) {
+        setStatus('No PanelApp panels found');
+      }
+    } catch {
+      setStatus('Could not search PanelApp');
+    } finally {
+      setPanelAppLoading(false);
+    }
+  };
+
+  const importPanelApp = async (panel: PanelAppPanelSummary) => {
+    setPanelAppImporting(panel.panelapp_id);
+    setStatus('');
+    try {
+      const res = await api.post('/panels/import/panelapp', {
+        panelapp_id: panel.panelapp_id,
+        version: panel.version || undefined,
+        confidence_levels: confidenceLevels,
+        include_regions: includePanelAppRegions,
+        include_strs: includePanelAppStrs,
+        assembly: panelAppAssembly,
+      });
+      setStatus(res.data?.message || 'PanelApp panel imported');
+      await refetch();
+    } catch (err: any) {
+      setStatus(apiErrorMessage(err, 'Error importing PanelApp panel'));
+    } finally {
+      setPanelAppImporting(null);
     }
   };
 
@@ -153,6 +243,110 @@ const GenePanelsPage: React.FC = () => {
             </button>
           </form>
           {status && <p className="form-status max-w-2xl">{status}</p>}
+          <section className="surface-card field-grid max-w-4xl">
+            <div>
+              <p className="page-kicker">PanelApp</p>
+              <h3 className="section-title">Import PanelApp panel</h3>
+            </div>
+            <form onSubmit={searchPanelApp} className="analysis-toolbar items-end">
+              <label className="field-label">
+                <span>PanelApp search</span>
+                <input
+                  value={panelAppQuery}
+                  onChange={(e) => setPanelAppQuery(e.target.value)}
+                  placeholder="Ataxia, R169, cardiomyopathy"
+                />
+              </label>
+              <label className="field-label">
+                <span>Confidence</span>
+                <select
+                  value={confidencePreset}
+                  onChange={(event) => setConfidencePreset(event.target.value)}
+                >
+                  <option value="3">Green only</option>
+                  <option value="2,3">Green + amber</option>
+                  <option value="1,2,3">All confidence levels</option>
+                </select>
+              </label>
+              <label className="field-label">
+                <span>Assembly</span>
+                <select
+                  value={panelAppAssembly}
+                  onChange={(event) => setPanelAppAssembly(event.target.value as 'GRCh38' | 'GRCh37')}
+                >
+                  <option value="GRCh38">GRCh38</option>
+                  <option value="GRCh37">GRCh37</option>
+                </select>
+              </label>
+              <label className="analysis-checkbox">
+                <input
+                  type="checkbox"
+                  checked={includePanelAppRegions}
+                  onChange={(event) => setIncludePanelAppRegions(event.target.checked)}
+                />
+                Regions
+              </label>
+              <label className="analysis-checkbox">
+                <input
+                  type="checkbox"
+                  checked={includePanelAppStrs}
+                  onChange={(event) => setIncludePanelAppStrs(event.target.checked)}
+                />
+                STRs
+              </label>
+              <button type="submit" className="form-button" disabled={panelAppLoading}>
+                {panelAppLoading ? 'Searching...' : 'Search PanelApp'}
+              </button>
+            </form>
+            {panelAppResults.length > 0 && (
+              <div className="data-table-shell overflow-x-auto">
+                <table className="analysis-table">
+                  <thead>
+                    <tr>
+                      <th>Panel</th>
+                      <th>Version</th>
+                      <th>Content</th>
+                      <th>Type</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {panelAppResults.map((panel) => (
+                      <tr key={panel.panelapp_id}>
+                        <td>
+                          <div className="font-semibold">{panel.name}</div>
+                          <div className="table-subtle">
+                            PanelApp {panel.panelapp_id}
+                            {panel.disease_group ? ` · ${panel.disease_group}` : ''}
+                          </div>
+                        </td>
+                        <td>
+                          {panel.version || 'latest'}
+                          {panel.version_created && (
+                            <div className="table-subtle">{formatDateTime(panel.version_created)}</div>
+                          )}
+                        </td>
+                        <td>
+                          {panel.gene_count} genes · {panel.region_count} regions · {panel.str_count} STRs
+                        </td>
+                        <td>{panel.types.join(', ') || 'PanelApp'}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="form-button"
+                            onClick={() => importPanelApp(panel)}
+                            disabled={panelAppImporting === panel.panelapp_id}
+                          >
+                            {panelAppImporting === panel.panelapp_id ? 'Importing...' : 'Import'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
         </>
       )}
       {!userIsAdmin && (
@@ -172,6 +366,8 @@ const GenePanelsPage: React.FC = () => {
             <th>Name</th>
             <th># Genes</th>
             <th>Size</th>
+            <th>Source</th>
+            <th>Version</th>
             <th>Created</th>
             <th>Created By</th>
             <th>Description</th>
@@ -190,6 +386,8 @@ const GenePanelsPage: React.FC = () => {
                 </td>
                 <td>{geneCount}</td>
                 <td>{formatSize(p.regions)}</td>
+                <td>{formatSource(p)}</td>
+                <td>{p.external_version || '—'}</td>
                 <td>{formatDateTime(p.created_at)}</td>
                 <td>{p.created_by_email || p.created_by}</td>
                 <td className="project-catalog-note-cell">{p.description || '—'}</td>

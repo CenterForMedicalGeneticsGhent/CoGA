@@ -428,7 +428,11 @@ async def get_family_track_availability_for_user(
         sample_filters=sample_filters or [],
         overlap=overlap,
     )
-    include_regions = await _fetch_panel_regions(session, panel_id) if panel_id else []
+    include_regions = (
+        await _fetch_panel_regions(session, panel_id, assembly_id=context.assembly_id)
+        if panel_id
+        else []
+    )
 
     async def small_variant_presence_for_sample(sample_name: str) -> str | None:
         sample_small_filters = replace(

@@ -28,6 +28,10 @@ Schema source:
 - [007_family_import_jobs.sql](../backend/db/schema/postgres/007_family_import_jobs.sql)
 - [008_paraphase_results.sql](../backend/db/schema/postgres/008_paraphase_results.sql)
 - [009_structural_variant_reviews.sql](../backend/db/schema/postgres/009_structural_variant_reviews.sql)
+- [010_auth_login_attempts.sql](../backend/db/schema/postgres/010_auth_login_attempts.sql)
+- [011_pgt_family_roles.sql](../backend/db/schema/postgres/011_pgt_family_roles.sql)
+- [012_segmental_duplications.sql](../backend/db/schema/postgres/012_segmental_duplications.sql)
+- [013_gene_panel_sources.sql](../backend/db/schema/postgres/013_gene_panel_sources.sql)
 
 ## ClickHouse
 

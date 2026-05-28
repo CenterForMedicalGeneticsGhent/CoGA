@@ -294,6 +294,16 @@ def _chromosome_options(chromosome: str) -> tuple[str, ...]:
     return tuple(chromosome_aliases(chromosome))
 
 
+def _chromosome_match_key(chromosome: str) -> str:
+    normalized = normalize_chromosome(chromosome).upper()
+    return "MT" if normalized in {"M", "MT"} else normalized
+
+
+def _clickhouse_chromosome_match_expr(expr: str) -> str:
+    stripped = f"upper(if(startsWith(lower({expr}), 'chr'), substring({expr}, 4), {expr}))"
+    return f"if({stripped} IN ('M', 'MT'), 'MT', {stripped})"
+
+
 def _xpos(chrom: str, pos: int) -> int:
     normalized = normalize_chromosome(chrom).upper()
     rank_map = {
@@ -1781,7 +1791,20 @@ async def _fetch_gene_regions(
     gene_query: str,
     assembly_id: str | None,
 ) -> list[Region]:
-    terms = _split_gene_terms(gene_query)
+    return await _fetch_gene_regions_for_terms(
+        session,
+        terms=_split_gene_terms(gene_query),
+        assembly_id=assembly_id,
+    )
+
+
+async def _fetch_gene_regions_for_terms(
+    session: AsyncSession,
+    *,
+    terms: Sequence[str],
+    assembly_id: str | None,
+) -> list[Region]:
+    terms = [str(term).strip() for term in terms if str(term).strip()]
     if not terms:
         return []
     clauses = ["(upper(hgnc_symbol) IN :terms OR upper(gene_id) IN :terms)"]
@@ -1806,7 +1829,24 @@ async def _fetch_gene_regions(
     ]
 
 
-async def _fetch_panel_constraints(session: AsyncSession, panel_id: str) -> PanelFilterConstraints:
+def _dedupe_regions(regions: Sequence[Region]) -> tuple[Region, ...]:
+    deduped: list[Region] = []
+    seen: set[tuple[str, int, int]] = set()
+    for region in regions:
+        key = (normalize_chromosome(region.chr).upper(), int(region.start), int(region.end))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(region)
+    return tuple(deduped)
+
+
+async def _fetch_panel_constraints(
+    session: AsyncSession,
+    panel_id: str,
+    *,
+    assembly_id: str | None = None,
+) -> PanelFilterConstraints:
     try:
         UUID(panel_id)
     except ValueError as exc:
@@ -1844,8 +1884,16 @@ async def _fetch_panel_constraints(session: AsyncSession, panel_id: str) -> Pane
     ]
     for row in region_rows:
         _append_unique(genes, row.get("gene"))
+    if assembly_id and genes:
+        regions.extend(
+            await _fetch_gene_regions_for_terms(
+                session,
+                terms=genes,
+                assembly_id=assembly_id,
+            )
+        )
     if genes or regions:
-        return PanelFilterConstraints(genes=tuple(genes), regions=tuple(regions))
+        return PanelFilterConstraints(genes=tuple(genes), regions=_dedupe_regions(regions))
 
     exists = await session.execute(
         text("SELECT 1 FROM gene_panels WHERE id = CAST(:panel_id AS uuid)"),
@@ -1856,8 +1904,13 @@ async def _fetch_panel_constraints(session: AsyncSession, panel_id: str) -> Pane
     return PanelFilterConstraints()
 
 
-async def _fetch_panel_regions(session: AsyncSession, panel_id: str) -> list[Region]:
-    constraints = await _fetch_panel_constraints(session, panel_id)
+async def _fetch_panel_regions(
+    session: AsyncSession,
+    panel_id: str,
+    *,
+    assembly_id: str | None = None,
+) -> list[Region]:
+    constraints = await _fetch_panel_constraints(session, panel_id, assembly_id=assembly_id)
     return list(constraints.regions)
 
 
@@ -2432,22 +2485,42 @@ def _small_region_filter_condition(
     prefix: str,
     params: dict[str, Any],
 ) -> str | None:
-    region_clauses: list[str] = []
-    for index, region in enumerate(regions):
-        chrom_param = f"{prefix}_chromosomes_{index}"
-        start_param = f"{prefix}_start_{index}"
-        end_param = f"{prefix}_end_{index}"
-        params[chrom_param] = _chromosome_options(region.chr)
-        params[start_param] = region.start
-        params[end_param] = region.end
-        region_clauses.append(
-            "("
-            f"e.chrom IN %({chrom_param})s "
-            f"AND e.pos <= %({end_param})s "
-            f"AND (e.pos + length(e.ref) - 1) >= %({start_param})s"
-            ")"
-        )
-    return f"({' OR '.join(region_clauses)})" if region_clauses else None
+    region_chromosomes: list[str] = []
+    region_starts: list[int] = []
+    region_ends: list[int] = []
+    seen: set[tuple[str, int, int]] = set()
+    for region in regions:
+        chrom = _chromosome_match_key(region.chr)
+        if not chrom:
+            continue
+        start = int(region.start)
+        end = int(region.end)
+        if end < start:
+            start, end = end, start
+        key = (chrom, start, end)
+        if key in seen:
+            continue
+        seen.add(key)
+        region_chromosomes.append(chrom)
+        region_starts.append(start)
+        region_ends.append(end)
+    if not region_chromosomes:
+        return None
+
+    chroms_param = f"{prefix}_chromosomes"
+    starts_param = f"{prefix}_starts"
+    ends_param = f"{prefix}_ends"
+    params[chroms_param] = region_chromosomes
+    params[starts_param] = region_starts
+    params[ends_param] = region_ends
+    chrom_expr = _clickhouse_chromosome_match_expr("e.chrom")
+    return (
+        "arrayExists((region_chrom, region_start, region_end) -> "
+        f"{chrom_expr} = region_chrom "
+        "AND e.pos <= region_end "
+        "AND (e.pos + length(e.ref) - 1) >= region_start, "
+        f"%({chroms_param})s, %({starts_param})s, %({ends_param})s)"
+    )
 
 
 def _small_panel_filter_condition(
@@ -3799,7 +3872,11 @@ async def get_family_small_variants_page(
     small_variant_summary = None if track_mode else await _fetch_small_variant_summary(context)
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
-        panel_constraints = await _fetch_panel_constraints(session, filters.panel_id)
+        panel_constraints = await _fetch_panel_constraints(
+            session,
+            filters.panel_id,
+            assembly_id=context.assembly_id,
+        )
         if not panel_constraints.genes and not panel_constraints.regions:
             return VariantPage(total=0, variants=[], small_variant_summary=small_variant_summary)
 
@@ -4199,7 +4276,13 @@ async def get_family_structural_variants_page(
 
     include_regions: list[Region] = []
     if filters.panel_id:
-        include_regions.extend(await _fetch_panel_regions(session, filters.panel_id))
+        include_regions.extend(
+            await _fetch_panel_regions(
+                session,
+                filters.panel_id,
+                assembly_id=context.assembly_id,
+            )
+        )
         if not include_regions:
             return VariantPage(total=0, variants=[], summary={})
     if filters.gene:

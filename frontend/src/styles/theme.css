@@ -3257,6 +3257,71 @@ tbody tr:hover {
   font-size: 0.82rem;
 }
 
+.small-variant-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.small-variant-table :is(th, td) {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.analysis-table.small-variant-table th {
+  white-space: normal;
+}
+
+.small-variant-col-chr {
+  width: 5%;
+}
+
+.small-variant-col-position {
+  width: 8%;
+}
+
+.small-variant-col-gene {
+  width: 8%;
+}
+
+.small-variant-col-allele {
+  width: 9%;
+}
+
+.small-variant-col-impact {
+  width: 8%;
+}
+
+.small-variant-col-effect {
+  width: 12%;
+}
+
+.small-variant-col-review {
+  width: 16%;
+}
+
+.small-variant-col-genotypes {
+  width: 11%;
+}
+
+.small-variant-col-action {
+  width: 3%;
+}
+
+.small-variant-table .variant-allele-cell {
+  white-space: normal;
+}
+
+.small-variant-table .variant-allele-value {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .sv-results-table th,
 .sv-results-table td {
   padding: 0.46rem 0.5rem;
