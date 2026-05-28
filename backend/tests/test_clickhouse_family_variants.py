@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from clickhouse_connect.driver.binding import bind_query
 
 from backend.app.services.clickhouse_family_variants import (
     PanelFilterConstraints,
@@ -709,9 +710,47 @@ async def test_fetch_small_variant_rows_pushes_panel_and_review_filters_to_click
     assert "gi.gene_term IN %(panel_annotation_gene_terms)s" in query
     assert "panel_gene_terms" in params
     assert params["panel_annotation_gene_terms"] == ("gene2",)
-    assert "panel_region_chromosomes_0" in params
+    assert "arrayExists((region_chrom, region_start, region_end) ->" in query
+    assert "panel_region_chromosomes" in params
+    assert "panel_region_chromosomes_0" not in params
     assert params["include_variant_ids"] == ("v2",)
     assert params["exclude_variant_ids"] == ("v9",)
+
+
+@pytest.mark.asyncio
+async def test_fetch_small_variant_rows_keeps_large_panel_region_query_compact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[tuple[str, dict[str, object]]] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        queries.append((query, dict(params)))
+        return []
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    regions = tuple(
+        Region(chr=str((index % 22) + 1), start=index * 1000, end=index * 1000 + 100)
+        for index in range(3000)
+    )
+
+    await _fetch_small_variant_rows(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+        panel_constraints=PanelFilterConstraints(regions=regions),
+        limit=2,
+    )
+
+    query, params = queries[0]
+    rendered_query, _ = bind_query(query, params)
+    assert "panel_region_chromosomes_0" not in params
+    assert len(params["panel_region_chromosomes"]) == 3000
+    assert "arrayExists((region_chrom, region_start, region_end) ->" in query
+    assert rendered_query.count(" OR ") == 0
+    assert len(rendered_query) < 262_144
 
 
 @pytest.mark.asyncio

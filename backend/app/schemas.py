@@ -681,6 +681,12 @@ class GenePanelOut(ApiDocumentModel):
     created_by_email: Optional[EmailStr] = None
     created_at: datetime
     description: Optional[str] = None
+    source: str = "local"
+    external_id: Optional[str] = None
+    external_version: Optional[str] = None
+    external_url: Optional[str] = None
+    source_updated_at: Optional[datetime] = None
+    source_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class GenePanelCreate(BaseModel):
@@ -693,6 +699,45 @@ class GenePanelCreateResponse(BaseModel):
     panel: GenePanelOut
     message: str
     missing_genes: List[str] = Field(default_factory=list)
+
+
+class PanelAppPanelSummaryOut(BaseModel):
+    panelapp_id: int
+    name: str
+    disease_group: Optional[str] = None
+    disease_sub_group: Optional[str] = None
+    status: Optional[str] = None
+    version: Optional[str] = None
+    version_created: Optional[str] = None
+    relevant_disorders: List[str] = Field(default_factory=list)
+    gene_count: int = 0
+    str_count: int = 0
+    region_count: int = 0
+    types: List[str] = Field(default_factory=list)
+    url: str
+
+
+class PanelAppPanelSearchResponse(BaseModel):
+    results: List[PanelAppPanelSummaryOut] = Field(default_factory=list)
+    count: int = 0
+
+
+class PanelAppImportRequest(BaseModel):
+    panelapp_id: int = Field(ge=1)
+    version: Optional[str] = None
+    confidence_levels: List[Literal["1", "2", "3"]] = Field(default_factory=lambda: ["3"])
+    include_regions: bool = True
+    include_strs: bool = True
+    assembly: Literal["GRCh38", "GRCh37"] = "GRCh38"
+    name: Optional[str] = None
+
+
+class PanelAppImportResponse(BaseModel):
+    panel: GenePanelOut
+    message: str
+    missing_genes: List[str] = Field(default_factory=list)
+    imported_gene_count: int = 0
+    imported_region_count: int = 0
 
 
 class GenotypeOut(BaseModel):

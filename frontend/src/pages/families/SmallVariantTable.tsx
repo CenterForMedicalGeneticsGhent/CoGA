@@ -33,6 +33,27 @@ interface SmallVariantTableProps {
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
 }
 
+const MAX_ALLELE_DISPLAY_LENGTH = 48;
+
+const formatAlleleDisplay = (value?: string) => {
+  const allele = String(value || '').trim();
+  if (!allele) return '—';
+  if (allele.length <= MAX_ALLELE_DISPLAY_LENGTH) return allele;
+  return `${allele.slice(0, 30)}…${allele.slice(-12)}`;
+};
+
+const AlleleCell = ({ value }: { value?: string }) => {
+  const allele = String(value || '').trim();
+  if (!allele) {
+    return <span className="table-empty">—</span>;
+  }
+  return (
+    <span className="variant-allele-value" title={allele}>
+      {formatAlleleDisplay(allele)}
+    </span>
+  );
+};
+
 export default function SmallVariantTable({
   variants,
   members,
@@ -68,7 +89,21 @@ export default function SmallVariantTable({
 
   return (
     <div className="analysis-results-card overflow-x-auto">
-      <table className="analysis-table table-sticky">
+      <table className="analysis-table table-sticky small-variant-table">
+        <colgroup>
+          <col className="small-variant-col-chr" />
+          <col className="small-variant-col-position" />
+          <col className="small-variant-col-position" />
+          <col className="small-variant-col-gene" />
+          <col className="small-variant-col-allele" />
+          <col className="small-variant-col-allele" />
+          <col className="small-variant-col-impact" />
+          <col className="small-variant-col-effect" />
+          <col className="small-variant-col-review" />
+          <col className="small-variant-col-genotypes" />
+          <col className="small-variant-col-action" />
+          <col className="small-variant-col-action" />
+        </colgroup>
         <thead>
           <tr>
             <th className="table-sortable" onClick={() => handleTableSort('position')}>
@@ -131,8 +166,12 @@ export default function SmallVariantTable({
                     variant.gene || '—'
                   )}
                 </td>
-                <td>{variant.ref || '—'}</td>
-                <td>{variant.alt || '—'}</td>
+                <td className="table-mono variant-allele-cell">
+                  <AlleleCell value={variant.ref} />
+                </td>
+                <td className="table-mono variant-allele-cell">
+                  <AlleleCell value={variant.alt} />
+                </td>
                 <td>{variant.impact || '—'}</td>
                 <td>{variant.effect || '—'}</td>
                 <td>
