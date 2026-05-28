@@ -27,9 +27,9 @@ interface Props {
 const NODE_SIZE = 20;
 // Increase spacing to reduce label overlap
 const GEN_VERTICAL_GAP = 100;
-const SIBLING_HORIZONTAL_GAP = 100;
-const EMBRYO_LEAF_WIDTH = 32;
-const EMBRYO_HORIZONTAL_GAP = 20;
+const ROOT_HORIZONTAL_GAP = 100;
+const CHILD_LEAF_WIDTH = 32;
+const CHILD_HORIZONTAL_GAP = 20;
 const COUPLE_GAP = 50;
 const SIBLING_LINE_OFFSET = 20;
 
@@ -51,14 +51,6 @@ const Pedigree: React.FC<Props> = ({ rows, members = [], inheritanceModel }) => 
           (row?.sex === "0" && (row.phen === "0" || row.phen === "-9")),
       );
     };
-
-    const leafWidthFor = (sampleId: string): number =>
-      isEmbryo(sampleId) ? EMBRYO_LEAF_WIDTH : SIBLING_HORIZONTAL_GAP;
-
-    const siblingGapBetween = (leftSampleId: string, rightSampleId: string): number =>
-      isEmbryo(leftSampleId) && isEmbryo(rightSampleId)
-        ? EMBRYO_HORIZONTAL_GAP
-        : SIBLING_HORIZONTAL_GAP;
 
     const getGeneration = (iid: string): number => {
       const r = rowMap.get(iid);
@@ -103,18 +95,18 @@ const Pedigree: React.FC<Props> = ({ rows, members = [], inheritanceModel }) => 
       if (familyWidths.has(key)) return familyWidths.get(key)!;
       const children = familyMap.get(key)?.children || [];
       if (!children.length) {
-        familyWidths.set(key, SIBLING_HORIZONTAL_GAP);
-        return SIBLING_HORIZONTAL_GAP;
+        familyWidths.set(key, ROOT_HORIZONTAL_GAP);
+        return ROOT_HORIZONTAL_GAP;
       }
       let width = 0;
       children.forEach((cid, idx) => {
         const cf = familiesByParent.get(cid);
         const childWidth = cf
           ? calcFamilyWidth(cf.father, cf.mother)
-          : leafWidthFor(cid);
+          : CHILD_LEAF_WIDTH;
         width += childWidth;
         const nextChildId = children[idx + 1];
-        if (nextChildId) width += siblingGapBetween(cid, nextChildId);
+        if (nextChildId) width += CHILD_HORIZONTAL_GAP;
       });
       familyWidths.set(key, width);
       return width;
@@ -134,7 +126,7 @@ const Pedigree: React.FC<Props> = ({ rows, members = [], inheritanceModel }) => 
       leftX: number,
     ) => {
       const key = `${fatherId ?? "0"}_${motherId ?? "0"}`;
-      const famWidth = familyWidths.get(key) || SIBLING_HORIZONTAL_GAP;
+      const famWidth = familyWidths.get(key) || ROOT_HORIZONTAL_GAP;
       const yParent = generation * GEN_VERTICAL_GAP + 50;
 
       const children = familyMap.get(key)?.children || [];
@@ -147,12 +139,12 @@ const Pedigree: React.FC<Props> = ({ rows, members = [], inheritanceModel }) => 
           : null;
         const childWidth = cKey
           ? familyWidths.get(cKey)!
-          : leafWidthFor(cid);
+          : CHILD_LEAF_WIDTH;
         const childCenter = childLeft + childWidth / 2;
         positions.set(cid, { x: childCenter, y: childY });
         if (cf) layoutFamily(cf.father, cf.mother, generation + 1, childLeft);
         const nextChildId = children[idx + 1];
-        childLeft += childWidth + (nextChildId ? siblingGapBetween(cid, nextChildId) : 0);
+        childLeft += childWidth + (nextChildId ? CHILD_HORIZONTAL_GAP : 0);
       });
 
       // Anchor parents above the span of their children so single parents sit over the correct child.
@@ -185,9 +177,9 @@ const Pedigree: React.FC<Props> = ({ rows, members = [], inheritanceModel }) => 
         fam.mother && mRow && (mRow.pid !== "0" || mRow.mid !== "0");
       if (!fParents && !mParents) {
         const key = `${fam.father ?? "0"}_${fam.mother ?? "0"}`;
-        const width = familyWidths.get(key) || SIBLING_HORIZONTAL_GAP;
+        const width = familyWidths.get(key) || ROOT_HORIZONTAL_GAP;
         layoutFamily(fam.father ?? null, fam.mother ?? null, 0, xCursor);
-        xCursor += width + SIBLING_HORIZONTAL_GAP;
+        xCursor += width + ROOT_HORIZONTAL_GAP;
       }
     });
 
@@ -199,7 +191,7 @@ const Pedigree: React.FC<Props> = ({ rows, members = [], inheritanceModel }) => 
           x: xCursor,
           y: g * GEN_VERTICAL_GAP + 50,
         });
-        xCursor += SIBLING_HORIZONTAL_GAP;
+        xCursor += ROOT_HORIZONTAL_GAP;
       }
     });
 
