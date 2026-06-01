@@ -375,6 +375,14 @@ async def get_family_track_availability_for_user(
         track_type="apcad",
         chromosomes=chromosomes,
     )
+    apcad_pcf_task = get_track_presence_by_sample(
+        session,
+        context=context,
+        track_type="apcad_pcf",
+        chromosomes=chromosomes,
+        start=start,
+        end=end,
+    )
     haplotype_task = get_track_presence_by_sample(
         session,
         context=context,
@@ -391,10 +399,11 @@ async def get_family_track_availability_for_user(
         start=start,
         end=end,
     )
-    coverage_ids, segment_ids, apcad_ids, haplotype_ids, repeat_ids = await asyncio.gather(
+    coverage_ids, segment_ids, apcad_ids, apcad_pcf_ids, haplotype_ids, repeat_ids = await asyncio.gather(
         coverage_task,
         segment_task,
         apcad_task,
+        apcad_pcf_task,
         haplotype_task,
         repeat_task,
     )
@@ -471,6 +480,7 @@ async def get_family_track_availability_for_user(
         sample_availability.coverage = sample_name in coverage_ids
         sample_availability.segments = sample_name in segment_ids
         sample_availability.apcad = sample_name in apcad_ids
+        sample_availability.apcad_pcf = sample_name in apcad_pcf_ids
         sample_availability.haplotypes = sample_name in haplotype_ids
         sample_availability.repeat_expansions = sample_name in repeat_ids
 

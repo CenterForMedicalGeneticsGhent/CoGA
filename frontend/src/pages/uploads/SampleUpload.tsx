@@ -315,7 +315,7 @@ const SampleUpload: FC = () => {
           <div className="space-y-2">
             <h2 className="section-title">BED Tracks</h2>
             <p className="section-copy">
-              Upload coverage, APCAD, or segments per sample.
+              Upload coverage, APCAD, PCF APCAD segments, or segments per sample.
             </p>
           </div>
           <form onSubmit={handleBedSubmit} className="field-grid">
@@ -333,6 +333,7 @@ const SampleUpload: FC = () => {
               <select value={bedType} onChange={(e) => setBedType(e.target.value)}>
                 <option value="coverage">Coverage</option>
                 <option value="apcad">APCAD</option>
+                <option value="apcad_pcf">APCAD PCF segments</option>
                 <option value="segments">Segments</option>
               </select>
             </label>

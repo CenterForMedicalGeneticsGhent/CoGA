@@ -16,9 +16,28 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   role: string;
   affected: boolean;
   sex: string;
-  clinical_status?: string | null;
-  carrier_status?: boolean | null;
-  carrier_type?: 'obligate' | 'proven' | null;
+  clinical_status?: 'unknown' | 'unaffected' | 'affected';
+  carrier_status?: 'unknown' | 'not_carrier' | 'carrier';
+  carrier_type?: 'obligate' | 'proven' | 'reported' | 'inferred' | null;
+  carrier_evidence?: Record<string, unknown>;
+  active?: boolean;
+}
+
+export interface ApiFamilyRelationship {
+  id: string;
+  relationship_type: 'parent_child' | 'couple';
+  sample_id_a: string;
+  sample_id_b: string;
+  role_a?: string | null;
+  role_b?: string | null;
+  source?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ApiFamilyStructureVersion {
+  version: number;
+  structure_hash?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ApiFamilyRegionOfInterest {
@@ -44,6 +63,8 @@ export interface ApiFamilySummary extends ApiFamilyBase<ApiFamilyMember> {
 
 export interface ApiFamilyRecord extends ApiFamilyBase<ApiFamilyMember> {
   _id?: string;
+  relationships?: ApiFamilyRelationship[];
+  structure_version?: ApiFamilyStructureVersion | null;
   pedigree?: string | null;
   roi?: ApiFamilyRegionOfInterest | null;
   metadata?: Record<string, unknown>;
@@ -101,6 +122,7 @@ export type ApiTrackAvailabilityResponse<TTrackAvailability> = {
 export interface ApiChromosomeTrackAvailability {
   coverage: boolean;
   apcad: boolean;
+  apcad_pcf: boolean;
   variants: boolean;
   small_variants: boolean;
   haplotypes: boolean;
@@ -111,6 +133,7 @@ export interface ApiGenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
   apcad: boolean;
+  apcad_pcf: boolean;
   haplotypes: boolean;
   variants: boolean;
   repeat_expansions: boolean;

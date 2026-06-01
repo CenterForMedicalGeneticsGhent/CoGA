@@ -127,6 +127,7 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
           trackVisibility={{
             coverage: false,
             apcad: false,
+            apcadPcf: false,
             variants: false,
             smallVariants: false,
             haplotypes: false,

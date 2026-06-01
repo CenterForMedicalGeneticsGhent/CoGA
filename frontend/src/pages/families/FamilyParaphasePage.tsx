@@ -287,6 +287,7 @@ const FamilyParaphasePage: React.FC = () => {
                   <Pedigree
                     rows={pedRows}
                     members={family?.members}
+                    relationships={family?.relationships}
                     inheritanceModel={(family?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
                   />
                 </div>

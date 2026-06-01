@@ -161,6 +161,9 @@ FAM001/
     SAMPLE1.apcad.bed
   APCAD/
     EMBRYO1.apcad.vcf
+  PCF/
+    EMBRYO1_pcf_mat_data.csv
+    EMBRYO1_pcf_pat_data.csv
   GLIMPSE2/
     FAM001.vcf.gz
   haplotypes/
@@ -178,18 +181,97 @@ The built-in `standard_v1` naming scheme checks these paths:
 - WisecondorX: `wisecondorx/{sample_id}/bins.bed` and `segments.bed`, with `sample_bins.bed`, `{sample_id}_bins.bed`, `sample_segments.bed`, and `{sample_id}_segments.bed` fallbacks
 - QDNAseq: `QDNAseq/{sample_id}/bins.csv`, `{sample_id}.bins.csv`, `{sample_id}.csv`, or `{sample_id}_cnv_results.csv`, with optional `segments.csv`/`{sample_id}.segments.csv`; lower-case `qdnaseq` is also detected. If a QDNAseq CSV contains both `copynumber` and `segmented`, the same file can be used for both bins and segments.
 - APCAD: family VCFs at `APCAD/{family_id}.apcad.vcf[.gz]`, `APCAD/{family_id}_embryo_filtered_imp_parent.vcf.gz`, or per-sample `APCAD/{sample_id}.apcad.vcf`, with BED and `.apcad.tsv` fallbacks; lower-case `apcad` is also detected
+- PCF APCAD segments: per-sample files at `PCF/{sample_id}_pcf_mat_data.csv` and `PCF/{sample_id}_pcf_pat_data.csv`; lower-case `pcf` and dotted fallback names `PCF/{sample_id}.pcf.mat_data.csv` / `PCF/{sample_id}.pcf.pat_data.csv` are also detected. The verified CSV header is `"sampleID","CHROM","arm","start.pos","end.pos","n.probes","mean"`.
 - Haplotypes: family GLIMPSE2 VCFs at `GLIMPSE2/{family_id}.vcf[.gz]`, `GLIMPSE2/{family_id}_phased_final.vcf.gz`, or `GLIMPSE2/family.vcf[.gz]`; legacy per-sample `haplotypes/{sample_id}.glimpse2.bcf` plus `.csi` is still registered as provenance
 - Paraphase: `paraphase/{sample_id}.paraphase.json`, with nested `{sample_id}/{sample_id}.paraphase.json` and `{sample_id}.json` fallbacks
 
 PED phenotype codes follow the GATK PED convention: `0` or `-9` means missing,
-`1` means unaffected, and `2` means affected. PGT carrier state is stored separately from the
-sixth PED column. Extra PED tokens such as `role=embryo`, `role=relative`, `carrier=true`,
-`carrier_type=obligate`, or `carrier_type=proven` are accepted and stored on sample metadata.
-The PED upload form also accepts an ROI gene/region, inheritance model (`AD`, `AR`, `XLD`,
-`XLR`, or `mitochondrial`), and comma-separated obligate/proven carrier sample IDs. Manual
-family creation has the same separate carrier flag and carrier type per person; this does not
-change the sixth PED phenotype column. Package manifests can provide the same PGT context under
-`metadata.pgt`:
+`1` means unaffected, and `2` means affected. CoGA stores phenotype as canonical
+`clinical_status` on the family member (`unknown`, `unaffected`, or `affected`) and stores
+carrier state separately as `carrier_status` (`unknown`, `not_carrier`, or `carrier`) with an
+optional `carrier_type` (`obligate`, `proven`, `reported`, or `inferred`). Extra PED tokens
+such as `role=embryo`, `role=relative`, `carrier=true`, `carrier_type=obligate`, or
+`carrier_type=proven` are accepted.
+
+Package manifests can provide family-member state and explicit childless couples under
+`family`:
+
+```yaml
+schema_version: 2
+family_id: FAM001
+ped: family.ped
+
+family:
+  members:
+    FATHER:
+      clinical_status: unaffected
+      carrier_status: carrier
+      carrier_type: proven
+    MOTHER:
+      clinical_status: unaffected
+      carrier_status: carrier
+      carrier_type: obligate
+  relationships:
+    couples:
+      - partners: [FATHER, MOTHER]
+        context: reproductive
+      - partners: [D7, D10]
+        context: future_embryo_planning
+    parent_child:
+      - child: PROBAND
+        parents: [FATHER, MOTHER]
+```
+
+Imported families can be modified by admins through `PUT /families/{family_id}/structure`.
+The endpoint records a new family-structure version and regenerates the PED text from active
+members and active relationships. Because family relationships are now authoritative, membership
+or relationship changes are blocked when imported genomic data already exists unless the request
+sets `clear_existing_genomic_data: true`. Confirmed edits clear the imported family datasets so
+the family can be reloaded under the new structure. Removing a member is a soft metadata removal:
+the member becomes inactive, and any old genomic rows are cleared only through the explicit data
+clear confirmation.
+
+```yaml
+expected_structure_version: 3
+change_reason: family_detail_page
+clear_existing_genomic_data: true
+add_members:
+  - sample_id: FUTURE_EMBRYO_1
+    sex: und
+    role: embryo
+    clinical_status: unknown
+members:
+  - sample_id: FATHER
+    clinical_status: unaffected
+    carrier_status: carrier
+    carrier_type: proven
+  - sample_id: MOTHER
+    clinical_status: unaffected
+    carrier_status: carrier
+    carrier_type: obligate
+remove_members: []
+relationships:
+  parent_child:
+    - parent: FATHER
+      child: PROBAND
+      parent_role: father
+    - parent: MOTHER
+      child: PROBAND
+      parent_role: mother
+  couples:
+    - partners: [FATHER, MOTHER]
+      context: reproductive
+```
+
+Relationship edits are validated before saving: members must be active, parent-child edges
+cannot form cycles, duplicate couple edges are rejected, and a child can have at most two
+parents. Confirmed relationship changes clear small variants, structural variants, interval
+tracks (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`), repeat expansions, Paraphase rows, and
+variant review rows for the family. Phenotype and carrier-label changes are applied immediately
+to filters and pedigree displays; saved interpretations should still be reviewed before reuse.
+
+The PED upload form also accepts an ROI gene/region and inheritance model (`AD`, `AR`, `XLD`,
+`XLR`, or `mitochondrial`). The PGT context can still be provided under `metadata.pgt`:
 
 ```yaml
 metadata:
@@ -258,6 +340,13 @@ datasets:
     per_sample:
       SAMPLE1:
         bed: apcad/SAMPLE1.apcad.bed
+
+  pcf:
+    enabled: true
+    per_sample:
+      SAMPLE1:
+        maternal: PCF/SAMPLE1_pcf_mat_data.csv
+        paternal: PCF/SAMPLE1_pcf_pat_data.csv
 
   haplotypes:
     enabled: true

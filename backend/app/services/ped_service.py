@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 from uuid import UUID
@@ -43,6 +44,14 @@ def _sex_code_from_label(sex: str) -> str:
 
 def _phenotype_code_from_affected(affected: bool) -> str:
     return "2" if affected else "1"
+
+
+def _phenotype_code_from_clinical_status(clinical_status: str) -> str:
+    if clinical_status == "affected":
+        return "2"
+    if clinical_status == "unaffected":
+        return "1"
+    return "0"
 
 
 def _pedigree_status_from_phenotype(phenotype: str) -> str:
@@ -91,10 +100,10 @@ def _carrier_annotations(
     proven_carriers: set[str],
 ) -> dict[str, Any]:
     if sample_id in proven_carriers:
-        return {"carrier_status": True, "carrier_type": "proven"}
+        return {"carrier_status": "carrier", "carrier_type": "proven"}
     if sample_id in obligate_carriers:
-        return {"carrier_status": True, "carrier_type": "obligate"}
-    return {"carrier_status": False}
+        return {"carrier_status": "carrier", "carrier_type": "obligate"}
+    return {"carrier_status": "unknown", "carrier_type": None}
 
 
 def _build_ped_text_from_manual_family(family: ManualPedFamilyCreate) -> str:
@@ -107,7 +116,9 @@ def _build_ped_text_from_manual_family(family: ManualPedFamilyCreate) -> str:
                     member.father_id or "0",
                     member.mother_id or "0",
                     _sex_code_from_label(member.sex),
-                    _phenotype_code_from_affected(member.affected),
+                    _phenotype_code_from_clinical_status(
+                        _manual_clinical_status(member)
+                    ),
                 ]
             )
             for member in family.members
@@ -115,15 +126,19 @@ def _build_ped_text_from_manual_family(family: ManualPedFamilyCreate) -> str:
     )
 
 
-def _manual_member_metadata(member: ManualPedMemberCreate) -> dict[str, Any]:
-    carrier_status = bool(member.carrier_status or member.carrier_type)
-    pedigree_metadata: dict[str, Any] = {
-        "pedigree_status": "affected" if member.affected else "unaffected",
-        "carrier_status": carrier_status,
-    }
-    if carrier_status and member.carrier_type:
-        pedigree_metadata["carrier_type"] = member.carrier_type
-    return {"pedigree": pedigree_metadata}
+def _manual_clinical_status(member: ManualPedMemberCreate) -> str:
+    if member.clinical_status != "unknown":
+        return member.clinical_status
+    if member.affected:
+        return "affected"
+    return "unknown"
+
+
+def _normalize_carrier_status(status: str | None, carrier_type: str | None = None) -> str:
+    normalized = (status or "").strip().lower()
+    if normalized in {"unknown", "not_carrier", "carrier"}:
+        return "carrier" if carrier_type and normalized != "carrier" else normalized
+    return "carrier" if carrier_type else "unknown"
 
 
 def _normalize_parent_id(value: str | None) -> str | None:
@@ -219,9 +234,16 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
                     "sample_id": sample_id,
                     "father_id": _normalize_parent_id(member.father_id),
                     "mother_id": _normalize_parent_id(member.mother_id),
-                    "carrier_status": bool(member.carrier_status or member.carrier_type),
+                    "clinical_status": _manual_clinical_status(member),
+                    "affected": _manual_clinical_status(member) == "affected",
+                    "carrier_status": _normalize_carrier_status(
+                        member.carrier_status,
+                        member.carrier_type,
+                    ),
                     "carrier_type": (
-                        member.carrier_type if member.carrier_status or member.carrier_type else None
+                        member.carrier_type
+                        if _normalize_carrier_status(member.carrier_status, member.carrier_type) == "carrier"
+                        else None
                     ),
                 }
             )
@@ -247,6 +269,12 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
             raise HTTPException(status_code=400, detail="Father must not have female sex")
         if member.mother_id and member_map[member.mother_id].sex == "male":
             raise HTTPException(status_code=400, detail="Mother must not have male sex")
+    for couple in family.couples:
+        left, right = [partner.strip() for partner in couple.partners]
+        if not left or not right or left == right:
+            raise HTTPException(status_code=400, detail="Couple relationships require two different sample ids")
+        if left not in member_map or right not in member_map:
+            raise HTTPException(status_code=400, detail="Couple partners must be members of the family")
     return normalized_members
 
 
@@ -347,6 +375,205 @@ async def _ensure_sample_ids_are_available(
         )
 
 
+def _relationship_key(
+    relationship_type: str,
+    sample_id_a: str,
+    sample_id_b: str,
+    role_a: str | None,
+    role_b: str | None,
+) -> tuple[str, str, str, str, str]:
+    if relationship_type == "couple" and sample_id_b < sample_id_a:
+        sample_id_a, sample_id_b = sample_id_b, sample_id_a
+        role_a, role_b = role_b, role_a
+    return (
+        relationship_type,
+        sample_id_a,
+        sample_id_b,
+        role_a or "",
+        role_b or "",
+    )
+
+
+def _relationships_from_members(
+    members: list[dict[str, Any]],
+    explicit_couples: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    relationships: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str, str]] = set()
+
+    def add_relationship(
+        relationship_type: str,
+        sample_id_a: str,
+        sample_id_b: str,
+        *,
+        role_a: str | None = None,
+        role_b: str | None = None,
+        source: str = "pedigree",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        key = _relationship_key(relationship_type, sample_id_a, sample_id_b, role_a, role_b)
+        if key in seen:
+            return
+        seen.add(key)
+        relationships.append(
+            {
+                "relationship_type": relationship_type,
+                "sample_id_a": key[1],
+                "sample_id_b": key[2],
+                "role_a": role_a,
+                "role_b": role_b,
+                "source": source,
+                "metadata": metadata or {},
+            }
+        )
+
+    for member in members:
+        child_id = member["sample_id"]
+        father_id = member.get("father_id")
+        mother_id = member.get("mother_id")
+        if father_id:
+            add_relationship(
+                "parent_child",
+                father_id,
+                child_id,
+                role_a="father",
+                role_b="child",
+            )
+        if mother_id:
+            add_relationship(
+                "parent_child",
+                mother_id,
+                child_id,
+                role_a="mother",
+                role_b="child",
+            )
+        if father_id and mother_id:
+            add_relationship(
+                "couple",
+                father_id,
+                mother_id,
+                role_a="partner",
+                role_b="partner",
+                source="pedigree",
+                metadata={"has_children": True},
+            )
+
+    for couple in explicit_couples or []:
+        partners = couple.get("partners") or []
+        if len(partners) != 2:
+            continue
+        metadata = dict(couple.get("metadata") or {})
+        if couple.get("context"):
+            metadata["context"] = couple["context"]
+        add_relationship(
+            "couple",
+            str(partners[0]),
+            str(partners[1]),
+            role_a="partner",
+            role_b="partner",
+            source=couple.get("source") or "manual",
+            metadata=metadata,
+        )
+    return relationships
+
+
+async def _record_family_structure_version(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    created_by: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    member_result = await session.execute(
+        text(
+            """
+            SELECT
+                s.sample_id,
+                s.sex,
+                fm.role,
+                fm.clinical_status,
+                fm.carrier_status,
+                fm.carrier_type,
+                fm.carrier_evidence,
+                fm.active
+            FROM family_members fm
+            JOIN samples s ON s.id = fm.sample_id
+            WHERE fm.family_id = CAST(:family_uuid AS uuid)
+            ORDER BY lower(s.sample_id)
+            """
+        ),
+        {"family_uuid": family_uuid},
+    )
+    relationship_result = await session.execute(
+        text(
+            """
+            SELECT
+                fr.relationship_type,
+                sa.sample_id AS sample_id_a,
+                sb.sample_id AS sample_id_b,
+                fr.role_a,
+                fr.role_b,
+                fr.source,
+                fr.metadata,
+                fr.active
+            FROM family_relationships fr
+            JOIN samples sa ON sa.id = fr.sample_id_a
+            JOIN samples sb ON sb.id = fr.sample_id_b
+            WHERE fr.family_id = CAST(:family_uuid AS uuid)
+            ORDER BY fr.relationship_type, lower(sa.sample_id), lower(sb.sample_id), fr.role_a, fr.role_b
+            """
+        ),
+        {"family_uuid": family_uuid},
+    )
+    snapshot = {
+        "members": [dict(row) for row in member_result.mappings().all()],
+        "relationships": [dict(row) for row in relationship_result.mappings().all()],
+    }
+    snapshot_json = json.dumps(snapshot, sort_keys=True, default=str)
+    structure_hash = hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest()
+    version_result = await session.execute(
+        text(
+            """
+            SELECT COALESCE(MAX(version), 0) + 1
+            FROM family_structure_versions
+            WHERE family_id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {"family_uuid": family_uuid},
+    )
+    next_version = int(version_result.scalar_one())
+    await session.execute(
+        text(
+            """
+            INSERT INTO family_structure_versions (
+                family_id,
+                version,
+                structure_hash,
+                snapshot,
+                metadata,
+                created_by
+            )
+            VALUES (
+                CAST(:family_uuid AS uuid),
+                :version,
+                :structure_hash,
+                CAST(:snapshot AS jsonb),
+                CAST(:metadata AS jsonb),
+                CAST(:created_by AS uuid)
+            )
+            """
+        ),
+        {
+            "family_uuid": family_uuid,
+            "version": next_version,
+            "structure_hash": structure_hash,
+            "snapshot": snapshot_json,
+            "metadata": json.dumps(metadata or {}),
+            "created_by": created_by,
+        },
+    )
+
+
 async def _create_family(
     session: AsyncSession,
     *,
@@ -356,6 +583,8 @@ async def _create_family(
     project_id: str | None,
     family_metadata: dict[str, Any] | None = None,
     roi: dict[str, Any] | None = None,
+    relationships: list[dict[str, Any]] | None = None,
+    created_by: str | None = None,
 ) -> dict[str, Any]:
     created = await session.execute(
         text(
@@ -429,11 +658,24 @@ async def _create_family(
     await session.execute(
         text(
             """
-            INSERT INTO family_members (family_id, sample_id, role, affected)
+            INSERT INTO family_members (
+                family_id,
+                sample_id,
+                role,
+                clinical_status,
+                carrier_status,
+                carrier_type,
+                carrier_evidence,
+                affected
+            )
             VALUES (
                 CAST(:family_uuid AS uuid),
                 CAST(:sample_uuid AS uuid),
                 :role,
+                :clinical_status,
+                :carrier_status,
+                :carrier_type,
+                CAST(:carrier_evidence AS jsonb),
                 :affected
             )
             """
@@ -443,11 +685,64 @@ async def _create_family(
                 "family_uuid": family_row["family_uuid"],
                 "sample_uuid": sample_uuid_by_id[member["sample_id"]],
                 "role": member["role"],
-                "affected": bool(member["affected"]),
+                "clinical_status": member.get("clinical_status") or (
+                    "affected" if bool(member.get("affected")) else "unknown"
+                ),
+                "carrier_status": _normalize_carrier_status(
+                    member.get("carrier_status"),
+                    member.get("carrier_type"),
+                ),
+                "carrier_type": member.get("carrier_type"),
+                "carrier_evidence": json.dumps(member.get("carrier_evidence") or {}),
+                "affected": (member.get("clinical_status") == "affected") or bool(member.get("affected")),
             }
             for member in members
         ],
     )
+    family_relationships = relationships if relationships is not None else _relationships_from_members(members)
+    relationship_params = [
+        {
+            "family_uuid": family_row["family_uuid"],
+            "relationship_type": relationship["relationship_type"],
+            "sample_uuid_a": sample_uuid_by_id[relationship["sample_id_a"]],
+            "sample_uuid_b": sample_uuid_by_id[relationship["sample_id_b"]],
+            "role_a": relationship.get("role_a"),
+            "role_b": relationship.get("role_b"),
+            "source": relationship.get("source") or "manual",
+            "metadata": json.dumps(relationship.get("metadata") or {}),
+        }
+        for relationship in family_relationships
+        if relationship.get("sample_id_a") in sample_uuid_by_id
+        and relationship.get("sample_id_b") in sample_uuid_by_id
+    ]
+    if relationship_params:
+        await session.execute(
+            text(
+                """
+                INSERT INTO family_relationships (
+                    family_id,
+                    relationship_type,
+                    sample_id_a,
+                    sample_id_b,
+                    role_a,
+                    role_b,
+                    source,
+                    metadata
+                )
+                VALUES (
+                    CAST(:family_uuid AS uuid),
+                    :relationship_type,
+                    CAST(:sample_uuid_a AS uuid),
+                    CAST(:sample_uuid_b AS uuid),
+                    :role_a,
+                    :role_b,
+                    :source,
+                    CAST(:metadata AS jsonb)
+                )
+                """
+            ),
+            relationship_params,
+        )
     if project_id is not None:
         await session.execute(
             text(
@@ -470,6 +765,11 @@ async def _create_family(
                 ),
                 {"sample_uuid": sample_row["sample_uuid"], "project_id": project_id},
             )
+    await _record_family_structure_version(
+        session,
+        family_uuid=family_row["family_uuid"],
+        created_by=created_by,
+    )
     return {"family_id": family_id, "samples": sample_ids}
 
 
@@ -554,15 +854,15 @@ async def upload_ped_data(
             family_members.append(
                 {
                     "sample_id": sample_id,
+                    "father_id": member["pid"] if member["pid"] not in {"", "0"} else None,
+                    "mother_id": member["mid"] if member["mid"] not in {"", "0"} else None,
                     "sex": {"1": "male", "2": "female"}.get(member["sex"], "und"),
                     "role": role,
+                    "clinical_status": pedigree_status,
+                    "carrier_status": carrier_metadata["carrier_status"],
+                    "carrier_type": carrier_metadata.get("carrier_type"),
                     "affected": pedigree_status == "affected",
-                    "metadata": {
-                        "pedigree": {
-                            "pedigree_status": pedigree_status,
-                            **carrier_metadata,
-                        }
-                    },
+                    "metadata": {},
                 }
             )
         inserted.append(
@@ -586,6 +886,7 @@ async def upload_ped_data(
                 project_id=resolved_project_id,
                 family_metadata=family_metadata,
                 roi=roi_payload,
+                created_by=user.id,
             )
         )
     await session.commit()
@@ -613,14 +914,40 @@ async def create_manual_family_data(
         members=[
             {
                 "sample_id": member.sample_id,
+                "father_id": member.father_id,
+                "mother_id": member.mother_id,
                 "sex": member.sex,
                 "role": roles[member.sample_id],
-                "affected": member.affected,
-                "metadata": _manual_member_metadata(member),
+                "clinical_status": member.clinical_status,
+                "carrier_status": member.carrier_status,
+                "carrier_type": member.carrier_type,
+                "carrier_evidence": member.carrier_evidence,
+                "affected": member.clinical_status == "affected",
+                "metadata": {},
             }
             for member in normalized_members
         ],
+        relationships=_relationships_from_members(
+            [
+                {
+                    "sample_id": member.sample_id,
+                    "father_id": member.father_id,
+                    "mother_id": member.mother_id,
+                }
+                for member in normalized_members
+            ],
+            explicit_couples=[
+                {
+                    "partners": [partner.strip() for partner in couple.partners],
+                    "context": couple.context,
+                    "metadata": couple.metadata,
+                    "source": "manual",
+                }
+                for couple in family.couples
+            ],
+        ),
         project_id=resolved_project_id,
+        created_by=user.id,
     )
     await session.commit()
     return PedUploadResult(families=[inserted])

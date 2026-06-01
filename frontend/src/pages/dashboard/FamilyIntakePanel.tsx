@@ -34,6 +34,24 @@ type PedRow = {
   phen: string;
 };
 
+type DraftCouple = {
+  localId: string;
+  partnerAId: string;
+  partnerBId: string;
+  context: string;
+};
+
+type PedigreeRelationship = {
+  id: string;
+  relationship_type: 'couple';
+  sample_id_a: string;
+  sample_id_b: string;
+  role_a: 'partner';
+  role_b: 'partner';
+  source: 'manual';
+  metadata: Record<string, unknown>;
+};
+
 type PedUploadResult = {
   families: Array<{
     family_id: string;
@@ -42,6 +60,7 @@ type PedUploadResult = {
 };
 
 let memberSequence = 0;
+let coupleSequence = 0;
 
 const createDraftMember = (overrides: Partial<DraftMember> = {}): DraftMember => ({
   localId: `member-${memberSequence++}`,
@@ -53,6 +72,14 @@ const createDraftMember = (overrides: Partial<DraftMember> = {}): DraftMember =>
   isProband: false,
   carrierStatus: false,
   carrierType: 'proven',
+  ...overrides,
+});
+
+const createDraftCouple = (overrides: Partial<DraftCouple> = {}): DraftCouple => ({
+  localId: `couple-${coupleSequence++}`,
+  partnerAId: '',
+  partnerBId: '',
+  context: '',
   ...overrides,
 });
 
@@ -98,11 +125,29 @@ const pedigreeMembersFor = (members: DraftMember[]) =>
     .filter((member) => member.sampleId.trim())
     .map((member) => ({
       sample_id: member.sampleId.trim(),
-      carrier_status: member.carrierStatus,
+      carrier_status: member.carrierStatus ? 'carrier' : 'not_carrier',
       carrier_type: member.carrierStatus ? member.carrierType : null,
     }));
 
-const validateManualFamily = (familyId: string, members: DraftMember[]): string[] => {
+const pedigreeRelationshipsFor = (couples: DraftCouple[]): PedigreeRelationship[] =>
+  couples
+    .filter((couple) => couple.partnerAId.trim() && couple.partnerBId.trim())
+    .map((couple) => ({
+      id: couple.localId,
+      relationship_type: 'couple',
+      sample_id_a: couple.partnerAId.trim(),
+      sample_id_b: couple.partnerBId.trim(),
+      role_a: 'partner',
+      role_b: 'partner',
+      source: 'manual',
+      metadata: couple.context.trim() ? { context: couple.context.trim() } : {},
+    }));
+
+const validateManualFamily = (
+  familyId: string,
+  members: DraftMember[],
+  couples: DraftCouple[]
+): string[] => {
   const errors: string[] = [];
   const normalizedFamilyId = familyId.trim();
 
@@ -166,6 +211,34 @@ const validateManualFamily = (familyId: string, members: DraftMember[]): string[
     }
   });
 
+  const seenCouples = new Set<string>();
+  couples.forEach((couple, index) => {
+    const partnerAId = couple.partnerAId.trim();
+    const partnerBId = couple.partnerBId.trim();
+    const coupleLabel = `Couple ${index + 1}`;
+    if (!partnerAId && !partnerBId) {
+      return;
+    }
+    if (!partnerAId || !partnerBId) {
+      errors.push(`${coupleLabel}: select two partners.`);
+      return;
+    }
+    if (partnerAId === partnerBId) {
+      errors.push(`${coupleLabel}: partners must be different samples.`);
+    }
+    if (!memberBySampleId.has(partnerAId)) {
+      errors.push(`${coupleLabel}: partner ${partnerAId} is not present in this form.`);
+    }
+    if (!memberBySampleId.has(partnerBId)) {
+      errors.push(`${coupleLabel}: partner ${partnerBId} is not present in this form.`);
+    }
+    const coupleKey = [partnerAId, partnerBId].sort().join('::');
+    if (seenCouples.has(coupleKey)) {
+      errors.push(`${coupleLabel}: this partner relationship is already listed.`);
+    }
+    seenCouples.add(coupleKey);
+  });
+
   return Array.from(new Set(errors));
 };
 
@@ -182,6 +255,7 @@ const FamilyIntakePanel: React.FC = () => {
   const [members, setMembers] = useState<DraftMember[]>([
     createDraftMember({ isProband: true, affected: true }),
   ]);
+  const [couples, setCouples] = useState<DraftCouple[]>([]);
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
   const [loading, setLoading] = useState(false);
@@ -295,11 +369,29 @@ const FamilyIntakePanel: React.FC = () => {
         return updatedMember;
       });
     });
+
+    if (patch.sampleId !== undefined) {
+      setCouples((currentCouples) =>
+        currentCouples.map((couple) => {
+          const currentMember = members.find((member) => member.localId === memberLocalId);
+          if (!currentMember?.sampleId) {
+            return couple;
+          }
+          return {
+            ...couple,
+            partnerAId:
+              couple.partnerAId === currentMember.sampleId ? patch.sampleId ?? '' : couple.partnerAId,
+            partnerBId:
+              couple.partnerBId === currentMember.sampleId ? patch.sampleId ?? '' : couple.partnerBId,
+          };
+        })
+      );
+    }
   };
 
   const removeMember = (memberLocalId: string) => {
+    const removedMember = members.find((member) => member.localId === memberLocalId);
     setMembers((currentMembers) => {
-      const removedMember = currentMembers.find((member) => member.localId === memberLocalId);
       const remaining = currentMembers.filter((member) => member.localId !== memberLocalId);
       if (!removedMember) {
         return currentMembers;
@@ -324,6 +416,42 @@ const FamilyIntakePanel: React.FC = () => {
 
       return cleaned;
     });
+    if (removedMember?.sampleId) {
+      setCouples((currentCouples) =>
+        currentCouples.filter(
+          (couple) =>
+            couple.partnerAId !== removedMember.sampleId && couple.partnerBId !== removedMember.sampleId
+        )
+      );
+    }
+  };
+
+  const addCouple = () => {
+    const namedMembers = members.filter((member) => member.sampleId.trim());
+    const defaultMale = namedMembers.find((member) => member.sex === 'male')?.sampleId.trim() ?? '';
+    const defaultFemale = namedMembers.find((member) => member.sex === 'female')?.sampleId.trim() ?? '';
+    const [firstMember, secondMember] = namedMembers;
+    setCouples((currentCouples) => [
+      ...currentCouples,
+      createDraftCouple({
+        partnerAId: defaultMale || firstMember?.sampleId.trim() || '',
+        partnerBId: defaultFemale || secondMember?.sampleId.trim() || '',
+      }),
+    ]);
+  };
+
+  const updateCouple = (coupleLocalId: string, patch: Partial<DraftCouple>) => {
+    setCouples((currentCouples) =>
+      currentCouples.map((couple) =>
+        couple.localId === coupleLocalId ? { ...couple, ...patch } : couple
+      )
+    );
+  };
+
+  const removeCouple = (coupleLocalId: string) => {
+    setCouples((currentCouples) =>
+      currentCouples.filter((couple) => couple.localId !== coupleLocalId)
+    );
   };
 
   const submitPedUpload = async () => {
@@ -431,7 +559,7 @@ const FamilyIntakePanel: React.FC = () => {
       setStatus(projectError);
       return;
     }
-    const errors = validateManualFamily(familyId, members);
+    const errors = validateManualFamily(familyId, members, couples);
     if (errors.length > 0) {
       setStatusTone('error');
       setStatus(errors[0]);
@@ -446,11 +574,19 @@ const FamilyIntakePanel: React.FC = () => {
         father_id: member.fatherId.trim() || null,
         mother_id: member.motherId.trim() || null,
         sex: member.sex,
+        clinical_status: member.affected ? 'affected' : 'unaffected',
         affected: member.affected,
         is_proband: member.isProband,
-        carrier_status: member.carrierStatus,
+        carrier_status: member.carrierStatus ? 'carrier' : 'not_carrier',
         carrier_type: member.carrierStatus ? member.carrierType : null,
       })),
+      couples: couples
+        .filter((couple) => couple.partnerAId.trim() && couple.partnerBId.trim())
+        .map((couple) => ({
+          partners: [couple.partnerAId.trim(), couple.partnerBId.trim()],
+          context: couple.context.trim() || null,
+          metadata: {},
+        })),
     };
 
     const runCreate = async (overwrite: boolean) => {
@@ -469,6 +605,7 @@ const FamilyIntakePanel: React.FC = () => {
       );
       setFamilyId('');
       setMembers([createDraftMember({ isProband: true, affected: true })]);
+      setCouples([]);
     } catch (err: unknown) {
       if ((err as { response?: { status?: number } })?.response?.status === 409) {
         if (!userIsAdmin) {
@@ -487,6 +624,9 @@ const FamilyIntakePanel: React.FC = () => {
             setStatus(
               `Replaced ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
             );
+            setFamilyId('');
+            setMembers([createDraftMember({ isProband: true, affected: true })]);
+            setCouples([]);
           } catch (overwriteError: unknown) {
             setStatusTone('error');
             setStatus(getErrorMessage(overwriteError, 'Family creation failed.'));
@@ -504,10 +644,12 @@ const FamilyIntakePanel: React.FC = () => {
     }
   };
 
-  const validationErrors = validateManualFamily(familyId, members);
+  const validationErrors = validateManualFamily(familyId, members, couples);
   const pedigreeRows = pedigreeRowsFor(familyId, members);
   const pedPreview = pedPreviewFor(pedigreeRows);
   const pedigreeMembers = pedigreeMembersFor(members);
+  const pedigreeRelationships = pedigreeRelationshipsFor(couples);
+  const selectableMembers = members.filter((member) => member.sampleId.trim());
   const namedMembersCount = members.filter((member) => member.sampleId.trim()).length;
   const affectedCount = members.filter((member) => member.affected).length;
 
@@ -894,6 +1036,96 @@ const FamilyIntakePanel: React.FC = () => {
               })}
             </div>
 
+            <div className="surface-card-muted space-y-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-1">
+                  <h3 className="section-title !text-[1.25rem]">Couple relationships</h3>
+                  <p className="text-sm leading-7 text-[var(--color-text-muted)]">
+                    Link two partners directly, also when they do not have children in this family.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={addCouple}
+                  disabled={selectableMembers.length < 2}
+                >
+                  Add couple
+                </button>
+              </div>
+              {couples.length === 0 ? (
+                <p className="status-note status-note--info">
+                  No explicit partner relationship has been added.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {couples.map((couple, index) => (
+                    <article key={couple.localId} className="surface-card-flat member-card">
+                      <div className="member-card-header">
+                        <div className="space-y-1">
+                          <h4 className="eyebrow-label">Couple {index + 1}</h4>
+                          <p className="text-sm text-[var(--color-text-muted)]">
+                            {couple.partnerAId || 'Partner 1'} + {couple.partnerBId || 'Partner 2'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="button-ghost"
+                          onClick={() => removeCouple(couple.localId)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <label className="field-label">
+                          Partner 1
+                          <select
+                            value={couple.partnerAId}
+                            onChange={(event) =>
+                              updateCouple(couple.localId, { partnerAId: event.target.value })
+                            }
+                          >
+                            <option value="">Select partner</option>
+                            {selectableMembers.map((member) => (
+                              <option key={member.localId} value={member.sampleId.trim()}>
+                                {member.sampleId.trim()}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field-label">
+                          Partner 2
+                          <select
+                            value={couple.partnerBId}
+                            onChange={(event) =>
+                              updateCouple(couple.localId, { partnerBId: event.target.value })
+                            }
+                          >
+                            <option value="">Select partner</option>
+                            {selectableMembers.map((member) => (
+                              <option key={member.localId} value={member.sampleId.trim()}>
+                                {member.sampleId.trim()}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="field-label">
+                          Context
+                          <input
+                            value={couple.context}
+                            onChange={(event) =>
+                              updateCouple(couple.localId, { context: event.target.value })
+                            }
+                            placeholder="reproductive, ECS, planning"
+                          />
+                        </label>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="action-row">
               <button
                 type="button"
@@ -944,7 +1176,11 @@ const FamilyIntakePanel: React.FC = () => {
                   className="mono-panel mt-4 overflow-x-auto !bg-[rgba(255,255,255,0.92)]"
                   data-testid="pedigree-sketch"
                 >
-                  <Pedigree rows={pedigreeRows} members={pedigreeMembers} />
+                  <Pedigree
+                    rows={pedigreeRows}
+                    members={pedigreeMembers}
+                    relationships={pedigreeRelationships}
+                  />
                 </div>
               ) : (
                 <p className="mt-4 text-sm text-[var(--color-text-muted)]">

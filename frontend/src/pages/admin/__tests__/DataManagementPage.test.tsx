@@ -34,6 +34,7 @@ const mockInventoryResponses = () => {
                 coverage: 4000,
                 segments: 18,
                 apcad: 900,
+                apcad_pcf: 44,
                 haplotype: 22,
               },
               total_records: 11140,
@@ -56,6 +57,7 @@ const mockInventoryResponses = () => {
             coverage: 4000,
             segments: 18,
             apcad: 900,
+            apcad_pcf: 44,
             haplotype: 22,
           },
           total_records: 11140,
@@ -70,6 +72,7 @@ const mockInventoryResponses = () => {
                 coverage: 2000,
                 segments: 9,
                 apcad: 450,
+                apcad_pcf: 22,
                 haplotype: 11,
                 structural_variants: 610,
               },
@@ -85,6 +88,7 @@ const mockInventoryResponses = () => {
                 coverage: 2000,
                 segments: 9,
                 apcad: 450,
+                apcad_pcf: 22,
                 haplotype: 11,
                 structural_variants: 590,
               },
@@ -134,6 +138,10 @@ describe('DataManagementPage', () => {
     expect(screen.getByText('Delete entire family')).toBeInTheDocument();
     expect(screen.getAllByText('Delete sample').length).toBeGreaterThan(0);
     expect(screen.getByText('Link family to projects')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /edit family details/i })).toHaveAttribute(
+      'href',
+      '/admin/data/families/F1/structure'
+    );
     expect(screen.getByText('Save project access')).toBeInTheDocument();
     expect(screen.getByText('Assigned projects')).toBeInTheDocument();
     expect(screen.getAllByText('Proj1').length).toBeGreaterThan(0);

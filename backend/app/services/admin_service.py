@@ -42,7 +42,7 @@ from .clickhouse_variant_storage import (
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 
-BED_TRACK_TYPES = ("coverage", "segments", "apcad", "haplotype")
+BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype")
 SAMPLE_TRACK_TYPES = (*BED_TRACK_TYPES, "structural_variants", "repeat_expansions")
 FAMILY_TRACK_TYPES = ("small_variants", "structural_variants", "repeat_expansions", *BED_TRACK_TYPES)
 
@@ -166,10 +166,16 @@ async def _sample_rows_by_family(
                 s.sample_id,
                 s.sex,
                 fm.role,
-                fm.affected
+                fm.affected,
+                fm.clinical_status,
+                fm.carrier_status,
+                fm.carrier_type,
+                fm.carrier_evidence,
+                fm.active
             FROM family_members fm
             JOIN samples s ON s.id = fm.sample_id
             WHERE fm.family_id IN :family_uuids
+              AND fm.active
             ORDER BY lower(s.sample_id)
             """
         ).bindparams(uuid_list_bindparam("family_uuids")),
@@ -214,7 +220,11 @@ async def _family_assembly_contexts(
     project_rows = await _assembly_project_rows(session, family_uuid)
     sample_uuid_to_name = {row["sample_uuid"]: row["sample_id"] for row in sample_rows}
     sample_name_to_uuid = {row["sample_id"]: row["sample_uuid"] for row in sample_rows}
-    affected_sample_names = [row["sample_id"] for row in sample_rows if bool(row.get("affected"))]
+    affected_sample_names = [
+        row["sample_id"]
+        for row in sample_rows
+        if str(row.get("clinical_status") or "").lower() == "affected"
+    ]
     if not project_rows:
         return [
             FamilyMetadataContext(
@@ -222,6 +232,7 @@ async def _family_assembly_contexts(
                 family_id=family_id,
                 project_ids=[],
                 sample_rows=sample_rows,
+                relationship_rows=[],
                 sample_uuid_to_name=sample_uuid_to_name,
                 sample_name_to_uuid=sample_name_to_uuid,
                 affected_sample_names=affected_sample_names,
@@ -238,6 +249,7 @@ async def _family_assembly_contexts(
             family_id=family_id,
             project_ids=project_ids,
             sample_rows=sample_rows,
+            relationship_rows=[],
             sample_uuid_to_name=sample_uuid_to_name,
             sample_name_to_uuid=sample_name_to_uuid,
             affected_sample_names=affected_sample_names,

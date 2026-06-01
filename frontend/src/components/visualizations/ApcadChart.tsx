@@ -20,6 +20,8 @@ interface ApcadBin {
   origin: string;
 }
 
+type ApcadSegment = ApcadBin;
+
 interface Layout {
   offsets: Record<string, number>;
   lengths: Record<string, number>;
@@ -28,6 +30,14 @@ interface Layout {
 
 interface ApcadTrackData {
   bins: ApcadBin[];
+  segments: ApcadSegment[];
+}
+
+interface SegmentHitbox {
+  x1: number;
+  x2: number;
+  y: number;
+  segment: ApcadSegment;
 }
 
 interface BedRecordPayload<T> {
@@ -90,6 +100,7 @@ const deriveLayoutFromBins = (
 
 interface Props {
   apcadUrls: string[];
+  pcfUrls?: string[];
   width?: number;
   height?: number;
   chroms?: string[];
@@ -102,6 +113,7 @@ interface Props {
 
 const ApcadChart: React.FC<Props> = ({
   apcadUrls,
+  pcfUrls = [],
   width = 800,
   height = 120,
   chroms = DEFAULT_CHROMS,
@@ -115,12 +127,20 @@ const ApcadChart: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [hasData, setHasData] = useState<boolean | null>(null);
   const [trackData, setTrackData] = useState<ApcadTrackData | null>(null);
+  const [hoverSegment, setHoverSegment] = useState<{
+    x: number;
+    y: number;
+    segment: ApcadSegment;
+  } | null>(null);
   const layoutRef = useRef<Layout>({ offsets: {}, lengths: {}, total: 0 });
+  const segmentHitboxesRef = useRef<SegmentHitbox[]>([]);
 
   const apcadUrlKey = apcadUrls.join('\n');
+  const pcfUrlKey = pcfUrls.join('\n');
   const chromKey = chroms.join('\n');
 
   const stableApcadUrls = useMemo(() => splitKey(apcadUrlKey), [apcadUrlKey]);
+  const stablePcfUrls = useMemo(() => splitKey(pcfUrlKey), [pcfUrlKey]);
   const stableChroms = useMemo(() => splitKey(chromKey), [chromKey]);
 
   useEffect(() => {
@@ -128,7 +148,7 @@ const ApcadChart: React.FC<Props> = ({
     let active = true;
 
     const load = async () => {
-      if (stableApcadUrls.length === 0) {
+      if (stableApcadUrls.length === 0 && stablePcfUrls.length === 0) {
         if (active) {
           setTrackData(null);
           setHasData(false);
@@ -149,18 +169,26 @@ const ApcadChart: React.FC<Props> = ({
 
       try {
         const allowedChroms = new Set(stableChroms.map(normalizeChrom));
-        const payloads = await Promise.all(
-          stableApcadUrls.map((url) =>
-            fetchJsonOrNull<ApcadBin>(url, headers, controller.signal),
+        const [apcadPayloads, pcfPayloads] = await Promise.all([
+          Promise.all(
+            stableApcadUrls.map((url) =>
+              fetchJsonOrNull<ApcadBin>(url, headers, controller.signal),
+            ),
           ),
-        );
+          Promise.all(
+            stablePcfUrls.map((url) =>
+              fetchJsonOrNull<ApcadSegment>(url, headers, controller.signal),
+            ),
+          ),
+        ]);
 
         if (!active) {
           return;
         }
 
         const bins: ApcadBin[] = [];
-        payloads.forEach((payload) => {
+        const segments: ApcadSegment[] = [];
+        apcadPayloads.forEach((payload) => {
           if (!payload) {
             return;
           }
@@ -182,10 +210,35 @@ const ApcadChart: React.FC<Props> = ({
             });
           });
         });
+        pcfPayloads.forEach((payload) => {
+          if (!payload) {
+            return;
+          }
+          payload.items.forEach((item) => {
+            const chromName = normalizeChrom(item.chr);
+            if (!allowedChroms.has(chromName)) {
+              return;
+            }
+            const origin = (item.origin || 'und').toLowerCase();
+            if (origin !== 'paternal' && origin !== 'maternal') {
+              return;
+            }
+            if (!Number.isFinite(item.value)) {
+              return;
+            }
+            segments.push({
+              chr: chromName,
+              start: item.start,
+              end: item.end,
+              value: item.value,
+              origin,
+            });
+          });
+        });
 
         if (active) {
-          setTrackData({ bins });
-          setHasData(bins.length > 0);
+          setTrackData({ bins, segments });
+          setHasData(bins.length > 0 || segments.length > 0);
         }
       } catch {
         if (controller.signal.aborted) {
@@ -208,7 +261,7 @@ const ApcadChart: React.FC<Props> = ({
       active = false;
       controller.abort();
     };
-  }, [stableApcadUrls, stableChroms]);
+  }, [stableApcadUrls, stableChroms, stablePcfUrls]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -218,13 +271,15 @@ const ApcadChart: React.FC<Props> = ({
     }
 
     ctx.clearRect(0, 0, width, height);
+    segmentHitboxesRef.current = [];
+    setHoverSegment(null);
 
-    if (!trackData || trackData.bins.length === 0) {
+    if (!trackData || (trackData.bins.length === 0 && trackData.segments.length === 0)) {
       layoutRef.current = { offsets: {}, lengths: {}, total: 0 };
       return;
     }
 
-    const { bins } = trackData;
+    const { bins, segments } = trackData;
     let chromLengths: Record<string, number>;
     let offsets: Record<string, number>;
     let totalLength: number;
@@ -235,7 +290,7 @@ const ApcadChart: React.FC<Props> = ({
       totalLength = layout.total;
     } else {
       const derivedLayout = deriveLayoutFromBins(
-        bins,
+        [...bins, ...segments],
         stableChroms,
         regionStart,
         regionEnd,
@@ -318,6 +373,46 @@ const ApcadChart: React.FC<Props> = ({
       ctx.fill();
     });
 
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2.2;
+    ctx.globalAlpha = 0.8;
+    segments.forEach((segment) => {
+      if (
+        isFocusedRegion &&
+        (segment.end < regionStart || segment.start > regionEnd)
+      ) {
+        return;
+      }
+
+      const offset = offsets[segment.chr] ?? 0;
+      const genomeStart = isFocusedRegion ? segment.start : offset + segment.start;
+      const genomeEnd = isFocusedRegion ? segment.end : offset + segment.end;
+      const x1 = Math.max(0, Math.min(width, xScale(genomeStart)));
+      const x2 = Math.max(0, Math.min(width, xScale(genomeEnd)));
+      const y = yScale(segment.value);
+      const stroke =
+        segment.origin === 'paternal'
+          ? paternalColor
+          : segment.origin === 'maternal'
+            ? maternalColor
+            : textColor;
+
+      ctx.strokeStyle = stroke;
+      ctx.beginPath();
+      ctx.moveTo(x1, y);
+      ctx.lineTo(x2, y);
+      ctx.stroke();
+      segmentHitboxesRef.current.push({
+        x1: Math.min(x1, x2),
+        x2: Math.max(x1, x2),
+        y,
+        segment,
+      });
+    });
+    ctx.restore();
+
     if (stableChroms.length > 1) {
       ctx.strokeStyle = cssVar('--color-grid');
       ctx.lineWidth = 0.5;
@@ -362,6 +457,19 @@ const ApcadChart: React.FC<Props> = ({
     }
   };
 
+  const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const x = event.nativeEvent.offsetX;
+    const y = event.nativeEvent.offsetY;
+    const hit = segmentHitboxesRef.current.find(
+      (item) => x >= item.x1 && x <= item.x2 && Math.abs(y - item.y) <= 6,
+    );
+    if (!hit) {
+      setHoverSegment(null);
+      return;
+    }
+    setHoverSegment({ x, y, segment: hit.segment });
+  };
+
   return (
     <div className="relative" style={{ width, height }}>
       <canvas
@@ -369,7 +477,15 @@ const ApcadChart: React.FC<Props> = ({
         width={width}
         height={height}
         onClick={handleClick}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoverSegment(null)}
       />
+      {hoverSegment && (
+        <div className="viz-tooltip" style={{ left: hoverSegment.x + 8, top: hoverSegment.y + 8 }}>
+          <div>PCF {hoverSegment.segment.origin}</div>
+          <div>value {hoverSegment.segment.value.toFixed(4)}</div>
+        </div>
+      )}
       {loading && <VizLoadingOverlay message="Loading APCAD" />}
       {!loading && hasData === false && (
         <div className="viz-empty-overlay">No APCAD data in this region</div>

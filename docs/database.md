@@ -83,7 +83,7 @@ The important logical entities are:
 - small variant sample calls
 - structural variant records
 - structural variant sample calls
-- interval track records for coverage, WisecondorX segments, APCAD, and haplotypes
+- interval track records for coverage, WisecondorX segments, APCAD, PCF APCAD segment overlays, and haplotypes
 
 ## Identifier Rules
 

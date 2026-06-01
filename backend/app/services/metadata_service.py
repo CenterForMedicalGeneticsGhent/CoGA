@@ -15,6 +15,8 @@ from ..schemas import (
     AssemblyOut,
     FamilyMemberOut,
     FamilyOut,
+    FamilyRelationshipOut,
+    FamilyStructureVersionOut,
     ProjectDashboardOut,
     ProjectOut,
     SpeciesOut,
@@ -61,6 +63,35 @@ def _string_list(values: Iterable[Any] | None) -> list[str]:
 
 def _normalize_metadata(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _clinical_status_from_row(row: dict[str, Any]) -> str:
+    status = str(row.get("clinical_status") or "").strip().lower()
+    if status in {"unknown", "unaffected", "affected"}:
+        return status
+    return "unknown"
+
+
+def _carrier_status_from_row(row: dict[str, Any]) -> str:
+    status = str(row.get("carrier_status") or "").strip().lower()
+    if status in {"unknown", "not_carrier", "carrier"}:
+        return status
+    return "unknown"
+
+
+def _family_member_out_from_row(row: dict[str, Any]) -> FamilyMemberOut:
+    clinical_status = _clinical_status_from_row(row)
+    return FamilyMemberOut(
+        sample_id=row["sample_id"],
+        role=row["role"],
+        affected=clinical_status == "affected",
+        sex=row["sex"],
+        clinical_status=clinical_status,  # type: ignore[arg-type]
+        carrier_status=_carrier_status_from_row(row),  # type: ignore[arg-type]
+        carrier_type=row.get("carrier_type"),
+        carrier_evidence=_normalize_metadata(row.get("carrier_evidence")),
+        active=bool(row.get("active", True)),
+    )
 
 
 def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
@@ -113,6 +144,8 @@ def _family_out_from_mapping(
     family_mapping: dict[str, Any],
     members: list[FamilyMemberOut],
     project_ids: list[str],
+    relationships: list[FamilyRelationshipOut] | None = None,
+    structure_version: FamilyStructureVersionOut | None = None,
 ) -> FamilyOut:
     roi = None
     if family_mapping.get("roi_query"):
@@ -134,6 +167,8 @@ def _family_out_from_mapping(
         id=str(family_mapping["id"]),
         family_id=family_mapping["family_id"],
         members=members,
+        relationships=relationships or [],
+        structure_version=structure_version,
         pedigree=family_mapping.get("pedigree"),
         roi=roi,
         projects=project_ids,
@@ -704,11 +739,17 @@ async def _fetch_project_family_rows(
             s.sample_id,
             fm.role,
             fm.affected,
+            fm.clinical_status,
+            fm.carrier_status,
+            fm.carrier_type,
+            fm.carrier_evidence,
+            fm.active,
             s.sex,
             s.metadata AS sample_metadata
         FROM family_members fm
         JOIN samples s ON s.id = fm.sample_id
         WHERE fm.family_id IN :family_ids
+          AND fm.active
         ORDER BY lower(s.sample_id)
         """
     ).bindparams(uuid_list_bindparam("family_ids"))
@@ -716,18 +757,10 @@ async def _fetch_project_family_rows(
     member_rows = [dict(row) for row in member_result.mappings().all()]
     members_by_family: dict[str, list[FamilyMemberOut]] = defaultdict(list)
     for row in member_rows:
-        pedigree_metadata = _normalize_metadata(row.get("sample_metadata")).get("pedigree") or {}
-        members_by_family[row["family_uuid"]].append(
-            FamilyMemberOut(
-                sample_id=row["sample_id"],
-                role=row["role"],
-                affected=bool(row["affected"]),
-                sex=row["sex"],
-                clinical_status=pedigree_metadata.get("pedigree_status"),
-                carrier_status=pedigree_metadata.get("carrier_status"),
-                carrier_type=pedigree_metadata.get("carrier_type"),
-            )
-        )
+        members_by_family[row["family_uuid"]].append(_family_member_out_from_row(row))
+
+    relationships_by_family = await _fetch_family_relationship_rows(session, family_ids)
+    structure_versions_by_family = await _fetch_family_structure_version_rows(session, family_ids)
 
     family_out_by_id: dict[str, FamilyOut] = {}
     for row in project_family_rows:
@@ -740,6 +773,8 @@ async def _fetch_project_family_rows(
             family_mapping,
             members_by_family.get(family_uuid, []),
             _string_list(family_project_ids.get(family_uuid)),
+            relationships_by_family.get(family_uuid, []),
+            structure_versions_by_family.get(family_uuid),
         )
 
     families_by_project: dict[str, list[str]] = defaultdict(list)
@@ -1001,10 +1036,16 @@ async def _fetch_family_sample_rows(
             s.sex,
             fm.role,
             fm.affected,
+            fm.clinical_status,
+            fm.carrier_status,
+            fm.carrier_type,
+            fm.carrier_evidence,
+            fm.active,
             s.metadata AS sample_metadata
         FROM family_members fm
         JOIN samples s ON s.id = fm.sample_id
         WHERE fm.family_id IN :family_uuids
+          AND fm.active
         ORDER BY lower(s.sample_id)
         """
     ).bindparams(uuid_list_bindparam("family_uuids"))
@@ -1016,6 +1057,80 @@ async def _fetch_family_sample_rows(
     return rows_by_family
 
 
+async def _fetch_family_relationship_rows(
+    session: AsyncSession,
+    family_uuids: list[str],
+) -> dict[str, list[FamilyRelationshipOut]]:
+    if not family_uuids:
+        return {}
+    stmt = text(
+        """
+        SELECT
+            fr.id::text AS id,
+            fr.family_id::text AS family_uuid,
+            fr.relationship_type,
+            sa.sample_id AS sample_id_a,
+            sb.sample_id AS sample_id_b,
+            fr.role_a,
+            fr.role_b,
+            fr.source,
+            fr.metadata
+        FROM family_relationships fr
+        JOIN samples sa ON sa.id = fr.sample_id_a
+        JOIN samples sb ON sb.id = fr.sample_id_b
+        WHERE fr.family_id IN :family_uuids
+          AND fr.active
+        ORDER BY fr.relationship_type, lower(sa.sample_id), lower(sb.sample_id)
+        """
+    ).bindparams(uuid_list_bindparam("family_uuids"))
+    result = await session.execute(stmt, {"family_uuids": uuid_values(family_uuids)})
+    rows_by_family: dict[str, list[FamilyRelationshipOut]] = defaultdict(list)
+    for row in result.mappings().all():
+        payload = dict(row)
+        rows_by_family[payload["family_uuid"]].append(
+            FamilyRelationshipOut(
+                id=payload["id"],
+                relationship_type=payload["relationship_type"],
+                sample_id_a=payload["sample_id_a"],
+                sample_id_b=payload["sample_id_b"],
+                role_a=payload.get("role_a"),
+                role_b=payload.get("role_b"),
+                source=payload.get("source") or "manual",
+                metadata=_normalize_metadata(payload.get("metadata")),
+            )
+        )
+    return rows_by_family
+
+
+async def _fetch_family_structure_version_rows(
+    session: AsyncSession,
+    family_uuids: list[str],
+) -> dict[str, FamilyStructureVersionOut]:
+    if not family_uuids:
+        return {}
+    stmt = text(
+        """
+        SELECT DISTINCT ON (family_id)
+            family_id::text AS family_uuid,
+            version,
+            structure_hash,
+            metadata
+        FROM family_structure_versions
+        WHERE family_id IN :family_uuids
+        ORDER BY family_id, version DESC
+        """
+    ).bindparams(uuid_list_bindparam("family_uuids"))
+    result = await session.execute(stmt, {"family_uuids": uuid_values(family_uuids)})
+    return {
+        str(row["family_uuid"]): FamilyStructureVersionOut(
+            version=int(row["version"]),
+            structure_hash=row.get("structure_hash"),
+            metadata=_normalize_metadata(row.get("metadata")),
+        )
+        for row in result.mappings().all()
+    }
+
+
 def _family_out_from_rows(
     family_row: dict[str, Any],
     sample_rows: list[dict[str, Any]],
@@ -1023,22 +1138,13 @@ def _family_out_from_rows(
 ) -> FamilyOut:
     members: list[FamilyMemberOut] = []
     for row in sample_rows:
-        pedigree_metadata = _normalize_metadata(row.get("sample_metadata")).get("pedigree") or {}
-        members.append(
-            FamilyMemberOut(
-                sample_id=row["sample_id"],
-                role=row["role"],
-                affected=bool(row["affected"]),
-                sex=row["sex"],
-                clinical_status=pedigree_metadata.get("pedigree_status"),
-                carrier_status=pedigree_metadata.get("carrier_status"),
-                carrier_type=pedigree_metadata.get("carrier_type"),
-            )
-        )
+        members.append(_family_member_out_from_row(row))
     return _family_out_from_mapping(
         family_row,
         members,
         _string_list(project_ids if project_ids is not None else family_row.get("project_ids")),
+        family_row.get("relationships", []),
+        family_row.get("structure_version"),
     )
 
 
@@ -1050,10 +1156,17 @@ async def list_family_records(
         session,
         metadata_project_ids=None if user.role == "admin" else _user_metadata_project_ids(user),
     )
-    sample_rows_by_family = await _fetch_family_sample_rows(session, [row["id"] for row in family_rows])
+    family_uuids = [row["id"] for row in family_rows]
+    sample_rows_by_family = await _fetch_family_sample_rows(session, family_uuids)
+    relationships_by_family = await _fetch_family_relationship_rows(session, family_uuids)
+    structure_versions_by_family = await _fetch_family_structure_version_rows(session, family_uuids)
     return [
         _family_out_from_rows(
-            row,
+            {
+                **row,
+                "relationships": relationships_by_family.get(row["id"], []),
+                "structure_version": structure_versions_by_family.get(row["id"]),
+            },
             sample_rows_by_family.get(row["id"], []),
             _visible_metadata_project_ids(row.get("project_ids"), user),
         )
@@ -1081,8 +1194,14 @@ async def get_family_record(
 ) -> FamilyOut:
     family_row = await get_accessible_family_mapping(session, family_identifier, user)
     sample_rows_by_family = await _fetch_family_sample_rows(session, [family_row["id"]])
+    relationships_by_family = await _fetch_family_relationship_rows(session, [family_row["id"]])
+    structure_versions_by_family = await _fetch_family_structure_version_rows(session, [family_row["id"]])
     return _family_out_from_rows(
-        family_row,
+        {
+            **family_row,
+            "relationships": relationships_by_family.get(family_row["id"], []),
+            "structure_version": structure_versions_by_family.get(family_row["id"]),
+        },
         sample_rows_by_family.get(family_row["id"], []),
         _visible_metadata_project_ids(family_row.get("project_ids"), user),
     )

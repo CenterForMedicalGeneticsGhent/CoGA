@@ -27,6 +27,7 @@ interface GenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
   apcad: boolean;
+  apcadPcf: boolean;
   haplotypes: boolean;
   sv: boolean;
   repeatExpansions: boolean;
@@ -70,6 +71,7 @@ interface GenomeOverviewWorkspaceProps {
     coverage: Record<string, string[]>;
     segments: Record<string, string[]>;
     apcad: Record<string, string[]>;
+    apcadPcf: Record<string, string[]>;
     haplotypes: Record<string, string[]>;
   };
   layout: Layout | null;
@@ -254,10 +256,10 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
     'Reference not linked',
   );
   const suppressedChromClick = useRef<{ chrom: string; ts: number } | null>(null);
-  const hasCarrierSegregation = membersWithData.some((member) => Boolean(member.carrier_status));
+  const hasCarrierSegregation = membersWithData.some((member) => member.carrier_status === 'carrier');
   const haplotypeDisorder = hasCarrierSegregation ? 'recessive' : 'dominant';
   const highlightRiskHaplotype = membersWithData.some(
-    (member) => member.affected || Boolean(member.carrier_status),
+    (member) => member.affected || member.carrier_status === 'carrier',
   );
 
   const handleChromosomeRegionJump = (chrom: string, start: number, end: number) => {
@@ -337,7 +339,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                   )}
                 </ViewerTrackBlock>
               )}
-              {trackVisibility.apcad && availability[member.sample_id]?.apcad && (
+              {trackVisibility.apcad && (availability[member.sample_id]?.apcad || availability[member.sample_id]?.apcadPcf) && (
                 <ViewerTrackBlock
                   label="APCAD"
                   width={trackWidth}
@@ -355,6 +357,11 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                     >
                       <ApcadChart
                         apcadUrls={urlMaps.apcad[member.sample_id]}
+                        pcfUrls={
+                          availability[member.sample_id]?.apcadPcf
+                            ? urlMaps.apcadPcf[member.sample_id]
+                            : undefined
+                        }
                         width={trackWidth}
                         height={trackHeight}
                         onChromosomeClick={navigateToChromosome}
@@ -427,7 +434,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                         sampleId={member.sample_id}
                         role={member.role}
                         affected={member.affected}
-                        carrierStatus={member.carrier_status}
+                        carrierStatus={member.carrier_status === 'carrier'}
                         highlightRiskHaplotype={highlightRiskHaplotype}
                         disorder={haplotypeDisorder}
                         layout={layout}

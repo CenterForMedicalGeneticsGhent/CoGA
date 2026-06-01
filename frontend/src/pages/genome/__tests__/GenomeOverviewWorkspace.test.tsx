@@ -106,6 +106,7 @@ describe('GenomeOverviewWorkspace', () => {
               coverage: true,
               segments: false,
               apcad: false,
+              apcadPcf: false,
               haplotypes: false,
               sv: false,
               repeatExpansions: false,
@@ -118,6 +119,7 @@ describe('GenomeOverviewWorkspace', () => {
             coverage: { PROBAND: ['http://test/coverage'] },
             segments: {},
             apcad: {},
+            apcadPcf: {},
             haplotypes: { PROBAND: ['http://test/haplotype'] },
           }}
           layout={{

@@ -1738,7 +1738,22 @@ def _normalize_small_variant_inheritance(value: str | None) -> str | None:
     return normalized
 
 
-def _carrier_partner_names(sample_rows: Sequence[dict[str, Any]]) -> tuple[str, str] | None:
+def _carrier_partner_names(
+    sample_rows: Sequence[dict[str, Any]],
+    relationship_rows: Sequence[dict[str, Any]] | None = None,
+) -> tuple[str, str] | None:
+    sample_names = {
+        str(row.get("sample_id") or "").strip()
+        for row in sample_rows
+        if str(row.get("sample_id") or "").strip()
+    }
+    for relationship in relationship_rows or []:
+        if relationship.get("relationship_type") != "couple":
+            continue
+        left = str(relationship.get("sample_id_a") or "").strip()
+        right = str(relationship.get("sample_id_b") or "").strip()
+        if left and right and left != right and left in sample_names and right in sample_names:
+            return left, right
     mother = next((row.get("sample_id") for row in sample_rows if row.get("role") == "mother"), None)
     father = next((row.get("sample_id") for row in sample_rows if row.get("role") == "father"), None)
     if mother and father:
@@ -1759,8 +1774,9 @@ def _has_alt_allele(gt: str) -> bool:
 def _filter_expanded_carrier_screening(
     records: Sequence[SmallVariantRecord],
     sample_rows: Sequence[dict[str, Any]],
+    relationship_rows: Sequence[dict[str, Any]] | None = None,
 ) -> list[SmallVariantRecord]:
-    partners = _carrier_partner_names(sample_rows)
+    partners = _carrier_partner_names(sample_rows, relationship_rows)
     if partners is None:
         return []
     carrier_variants: dict[tuple[str, str], list[SmallVariantRecord]] = {}
@@ -2195,6 +2211,7 @@ def _family_affected_unaffected_sample_names(
         str(row.get("sample_id") or "").strip()
         for row in context.sample_rows
         if str(row.get("sample_id") or "").strip()
+        and str(row.get("clinical_status") or "").lower() == "unaffected"
         and str(row.get("sample_id") or "").strip() not in affected_sample_set
     ]
     return affected_sample_names, unaffected_sample_names
@@ -2285,7 +2302,7 @@ def _small_native_inheritance_clauses(
     hom_alt_gt_values = tuple(sorted(_HOM_ALT_GT_VALUES))
 
     if filters.expanded_carrier_screening:
-        partners = _carrier_partner_names(context.sample_rows)
+        partners = _carrier_partner_names(context.sample_rows, context.relationship_rows)
         if partners is None:
             return ["0"], params
         partner_alt_clauses = _small_all_samples_have_gts_condition(
@@ -4153,7 +4170,11 @@ async def get_family_small_variants_page(
     ]
     affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
     if filters.expanded_carrier_screening:
-        filtered = _filter_expanded_carrier_screening(filtered, context.sample_rows)
+        filtered = _filter_expanded_carrier_screening(
+            filtered,
+            context.sample_rows,
+            context.relationship_rows,
+        )
     if track_mode:
         unfiltered_total = None
         unfiltered_total_is_estimated = False

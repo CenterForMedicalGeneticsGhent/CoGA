@@ -191,7 +191,10 @@ export interface SmallVariantTagDefinition {
 }
 
 export type FamilyMember = ApiFamilyMember;
-export type SmallVariantFamily = Pick<ApiFamilyRecord, 'members' | 'pedigree' | 'projects' | 'metadata'>;
+export type SmallVariantFamily = Pick<
+  ApiFamilyRecord,
+  'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata'
+>;
 
 export interface PedRow {
   fid: string;
@@ -633,7 +636,23 @@ const sampleFiltersEqual = (
   );
 };
 
-export const resolveCarrierScreeningCoupleMembers = (members: FamilyMember[]) => {
+export const resolveCarrierScreeningCoupleMembers = (
+  members: FamilyMember[],
+  relationships: SmallVariantFamily['relationships'] = [],
+) => {
+  const memberMap = new Map(members.map((member) => [member.sample_id, member]));
+  const couple = relationships?.find((relationship) => (
+    relationship.relationship_type === 'couple' &&
+    memberMap.has(relationship.sample_id_a) &&
+    memberMap.has(relationship.sample_id_b)
+  ));
+  if (couple) {
+    return {
+      left: memberMap.get(couple.sample_id_a)!,
+      right: memberMap.get(couple.sample_id_b)!,
+    };
+  }
+
   const mother = members.find((member) => member.role === 'mother') || null;
   const father = members.find((member) => member.role === 'father') || null;
   if (mother && father) {
@@ -1153,6 +1172,7 @@ export const useSmallVariantSearchState = ({
     () => sortFamilyMembersProbandFirst(family?.members || []),
     [family?.members],
   );
+  const relationships = family?.relationships || [];
 
   const [filters, setFilters] = useState(emptyFilters);
   const [draftFilters, setDraftFilters] = useState(emptyFilters);
@@ -1433,6 +1453,7 @@ export const useSmallVariantSearchState = ({
     handleReset,
     handleSampleFieldChange,
     members,
+    relationships,
     page,
     removeActiveFilterChip,
     requestQueryString,

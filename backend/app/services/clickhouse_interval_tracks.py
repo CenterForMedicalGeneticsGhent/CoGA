@@ -14,7 +14,7 @@ from ..core.sql import uuid_list_bindparam, uuid_values
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
 
-VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "segments", "haplotype"}
+VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "apcad_pcf", "segments", "haplotype"}
 _VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
@@ -298,7 +298,7 @@ async def get_interval_track_presence_by_sample(
     if chrom_values:
         clauses.append("chrom IN %(chromosomes)s")
         params["chromosomes"] = tuple(chrom_values)
-    if track_type == "haplotype" and start is not None and end is not None:
+    if track_type in {"haplotype", "apcad_pcf"} and start is not None and end is not None:
         clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
         params["window_start"] = int(start)
         params["window_end"] = int(end)

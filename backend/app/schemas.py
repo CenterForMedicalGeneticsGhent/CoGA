@@ -97,9 +97,30 @@ class FamilyMemberOut(BaseModel):
     role: Literal["proband", "father", "mother", "sibling", "embryo", "relative"]
     affected: bool
     sex: Literal["male", "female", "und"] = "und"
-    clinical_status: Optional[str] = None
-    carrier_status: Optional[bool] = None
-    carrier_type: Optional[Literal["obligate", "proven"]] = None
+    clinical_status: Literal["unknown", "unaffected", "affected"] = "unknown"
+    carrier_status: Literal["unknown", "not_carrier", "carrier"] = "unknown"
+    carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
+    carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
+    active: bool = True
+
+
+class FamilyRelationshipOut(BaseModel):
+    """Canonical family graph edge between two members."""
+
+    id: ApiId
+    relationship_type: Literal["parent_child", "couple"]
+    sample_id_a: str
+    sample_id_b: str
+    role_a: Optional[str] = None
+    role_b: Optional[str] = None
+    source: str = "manual"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyStructureVersionOut(BaseModel):
+    version: int = 0
+    structure_hash: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FamilyRegionOfInterestOut(BaseModel):
@@ -122,10 +143,69 @@ class FamilyOut(ApiDocumentModel):
 
     family_id: str
     members: List[FamilyMemberOut] = Field(default_factory=list)
+    relationships: List[FamilyRelationshipOut] = Field(default_factory=list)
+    structure_version: Optional[FamilyStructureVersionOut] = None
     pedigree: Optional[str] = None
     roi: Optional[FamilyRegionOfInterestOut] = None
     projects: List[ApiId] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyStructureMemberCreate(BaseModel):
+    sample_id: str = Field(min_length=1)
+    sex: Literal["male", "female", "und"] = "und"
+    role: Literal["proband", "father", "mother", "sibling", "embryo", "relative"] = "relative"
+    clinical_status: Literal["unknown", "unaffected", "affected"] = "unknown"
+    carrier_status: Literal["unknown", "not_carrier", "carrier"] = "unknown"
+    carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
+    carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyStructureMemberUpdate(BaseModel):
+    sample_id: str = Field(min_length=1)
+    sex: Optional[Literal["male", "female", "und"]] = None
+    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
+    clinical_status: Optional[Literal["unknown", "unaffected", "affected"]] = None
+    carrier_status: Optional[Literal["unknown", "not_carrier", "carrier"]] = None
+    carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
+    carrier_evidence: Optional[Dict[str, Any]] = None
+    active: Optional[bool] = None
+
+
+class FamilyStructureParentChildUpdate(BaseModel):
+    parent: str = Field(min_length=1)
+    child: str = Field(min_length=1)
+    parent_role: Literal["father", "mother", "parent"] = "parent"
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyStructureCoupleUpdate(BaseModel):
+    partners: List[str] = Field(min_length=2, max_length=2)
+    context: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyStructureRelationshipsUpdate(BaseModel):
+    parent_child: List[FamilyStructureParentChildUpdate] = Field(default_factory=list)
+    couples: List[FamilyStructureCoupleUpdate] = Field(default_factory=list)
+
+
+class FamilyStructureUpdate(BaseModel):
+    expected_structure_version: Optional[int] = None
+    change_reason: Optional[str] = None
+    clear_existing_genomic_data: bool = False
+    add_members: List[FamilyStructureMemberCreate] = Field(default_factory=list)
+    members: List[FamilyStructureMemberUpdate] = Field(default_factory=list)
+    remove_members: List[str] = Field(default_factory=list)
+    relationships: Optional[FamilyStructureRelationshipsUpdate] = None
+
+
+class FamilyStructureUpdateOut(BaseModel):
+    family: FamilyOut
+    warnings: List[str] = Field(default_factory=list)
+    stale_analysis_scopes: List[str] = Field(default_factory=list)
+    data_counts: Dict[str, int] = Field(default_factory=dict)
+    cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
 
 
 class PedFamilyResult(BaseModel):
@@ -261,15 +341,24 @@ class ManualPedMemberCreate(BaseModel):
     father_id: Optional[str] = None
     mother_id: Optional[str] = None
     sex: Literal["male", "female", "und"] = "und"
+    clinical_status: Literal["unknown", "unaffected", "affected"] = "unknown"
     affected: bool = False
     is_proband: bool = False
-    carrier_status: bool = False
-    carrier_type: Optional[Literal["obligate", "proven"]] = None
+    carrier_status: Literal["unknown", "not_carrier", "carrier"] = "unknown"
+    carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
+    carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ManualPedCoupleCreate(BaseModel):
+    partners: List[str] = Field(min_length=2, max_length=2)
+    context: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ManualPedFamilyCreate(BaseModel):
     family_id: str = Field(min_length=1)
     members: List[ManualPedMemberCreate] = Field(min_length=1)
+    couples: List[ManualPedCoupleCreate] = Field(default_factory=list)
     project_id: Optional[str] = None
 
 
@@ -995,6 +1084,7 @@ class TrackAvailabilityOut(BaseModel):
     coverage: bool = False
     segments: bool = False
     apcad: bool = False
+    apcad_pcf: bool = False
     variants: bool = False
     small_variants: bool = False
     haplotypes: bool = False

@@ -28,6 +28,7 @@ type SmallVariantFilterFormProps = Pick<
   | 'handleReset'
   | 'handleSampleFieldChange'
   | 'members'
+  | 'relationships'
   | 'removeActiveFilterChip'
   | 'sampleDraftFilters'
   | 'setDraftFilterValue'
@@ -150,6 +151,7 @@ const SmallVariantFilterForm = ({
   handleReset,
   handleSampleFieldChange,
   members,
+  relationships,
   panels,
   presets,
   removeActiveFilterChip,
@@ -175,7 +177,7 @@ const SmallVariantFilterForm = ({
   });
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
-  const carrierScreeningCouple = resolveCarrierScreeningCoupleMembers(members);
+  const carrierScreeningCouple = resolveCarrierScreeningCoupleMembers(members, relationships);
   const availableBuiltInPresets = BUILT_IN_SMALL_PRESETS.filter(
     (preset) => preset.value !== 'expanded_carrier_screening' || carrierScreeningCouple,
   );
