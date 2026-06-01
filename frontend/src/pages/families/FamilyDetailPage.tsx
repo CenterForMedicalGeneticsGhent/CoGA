@@ -34,13 +34,57 @@ interface PedRow {
   phen: string;
 }
 
-const phenotypeLabel = (phenotype?: string | null, affected?: boolean): string => {
-  if (phenotype === '2') return 'affected';
-  if (phenotype === '1') return 'unaffected';
-  if (phenotype === '0' || phenotype === '-9') return 'unknown';
-  if (affected === true) return 'affected';
-  if (affected === false) return 'unaffected';
-  return 'unknown';
+type ClinicalStatus = 'unknown' | 'unaffected' | 'affected';
+type CarrierStatus = 'unknown' | 'not_carrier' | 'carrier';
+type CarrierType = 'obligate' | 'proven' | 'reported' | 'inferred';
+
+interface StructureMemberDraft {
+  sample_id: string;
+  sex: 'male' | 'female' | 'und';
+  role: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'relative';
+  clinical_status: ClinicalStatus;
+  carrier_status: CarrierStatus;
+  carrier_type: CarrierType | '';
+  isNew?: boolean;
+  removed?: boolean;
+}
+
+interface ParentChildDraft {
+  id: string;
+  parent: string;
+  child: string;
+  parent_role: 'father' | 'mother' | 'parent';
+}
+
+interface CoupleDraft {
+  id: string;
+  partnerA: string;
+  partnerB: string;
+  context: string;
+}
+
+const ROLE_OPTIONS: StructureMemberDraft['role'][] = [
+  'proband',
+  'father',
+  'mother',
+  'sibling',
+  'embryo',
+  'relative',
+];
+const SEX_OPTIONS: StructureMemberDraft['sex'][] = ['male', 'female', 'und'];
+const CLINICAL_STATUS_OPTIONS: ClinicalStatus[] = ['unknown', 'unaffected', 'affected'];
+const CARRIER_STATUS_OPTIONS: CarrierStatus[] = ['unknown', 'not_carrier', 'carrier'];
+const CARRIER_TYPE_OPTIONS: CarrierType[] = ['proven', 'obligate', 'reported', 'inferred'];
+const PARENT_ROLE_OPTIONS: ParentChildDraft['parent_role'][] = ['father', 'mother', 'parent'];
+
+const defaultNewMember: StructureMemberDraft = {
+  sample_id: '',
+  sex: 'und',
+  role: 'relative',
+  clinical_status: 'unknown',
+  carrier_status: 'unknown',
+  carrier_type: '',
+  isNew: true,
 };
 
 const parsePedigree = (pedigree?: string | null): PedRow[] => {
@@ -53,6 +97,66 @@ const parsePedigree = (pedigree?: string | null): PedRow[] => {
       return { fid, iid, pid, mid, sex, phen };
     });
 };
+
+const sampleKey = (sampleId: string): string => sampleId.trim().toLowerCase();
+
+const clinicalStatusForMember = (member: {
+  clinical_status?: string | null;
+  affected?: boolean;
+}): ClinicalStatus => {
+  if (member.clinical_status === 'affected' || member.clinical_status === 'unaffected') {
+    return member.clinical_status;
+  }
+  if (member.affected) return 'affected';
+  return 'unknown';
+};
+
+const carrierStatusForMember = (member: {
+  carrier_status?: string | boolean | null;
+}): CarrierStatus => {
+  if (member.carrier_status === 'carrier') return 'carrier';
+  if (member.carrier_status === 'not_carrier') return 'not_carrier';
+  if (member.carrier_status === true) return 'carrier';
+  return 'unknown';
+};
+
+const memberDraftFromFamilyMember = (member: ApiFamilyRecord['members'][number]): StructureMemberDraft => ({
+  sample_id: member.sample_id,
+  sex: member.sex === 'male' || member.sex === 'female' ? member.sex : 'und',
+  role: ROLE_OPTIONS.includes(member.role as StructureMemberDraft['role'])
+    ? (member.role as StructureMemberDraft['role'])
+    : 'relative',
+  clinical_status: clinicalStatusForMember(member),
+  carrier_status: carrierStatusForMember(member),
+  carrier_type: member.carrier_type ?? '',
+  isNew: false,
+  removed: member.active === false,
+});
+
+const parentChildDraftsFromRelationships = (family: ApiFamilyRecord | undefined): ParentChildDraft[] => {
+  const relationships = family?.relationships?.filter(
+    (relationship) => relationship.relationship_type === 'parent_child',
+  );
+  return (relationships || []).map((relationship, index) => ({
+    id: relationship.id || `parent-child-${index}`,
+    parent: relationship.sample_id_a,
+    child: relationship.sample_id_b,
+    parent_role:
+      relationship.role_a === 'father' || relationship.role_a === 'mother'
+        ? relationship.role_a
+        : 'parent',
+  }));
+};
+
+const coupleDraftsFromRelationships = (family: ApiFamilyRecord | undefined): CoupleDraft[] =>
+  (family?.relationships || [])
+    .filter((relationship) => relationship.relationship_type === 'couple')
+    .map((relationship, index) => ({
+      id: relationship.id || `couple-${index}`,
+      partnerA: relationship.sample_id_a,
+      partnerB: relationship.sample_id_b,
+      context: typeof relationship.metadata?.context === 'string' ? relationship.metadata.context : '',
+    }));
 
 const formatRegion = (roi: ApiFamilyRegionOfInterest): string => {
   const chrom = roi.chr.startsWith('chr') ? roi.chr : `chr${roi.chr}`;
@@ -102,6 +206,16 @@ const FamilyDetailPage: React.FC = () => {
   const [roiStatus, setRoiStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(
     null,
   );
+  const [structureMembers, setStructureMembers] = useState<StructureMemberDraft[]>([]);
+  const [parentChildDrafts, setParentChildDrafts] = useState<ParentChildDraft[]>([]);
+  const [coupleDrafts, setCoupleDrafts] = useState<CoupleDraft[]>([]);
+  const [newMember, setNewMember] = useState<StructureMemberDraft>(defaultNewMember);
+  const [structureBusy, setStructureBusy] = useState(false);
+  const [structureStatus, setStructureStatus] = useState<{
+    tone: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [clearExistingGenomicData, setClearExistingGenomicData] = useState(false);
 
   const { data, isLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
@@ -213,10 +327,25 @@ const FamilyDetailPage: React.FC = () => {
     return getReviewSummaryTags(structuralReviewSummary?.tag_counts, structuralVariantTags);
   }, [structuralReviewSummary?.tag_counts, structuralVariantTags]);
   const variantPageQuerySuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
+  const pedRows = useMemo(() => parsePedigree(data?.pedigree), [data?.pedigree]);
 
   useEffect(() => {
     setRoiInput(data?.roi?.query ?? '');
   }, [data?.roi?.query]);
+
+  useEffect(() => {
+    if (!data) {
+      setStructureMembers([]);
+      setParentChildDrafts([]);
+      setCoupleDrafts([]);
+      return;
+    }
+    setStructureMembers(data.members.map(memberDraftFromFamilyMember));
+    setParentChildDrafts(parentChildDraftsFromRelationships(data));
+    setCoupleDrafts(coupleDraftsFromRelationships(data));
+    setNewMember(defaultNewMember);
+    setClearExistingGenomicData(false);
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -238,7 +367,6 @@ const FamilyDetailPage: React.FC = () => {
     );
   }
 
-  const pedRows = parsePedigree(data.pedigree);
   const orderedMembers = sortFamilyMembersProbandFirst(data.members);
 
   const saveRoi = async (clear = false) => {
@@ -267,6 +395,206 @@ const FamilyDetailPage: React.FC = () => {
       });
     } finally {
       setRoiBusy(false);
+    }
+  };
+
+  const activeStructureMembers = structureMembers.filter((member) => !member.removed);
+  const activeSampleIds = activeStructureMembers.map((member) => member.sample_id);
+  const parentLabelByChild = parentChildDrafts.reduce<Record<string, { father?: string; mother?: string }>>(
+    (acc, relationship) => {
+      if (!relationship.parent || !relationship.child) return acc;
+      const childKey = sampleKey(relationship.child);
+      acc[childKey] = acc[childKey] || {};
+      if (relationship.parent_role === 'mother') {
+        acc[childKey].mother = relationship.parent;
+      } else if (relationship.parent_role === 'father') {
+        acc[childKey].father = relationship.parent;
+      }
+      return acc;
+    },
+    {},
+  );
+
+  const updateStructureMember = (
+    sampleId: string,
+    updates: Partial<StructureMemberDraft>,
+  ) => {
+    setStructureMembers((members) =>
+      members.map((member) =>
+        member.sample_id === sampleId
+          ? {
+              ...member,
+              ...updates,
+              carrier_type:
+                updates.carrier_status && updates.carrier_status !== 'carrier'
+                  ? ''
+                  : updates.carrier_type ?? member.carrier_type,
+            }
+          : member,
+      ),
+    );
+  };
+
+  const removeStructureMember = (sampleId: string) => {
+    setStructureMembers((members) =>
+      members.flatMap((member) => {
+        if (member.sample_id !== sampleId) return [member];
+        return member.isNew ? [] : [{ ...member, removed: true }];
+      }),
+    );
+    setParentChildDrafts((relationships) =>
+      relationships.filter(
+        (relationship) => relationship.parent !== sampleId && relationship.child !== sampleId,
+      ),
+    );
+    setCoupleDrafts((relationships) =>
+      relationships.filter(
+        (relationship) => relationship.partnerA !== sampleId && relationship.partnerB !== sampleId,
+      ),
+    );
+  };
+
+  const addStructureMember = () => {
+    const sampleId = newMember.sample_id.trim();
+    if (!sampleId) {
+      setStructureStatus({ tone: 'error', message: 'Sample ID is required.' });
+      return;
+    }
+    if (structureMembers.some((member) => sampleKey(member.sample_id) === sampleKey(sampleId))) {
+      setStructureStatus({ tone: 'error', message: `Member ${sampleId} already exists.` });
+      return;
+    }
+    setStructureMembers((members) => [
+      ...members,
+      {
+        ...newMember,
+        sample_id: sampleId,
+        carrier_type: newMember.carrier_status === 'carrier' ? newMember.carrier_type : '',
+        isNew: true,
+      },
+    ]);
+    setNewMember(defaultNewMember);
+    setStructureStatus(null);
+  };
+
+  const addParentChildDraft = () => {
+    const [parent = '', child = ''] = activeSampleIds;
+    setParentChildDrafts((relationships) => [
+      ...relationships,
+      {
+        id: `parent-child-new-${Date.now()}`,
+        parent,
+        child,
+        parent_role: 'parent',
+      },
+    ]);
+  };
+
+  const addCoupleDraft = () => {
+    const [partnerA = '', partnerB = ''] = activeSampleIds;
+    setCoupleDrafts((relationships) => [
+      ...relationships,
+      {
+        id: `couple-new-${Date.now()}`,
+        partnerA,
+        partnerB,
+        context: '',
+      },
+    ]);
+  };
+
+  const saveStructure = async () => {
+    if (!familyId || !data) return;
+    setStructureBusy(true);
+    setStructureStatus(null);
+    try {
+      const removedExisting = structureMembers
+        .filter((member) => member.removed && !member.isNew)
+        .map((member) => member.sample_id);
+      const addMembers = structureMembers
+        .filter((member) => member.isNew && !member.removed)
+        .map((member) => ({
+          sample_id: member.sample_id,
+          sex: member.sex,
+          role: member.role,
+          clinical_status: member.clinical_status,
+          carrier_status: member.carrier_status,
+          carrier_type: member.carrier_status === 'carrier' ? member.carrier_type || null : null,
+          carrier_evidence: {},
+        }));
+      const members = structureMembers
+        .filter((member) => !member.isNew)
+        .map((member) => ({
+          sample_id: member.sample_id,
+          sex: member.sex,
+          role: member.role,
+          clinical_status: member.clinical_status,
+          carrier_status: member.carrier_status,
+          carrier_type: member.carrier_status === 'carrier' ? member.carrier_type || null : null,
+          carrier_evidence: {},
+          active: !member.removed,
+        }));
+      const activeDraftIds = new Set(activeSampleIds);
+      const parentChild = parentChildDrafts
+        .filter(
+          (relationship) =>
+            relationship.parent &&
+            relationship.child &&
+            activeDraftIds.has(relationship.parent) &&
+            activeDraftIds.has(relationship.child),
+        )
+        .map((relationship) => ({
+          parent: relationship.parent,
+          child: relationship.child,
+          parent_role: relationship.parent_role,
+          metadata: {},
+        }));
+      const couples = coupleDrafts
+        .filter(
+          (relationship) =>
+            relationship.partnerA &&
+            relationship.partnerB &&
+            activeDraftIds.has(relationship.partnerA) &&
+            activeDraftIds.has(relationship.partnerB),
+        )
+        .map((relationship) => ({
+          partners: [relationship.partnerA, relationship.partnerB],
+          context: relationship.context.trim() || null,
+          metadata: {},
+        }));
+      const response = await api.put(`/families/${familyId}/structure`, {
+        expected_structure_version: data.structure_version?.version ?? null,
+        change_reason: 'family_detail_page',
+        clear_existing_genomic_data: clearExistingGenomicData,
+        add_members: addMembers,
+        members,
+        remove_members: removedExisting,
+        relationships: {
+          parent_child: parentChild,
+          couples,
+        },
+      });
+      const payload = response.data as {
+        family: ApiFamilyRecord;
+        warnings?: string[];
+        cleared_data_counts?: Record<string, number>;
+      };
+      queryClient.setQueryData(['family', familyId], payload.family);
+      await queryClient.invalidateQueries({ queryKey: ['families'] });
+      setClearExistingGenomicData(false);
+      setStructureStatus({
+        tone: 'success',
+        message: payload.warnings?.length
+          ? `Family structure saved. ${payload.warnings.join(' ')}`
+          : 'Family structure saved.',
+      });
+    } catch (error) {
+      setStructureStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'Failed to update the family structure.'),
+      });
+    } finally {
+      setStructureBusy(false);
     }
   };
 
@@ -372,6 +700,7 @@ const FamilyDetailPage: React.FC = () => {
                   <Pedigree
                     rows={pedRows}
                     members={data.members}
+                    relationships={data.relationships}
                     inheritanceModel={(data.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
                   />
                 </div>
@@ -536,39 +865,563 @@ const FamilyDetailPage: React.FC = () => {
               <tr>
                 <th>Sample</th>
                 <th>Role</th>
+                {userIsAdmin && <th>Sex</th>}
                 <th>Father</th>
                 <th>Mother</th>
                 <th>Phenotype</th>
+                <th>Carrier</th>
+                {userIsAdmin && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {orderedMembers.map((member) => {
-                const ped = pedRows.find((row) => row.iid === member.sample_id);
+              {(userIsAdmin ? activeStructureMembers : orderedMembers).map((member) => {
+                const draftMember = userIsAdmin ? (member as StructureMemberDraft) : null;
+                const apiMember = userIsAdmin ? null : (member as ApiFamilyRecord['members'][number]);
+                const parents = parentLabelByChild[sampleKey(member.sample_id)] || {};
                 const sexSymbol =
                   member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚧';
+                const clinicalStatus = draftMember
+                  ? draftMember.clinical_status
+                  : clinicalStatusForMember(apiMember!);
+                const carrierStatus = draftMember
+                  ? draftMember.carrier_status
+                  : carrierStatusForMember(apiMember!);
+                const affected = draftMember ? clinicalStatus === 'affected' : Boolean(apiMember?.affected);
                 return (
                   <tr key={member.sample_id}>
                     <td>
                       <span className="flex items-center gap-1">
                         <span>{sexSymbol}</span>
                         {member.sample_id}
-                        {member.affected && (
+                        {affected && (
                           <span className="ml-1" title="Affected">
                             *
                           </span>
                         )}
                       </span>
                     </td>
-                    <td>{member.role}</td>
-                    <td>{ped?.pid ?? '-'}</td>
-                    <td>{ped?.mid ?? '-'}</td>
-                    <td>{phenotypeLabel(ped?.phen, member.affected)}</td>
+                    <td>
+                      {userIsAdmin ? (
+                        <select
+                          aria-label={`Role for ${member.sample_id}`}
+                          value={draftMember!.role}
+                          onChange={(event) =>
+                            updateStructureMember(member.sample_id, {
+                              role: event.target.value as StructureMemberDraft['role'],
+                            })
+                          }
+                          disabled={structureBusy}
+                        >
+                          {ROLE_OPTIONS.map((role) => (
+                            <option key={role} value={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        apiMember?.role
+                      )}
+                    </td>
+                    {userIsAdmin && (
+                      <td>
+                        <select
+                          aria-label={`Sex for ${member.sample_id}`}
+                          value={draftMember!.sex}
+                          onChange={(event) =>
+                            updateStructureMember(member.sample_id, {
+                              sex: event.target.value as StructureMemberDraft['sex'],
+                            })
+                          }
+                          disabled={structureBusy}
+                        >
+                          {SEX_OPTIONS.map((sex) => (
+                            <option key={sex} value={sex}>
+                              {sex}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
+                    <td>{parents.father ?? '-'}</td>
+                    <td>{parents.mother ?? '-'}</td>
+                    <td>
+                      {userIsAdmin ? (
+                        <select
+                          aria-label={`Phenotype for ${member.sample_id}`}
+                          value={clinicalStatus}
+                          onChange={(event) =>
+                            updateStructureMember(member.sample_id, {
+                              clinical_status: event.target.value as ClinicalStatus,
+                            })
+                          }
+                          disabled={structureBusy}
+                        >
+                          {CLINICAL_STATUS_OPTIONS.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        clinicalStatus
+                      )}
+                    </td>
+                    <td>
+                      {userIsAdmin ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            aria-label={`Carrier status for ${member.sample_id}`}
+                            value={carrierStatus}
+                            onChange={(event) =>
+                              updateStructureMember(member.sample_id, {
+                                carrier_status: event.target.value as CarrierStatus,
+                              })
+                            }
+                            disabled={structureBusy}
+                          >
+                            {CARRIER_STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                          {carrierStatus === 'carrier' && (
+                            <select
+                              aria-label={`Carrier type for ${member.sample_id}`}
+                              value={draftMember!.carrier_type}
+                              onChange={(event) =>
+                                updateStructureMember(member.sample_id, {
+                                  carrier_type: event.target.value as CarrierType,
+                                })
+                              }
+                              disabled={structureBusy}
+                            >
+                              <option value="">type</option>
+                              {CARRIER_TYPE_OPTIONS.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="table-chip">
+                          {carrierStatus === 'carrier' ? apiMember?.carrier_type || 'carrier' : carrierStatus}
+                        </span>
+                      )}
+                    </td>
+                    {userIsAdmin && (
+                      <td>
+                        <button
+                          type="button"
+                          className="button-ghost"
+                          onClick={() => removeStructureMember(member.sample_id)}
+                          disabled={structureBusy || activeStructureMembers.length <= 1}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        {userIsAdmin && (
+          <div className="space-y-4">
+            <div className="data-table-shell overflow-x-auto">
+              <table className="analysis-table">
+                <thead>
+                  <tr>
+                    <th>New sample</th>
+                    <th>Sex</th>
+                    <th>Role</th>
+                    <th>Phenotype</th>
+                    <th>Carrier</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <input
+                        aria-label="New member sample ID"
+                        type="text"
+                        value={newMember.sample_id}
+                        onChange={(event) =>
+                          setNewMember((member) => ({ ...member, sample_id: event.target.value }))
+                        }
+                        disabled={structureBusy}
+                      />
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member sex"
+                        value={newMember.sex}
+                        onChange={(event) =>
+                          setNewMember((member) => ({
+                            ...member,
+                            sex: event.target.value as StructureMemberDraft['sex'],
+                          }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        {SEX_OPTIONS.map((sex) => (
+                          <option key={sex} value={sex}>
+                            {sex}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member role"
+                        value={newMember.role}
+                        onChange={(event) =>
+                          setNewMember((member) => ({
+                            ...member,
+                            role: event.target.value as StructureMemberDraft['role'],
+                          }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        {ROLE_OPTIONS.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member phenotype"
+                        value={newMember.clinical_status}
+                        onChange={(event) =>
+                          setNewMember((member) => ({
+                            ...member,
+                            clinical_status: event.target.value as ClinicalStatus,
+                          }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        {CLINICAL_STATUS_OPTIONS.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          aria-label="New member carrier status"
+                          value={newMember.carrier_status}
+                          onChange={(event) =>
+                            setNewMember((member) => ({
+                              ...member,
+                              carrier_status: event.target.value as CarrierStatus,
+                              carrier_type: event.target.value === 'carrier' ? member.carrier_type : '',
+                            }))
+                          }
+                          disabled={structureBusy}
+                        >
+                          {CARRIER_STATUS_OPTIONS.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                        {newMember.carrier_status === 'carrier' && (
+                          <select
+                            aria-label="New member carrier type"
+                            value={newMember.carrier_type}
+                            onChange={(event) =>
+                              setNewMember((member) => ({
+                                ...member,
+                                carrier_type: event.target.value as CarrierType,
+                              }))
+                            }
+                            disabled={structureBusy}
+                          >
+                            <option value="">type</option>
+                            {CARRIER_TYPE_OPTIONS.map((type) => (
+                              <option key={type} value={type}>
+                                {type}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="button-secondary"
+                        onClick={addStructureMember}
+                        disabled={structureBusy}
+                      >
+                        Add member
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="data-table-shell overflow-x-auto">
+              <table className="analysis-table">
+                <thead>
+                  <tr>
+                    <th>Parent</th>
+                    <th>Role</th>
+                    <th>Child</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parentChildDrafts.map((relationship) => (
+                    <tr key={relationship.id}>
+                      <td>
+                        <select
+                          aria-label={`Parent for ${relationship.id}`}
+                          value={relationship.parent}
+                          onChange={(event) =>
+                            setParentChildDrafts((relationships) =>
+                              relationships.map((entry) =>
+                                entry.id === relationship.id
+                                  ? { ...entry, parent: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          disabled={structureBusy}
+                        >
+                          <option value="">parent</option>
+                          {activeSampleIds.map((sampleId) => (
+                            <option key={sampleId} value={sampleId}>
+                              {sampleId}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          aria-label={`Parent role for ${relationship.id}`}
+                          value={relationship.parent_role}
+                          onChange={(event) =>
+                            setParentChildDrafts((relationships) =>
+                              relationships.map((entry) =>
+                                entry.id === relationship.id
+                                  ? {
+                                      ...entry,
+                                      parent_role: event.target.value as ParentChildDraft['parent_role'],
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          disabled={structureBusy}
+                        >
+                          {PARENT_ROLE_OPTIONS.map((role) => (
+                            <option key={role} value={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          aria-label={`Child for ${relationship.id}`}
+                          value={relationship.child}
+                          onChange={(event) =>
+                            setParentChildDrafts((relationships) =>
+                              relationships.map((entry) =>
+                                entry.id === relationship.id
+                                  ? { ...entry, child: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          disabled={structureBusy}
+                        >
+                          <option value="">child</option>
+                          {activeSampleIds.map((sampleId) => (
+                            <option key={sampleId} value={sampleId}>
+                              {sampleId}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-ghost"
+                          onClick={() =>
+                            setParentChildDrafts((relationships) =>
+                              relationships.filter((entry) => entry.id !== relationship.id),
+                            )
+                          }
+                          disabled={structureBusy}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="compact-toolbar family-toolbar mt-3">
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={addParentChildDraft}
+                  disabled={structureBusy || activeSampleIds.length < 2}
+                >
+                  Add parent link
+                </button>
+              </div>
+            </div>
+
+            <div className="data-table-shell overflow-x-auto">
+              <table className="analysis-table">
+                <thead>
+                  <tr>
+                    <th>Partner</th>
+                    <th>Partner</th>
+                    <th>Context</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coupleDrafts.map((relationship) => (
+                    <tr key={relationship.id}>
+                      <td>
+                        <select
+                          aria-label={`First partner for ${relationship.id}`}
+                          value={relationship.partnerA}
+                          onChange={(event) =>
+                            setCoupleDrafts((relationships) =>
+                              relationships.map((entry) =>
+                                entry.id === relationship.id
+                                  ? { ...entry, partnerA: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          disabled={structureBusy}
+                        >
+                          <option value="">partner</option>
+                          {activeSampleIds.map((sampleId) => (
+                            <option key={sampleId} value={sampleId}>
+                              {sampleId}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          aria-label={`Second partner for ${relationship.id}`}
+                          value={relationship.partnerB}
+                          onChange={(event) =>
+                            setCoupleDrafts((relationships) =>
+                              relationships.map((entry) =>
+                                entry.id === relationship.id
+                                  ? { ...entry, partnerB: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          disabled={structureBusy}
+                        >
+                          <option value="">partner</option>
+                          {activeSampleIds.map((sampleId) => (
+                            <option key={sampleId} value={sampleId}>
+                              {sampleId}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          aria-label={`Couple context for ${relationship.id}`}
+                          type="text"
+                          value={relationship.context}
+                          onChange={(event) =>
+                            setCoupleDrafts((relationships) =>
+                              relationships.map((entry) =>
+                                entry.id === relationship.id
+                                  ? { ...entry, context: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          disabled={structureBusy}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="button-ghost"
+                          onClick={() =>
+                            setCoupleDrafts((relationships) =>
+                              relationships.filter((entry) => entry.id !== relationship.id),
+                            )
+                          }
+                          disabled={structureBusy}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="compact-toolbar family-toolbar mt-3">
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={addCoupleDraft}
+                  disabled={structureBusy || activeSampleIds.length < 2}
+                >
+                  Add couple
+                </button>
+              </div>
+            </div>
+
+            <div className="compact-toolbar family-toolbar">
+              <label className="variant-compact-checkbox">
+                <input
+                  type="checkbox"
+                  checked={clearExistingGenomicData}
+                  onChange={(event) => setClearExistingGenomicData(event.target.checked)}
+                  disabled={structureBusy}
+                />
+                Clear imported genomic data
+              </label>
+              <button
+                type="button"
+                onClick={saveStructure}
+                disabled={structureBusy || activeStructureMembers.length === 0}
+              >
+                Save family structure
+              </button>
+              {data.structure_version?.version !== undefined && (
+                <span className="table-chip">Version {data.structure_version.version}</span>
+              )}
+            </div>
+            {structureStatus && (
+              <div
+                className={`status-note ${
+                  structureStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+                }`}
+              >
+                {structureStatus.message}
+              </div>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

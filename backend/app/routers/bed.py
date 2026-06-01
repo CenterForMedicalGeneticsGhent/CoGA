@@ -52,6 +52,8 @@ async def fetch_bed_batch(
     bed_type: str,
     chrom: list[str] = Query(...),
     window: int | None = None,
+    start: int | None = Query(None, ge=0),
+    end: int | None = Query(None, ge=0),
     format: Literal["text", "json"] = "text",
     limit: int = Query(100000, ge=1, le=1000000),
     session: AsyncSession = Depends(get_postgres_session),
@@ -69,6 +71,8 @@ async def fetch_bed_batch(
             bed_type=bed_type,
             chroms=chrom,
             window=window,
+            start=start,
+            end=end,
             limit=limit,
         )
     return await fetch_bed_batch_text(
@@ -77,6 +81,8 @@ async def fetch_bed_batch(
         bed_type=bed_type,
         chroms=chrom,
         window=window,
+        start=start,
+        end=end,
         limit=limit,
     )
 
@@ -87,6 +93,8 @@ async def fetch_bed(
     bed_type: str,
     chrom: str,
     window: int | None = None,
+    start: int | None = Query(None, ge=0),
+    end: int | None = Query(None, ge=0),
     format: Literal["text", "json"] = "text",
     limit: int = Query(100000, ge=1, le=1000000),
     session: AsyncSession = Depends(get_postgres_session),
@@ -104,6 +112,8 @@ async def fetch_bed(
             bed_type=bed_type,
             chrom=chrom,
             window=window,
+            start=start,
+            end=end,
             limit=limit,
         )
     return await fetch_bed_text(
@@ -112,5 +122,7 @@ async def fetch_bed(
         bed_type=bed_type,
         chrom=chrom,
         window=window,
+        start=start,
+        end=end,
         limit=limit,
     )

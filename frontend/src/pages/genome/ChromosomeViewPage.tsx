@@ -310,6 +310,7 @@ const ChromosomeViewPage: React.FC = () => {
           {
             coverage: entry.coverage,
             apcad: entry.apcad,
+            apcadPcf: !!entry.apcad_pcf,
             variants: entry.variants,
             smallVariants:
               entry.small_variants || (!showSmallVariantDetails && !hasSmallVariantUserFilters),
@@ -319,7 +320,15 @@ const ChromosomeViewPage: React.FC = () => {
         ]),
       ) as Record<
         string,
-        ApiChromosomeTrackAvailability & { smallVariants: boolean; repeatExpansions: boolean }
+        {
+          coverage: boolean;
+          apcad: boolean;
+          apcadPcf: boolean;
+          variants: boolean;
+          smallVariants: boolean;
+          haplotypes: boolean;
+          repeatExpansions: boolean;
+        }
       >,
     [availabilityData, hasSmallVariantUserFilters, showSmallVariantDetails],
   );
@@ -330,7 +339,7 @@ const ChromosomeViewPage: React.FC = () => {
       const entry = availability[member.sample_id];
       if (!entry) return;
       if (entry.coverage) tracks.add('coverage');
-      if (entry.apcad) tracks.add('apcad');
+      if (entry.apcad || entry.apcadPcf) tracks.add('apcad');
       if (entry.variants) tracks.add('variants');
       if (entry.smallVariants) tracks.add('smallVariants');
       if (entry.haplotypes) tracks.add('haplotypes');
@@ -466,6 +475,7 @@ const ChromosomeViewPage: React.FC = () => {
     return (
       entry?.coverage ||
       entry?.apcad ||
+      entry?.apcadPcf ||
       entry?.variants ||
       entry?.smallVariants ||
       entry?.haplotypes ||

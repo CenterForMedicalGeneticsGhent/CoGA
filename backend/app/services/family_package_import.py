@@ -74,9 +74,12 @@ SUPPORTED_DATASETS = (
     "wisecondorx",
     "qdnaseq",
     "apcad",
+    "pcf",
     "haplotypes",
     "paraphase",
 )
+APCAD_PCF_TRACK_TYPE = "apcad_pcf"
+APCAD_PCF_SOURCE = "pcf"
 OPTIONAL_DATASETS = set(SUPPORTED_DATASETS)
 FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
 FAMILY_IMPORT_STALE_HEARTBEAT = timedelta(minutes=10)
@@ -252,6 +255,20 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "apcad/{sample_id}.apcad.vcf",
                     "apcad/{sample_id}.vcf.gz",
                     "apcad/{sample_id}.vcf",
+                ],
+            },
+            "pcf": {
+                "maternal": [
+                    "PCF/{sample_id}_pcf_mat_data.csv",
+                    "PCF/{sample_id}.pcf.mat_data.csv",
+                    "pcf/{sample_id}_pcf_mat_data.csv",
+                    "pcf/{sample_id}.pcf.mat_data.csv",
+                ],
+                "paternal": [
+                    "PCF/{sample_id}_pcf_pat_data.csv",
+                    "PCF/{sample_id}.pcf.pat_data.csv",
+                    "pcf/{sample_id}_pcf_pat_data.csv",
+                    "pcf/{sample_id}.pcf.pat_data.csv",
                 ],
             },
             "haplotypes": {
@@ -722,6 +739,133 @@ def _manifest_carrier_types(manifest: PackageManifest) -> dict[str, str]:
     for sample_id in pgt_metadata.get("proven_carriers", []):
         carrier_types[str(sample_id)] = "proven"
     return carrier_types
+
+
+def _manifest_family_payload(manifest: PackageManifest) -> dict[str, Any]:
+    extras = _metadata_dict(getattr(manifest, "model_extra", None))
+    return _metadata_dict(extras.get("family"))
+
+
+def _normalize_manifest_clinical_status(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in {"unknown", "unaffected", "affected"}:
+        return normalized
+    if normalized in {"0", "-9"}:
+        return "unknown"
+    if normalized == "1":
+        return "unaffected"
+    if normalized == "2":
+        return "affected"
+    return None
+
+
+def _normalize_manifest_carrier_status(value: Any, carrier_type: str | None = None) -> str | None:
+    if value is None:
+        return "carrier" if carrier_type else None
+    normalized = str(value).strip().lower()
+    if normalized in {"unknown", "not_carrier", "carrier"}:
+        return "carrier" if carrier_type and normalized != "carrier" else normalized
+    if normalized in {"1", "true", "yes", "y"}:
+        return "carrier"
+    if normalized in {"0", "false", "no", "n"}:
+        return "not_carrier"
+    return "carrier" if carrier_type else None
+
+
+def _normalize_manifest_carrier_type(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized if normalized in {"obligate", "proven", "reported", "inferred"} else None
+
+
+def _manifest_member_overrides(manifest: PackageManifest) -> dict[str, dict[str, Any]]:
+    members = _manifest_family_payload(manifest).get("members")
+    if not isinstance(members, dict):
+        return {}
+    overrides: dict[str, dict[str, Any]] = {}
+    for sample_id, payload in members.items():
+        if not isinstance(payload, dict):
+            continue
+        carrier_type = _normalize_manifest_carrier_type(
+            _lookup_normalized_key(payload, "carrier_type", "carrierType")
+        )
+        carrier_status = _normalize_manifest_carrier_status(
+            _lookup_normalized_key(payload, "carrier_status", "carrierStatus", "carrier"),
+            carrier_type,
+        )
+        override: dict[str, Any] = {}
+        clinical_status = _normalize_manifest_clinical_status(
+            _lookup_normalized_key(payload, "clinical_status", "clinicalStatus", "phenotype")
+        )
+        if clinical_status:
+            override["clinical_status"] = clinical_status
+        if carrier_status:
+            override["carrier_status"] = carrier_status
+        if carrier_type:
+            override["carrier_type"] = carrier_type
+        evidence = _metadata_dict(_lookup_normalized_key(payload, "carrier_evidence", "carrierEvidence"))
+        if evidence:
+            override["carrier_evidence"] = evidence
+        role = _lookup_normalized_key(payload, "role")
+        if isinstance(role, str) and role.strip().lower() in _PED_ROLE_VALUES:
+            override["role"] = role.strip().lower()
+        overrides[str(sample_id)] = override
+    return overrides
+
+
+def _manifest_relationships(manifest: PackageManifest) -> list[dict[str, Any]]:
+    relationships = _metadata_dict(_manifest_family_payload(manifest).get("relationships"))
+    result: list[dict[str, Any]] = []
+    couples = relationships.get("couples")
+    if isinstance(couples, list):
+        for couple in couples:
+            if not isinstance(couple, dict):
+                continue
+            partners = couple.get("partners")
+            if not isinstance(partners, list) or len(partners) != 2:
+                continue
+            metadata = _metadata_dict(couple.get("metadata"))
+            if couple.get("context"):
+                metadata["context"] = str(couple["context"])
+            result.append(
+                {
+                    "relationship_type": "couple",
+                    "sample_id_a": str(partners[0]),
+                    "sample_id_b": str(partners[1]),
+                    "role_a": "partner",
+                    "role_b": "partner",
+                    "source": "manifest",
+                    "metadata": metadata,
+                }
+            )
+    parent_child = relationships.get("parent_child")
+    if isinstance(parent_child, list):
+        for relationship in parent_child:
+            if not isinstance(relationship, dict):
+                continue
+            child = relationship.get("child")
+            parents = relationship.get("parents")
+            if child is None or not isinstance(parents, list):
+                continue
+            for index, parent in enumerate(parents[:2]):
+                if parent in {None, "", "0"}:
+                    continue
+                role = "father" if index == 0 else "mother"
+                result.append(
+                    {
+                        "relationship_type": "parent_child",
+                        "sample_id_a": str(parent),
+                        "sample_id_b": str(child),
+                        "role_a": role,
+                        "role_b": "child",
+                        "source": "manifest",
+                        "metadata": {},
+                    }
+                )
+    return result
 
 
 def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[FamilyImportValidationIssue]]:
@@ -1272,6 +1416,68 @@ def _validate_apcad_dataset(
     )
 
 
+def _pcf_role_path(entry: dict[str, Any], role: str) -> Any:
+    if role == "maternal":
+        return entry.get("maternal") or entry.get("mat") or entry.get("maternal_file") or entry.get("mat_file")
+    return entry.get("paternal") or entry.get("pat") or entry.get("paternal_file") or entry.get("pat_file")
+
+
+def _validate_pcf_dataset(
+    *,
+    root: Path,
+    dataset: ManifestDataset,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+) -> FamilyImportDatasetSummary:
+    files: list[str] = []
+    samples: list[str] = []
+    before = len(errors)
+    for sample_id, raw_entry in dataset.per_sample.items():
+        entry = _sample_entry_mapping(
+            dataset_type="pcf",
+            sample_id=sample_id,
+            entry=raw_entry,
+            errors=errors,
+        )
+        sample_files = 0
+        _validate_per_sample_id(
+            dataset_type="pcf",
+            sample_id=sample_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+        for role in ("maternal", "paternal"):
+            value = _pcf_role_path(entry, role)
+            if value is None:
+                continue
+            sample_files += 1
+            _require_file(
+                root=root,
+                dataset_type="pcf",
+                value=value,
+                field_name=role,
+                errors=errors,
+                files=files,
+                sample_id=sample_id,
+            )
+        if sample_files:
+            samples.append(sample_id)
+    if not samples:
+        return FamilyImportDatasetSummary(
+            dataset_type="pcf",
+            enabled=True,
+            status="skipped",
+            message="No PCF files were provided",
+        )
+    return FamilyImportDatasetSummary(
+        dataset_type="pcf",
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+        samples=samples,
+    )
+
+
 def _validate_haplotypes_dataset(
     *,
     root: Path,
@@ -1461,6 +1667,13 @@ def _validate_dataset(
         )
     if dataset_type == "apcad":
         return _validate_apcad_dataset(
+            root=root,
+            dataset=dataset,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+    if dataset_type == "pcf":
+        return _validate_pcf_dataset(
             root=root,
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
@@ -1971,6 +2184,57 @@ def _apcad_dataset_availability(
     )
 
 
+def _pcf_dataset_availability(
+    *,
+    root: Path,
+    family_id: str,
+    sample_ids: list[str],
+    patterns: dict[str, list[str]],
+) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
+    files: list[FamilyManifestFileAvailability] = []
+    per_sample: dict[str, dict[str, str]] = {}
+    complete_samples: list[str] = []
+    for sample_id in sample_ids:
+        entry: dict[str, str] = {}
+        for role in ("maternal", "paternal"):
+            path_value, exists = _choose_candidate_path(
+                root,
+                patterns[role],
+                family_id=family_id,
+                sample_id=sample_id,
+            )
+            files.append(
+                _availability_file(
+                    root=root,
+                    role=role,
+                    path_value=path_value,
+                    sample_id=sample_id,
+                )
+            )
+            if exists:
+                entry[role] = path_value
+        if entry:
+            complete_samples.append(sample_id)
+            per_sample[sample_id] = entry
+
+    complete = bool(complete_samples)
+    return (
+        FamilyManifestDatasetAvailability(
+            dataset_type="pcf",
+            enabled=complete,
+            complete=complete,
+            files=files,
+            samples=complete_samples,
+            message=(
+                f"Available for {len(complete_samples)} sample(s)"
+                if complete
+                else "No PCF segment CSV files were found"
+            ),
+        ),
+        {"enabled": complete, "per_sample": per_sample},
+    )
+
+
 def _haplotypes_dataset_availability(
     *,
     root: Path,
@@ -2075,6 +2339,15 @@ def _build_manifest_payload(
     )
     availability.append(item)
     datasets["apcad"] = block
+
+    item, block = _pcf_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        patterns=scheme["pcf"],
+    )
+    availability.append(item)
+    datasets["pcf"] = block
 
     item, block = _haplotypes_dataset_availability(
         root=root,
@@ -2602,10 +2875,12 @@ def _ped_members_for_import(
     ped: ParsedPed,
     *,
     carrier_types: dict[str, str] | None = None,
+    member_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     fathers = {member.pid for member in ped.members if member.pid not in {"", "0"}}
     mothers = {member.mid for member in ped.members if member.mid not in {"", "0"}}
     carrier_types = carrier_types or {}
+    member_overrides = member_overrides or {}
     family_members: list[dict[str, Any]] = []
     assigned_proband = False
     for member in ped.members:
@@ -2625,24 +2900,27 @@ def _ped_members_for_import(
         if role == "proband":
             assigned_proband = True
         carrier_type = carrier_types.get(member.iid) or _ped_carrier_type(member)
-        carrier_status = member.iid in carrier_types or _ped_is_carrier(member)
-        sample_metadata = {
-            "pedigree_status": member.clinical_status,
-            "carrier_status": carrier_status,
-        }
-        if carrier_type:
-            sample_metadata["carrier_type"] = carrier_type
-        if member.role_hint:
-            sample_metadata["pedigree_role"] = member.role_hint
-        if member.extra:
-            sample_metadata["pedigree_annotations"] = member.extra
+        carrier_status = "carrier" if member.iid in carrier_types or _ped_is_carrier(member) else "unknown"
+        override = member_overrides.get(member.iid, {})
+        clinical_status = override.get("clinical_status") or member.clinical_status
+        carrier_type = override.get("carrier_type") or carrier_type
+        carrier_status = override.get("carrier_status") or (
+            "carrier" if carrier_type else carrier_status
+        )
+        role = override.get("role") or role
         family_members.append(
             {
                 "sample_id": member.iid,
+                "father_id": member.pid if member.pid not in {"", "0"} else None,
+                "mother_id": member.mid if member.mid not in {"", "0"} else None,
                 "sex": {"1": "male", "2": "female"}.get(member.sex, "und"),
                 "role": role,
-                "affected": member.clinical_status == "affected",
-                "metadata": sample_metadata,
+                "clinical_status": clinical_status,
+                "carrier_status": carrier_status,
+                "carrier_type": carrier_type,
+                "carrier_evidence": override.get("carrier_evidence") or {},
+                "affected": clinical_status == "affected",
+                "metadata": {},
             }
         )
     return family_members
@@ -2719,6 +2997,10 @@ def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]
         "vcf",
         "family_vcf",
         "annotation_tsv",
+        "maternal",
+        "paternal",
+        "mat",
+        "pat",
     }
     for dataset_type, dataset in bundle.manifest.datasets.items():
         if not dataset.enabled:
@@ -2786,17 +3068,24 @@ async def _register_package_provenance(
     sample_metadata = _normalize_manifest_samples(bundle.manifest.samples)
     sample_provenance = _sample_provenance(bundle)
     manifest_carrier_types = _manifest_carrier_types(bundle.manifest)
-    ped_sample_metadata: dict[str, dict[str, Any]] = {}
+    member_overrides = _manifest_member_overrides(bundle.manifest)
+    ped_member_state: dict[str, dict[str, Any]] = {}
     for member in bundle.ped.members:
         carrier_type = manifest_carrier_types.get(member.iid) or _ped_carrier_type(member)
-        ped_sample_metadata[member.iid] = {
-            "pedigree_status": member.clinical_status,
-            "carrier_status": member.iid in manifest_carrier_types or _ped_is_carrier(member),
-            **({"carrier_type": carrier_type} if carrier_type else {}),
-            **({"pedigree_role": member.role_hint} if member.role_hint else {}),
-            **({"pedigree_annotations": member.extra} if member.extra else {}),
+        override = member_overrides.get(member.iid, {})
+        clinical_status = override.get("clinical_status") or member.clinical_status
+        carrier_type = override.get("carrier_type") or carrier_type
+        carrier_status = override.get("carrier_status") or (
+            "carrier" if carrier_type or member.iid in manifest_carrier_types or _ped_is_carrier(member) else "unknown"
+        )
+        ped_member_state[member.iid] = {
+            "clinical_status": clinical_status,
+            "carrier_status": carrier_status,
+            "carrier_type": carrier_type,
+            "carrier_evidence": override.get("carrier_evidence") or {},
+            "role": override.get("role") or member.role_hint,
         }
-    if sample_metadata or sample_provenance or ped_sample_metadata:
+    if sample_metadata or sample_provenance or ped_member_state:
         result = await session.execute(
             text(
                 """
@@ -2810,8 +3099,32 @@ async def _register_package_provenance(
         for row in result.mappings().all():
             sample_id = str(row["sample_id"])
             metadata = _metadata_dict(row.get("metadata"))
-            if sample_id in ped_sample_metadata:
-                metadata["pedigree"] = ped_sample_metadata[sample_id]
+            if sample_id in ped_member_state:
+                state = ped_member_state[sample_id]
+                await session.execute(
+                    text(
+                        """
+                        UPDATE family_members
+                        SET clinical_status = :clinical_status,
+                            carrier_status = :carrier_status,
+                            carrier_type = :carrier_type,
+                            carrier_evidence = CAST(:carrier_evidence AS jsonb),
+                            affected = :affected,
+                            updated_at = timezone('utc', now())
+                        WHERE family_id = CAST(:family_uuid AS uuid)
+                          AND sample_id = CAST(:sample_uuid AS uuid)
+                        """
+                    ),
+                    {
+                        "family_uuid": family_uuid,
+                        "sample_uuid": str(row["sample_uuid"]),
+                        "clinical_status": state["clinical_status"],
+                        "carrier_status": state["carrier_status"],
+                        "carrier_type": state.get("carrier_type"),
+                        "carrier_evidence": json.dumps(state.get("carrier_evidence") or {}),
+                        "affected": state["clinical_status"] == "affected",
+                    },
+                )
             if sample_id in sample_metadata:
                 metadata["package_sample_metadata"] = sample_metadata[sample_id]
             if sample_id in sample_provenance:
@@ -2989,15 +3302,41 @@ async def _ensure_family_from_ped(
     existing = await _fetch_existing_family(session, family_id=family_id)
     if existing is None:
         await ped_service._ensure_sample_ids_are_available(session, bundle.ped.sample_ids)
+        members = _ped_members_for_import(
+            bundle.ped,
+            carrier_types=_manifest_carrier_types(bundle.manifest),
+            member_overrides=_manifest_member_overrides(bundle.manifest),
+        )
+        relationships = ped_service._relationships_from_members(members)
+        seen_relationships = {
+            ped_service._relationship_key(
+                relationship["relationship_type"],
+                relationship["sample_id_a"],
+                relationship["sample_id_b"],
+                relationship.get("role_a"),
+                relationship.get("role_b"),
+            )
+            for relationship in relationships
+        }
+        for relationship in _manifest_relationships(bundle.manifest):
+            key = ped_service._relationship_key(
+                relationship["relationship_type"],
+                relationship["sample_id_a"],
+                relationship["sample_id_b"],
+                relationship.get("role_a"),
+                relationship.get("role_b"),
+            )
+            if key not in seen_relationships:
+                seen_relationships.add(key)
+                relationships.append(relationship)
         await ped_service._create_family(
             session,
             family_id=family_id,
             pedigree=bundle.ped.text,
-            members=_ped_members_for_import(
-                bundle.ped,
-                carrier_types=_manifest_carrier_types(bundle.manifest),
-            ),
+            members=members,
+            relationships=relationships,
             project_id=resolved_project_id,
+            created_by=user.id,
         )
         await session.commit()
     else:
@@ -4219,6 +4558,119 @@ async def _import_apcad_track_file(
     return sample_results
 
 
+def _pcf_value(row: dict[str, Any], *names: str) -> str | None:
+    normalized = {_normalize_header_key(str(key)): value for key, value in row.items()}
+    for name in names:
+        value = normalized.get(_normalize_header_key(name))
+        if not _missing_scalar(value):
+            return str(value)
+    return None
+
+
+def _parse_pcf_segment_row(
+    row: dict[str, Any],
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    line_no: int,
+    origin: str,
+) -> dict[str, Any] | None:
+    chrom = _pcf_value(row, "CHROM", "chr", "chromosome")
+    start = _coerce_int(_pcf_value(row, "start.pos", "start", "start_pos"))
+    end = _coerce_int(_pcf_value(row, "end.pos", "end", "end_pos", "stop"))
+    value = _coerce_finite_float(_pcf_value(row, "mean", "value", "seg.mean", "segment_mean"))
+    if chrom is None or start is None or end is None or value is None:
+        return None
+    if end < start:
+        return None
+
+    sample_id_from_file = _pcf_value(row, "sampleID", "sample_id", "sample")
+    arm = _pcf_value(row, "arm")
+    n_probes = _coerce_int(_pcf_value(row, "n.probes", "n_probes", "probes"))
+    normalized_chrom = normalize_chromosome(chrom)
+    record_id_parts = [sample_context.sample_id, origin, normalized_chrom]
+    if arm:
+        record_id_parts.append(arm)
+    record_id_parts.append(f"{start}-{end}")
+    metadata = {
+        "source": APCAD_PCF_SOURCE,
+        "filename": path.name,
+        "line_no": line_no,
+        "uploaded_from": "family_package",
+        "sample_id": sample_id_from_file,
+        "arm": arm,
+        "n_probes": n_probes,
+    }
+    return {
+        "sample_id": sample_context.sample_uuid,
+        "family_id": sample_context.family_uuid,
+        "assembly_id": sample_context.assembly_id or "",
+        "assembly_name": sample_context.assembly_name or "",
+        "track_type": APCAD_PCF_TRACK_TYPE,
+        "source": APCAD_PCF_SOURCE,
+        "chr": normalized_chrom,
+        "start": start,
+        "end": end,
+        "record_id": ":".join(record_id_parts),
+        "value": value,
+        "origin": origin,
+        "metadata_json": json.dumps(_jsonb_safe(metadata)),
+    }
+
+
+async def _import_pcf_segment_file(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    path: Path,
+    origin: str,
+) -> dict[str, int]:
+    if not sample_context.assembly_name:
+        raise RuntimeError("Cannot import PCF segment tracks without an assembly name")
+    processed = 0
+    inserted = 0
+    skipped = 0
+    batch: list[dict[str, Any]] = []
+    async with _open_package_text(path) as handle:
+        reader = csv.DictReader(handle)
+        for raw_row in reader:
+            processed += 1
+            row = _parse_pcf_segment_row(
+                raw_row,
+                sample_context=sample_context,
+                path=path,
+                line_no=reader.line_num,
+                origin=origin,
+            )
+            if row is None:
+                skipped += 1
+                continue
+            batch.append(row)
+            if len(batch) >= 5000:
+                await _insert_interval_track_rows(session, batch)
+                inserted += len(batch)
+                batch = []
+    if batch:
+        await _insert_interval_track_rows(session, batch)
+        inserted += len(batch)
+    await upsert_interval_track_source(
+        session,
+        sample_context=sample_context,
+        track_type=APCAD_PCF_TRACK_TYPE,
+        source=APCAD_PCF_SOURCE,
+        filename=path.name,
+        row_count=inserted,
+        metadata={
+            "source": APCAD_PCF_SOURCE,
+            "filename": path.name,
+            "origin": origin,
+            "uploaded_from": "family_package",
+        },
+    )
+    await session.commit()
+    return {"processed": processed, "inserted": inserted, "skipped": skipped}
+
+
 def _needlr_query_sample_id(info: dict[str, str], sample_ids: set[str]) -> str | None:
     query_id = _first_info_value(info, "Query_ID", "QueryId", "Sample", "SAMPLE")
     if query_id is None:
@@ -5034,6 +5486,75 @@ async def _import_apcad_dataset(
     )
 
 
+async def _import_pcf_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+) -> FamilyImportDatasetSummary:
+    if not dataset.per_sample:
+        return await _register_only(summary, "No PCF segment files were provided")
+    sample_results: dict[str, Any] = {}
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        role_paths: list[tuple[str, Path]] = []
+        for role, origin in (("maternal", "maternal"), ("paternal", "paternal")):
+            path = _resolve_package_path(bundle.root, _pcf_role_path(raw_entry, role))
+            if path is not None:
+                role_paths.append((origin, path))
+        if not role_paths:
+            continue
+
+        existing_count = await count_interval_track_source_rows(
+            session,
+            sample_uuid=sample_context.sample_uuid,
+            track_type=APCAD_PCF_TRACK_TYPE,
+            source=APCAD_PCF_SOURCE,
+        )
+        if conflict_mode == "update" and existing_count:
+            sample_results[sample_id] = {"skipped": True, "existing": existing_count}
+            continue
+
+        await _delete_sample_interval_source(
+            session,
+            sample_context=sample_context,
+            track_type=APCAD_PCF_TRACK_TYPE,
+            source=APCAD_PCF_SOURCE,
+        )
+        sample_results[sample_id] = {}
+        for origin, path in role_paths:
+            sample_results[sample_id][origin] = await _import_pcf_segment_file(
+                session,
+                sample_context=sample_context,
+                path=path,
+                origin=origin,
+            )
+
+    skipped = [
+        sample_id
+        for sample_id, stats in sample_results.items()
+        if isinstance(stats, dict) and stats.get("skipped")
+    ]
+    return summary.model_copy(
+        update={
+            "status": "imported" if sample_results else "skipped",
+            "message": (
+                "Imported PCF APCAD segment overlays into interval tracks"
+                if sample_results and not skipped
+                else f"Imported PCF data; skipped existing samples in update mode: {', '.join(skipped)}"
+                if skipped
+                else "No PCF segment files were imported"
+            ),
+            "summary": sample_results,
+        }
+    )
+
+
 async def _import_repeats_dataset(
     session: AsyncSession,
     *,
@@ -5211,6 +5732,15 @@ async def _import_dataset(
         )
     if summary.dataset_type == "apcad":
         return await _import_apcad_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+        )
+    if summary.dataset_type == "pcf":
+        return await _import_pcf_dataset(
             session,
             bundle=bundle,
             dataset=dataset,

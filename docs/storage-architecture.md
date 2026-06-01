@@ -40,7 +40,7 @@ Primary responsibilities:
 - Assembly-scoped small variant storage
 - Assembly-scoped structural variant storage
 - Family and sample genotypes/calls over flattened CoGA rows
-- Assembly-scoped interval-track rows for coverage, WisecondorX segments, APCAD, and haplotypes
+- Assembly-scoped interval-track rows for coverage, WisecondorX segments, APCAD, PCF APCAD segment overlays, and haplotypes
 
 Database bootstrap:
 

@@ -17,8 +17,11 @@ const createCanvasContext = (): CanvasRenderingContext2D =>
   }) as unknown as CanvasRenderingContext2D;
 
 describe('ApcadChart', () => {
+  let canvasContext: CanvasRenderingContext2D;
+
   beforeEach(() => {
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => createCanvasContext());
+    canvasContext = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => canvasContext);
   });
 
   afterEach(() => {
@@ -61,5 +64,36 @@ describe('ApcadChart', () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('fetches PCF segment overlays separately from raw APCAD points', async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          items: url.endsWith('/pcf')
+            ? [{ chr: '1', start: 0, end: 100, value: 0.5, origin: 'maternal' }]
+            : [{ chr: '1', start: 0, end: 50, value: 0.25, origin: 'paternal' }],
+        }),
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <ApcadChart
+        apcadUrls={['https://example.test/apcad']}
+        pcfUrls={['https://example.test/pcf']}
+        chroms={['1']}
+        width={320}
+        height={120}
+      />,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(canvasContext.arc).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://example.test/pcf',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 });

@@ -47,6 +47,7 @@ const GENE_JUMP_PADDING_RATIO = 0.1;
 interface ChromosomeTrackAvailability {
   coverage: boolean;
   apcad: boolean;
+  apcadPcf: boolean;
   variants: boolean;
   smallVariants: boolean;
   haplotypes: boolean;
@@ -208,6 +209,8 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   showViewerLoading,
 }) => {
   const roiTitle = visibleRoi ? `ROI: ${visibleRoi.label}` : undefined;
+  const regionStartParam = Math.max(0, Math.floor(region.start));
+  const regionEndParam = Math.ceil(region.end);
   const referenceLabel = formatResolvedReferenceLabel(
     { speciesName, assemblyName, assemblyVersion },
     'Reference not linked',
@@ -230,10 +233,10 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
         onChange: onRegionSelect,
       }
     : undefined;
-  const hasCarrierSegregation = membersWithData.some((member) => Boolean(member.carrier_status));
+  const hasCarrierSegregation = membersWithData.some((member) => member.carrier_status === 'carrier');
   const haplotypeDisorder = hasCarrierSegregation ? 'recessive' : 'dominant';
   const highlightRiskHaplotype = membersWithData.some(
-    (member) => member.affected || Boolean(member.carrier_status),
+    (member) => member.affected || member.carrier_status === 'carrier',
   );
   const { data: geneSuggestions = [] } = useQuery<GeneSuggestion[]>({
     queryKey: ['chromosome-jump-suggestions', assemblyId, trimmedJumpQuery],
@@ -483,7 +486,8 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                   />
                 </ViewerTrackBlock>
               )}
-              {trackVisibility.apcad && availability[member.sample_id]?.apcad && (
+              {trackVisibility.apcad &&
+                (availability[member.sample_id]?.apcad || availability[member.sample_id]?.apcadPcf) && (
                 <ViewerTrackBlock
                   label="APCAD"
                   width={trackWidth}
@@ -494,8 +498,15 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                 >
                   <ApcadChart
                     apcadUrls={[
-                      `${api.defaults.baseURL}/bed/${member.sample_id}/apcad?chrom=${chrom}&window=${detailWindow}&limit=${binLimit}&format=json`,
+                      `${api.defaults.baseURL}/bed/${member.sample_id}/apcad?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&format=json`,
                     ]}
+                    pcfUrls={
+                      availability[member.sample_id]?.apcadPcf
+                        ? [
+                            `${api.defaults.baseURL}/bed/${member.sample_id}/apcad_pcf?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&format=json`,
+                          ]
+                        : undefined
+                    }
                     width={trackWidth}
                     height={TRACK_HEIGHT}
                     chroms={[chrom]}
@@ -589,7 +600,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                     height={HAPLOTYPE_TRACK_HEIGHT}
                     role={member.role}
                     affected={member.affected}
-                    carrierStatus={member.carrier_status}
+                    carrierStatus={member.carrier_status === 'carrier'}
                     highlightRiskHaplotype={highlightRiskHaplotype}
                     disorder={haplotypeDisorder}
                   />

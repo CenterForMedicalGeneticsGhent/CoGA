@@ -22,7 +22,7 @@ from .clickhouse_interval_tracks import (
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 
-VALID_BED_TYPES = {"coverage", "apcad", "segments"}
+VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 
 
 def validate_bed_type(bed_type: str, *, allow_haplotype: bool = False) -> None:
@@ -60,6 +60,7 @@ def _build_apcad_row(
     sample_context: SampleMetadataContext,
     parts: list[str],
     *,
+    track_type: str,
     metadata_json: str,
 ) -> dict[str, Any] | None:
     if len(parts) < 6:
@@ -82,7 +83,7 @@ def _build_apcad_row(
         "sample_id": sample_context.sample_uuid,
         "family_id": sample_context.family_uuid,
         "assembly_id": sample_context.assembly_id,
-        "track_type": "apcad",
+        "track_type": track_type,
         "source": "web",
         "chr": normalize_chromosome(chrom),
         "start": start,
@@ -180,8 +181,8 @@ async def upload_bed_data(
             continue
         parts = line.strip().split()
         row = (
-            _build_apcad_row(sample_context, parts, metadata_json=metadata_json)
-            if bed_type == "apcad"
+            _build_apcad_row(sample_context, parts, track_type=bed_type, metadata_json=metadata_json)
+            if bed_type in {"apcad", "apcad_pcf"}
             else _build_numeric_row(sample_context, bed_type, parts, metadata_json=metadata_json)
         )
         if row is not None:
@@ -219,7 +220,7 @@ def _serialize_bed_record(track_type: str, row: dict[str, Any]) -> dict[str, Any
         "end": int(row["end"]),
         "value": float(row["value"]) if row.get("value") is not None else None,
     }
-    if track_type == "apcad":
+    if track_type in {"apcad", "apcad_pcf"}:
         payload["origin"] = row.get("origin") or "und"
     return payload
 
@@ -243,6 +244,8 @@ async def _fetch_raw_track_rows(
     track_type: str,
     chrom: str,
     origins: list[str] | None = None,
+    start: int | None = None,
+    end: int | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     _ = session
@@ -254,6 +257,8 @@ async def _fetch_raw_track_rows(
         track_type=track_type,
         chromosomes=[chrom],
         origins=origins,
+        start=start,
+        end=end,
         limit=limit,
     )
 
@@ -316,6 +321,8 @@ async def _fetch_bed_records_for_chrom(
     bed_type: str,
     chrom: str,
     window: int | None,
+    start: int | None,
+    end: int | None,
     limit: int,
 ) -> list[dict[str, Any]]:
     chrom_clean = normalize_chromosome(chrom)
@@ -326,6 +333,8 @@ async def _fetch_bed_records_for_chrom(
             sample_uuid=sample_context.sample_uuid,
             track_type=bed_type,
             chrom=chrom_clean,
+            start=start,
+            end=end,
         )
         return _windowed_coverage_rows(rows, window, limit)
     if bed_type == "apcad" and window:
@@ -336,6 +345,8 @@ async def _fetch_bed_records_for_chrom(
             track_type=bed_type,
             chrom=chrom_clean,
             origins=["paternal", "maternal"],
+            start=start,
+            end=end,
         )
         return _windowed_apcad_rows(rows, window, limit)
     rows = await _fetch_raw_track_rows(
@@ -344,7 +355,9 @@ async def _fetch_bed_records_for_chrom(
         sample_uuid=sample_context.sample_uuid,
         track_type=bed_type,
         chrom=chrom_clean,
-        origins=["paternal", "maternal"] if bed_type == "apcad" else None,
+        origins=["paternal", "maternal"] if bed_type in {"apcad", "apcad_pcf"} else None,
+        start=start,
+        end=end,
         limit=limit,
     )
     return [_serialize_bed_record(bed_type, row) for row in rows]
@@ -357,6 +370,8 @@ async def fetch_bed_text(
     bed_type: str,
     chrom: str,
     window: int | None,
+    start: int | None,
+    end: int | None,
     limit: int,
 ) -> PlainTextResponse:
     validate_bed_type(bed_type)
@@ -366,6 +381,8 @@ async def fetch_bed_text(
         bed_type=bed_type,
         chrom=chrom,
         window=window,
+        start=start,
+        end=end,
         limit=limit,
     )
     if not records:
@@ -382,6 +399,8 @@ async def fetch_bed_json(
     bed_type: str,
     chrom: str,
     window: int | None,
+    start: int | None,
+    end: int | None,
     limit: int,
 ) -> JSONResponse:
     validate_bed_type(bed_type)
@@ -391,6 +410,8 @@ async def fetch_bed_json(
         bed_type=bed_type,
         chrom=chrom,
         window=window,
+        start=start,
+        end=end,
         limit=limit,
     )
     if not records:
@@ -405,6 +426,8 @@ async def fetch_bed_batch_text(
     bed_type: str,
     chroms: list[str],
     window: int | None,
+    start: int | None,
+    end: int | None,
     limit: int,
 ) -> PlainTextResponse:
     validate_bed_type(bed_type)
@@ -424,6 +447,8 @@ async def fetch_bed_batch_text(
                 bed_type=bed_type,
                 chrom=chrom_clean,
                 window=window,
+                start=start,
+                end=end,
                 limit=limit,
             )
         )
@@ -441,6 +466,8 @@ async def fetch_bed_batch_json(
     bed_type: str,
     chroms: list[str],
     window: int | None,
+    start: int | None,
+    end: int | None,
     limit: int,
 ) -> JSONResponse:
     validate_bed_type(bed_type)
@@ -460,6 +487,8 @@ async def fetch_bed_batch_json(
                 bed_type=bed_type,
                 chrom=chrom_clean,
                 window=window,
+                start=start,
+                end=end,
                 limit=limit,
             )
         )

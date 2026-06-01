@@ -11,6 +11,8 @@ from ..schemas import (
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
     FamilyRegionOfInterestUpdate,
+    FamilyStructureUpdate,
+    FamilyStructureUpdateOut,
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
     RepeatExpansionTrackResponse,
@@ -42,6 +44,7 @@ from ..services.family_service import (
     list_families_for_user,
     update_family_roi_for_admin,
 )
+from ..services.family_structure_service import update_family_structure_for_admin
 from ..services.metadata_service import CurrentUser
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.paraphase_pg import get_family_paraphase_table_response
@@ -153,6 +156,21 @@ async def update_family_roi(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyOut:
     return await update_family_roi_for_admin(
+        session,
+        family_id=family_id,
+        update=update,
+        user=user,
+    )
+
+
+@router.put("/{family_id}/structure", response_model=FamilyStructureUpdateOut)
+async def update_family_structure(
+    family_id: str,
+    update: FamilyStructureUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FamilyStructureUpdateOut:
+    return await update_family_structure_for_admin(
         session,
         family_id=family_id,
         update=update,

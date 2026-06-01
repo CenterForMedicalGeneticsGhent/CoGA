@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS sample_interval_track_sources (
     sample_id UUID NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
     family_id UUID NOT NULL REFERENCES families(id) ON DELETE CASCADE,
     assembly_id UUID REFERENCES assemblies(id) ON DELETE SET NULL,
-    track_type TEXT NOT NULL CHECK (track_type IN ('coverage', 'apcad', 'segments', 'haplotype')),
+    track_type TEXT NOT NULL CHECK (track_type IN ('coverage', 'apcad', 'apcad_pcf', 'segments', 'haplotype')),
     source TEXT NOT NULL DEFAULT 'web',
     filename TEXT NOT NULL DEFAULT '',
     row_count BIGINT NOT NULL DEFAULT 0,
@@ -11,6 +11,13 @@ CREATE TABLE IF NOT EXISTS sample_interval_track_sources (
     uploaded_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     UNIQUE (sample_id, track_type, source, filename)
 );
+
+ALTER TABLE sample_interval_track_sources
+    DROP CONSTRAINT IF EXISTS sample_interval_track_sources_track_type_check;
+
+ALTER TABLE sample_interval_track_sources
+    ADD CONSTRAINT sample_interval_track_sources_track_type_check
+    CHECK (track_type IN ('coverage', 'apcad', 'apcad_pcf', 'segments', 'haplotype'));
 
 CREATE INDEX IF NOT EXISTS idx_sample_interval_track_sources_sample_type
     ON sample_interval_track_sources (sample_id, track_type);

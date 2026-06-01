@@ -316,6 +316,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
                 <Pedigree
                   rows={pedRows}
                   members={familyData?.members}
+                  relationships={familyData?.relationships}
                   inheritanceModel={(familyData?.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
                 />
               </div>

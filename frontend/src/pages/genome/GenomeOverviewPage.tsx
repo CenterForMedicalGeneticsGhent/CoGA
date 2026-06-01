@@ -226,12 +226,12 @@ const GenomeOverviewPage: React.FC = () => {
 
   const urlMaps = useMemo(() => {
     if (!data) {
-      return { coverage: {}, segments: {}, apcad: {}, haplotypes: {} };
+      return { coverage: {}, segments: {}, apcad: {}, apcadPcf: {}, haplotypes: {} };
     }
 
     const buildBatchBedUrl = (
       sampleId: string,
-      bedType: 'coverage' | 'segments' | 'apcad',
+      bedType: 'coverage' | 'segments' | 'apcad' | 'apcad_pcf',
       extra: Record<string, string>,
     ) => {
       const params = new URLSearchParams();
@@ -244,6 +244,7 @@ const GenomeOverviewPage: React.FC = () => {
     const coverage: Record<string, string[]> = {};
     const segments: Record<string, string[]> = {};
     const apcad: Record<string, string[]> = {};
+    const apcadPcf: Record<string, string[]> = {};
     const haplotypes: Record<string, string[]> = {};
 
     orderedMembers.forEach((member) => {
@@ -262,10 +263,13 @@ const GenomeOverviewPage: React.FC = () => {
           limit: String(binLimit),
         }),
       ];
+      apcadPcf[member.sample_id] = [
+        buildBatchBedUrl(member.sample_id, 'apcad_pcf', { limit: String(segmentLimit) }),
+      ];
       haplotypes[member.sample_id] = haplotypeUrls;
     });
 
-    return { coverage, segments, apcad, haplotypes };
+    return { coverage, segments, apcad, apcadPcf, haplotypes };
   }, [binLimit, chroms, data, genomeTrackWindow, haplotypeUrls, orderedMembers, segmentLimit]);
 
   useEffect(() => {
@@ -309,6 +313,7 @@ const GenomeOverviewPage: React.FC = () => {
             coverage: entry.coverage,
             segments: entry.segments,
             apcad: entry.apcad,
+            apcadPcf: !!entry.apcad_pcf,
             haplotypes: entry.haplotypes,
             sv: entry.variants,
             repeatExpansions: entry.repeat_expansions,
@@ -320,6 +325,7 @@ const GenomeOverviewPage: React.FC = () => {
           coverage: boolean;
           segments: boolean;
           apcad: boolean;
+          apcadPcf: boolean;
           haplotypes: boolean;
           sv: boolean;
           repeatExpansions: boolean;
@@ -335,7 +341,7 @@ const GenomeOverviewPage: React.FC = () => {
       if (!entry) return;
       if (entry.coverage) tracks.add('coverage');
       if (entry.coverage && entry.segments) tracks.add('segments');
-      if (entry.apcad) tracks.add('apcad');
+      if (entry.apcad || entry.apcadPcf) tracks.add('apcad');
       if (entry.sv) tracks.add('sv');
       if (entry.haplotypes) tracks.add('haplotypes');
       if (entry.repeatExpansions) tracks.add('repeatExpansions');
@@ -402,6 +408,7 @@ const GenomeOverviewPage: React.FC = () => {
       entry?.coverage ||
       entry?.segments ||
       entry?.apcad ||
+      entry?.apcadPcf ||
       entry?.haplotypes ||
       entry?.sv ||
       entry?.repeatExpansions

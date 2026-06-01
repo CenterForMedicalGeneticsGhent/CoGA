@@ -1,10 +1,11 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, it, vi } from 'vitest';
 
 import FamilyDetailPage from '../FamilyDetailPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import api from '../../../lib/api';
 
 const mockApiState = vi.hoisted(() => ({
   smallVariantTotal: 1,
@@ -149,6 +150,7 @@ describe('FamilyDetailPage', () => {
     localStorage.clear();
     mockApiState.smallVariantTotal = 1;
     mockApiState.structuralVariantTotal = 1;
+    vi.mocked(api.put).mockReset();
   });
 
   it('shows the current family ROI summary, project links, and admin controls', async () => {
@@ -255,5 +257,101 @@ describe('FamilyDetailPage', () => {
     expect(
       screen.getByRole('link', { name: /small variants/i })
     ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
+  });
+
+  it('saves family structure edits with carrier state and explicit couples', async () => {
+    localStorage.setItem('role', 'admin');
+    vi.mocked(api.put).mockResolvedValueOnce({
+      data: {
+        family: {
+          _id: 'fam1',
+          family_id: 'F1',
+          members: [
+            {
+              sample_id: 'S1',
+              role: 'proband',
+              affected: true,
+              sex: 'male',
+              clinical_status: 'affected',
+              carrier_status: 'carrier',
+              carrier_type: 'proven',
+            },
+            {
+              sample_id: 'S2',
+              role: 'relative',
+              affected: false,
+              sex: 'female',
+              clinical_status: 'unknown',
+              carrier_status: 'unknown',
+            },
+          ],
+          relationships: [
+            {
+              id: 'r1',
+              relationship_type: 'couple',
+              sample_id_a: 'S1',
+              sample_id_b: 'S2',
+              role_a: 'partner',
+              role_b: 'partner',
+              metadata: {},
+            },
+          ],
+          structure_version: { version: 2 },
+          pedigree: null,
+          projects: ['p1'],
+          metadata: {},
+          roi: null,
+        },
+        warnings: ['Relationship-dependent analyses should be rerun before clinical review.'],
+      },
+    });
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Carrier status for S1'), { target: { value: 'carrier' } });
+    fireEvent.change(screen.getByLabelText('Carrier type for S1'), { target: { value: 'proven' } });
+    fireEvent.change(screen.getByLabelText('New member sample ID'), { target: { value: 'S2' } });
+    fireEvent.change(screen.getByLabelText('New member sex'), { target: { value: 'female' } });
+    fireEvent.click(screen.getByRole('button', { name: /add member/i }));
+    fireEvent.click(screen.getByRole('button', { name: /add couple/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save family structure/i }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/families/F1/structure',
+      expect.objectContaining({
+        clear_existing_genomic_data: false,
+        add_members: [
+          expect.objectContaining({
+            sample_id: 'S2',
+            sex: 'female',
+          }),
+        ],
+        members: [
+          expect.objectContaining({
+            sample_id: 'S1',
+            carrier_status: 'carrier',
+            carrier_type: 'proven',
+          }),
+        ],
+        relationships: expect.objectContaining({
+          couples: [
+            expect.objectContaining({
+              partners: ['S1', 'S2'],
+            }),
+          ],
+        }),
+      }),
+    ));
+    expect(await screen.findByText(/Family structure saved/i)).toBeInTheDocument();
   });
 });

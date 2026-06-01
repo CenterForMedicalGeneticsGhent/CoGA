@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import HTTPException
@@ -44,6 +44,7 @@ class FamilyMetadataContext:
     affected_sample_names: list[str]
     assembly_id: str | None
     assembly_name: str | None
+    relationship_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -146,20 +147,51 @@ async def build_family_metadata_context(
                 s.sex,
                 s.metadata AS sample_metadata,
                 fm.role,
-                fm.affected
+                fm.affected,
+                fm.clinical_status,
+                fm.carrier_status,
+                fm.carrier_type,
+                fm.carrier_evidence,
+                fm.active
             FROM family_members fm
             JOIN samples s ON s.id = fm.sample_id
             WHERE fm.family_id = CAST(:family_uuid AS uuid)
+              AND fm.active
             ORDER BY lower(s.sample_id)
             """
         ),
         {"family_uuid": family_uuid},
     )
     sample_rows = [dict(row) for row in sample_result.mappings().all()]
+    relationship_result = await session.execute(
+        text(
+            """
+            SELECT
+                fr.id::text AS id,
+                fr.relationship_type,
+                sa.sample_id AS sample_id_a,
+                sb.sample_id AS sample_id_b,
+                fr.role_a,
+                fr.role_b,
+                fr.source,
+                fr.metadata
+            FROM family_relationships fr
+            JOIN samples sa ON sa.id = fr.sample_id_a
+            JOIN samples sb ON sb.id = fr.sample_id_b
+            WHERE fr.family_id = CAST(:family_uuid AS uuid)
+              AND fr.active
+            ORDER BY fr.relationship_type, lower(sa.sample_id), lower(sb.sample_id)
+            """
+        ),
+        {"family_uuid": family_uuid},
+    )
+    relationship_rows = [dict(row) for row in relationship_result.mappings().all()]
     sample_uuid_to_name = {row["sample_uuid"]: row["sample_id"] for row in sample_rows}
     sample_name_to_uuid = {row["sample_id"]: row["sample_uuid"] for row in sample_rows}
     affected_sample_names = [
-        row["sample_id"] for row in sample_rows if bool(row.get("affected"))
+        row["sample_id"]
+        for row in sample_rows
+        if str(row.get("clinical_status") or "").lower() == "affected"
     ]
     assembly_id, assembly_name = await _resolve_family_assembly(
         session,
@@ -172,6 +204,7 @@ async def build_family_metadata_context(
         family_id=str(family_row["family_id"]),
         project_ids=project_ids,
         sample_rows=sample_rows,
+        relationship_rows=relationship_rows,
         sample_uuid_to_name=sample_uuid_to_name,
         sample_name_to_uuid=sample_name_to_uuid,
         affected_sample_names=affected_sample_names,
