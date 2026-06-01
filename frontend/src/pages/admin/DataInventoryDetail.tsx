@@ -127,6 +127,12 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
                 Open family workspace
               </Link>
             )}
+            <Link
+              to={`/admin/data/families/${selectedFamily.family_id}/structure`}
+              className="form-button hover:no-underline"
+            >
+              Edit family details
+            </Link>
             {selectedFamily.track_counts.small_variants > 0 && (
               <button
                 type="button"

@@ -192,7 +192,11 @@ const getReviewSummaryTags = (
   return [...knownTags, ...unknownTags];
 };
 
-const FamilyDetailPage: React.FC = () => {
+interface FamilyDetailPageProps {
+  editable?: boolean;
+}
+
+const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false }) => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
   const preferredProjectId = useMemo(
@@ -200,6 +204,7 @@ const FamilyDetailPage: React.FC = () => {
     [location.search],
   );
   const userIsAdmin = isAdmin();
+  const canEditFamilyDetails = editable && userIsAdmin;
   const queryClient = useQueryClient();
   const [roiInput, setRoiInput] = useState('');
   const [roiBusy, setRoiBusy] = useState(false);
@@ -806,10 +811,10 @@ const FamilyDetailPage: React.FC = () => {
               </Link>
             </div>
           )}
-          {!data.roi && !userIsAdmin && (
+          {!data.roi && !canEditFamilyDetails && (
             <p className="dashboard-link-note">No family region of interest is defined.</p>
           )}
-          {userIsAdmin && (
+          {canEditFamilyDetails && (
             <div className="family-roi-admin">
               <label className="field-label family-roi-input">
                 Gene symbol or genomic locus
@@ -865,18 +870,18 @@ const FamilyDetailPage: React.FC = () => {
               <tr>
                 <th>Sample</th>
                 <th>Role</th>
-                {userIsAdmin && <th>Sex</th>}
+                {canEditFamilyDetails && <th>Sex</th>}
                 <th>Father</th>
                 <th>Mother</th>
                 <th>Phenotype</th>
                 <th>Carrier</th>
-                {userIsAdmin && <th>Actions</th>}
+                {canEditFamilyDetails && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {(userIsAdmin ? activeStructureMembers : orderedMembers).map((member) => {
-                const draftMember = userIsAdmin ? (member as StructureMemberDraft) : null;
-                const apiMember = userIsAdmin ? null : (member as ApiFamilyRecord['members'][number]);
+              {(canEditFamilyDetails ? activeStructureMembers : orderedMembers).map((member) => {
+                const draftMember = canEditFamilyDetails ? (member as StructureMemberDraft) : null;
+                const apiMember = canEditFamilyDetails ? null : (member as ApiFamilyRecord['members'][number]);
                 const parents = parentLabelByChild[sampleKey(member.sample_id)] || {};
                 const sexSymbol =
                   member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚧';
@@ -901,7 +906,7 @@ const FamilyDetailPage: React.FC = () => {
                       </span>
                     </td>
                     <td>
-                      {userIsAdmin ? (
+                      {canEditFamilyDetails ? (
                         <select
                           aria-label={`Role for ${member.sample_id}`}
                           value={draftMember!.role}
@@ -922,7 +927,7 @@ const FamilyDetailPage: React.FC = () => {
                         apiMember?.role
                       )}
                     </td>
-                    {userIsAdmin && (
+                    {canEditFamilyDetails && (
                       <td>
                         <select
                           aria-label={`Sex for ${member.sample_id}`}
@@ -945,7 +950,7 @@ const FamilyDetailPage: React.FC = () => {
                     <td>{parents.father ?? '-'}</td>
                     <td>{parents.mother ?? '-'}</td>
                     <td>
-                      {userIsAdmin ? (
+                      {canEditFamilyDetails ? (
                         <select
                           aria-label={`Phenotype for ${member.sample_id}`}
                           value={clinicalStatus}
@@ -967,7 +972,7 @@ const FamilyDetailPage: React.FC = () => {
                       )}
                     </td>
                     <td>
-                      {userIsAdmin ? (
+                      {canEditFamilyDetails ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <select
                             aria-label={`Carrier status for ${member.sample_id}`}
@@ -1011,7 +1016,7 @@ const FamilyDetailPage: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    {userIsAdmin && (
+                    {canEditFamilyDetails && (
                       <td>
                         <button
                           type="button"
@@ -1029,7 +1034,7 @@ const FamilyDetailPage: React.FC = () => {
             </tbody>
           </table>
         </div>
-        {userIsAdmin && (
+        {canEditFamilyDetails && (
           <div className="space-y-4">
             <div className="data-table-shell overflow-x-auto">
               <table className="analysis-table">

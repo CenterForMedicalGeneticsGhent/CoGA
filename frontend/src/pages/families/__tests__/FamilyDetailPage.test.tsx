@@ -153,7 +153,7 @@ describe('FamilyDetailPage', () => {
     vi.mocked(api.put).mockReset();
   });
 
-  it('shows the current family ROI summary, project links, and admin controls', async () => {
+  it('shows the current family ROI summary and project links without edit controls', async () => {
     localStorage.setItem('role', 'admin');
     const queryClient = createTestQueryClient();
 
@@ -178,9 +178,10 @@ describe('FamilyDetailPage', () => {
       screen.getByRole('link', { name: /small variants/i })
     ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
     expect(
-      screen.getByPlaceholderText(/BRCA1 or chr17:43044295-43125482/i),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save roi/i })).toBeInTheDocument();
+      screen.queryByPlaceholderText(/BRCA1 or chr17:43044295-43125482/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save roi/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Carrier status for S1')).not.toBeInTheDocument();
     expect(screen.getByLabelText(/variant curation summary/i)).toBeInTheDocument();
     const smallVariantCuration = screen.getByLabelText(/small variant review summary/i);
     const structuralVariantCuration = screen.getByLabelText(/structural variant review summary/i);
@@ -309,9 +310,9 @@ describe('FamilyDetailPage', () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/families/F1']}>
+        <MemoryRouter initialEntries={['/admin/data/families/F1/structure']}>
           <Routes>
-            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+            <Route path="/admin/data/families/:familyId/structure" element={<FamilyDetailPage editable />} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,

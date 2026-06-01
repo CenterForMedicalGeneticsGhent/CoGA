@@ -138,6 +138,10 @@ describe('DataManagementPage', () => {
     expect(screen.getByText('Delete entire family')).toBeInTheDocument();
     expect(screen.getAllByText('Delete sample').length).toBeGreaterThan(0);
     expect(screen.getByText('Link family to projects')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /edit family details/i })).toHaveAttribute(
+      'href',
+      '/admin/data/families/F1/structure'
+    );
     expect(screen.getByText('Save project access')).toBeInTheDocument();
     expect(screen.getByText('Assigned projects')).toBeInTheDocument();
     expect(screen.getAllByText('Proj1').length).toBeGreaterThan(0);
