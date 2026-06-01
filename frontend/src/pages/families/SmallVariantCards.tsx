@@ -58,6 +58,59 @@ const transcriptSourceFor = (transcriptId?: string | null) => {
   return 'Other';
 };
 
+const limitTranscriptFlagBySource = (
+  transcripts: SmallVariantTranscript[],
+  flag: 'mane_select' | 'mane_plus_clinical',
+): SmallVariantTranscript[] => {
+  const flagged = transcripts
+    .map((transcript, index) => ({ transcript, index }))
+    .filter((entry) => Boolean(entry.transcript[flag]));
+  if (flagged.length <= 2) return transcripts;
+
+  const prioritized = [...flagged].sort((left, right) => {
+    const leftPrimary = left.transcript.primary ? 1 : 0;
+    const rightPrimary = right.transcript.primary ? 1 : 0;
+    if (leftPrimary !== rightPrimary) return rightPrimary - leftPrimary;
+    const leftImpact = String(left.transcript.impact || '').toUpperCase();
+    const rightImpact = String(right.transcript.impact || '').toUpperCase();
+    const impactRank = (value: string) => {
+      if (value === 'HIGH') return 3;
+      if (value === 'MODERATE' || value === 'MEDIUM') return 2;
+      if (value === 'LOW') return 1;
+      return 0;
+    };
+    const leftRank = impactRank(leftImpact);
+    const rightRank = impactRank(rightImpact);
+    if (leftRank !== rightRank) return rightRank - leftRank;
+    return left.index - right.index;
+  });
+
+  const keep = new Set<number>();
+  const seenSources = new Set<string>();
+  for (const entry of prioritized) {
+    const source = (
+      entry.transcript.transcript_source ||
+      transcriptSourceFor(entry.transcript.transcript_id) ||
+      'Other'
+    ).toUpperCase();
+    if (seenSources.has(source)) continue;
+    seenSources.add(source);
+    keep.add(entry.index);
+    if (keep.size >= 2) break;
+  }
+  if (!keep.size) keep.add(prioritized[0].index);
+
+  return transcripts.map((transcript, index) =>
+    keep.has(index) ? transcript : { ...transcript, [flag]: false },
+  );
+};
+
+const normalizeTranscriptFlags = (transcripts: SmallVariantTranscript[]) => {
+  let normalized = limitTranscriptFlagBySource(transcripts, 'mane_select');
+  normalized = limitTranscriptFlagBySource(normalized, 'mane_plus_clinical');
+  return normalized;
+};
+
 const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] => {
   const transcripts = (variant.transcripts || []).filter(
     (transcript) =>
@@ -67,7 +120,7 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
       transcript.effect ||
       transcript.impact,
   );
-  if (transcripts.length) return transcripts;
+  if (transcripts.length) return normalizeTranscriptFlags(transcripts);
   if (
     !variant.transcript_id &&
     !variant.hgvsc &&
@@ -77,7 +130,7 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
   ) {
     return [];
   }
-  return [
+  return normalizeTranscriptFlags([
     {
       gene: variant.gene,
       gene_id: variant.gene_id,
@@ -96,7 +149,7 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
       mane_plus_clinical: variant.mane_plus_clinical,
       primary: true,
     },
-  ];
+  ]);
 };
 
 const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
@@ -104,11 +157,14 @@ const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
 
 const transcriptBadges = (transcript: SmallVariantTranscript) =>
   [
-    transcript.mane_select ? 'MANE Select' : null,
-    transcript.mane_plus_clinical ? 'MANE Plus Clinical' : null,
-    transcript.canonical ? 'Canonical' : null,
-    transcript.primary ? 'Shown on card' : null,
-  ].filter((value): value is string => Boolean(value));
+    transcript.mane_select ? { label: 'MANE Select', tone: 'success' } : null,
+    transcript.mane_plus_clinical ? { label: 'MANE Plus Clinical', tone: 'accent' } : null,
+    transcript.canonical ? { label: 'Canonical', tone: 'warning' } : null,
+    transcript.primary ? { label: 'Shown on card', tone: 'neutral' } : null,
+  ].filter(
+    (value): value is { label: string; tone: 'success' | 'accent' | 'warning' | 'neutral' } =>
+      Boolean(value),
+  );
 
 const TranscriptPopup = ({
   variant,
@@ -158,7 +214,7 @@ const TranscriptPopup = ({
           </div>
         </div>
 
-        <div className="data-table-shell overflow-x-auto">
+        <div className="data-table-shell variant-transcript-table-shell">
           <table className="analysis-table variant-transcript-table">
             <thead>
               <tr>
@@ -199,8 +255,11 @@ const TranscriptPopup = ({
                       {badges.length ? (
                         <div className="variant-transcript-badges">
                           {badges.map((badge) => (
-                            <span key={badge} className="variant-card-chip variant-card-chip--soft">
-                              {badge}
+                            <span
+                              key={badge.label}
+                              className={`variant-card-chip variant-card-chip--${badge.tone}`}
+                            >
+                              {badge.label}
                             </span>
                           ))}
                         </div>

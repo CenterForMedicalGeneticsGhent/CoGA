@@ -127,6 +127,14 @@ def _parse_presence_bool(value: Any) -> Optional[bool]:
     value = _clean_value(value)
     if value is None:
         return None
+    if isinstance(value, bool):
+        return True if value else None
+    if isinstance(value, (int, float)):
+        return True if value else None
+    if isinstance(value, str):
+        normalized = value.strip().upper()
+        if normalized in {"", ".", "-", "NO", "FALSE", "0"}:
+            return None
     return True
 
 
@@ -328,10 +336,14 @@ def _normalize_annotation_entry(
             parsed = _parse_bool(value)
             if parsed is not None:
                 annotation[key] = parsed
+            else:
+                annotation.pop(key, None)
         elif key in {"mane_select", "mane_plus_clinical"}:
             parsed = _parse_presence_bool(value)
             if parsed is not None:
                 annotation[key] = parsed
+            else:
+                annotation.pop(key, None)
         elif value is not None:
             annotation[key] = value
 
