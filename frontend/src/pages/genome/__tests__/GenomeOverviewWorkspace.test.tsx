@@ -28,13 +28,7 @@ vi.mock('../../../components/visualizations/VizLoadingOverlay', () => ({
 }));
 
 vi.mock('../../../components/visualizations/Ideogram', () => ({
-  default: ({
-    chrom,
-    onRegionSelect,
-  }: {
-    chrom: string;
-    onRegionSelect?: (start: number, end: number) => void;
-  }) => (
+  default: ({ chrom, onRegionSelect }: { chrom: string; onRegionSelect?: (start: number, end: number) => void }) => (
     <button
       type="button"
       onClick={(event) => {
@@ -54,13 +48,7 @@ vi.mock('../ViewerMemberSection', () => ({
 }));
 
 vi.mock('../ViewerTrackBlock', () => ({
-  default: ({
-    children,
-    label,
-  }: {
-    children: React.ReactNode;
-    label: string;
-  }) => (
+  default: ({ children, label }: { children: React.ReactNode; label: string }) => (
     <section>
       <h2>{label}</h2>
       {children}
@@ -87,11 +75,29 @@ describe('GenomeOverviewWorkspace', () => {
           visibleRoi={null}
           genomeRoiRange={null}
           navigateToChromosome={navigateToChromosome}
+          familyMembers={[
+            {
+              sample_id: 'PROBAND',
+              role: 'proband',
+              affected: true,
+              sex: 'male',
+            },
+          ]}
           visibleMembers={[
-            { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
+            {
+              sample_id: 'PROBAND',
+              role: 'proband',
+              affected: true,
+              sex: 'male',
+            },
           ]}
           membersWithData={[
-            { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
+            {
+              sample_id: 'PROBAND',
+              role: 'proband',
+              affected: true,
+              sex: 'male',
+            },
           ]}
           trackVisibility={{
             coverage: true,
@@ -154,10 +160,16 @@ describe('GenomeOverviewWorkspace', () => {
     fireEvent.mouseDown(coverageSurface, { clientX: 120 });
     fireEvent.mouseMove(coverageSurface, { clientX: 240 });
     fireEvent.mouseUp(coverageSurface, { clientX: 240 });
-    expect(navigateToChromosome).toHaveBeenCalledWith('1', { start: 100, end: 200 });
+    expect(navigateToChromosome).toHaveBeenCalledWith('1', {
+      start: 100,
+      end: 200,
+    });
 
     fireEvent.click(screen.getByText('Ideogram 1'), { shiftKey: true });
-    expect(navigateToChromosome).toHaveBeenCalledWith('1', { start: 120, end: 180 });
+    expect(navigateToChromosome).toHaveBeenCalledWith('1', {
+      start: 120,
+      end: 180,
+    });
 
     fireEvent.click(screen.getByText('1'));
     expect(navigateToChromosome).toHaveBeenCalledWith('1');

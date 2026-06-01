@@ -4,16 +4,9 @@
   --workspace-max-width: 120rem;
   --layout-gutter: 1.25rem;
   --layout-gutter-mobile: 0.95rem;
-  --font-sans: "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
-  --font-display: "Avenir Next", "Helvetica Neue", "Segoe UI", sans-serif;
-  --font-mono:
-    "SFMono-Regular",
-    "SF Mono",
-    "Menlo",
-    "Monaco",
-    "Consolas",
-    "Liberation Mono",
-    monospace;
+  --font-sans: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --font-display: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  --font-mono: 'SFMono-Regular', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', monospace;
 
   --color-bg: #f4f6f8;
   --color-bg-soft: #edf1f4;
@@ -52,8 +45,11 @@
   --color-haplotype-father-light: #d7e0e9;
   --color-haplotype-mother-dark: #44625e;
   --color-haplotype-mother-light: #d4dedc;
-  --color-haplotype-dominant: #b85b63;
-  --color-haplotype-recessive: #cf7a82;
+  --color-haplotype-dominant: #8f1d1d;
+  --color-haplotype-recessive: #d94a68;
+  --color-haplotype-recessive-maternal: var(--color-haplotype-recessive);
+  --color-haplotype-recessive-paternal: #d65f2e;
+  --color-haplotype-x-linked: #9f1d20;
   --color-haplotype-unknown: #9ca3af;
   --color-haplotype-deleted-fill: rgba(198, 31, 45, 0.08);
   --color-haplotype-deleted-stroke: rgba(157, 22, 35, 0.65);
@@ -131,7 +127,10 @@ p {
 a {
   color: var(--color-primary);
   text-decoration: none;
-  transition: color 180ms ease, opacity 180ms ease, border-color 180ms ease;
+  transition:
+    color 180ms ease,
+    opacity 180ms ease,
+    border-color 180ms ease;
 }
 
 a:hover {
@@ -271,7 +270,10 @@ button:disabled,
   letter-spacing: normal;
   color: var(--color-primary);
   text-decoration: none;
-  transition: color 180ms ease, opacity 180ms ease, border-color 180ms ease;
+  transition:
+    color 180ms ease,
+    opacity 180ms ease,
+    border-color 180ms ease;
 }
 
 .button-link:hover {
@@ -1129,8 +1131,7 @@ tbody tr:hover {
   position: relative;
   overflow: hidden;
   border-color: rgba(10, 11, 12, 0.08);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 252, 0.98));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 252, 0.98));
   box-shadow: 0 18px 40px rgba(10, 12, 14, 0.035);
 }
 
@@ -1522,9 +1523,7 @@ tbody tr:hover {
 
 .surface-card.hero-grid {
   border-color: rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(140deg, rgba(8, 10, 12, 0.99), rgba(18, 22, 26, 0.97)),
-    #0a0c0e;
+  background: linear-gradient(140deg, rgba(8, 10, 12, 0.99), rgba(18, 22, 26, 0.97)), #0a0c0e;
   color: rgba(255, 255, 255, 0.9);
   box-shadow: 0 24px 48px rgba(8, 10, 12, 0.12);
 }
@@ -1692,9 +1691,7 @@ tbody tr:hover {
 
 .feature-slab-dark {
   border-color: rgba(255, 255, 255, 0.08);
-  background:
-    linear-gradient(180deg, rgba(13, 15, 17, 0.98), rgba(19, 23, 27, 0.96)),
-    #101214;
+  background: linear-gradient(180deg, rgba(13, 15, 17, 0.98), rgba(19, 23, 27, 0.96)), #101214;
   color: rgba(255, 255, 255, 0.9);
 }
 
@@ -2356,8 +2353,7 @@ tbody tr:hover {
   min-height: 100%;
   border-radius: 10px;
   border: 1px solid rgba(159, 34, 57, 0.16);
-  background:
-    linear-gradient(160deg, rgba(252, 247, 248, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+  background: linear-gradient(160deg, rgba(252, 247, 248, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
   box-shadow: none;
   padding: 0.85rem 0.95rem;
   text-align: left;
@@ -2365,8 +2361,7 @@ tbody tr:hover {
 
 .variant-preset-card:hover {
   border-color: rgba(159, 34, 57, 0.28);
-  background:
-    linear-gradient(160deg, rgba(251, 242, 244, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+  background: linear-gradient(160deg, rgba(251, 242, 244, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
   transform: translateY(-1px);
 }
 
@@ -2472,8 +2467,7 @@ tbody tr:hover {
   position: relative;
   border: 1px solid rgba(10, 11, 12, 0.07);
   border-radius: 6px;
-  background:
-    linear-gradient(145deg, rgba(249, 251, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+  background: linear-gradient(145deg, rgba(249, 251, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
 }
 
 .variant-filter-dropdown[open] {
@@ -3041,7 +3035,10 @@ tbody tr:hover {
   font-size: 0.56rem;
   font-weight: 600;
   letter-spacing: 0.01em;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
 }
 
 .variant-filter-chip:hover {
@@ -3055,8 +3052,7 @@ tbody tr:hover {
   gap: 0.8rem;
   border: 1px solid rgba(10, 11, 12, 0.07);
   border-radius: 10px;
-  background:
-    linear-gradient(145deg, rgba(247, 250, 253, 0.96) 0%, rgba(255, 255, 255, 1) 100%);
+  background: linear-gradient(145deg, rgba(247, 250, 253, 0.96) 0%, rgba(255, 255, 255, 1) 100%);
   padding: 0.95rem 1rem;
 }
 
@@ -3427,20 +3423,17 @@ tbody tr:hover {
   gap: 0.8rem;
   border: 1px solid rgba(10, 11, 12, 0.09);
   border-radius: 6px;
-  background:
-    linear-gradient(180deg, rgba(252, 252, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
+  background: linear-gradient(180deg, rgba(252, 252, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
   padding: 0.85rem 0.95rem 0.9rem;
   box-shadow: 0 10px 20px rgba(10, 12, 14, 0.025);
 }
 
 .variant-card--clinvar-pathogenic {
-  background:
-    linear-gradient(180deg, rgba(253, 244, 245, 0.98) 0%, rgba(255, 250, 250, 1) 100%);
+  background: linear-gradient(180deg, rgba(253, 244, 245, 0.98) 0%, rgba(255, 250, 250, 1) 100%);
 }
 
 .variant-card--clinvar-benign {
-  background:
-    linear-gradient(180deg, rgba(244, 252, 247, 0.98) 0%, rgba(250, 255, 251, 1) 100%);
+  background: linear-gradient(180deg, rgba(244, 252, 247, 0.98) 0%, rgba(250, 255, 251, 1) 100%);
 }
 
 .variant-card--excluded {
@@ -3657,7 +3650,7 @@ tbody tr:hover {
 }
 
 .variant-card-link-row::before {
-  content: "Resources";
+  content: 'Resources';
   margin-right: 0.35rem;
   font-size: 0.68rem;
   font-weight: 700;
@@ -3771,8 +3764,7 @@ tbody tr:hover {
   gap: 0.42rem;
   border: 1px solid rgba(159, 34, 57, 0.1);
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(252, 247, 248, 0.94) 0%, rgba(255, 255, 255, 1) 100%);
+  background: linear-gradient(180deg, rgba(252, 247, 248, 0.94) 0%, rgba(255, 255, 255, 1) 100%);
   padding: 0.5rem 0.58rem;
 }
 
@@ -3833,8 +3825,7 @@ tbody tr:hover {
   gap: 0.42rem;
   border: 1px solid rgba(82, 111, 161, 0.14);
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(242, 247, 253, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  background: linear-gradient(180deg, rgba(242, 247, 253, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
   padding: 0.56rem 0.64rem;
 }
 
@@ -4493,8 +4484,7 @@ tbody tr:hover {
   overflow: hidden;
   min-width: 0;
   border-color: rgba(10, 11, 12, 0.07);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.98));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(248, 250, 252, 0.98));
 }
 
 .gene-explorer-card::before {
@@ -4566,8 +4556,7 @@ tbody tr:hover {
   position: relative;
   min-width: 0;
   padding-top: 1rem;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
 }
 
 .gene-profile-sideblock::before {
@@ -4580,20 +4569,17 @@ tbody tr:hover {
 
 .gene-profile-sideblock--clinical {
   --gene-side-accent: rgba(53, 111, 83, 0.92);
-  background:
-    linear-gradient(180deg, rgba(240, 248, 244, 0.96), rgba(250, 252, 251, 0.98));
+  background: linear-gradient(180deg, rgba(240, 248, 244, 0.96), rgba(250, 252, 251, 0.98));
 }
 
 .gene-profile-sideblock--constraint {
   --gene-side-accent: rgba(82, 111, 161, 0.92);
-  background:
-    linear-gradient(180deg, rgba(241, 246, 252, 0.96), rgba(250, 252, 255, 0.98));
+  background: linear-gradient(180deg, rgba(241, 246, 252, 0.96), rgba(250, 252, 255, 0.98));
 }
 
 .gene-profile-sideblock--family {
   --gene-side-accent: rgba(157, 111, 28, 0.9);
-  background:
-    linear-gradient(180deg, rgba(252, 248, 239, 0.96), rgba(255, 252, 247, 0.98));
+  background: linear-gradient(180deg, rgba(252, 248, 239, 0.96), rgba(255, 252, 247, 0.98));
 }
 
 .gene-explorer-block-kicker {
@@ -4738,9 +4724,7 @@ tbody tr:hover {
   gap: 0.75rem;
   min-width: min(100%, 24rem);
   border-color: rgba(176, 31, 49, 0.12);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 242, 243, 0.98)),
-    rgba(246, 249, 251, 0.94);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 242, 243, 0.98)), rgba(246, 249, 251, 0.94);
 }
 
 .gene-explorer-admin-actions {
@@ -4827,8 +4811,7 @@ tbody tr:hover {
   align-content: start;
   border: 1px solid rgba(10, 11, 12, 0.08);
   border-radius: 4px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 252, 0.96));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 252, 0.96));
   padding: 1rem;
   min-height: 7rem;
   min-width: 0;
@@ -5283,27 +5266,19 @@ button.table-link:hover {
 }
 
 .family-repeat-table tbody tr.family-repeat-table-row--intermediate {
-  background:
-    linear-gradient(90deg, rgba(217, 119, 6, 0.08), transparent 4.5rem),
-    rgba(247, 249, 252, 0.82);
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.08), transparent 4.5rem), rgba(247, 249, 252, 0.82);
 }
 
 .family-repeat-table tbody tr.family-repeat-table-row--pathogenic {
-  background:
-    linear-gradient(90deg, rgba(180, 35, 24, 0.1), transparent 4.5rem),
-    rgba(247, 249, 252, 0.9);
+  background: linear-gradient(90deg, rgba(180, 35, 24, 0.1), transparent 4.5rem), rgba(247, 249, 252, 0.9);
 }
 
 .family-repeat-table tbody tr.family-repeat-table-row--intermediate:hover {
-  background:
-    linear-gradient(90deg, rgba(217, 119, 6, 0.12), transparent 4.5rem),
-    rgba(17, 17, 17, 0.036);
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.12), transparent 4.5rem), rgba(17, 17, 17, 0.036);
 }
 
 .family-repeat-table tbody tr.family-repeat-table-row--pathogenic:hover {
-  background:
-    linear-gradient(90deg, rgba(180, 35, 24, 0.14), transparent 4.5rem),
-    rgba(17, 17, 17, 0.04);
+  background: linear-gradient(90deg, rgba(180, 35, 24, 0.14), transparent 4.5rem), rgba(17, 17, 17, 0.04);
 }
 
 .family-repeat-table-locus-head {
@@ -5589,9 +5564,7 @@ button.table-link:hover {
 
 .family-paraphase-call--signal {
   border-color: rgba(180, 125, 45, 0.24);
-  background:
-    linear-gradient(90deg, rgba(180, 125, 45, 0.12), transparent 9rem),
-    rgba(255, 252, 245, 0.92);
+  background: linear-gradient(90deg, rgba(180, 125, 45, 0.12), transparent 9rem), rgba(255, 252, 245, 0.92);
 }
 
 .family-paraphase-call-head {
@@ -5847,17 +5820,13 @@ button.table-link:hover {
 
 .family-mtdna-row--pathogenic,
 .family-mtdna-row--likely_pathogenic {
-  background:
-    linear-gradient(90deg, rgba(173, 31, 45, 0.08), transparent 4.6rem),
-    rgba(247, 249, 252, 0.9);
+  background: linear-gradient(90deg, rgba(173, 31, 45, 0.08), transparent 4.6rem), rgba(247, 249, 252, 0.9);
 }
 
 .family-mtdna-row--benign,
 .family-mtdna-row--likely_benign,
 .family-mtdna-row--polymorphism {
-  background:
-    linear-gradient(90deg, rgba(38, 134, 90, 0.07), transparent 4.6rem),
-    rgba(247, 249, 252, 0.88);
+  background: linear-gradient(90deg, rgba(38, 134, 90, 0.07), transparent 4.6rem), rgba(247, 249, 252, 0.88);
 }
 
 .family-mtdna-variant-head {
@@ -5993,17 +5962,13 @@ button.table-link:hover {
 
 .family-mtdna-call--homoplasmic {
   border-color: rgba(24, 73, 92, 0.26);
-  background:
-    linear-gradient(90deg, rgba(24, 73, 92, 0.12), transparent 7rem),
-    rgba(236, 246, 249, 0.94);
+  background: linear-gradient(90deg, rgba(24, 73, 92, 0.12), transparent 7rem), rgba(236, 246, 249, 0.94);
 }
 
 .family-mtdna-call--heteroplasmic,
 .family-mtdna-call--low_level {
   border-color: rgba(180, 125, 45, 0.24);
-  background:
-    linear-gradient(90deg, rgba(180, 125, 45, 0.12), transparent 7rem),
-    rgba(255, 252, 245, 0.94);
+  background: linear-gradient(90deg, rgba(180, 125, 45, 0.12), transparent 7rem), rgba(255, 252, 245, 0.94);
 }
 
 .family-mtdna-call-head,
@@ -6445,8 +6410,7 @@ button.table-link:hover {
   overflow: hidden;
   border: 1px solid var(--color-border-strong);
   border-radius: 4px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 252, 0.98));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 252, 0.98));
 }
 
 .viz-frame-label {
@@ -6502,6 +6466,42 @@ button.table-link:hover {
   letter-spacing: 0.06em;
   color: var(--color-text-muted);
   text-align: right;
+}
+
+.haplotype-legend {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.48rem;
+  flex-wrap: wrap;
+  font-size: 0.62rem;
+  color: var(--color-text-muted);
+}
+
+.haplotype-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  white-space: nowrap;
+}
+
+.haplotype-legend-swatch {
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 2px;
+  border: 1px solid rgba(17, 24, 39, 0.2);
+}
+
+.haplotype-track {
+  border-left: 2px solid transparent;
+}
+
+.haplotype-track--affected_or_at_risk {
+  border-left-color: var(--color-haplotype-dominant);
+}
+
+.haplotype-track--carrier {
+  border-left-color: var(--color-haplotype-recessive-paternal);
 }
 
 .viewer-track-interactive {
@@ -6631,7 +6631,6 @@ button.table-link:hover {
 .igv-shell {
   min-height: 500px;
 }
-
 
 .subtle-link {
   display: inline-flex;
@@ -7230,8 +7229,7 @@ a.button-danger:hover {
 .auth-gallery {
   display: none;
   background:
-    linear-gradient(180deg, rgba(8, 10, 12, 0.78), rgba(8, 10, 12, 0.58)),
-    linear-gradient(150deg, #090b0d, #171c21);
+    linear-gradient(180deg, rgba(8, 10, 12, 0.78), rgba(8, 10, 12, 0.58)), linear-gradient(150deg, #090b0d, #171c21);
   color: rgba(255, 255, 255, 0.9);
 }
 

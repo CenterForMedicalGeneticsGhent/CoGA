@@ -1,14 +1,22 @@
-import React, { useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { cssVar } from "../../lib/colors";
-import { storage } from "../../lib/storage";
-import VizLoadingOverlay from "./VizLoadingOverlay";
+import React, { useEffect, useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { cssVar } from '../../lib/colors';
+import { storage } from '../../lib/storage';
+import {
+  diseaseHaplotypeKindForLane,
+  getHaplotypeLaneSignature,
+  getRenderableHaplotypeLanes,
+  inferDiseaseHaplotypes,
+  interpretSampleHaplotypeRisk,
+  resolveHaplotypeInheritanceModel,
+  type DiseaseHaplotypeKind,
+  type HaplotypeLane,
+  type HaplotypeMemberLike,
+  type HaplotypeRiskRegion,
+} from '../../lib/haplotypeRisk';
+import VizLoadingOverlay from './VizLoadingOverlay';
 
-const DEFAULT_CHROMS = [
-  ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
-  "X",
-  "Y",
-];
+const DEFAULT_CHROMS = [...Array.from({ length: 22 }, (_, i) => String(i + 1)), 'X', 'Y'];
 
 interface Segment {
   chr: string;
@@ -40,44 +48,54 @@ interface Props {
   sampleId: string;
   role: string;
   affected: boolean;
+  sex?: string | null;
   carrierStatus?: boolean | null;
+  carrierType?: string | null;
   highlightRiskHaplotype?: boolean;
   layout: Layout | null;
   width?: number;
   height?: number;
-  disorder?: "dominant" | "recessive";
+  disorder?: 'dominant' | 'recessive';
+  inheritanceModel?: string | null;
+  familyMembers?: HaplotypeMemberLike[];
+  riskRegion?: HaplotypeRiskRegion | null;
   chroms?: string[];
 }
 
-const isDeletedHaplotype = (value: string): boolean => value === ".";
+const isDeletedHaplotype = (value: string): boolean => value === '.';
 
 const GenomeHaplotypeTrack: React.FC<Props> = ({
   urls,
   sampleId,
   role,
   affected,
+  sex,
   carrierStatus = false,
+  carrierType,
   highlightRiskHaplotype,
   layout,
   width = 800,
   height = 40,
-  disorder = "dominant",
+  disorder = 'dominant',
+  inheritanceModel,
+  familyMembers = [],
+  riskRegion,
   chroms = DEFAULT_CHROMS,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const { data: segmentMap = {}, isLoading } = useQuery<Record<string, Segment[]>>({
-    queryKey: ["genome-haplotypes", urls.join(","), chroms.join(",")],
+    queryKey: ['genome-haplotypes', urls.join(','), chroms.join(',')],
     queryFn: async () => {
       if (!layout) return {};
       const headers: Record<string, string> = {};
-      const token = storage.getItem("token");
+      const token = storage.getItem('token');
       if (token) headers.Authorization = `Bearer ${token}`;
       const responses = await Promise.all(
         urls.map((u) =>
           fetch(u, { headers })
             .then((res) => (res.ok ? (res.json() as Promise<HaplotypeSourceResponse>) : null))
-            .catch(() => null)
-        )
+            .catch(() => null),
+        ),
       );
       const map: Record<string, Segment[]> = {};
       responses.forEach((j, idx) => {
@@ -85,7 +103,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
         (j.samples || []).forEach((s: HaplotypeSourceSample) => {
           const arr = map[s.sample] || [];
           (s.segments || []).forEach((seg) => {
-            const chrom = ("chr" in seg && seg.chr ? seg.chr : undefined) || chroms[idx];
+            const chrom = ('chr' in seg && seg.chr ? seg.chr : undefined) || chroms[idx];
             if (!chrom) return;
             arr.push({ ...seg, chr: chrom });
           });
@@ -100,40 +118,86 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   });
 
   const segments = segmentMap[sampleId] || [];
+  const effectiveInheritanceModel = inheritanceModel || (disorder === 'recessive' ? 'AR' : 'AD');
+  const currentMember: HaplotypeMemberLike = useMemo(
+    () => ({
+      sample_id: sampleId,
+      role,
+      affected,
+      sex,
+      carrier_status: carrierStatus ? 'carrier' : 'unknown',
+      carrier_type: carrierType,
+    }),
+    [affected, carrierStatus, carrierType, role, sampleId, sex],
+  );
+  const membersForRisk = familyMembers.length > 0 ? familyMembers : [currentMember];
+  const analysisRegion =
+    riskRegion ||
+    (layout
+      ? {
+          chr: chroms[0],
+          start: 0,
+          end: layout.lengths[chroms[0]] || 1,
+        }
+      : { chr: chroms[0], start: 0, end: 1 });
+  const riskEnabled =
+    highlightRiskHaplotype ?? membersForRisk.some((member) => member.affected || member.carrier_status === 'carrier');
+  const diseaseModel = useMemo(() => {
+    const samples = Object.entries(segmentMap).map(([sample, sampleSegments]) => ({
+      sample,
+      segments: sampleSegments,
+    }));
+    return riskEnabled
+      ? inferDiseaseHaplotypes({
+          samples,
+          members: membersForRisk,
+          inheritanceModel: resolveHaplotypeInheritanceModel(effectiveInheritanceModel, membersForRisk),
+          region: analysisRegion,
+        })
+      : inferDiseaseHaplotypes({
+          samples: [],
+          members: [],
+          inheritanceModel: effectiveInheritanceModel,
+          region: analysisRegion,
+        });
+  }, [analysisRegion, effectiveInheritanceModel, membersForRisk, riskEnabled, segmentMap]);
 
   useEffect(() => {
     if (isLoading) return;
     if (!layout || !canvasRef.current) return;
-    const ctx = canvasRef.current.getContext("2d");
+    const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
     canvasRef.current.width = width;
     canvasRef.current.height = height;
     ctx.clearRect(0, 0, width, height);
 
-    const fatherColors = [
-      cssVar("--color-haplotype-father-dark"),
-      cssVar("--color-haplotype-father-light"),
-    ];
-    const motherColors = [
-      cssVar("--color-haplotype-mother-dark"),
-      cssVar("--color-haplotype-mother-light"),
-    ];
-    const affectedColors: Record<string, string> = {
-      dominant: cssVar("--color-haplotype-dominant"),
-      recessive: cssVar("--color-haplotype-recessive"),
+    const fatherColors = [cssVar('--color-haplotype-father-dark'), cssVar('--color-haplotype-father-light')];
+    const motherColors = [cssVar('--color-haplotype-mother-dark'), cssVar('--color-haplotype-mother-light')];
+    const riskColors: Record<DiseaseHaplotypeKind, string> = {
+      dominant: cssVar('--color-haplotype-dominant'),
+      'recessive-maternal': cssVar('--color-haplotype-recessive-maternal'),
+      'recessive-paternal': cssVar('--color-haplotype-recessive-paternal'),
+      'x-linked': cssVar('--color-haplotype-x-linked'),
     };
-    const unknownColor = cssVar("--color-haplotype-unknown");
-    const deletedFill = cssVar("--color-haplotype-deleted-fill");
-    const deletedStroke = cssVar("--color-haplotype-deleted-stroke");
+    const unknownColor = cssVar('--color-haplotype-unknown');
+    const deletedFill = cssVar('--color-haplotype-deleted-fill');
+    const deletedStroke = cssVar('--color-haplotype-deleted-stroke');
 
     const half = height / 2;
-    const affectedColor = affectedColors[disorder];
-    const shouldHighlightRiskHaplotype =
-      highlightRiskHaplotype ?? (affected || Boolean(carrierStatus));
 
     const recombXs: number[] = [];
     const prevByChr: Record<string, Segment> = {};
+
+    const baseColorForLane = (seg: Segment, lane: HaplotypeLane): string => {
+      const value = seg[lane];
+      if (isDeletedHaplotype(value)) return deletedFill;
+      const parsed = parseInt(value, 10);
+      const signature = getHaplotypeLaneSignature(currentMember, seg, lane, seg.chr);
+      if (!signature) return unknownColor;
+      const palette = signature.origin === 'paternal' ? fatherColors : motherColors;
+      return isNaN(parsed) ? unknownColor : palette[parsed] || unknownColor;
+    };
 
     segments.forEach((seg) => {
       const chr = seg.chr;
@@ -142,60 +206,31 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       const x1 = ((offset + seg.start) / layout.total) * width;
       const x2 = ((offset + seg.end) / layout.total) * width;
       const w = Math.max(x2 - x1, 1);
-      let c1: string;
-      let c2: string;
-      const h1 = parseInt(seg.hap1, 10);
-      const h2 = parseInt(seg.hap2, 10);
-      if (isDeletedHaplotype(seg.hap1)) {
-        c1 = deletedFill;
-      } else if (role === "father") {
-        c1 = isNaN(h1) ? unknownColor : fatherColors[h1] || unknownColor;
-      } else if (role === "mother") {
-        c1 = isNaN(h1) ? unknownColor : motherColors[h1] || unknownColor;
-      } else {
-        c1 = isNaN(h1) ? unknownColor : fatherColors[h1] || unknownColor;
-      }
-      if (isDeletedHaplotype(seg.hap2)) {
-        c2 = deletedFill;
-      } else if (role === "father") {
-        c2 = isNaN(h2) ? unknownColor : fatherColors[h2] || unknownColor;
-      } else if (role === "mother") {
-        c2 = isNaN(h2) ? unknownColor : motherColors[h2] || unknownColor;
-      } else {
-        c2 = isNaN(h2) ? unknownColor : motherColors[h2] || unknownColor;
-      }
-      if (shouldHighlightRiskHaplotype) {
-        if (seg.hap1 === "1") c1 = affectedColor;
-        if (seg.hap2 === "1") c2 = affectedColor;
-      }
       const prev = prevByChr[chr];
       if (prev && (seg.ps !== prev.ps || seg.hap1 !== prev.hap1 || seg.hap2 !== prev.hap2)) {
         recombXs.push(x1);
       }
       prevByChr[chr] = seg;
-      ctx.fillStyle = c1;
-      ctx.fillRect(x1, 0, w, half - 1);
-      if (isDeletedHaplotype(seg.hap1)) {
-        ctx.strokeStyle = deletedStroke;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x1 + 0.75, 1);
-        ctx.lineTo(x2 - 0.75, half - 2);
-        ctx.stroke();
-      }
-      ctx.fillStyle = c2;
-      ctx.fillRect(x1, half + 1, w, half - 1);
-      if (isDeletedHaplotype(seg.hap2)) {
-        ctx.strokeStyle = deletedStroke;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x1 + 0.75, half + 2);
-        ctx.lineTo(x2 - 0.75, height - 1);
-        ctx.stroke();
-      }
+      const lanes = getRenderableHaplotypeLanes(currentMember, seg, chr);
+      lanes.forEach((lane) => {
+        const riskKind = diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chr);
+        const isSingleLane = lanes.length === 1;
+        const y = isSingleLane ? 0 : lane === 'hap1' ? 0 : half + 1;
+        const rectHeight = isSingleLane ? height : half - 1;
+        ctx.fillStyle = riskKind ? riskColors[riskKind] : baseColorForLane(seg, lane);
+        ctx.fillRect(x1, y, w, rectHeight);
+        if (isDeletedHaplotype(seg[lane])) {
+          ctx.strokeStyle = deletedStroke;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(x1 + 0.75, y + 1);
+          ctx.lineTo(x2 - 0.75, y + rectHeight - 1);
+          ctx.stroke();
+        }
+      });
     });
 
-    ctx.strokeStyle = cssVar("--color-axis");
+    ctx.strokeStyle = cssVar('--color-axis');
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 2]);
     recombXs.forEach((x) => {
@@ -209,23 +244,38 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     segments,
     role,
     affected,
+    sex,
     carrierStatus,
-    highlightRiskHaplotype,
     layout,
     width,
     height,
-    disorder,
+    currentMember,
+    diseaseModel,
     chroms,
     isLoading,
   ]);
+  const riskState =
+    segments.length > 0
+      ? interpretSampleHaplotypeRisk({
+          model: diseaseModel,
+          samples: Object.entries(segmentMap).map(([sample, sampleSegments]) => ({
+            sample,
+            segments: sampleSegments,
+          })),
+          member: currentMember,
+          region: analysisRegion,
+        })
+      : 'uninformative';
 
   return (
-    <div className="relative" style={{ width, height }}>
-      <canvas ref={canvasRef} />
+    <div
+      className={`relative haplotype-track haplotype-track--${riskState}`}
+      data-risk-state={riskState}
+      style={{ width, height }}
+    >
+      <canvas ref={canvasRef} aria-label={`Haplotype risk state: ${riskState}`} />
       {isLoading && <VizLoadingOverlay message="Loading haplotypes" />}
-      {!isLoading && layout && segments.length === 0 && (
-        <div className="viz-empty-overlay">No haplotype data</div>
-      )}
+      {!isLoading && layout && segments.length === 0 && <div className="viz-empty-overlay">No haplotype data</div>}
     </div>
   );
 };

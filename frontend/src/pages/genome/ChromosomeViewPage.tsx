@@ -25,22 +25,14 @@ import ChromosomeViewSidebar, {
   type ChromosomeTrackVisibility,
 } from './ChromosomeViewSidebar';
 import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
-import {
-  DEFAULT_TRACK_WIDTH,
-  TRACK_WIDTH_PADDING,
-  formatChromosomeLabel,
-  normalizeChrom,
-} from './viewerShared';
+import { DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, formatChromosomeLabel, normalizeChrom } from './viewerShared';
 
 interface ChromInfo {
   chr: string;
   size: number;
 }
 
-const getRoiViewWindow = (
-  roi: ApiFamilyRegionOfInterest,
-  chromSize?: number,
-): { start: number; end: number } => {
+const getRoiViewWindow = (roi: ApiFamilyRegionOfInterest, chromSize?: number): { start: number; end: number } => {
   const span = Math.max(roi.end - roi.start, 1);
   const padding = Math.max(Math.round(span * 0.1), 5_000);
   const start = Math.max(0, roi.start - padding);
@@ -49,11 +41,7 @@ const getRoiViewWindow = (
   return { start, end: Math.max(end, start + 1) };
 };
 
-const clampRegionWindow = (
-  start: number,
-  end: number,
-  chromSize: number,
-): { start: number; end: number } => {
+const clampRegionWindow = (start: number, end: number, chromSize: number): { start: number; end: number } => {
   if (chromSize <= 1) {
     return { start: 0, end: chromSize };
   }
@@ -89,24 +77,24 @@ const TRACK_LABELS: Record<ChromosomeTrackKey, string> = {
 };
 
 const ChromosomeViewPage: React.FC = () => {
-  const { familyId, chrom: chromParam } = useParams<{ familyId: string; chrom: string }>();
+  const { familyId, chrom: chromParam } = useParams<{
+    familyId: string;
+    chrom: string;
+  }>();
   const navigate = useNavigate();
   const location = useLocation();
 
   const { data, isLoading } = useQuery<
-    Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi'>
+    Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const response = await api.get(`/families/${familyId}`);
-      return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi'>;
+      return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>;
     },
   });
 
-  const orderedMembers = useMemo(
-    () => sortFamilyMembersProbandFirst(data?.members || []),
-    [data?.members],
-  );
+  const orderedMembers = useMemo(() => sortFamilyMembersProbandFirst(data?.members || []), [data?.members]);
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [trackVisibility, setTrackVisibility] = useState<ChromosomeTrackVisibility>({
@@ -118,7 +106,10 @@ const ChromosomeViewPage: React.FC = () => {
     repeatExpansions: true,
   });
   const chrom = normalizeChrom(chromParam || '1');
-  const [region, setRegion] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+  const [region, setRegion] = useState<{ start: number; end: number }>({
+    start: 0,
+    end: 0,
+  });
   const [trackAreaRef, trackAreaWidth] = useMeasuredWidth<HTMLElement>();
 
   const trackWidth = useMemo(() => {
@@ -128,10 +119,7 @@ const ChromosomeViewPage: React.FC = () => {
 
   const win = useMemo(() => getChromosomeWindow(), []);
   const regionSpan = Math.max(region.end - region.start, 1);
-  const showSmallVariantDetails = useMemo(
-    () => shouldShowSmallVariantDetails(regionSpan),
-    [regionSpan],
-  );
+  const showSmallVariantDetails = useMemo(() => shouldShowSmallVariantDetails(regionSpan), [regionSpan]);
   const detailWindow = useMemo(
     () => getAdaptiveTrackWindow(regionSpan, trackWidth, win),
     [regionSpan, trackWidth, win],
@@ -176,10 +164,7 @@ const ChromosomeViewPage: React.FC = () => {
     assemblyId,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
-  } = useFamilyReference(
-    data?.projects as string[] | undefined,
-    projectIdParam,
-  );
+  } = useFamilyReference(data?.projects as string[] | undefined, projectIdParam);
   const resolvedSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.delete('project_id');
@@ -250,9 +235,7 @@ const ChromosomeViewPage: React.FC = () => {
     }
 
     setRegion((current) =>
-      current.start === nextStart && current.end === nextEnd
-        ? current
-        : { start: nextStart, end: nextEnd },
+      current.start === nextStart && current.end === nextEnd ? current : { start: nextStart, end: nextEnd },
     );
   }, [chromInfo, location.search]);
 
@@ -260,8 +243,7 @@ const ChromosomeViewPage: React.FC = () => {
     if (!orderedMembers.length) return;
     const initial: Record<string, boolean> = {};
     orderedMembers.forEach((member) => {
-      initial[member.sample_id] =
-        sampleFilters.length === 0 || sampleFilters.includes(member.sample_id);
+      initial[member.sample_id] = sampleFilters.length === 0 || sampleFilters.includes(member.sample_id);
     });
     setSelected(initial);
   }, [orderedMembers, sampleFilters]);
@@ -271,8 +253,7 @@ const ChromosomeViewPage: React.FC = () => {
       chrom,
       start: String(region.start),
       end: String(region.end),
-      include_small_variants:
-        showSmallVariantDetails || hasSmallVariantUserFilters ? 'true' : 'false',
+      include_small_variants: showSmallVariantDetails || hasSmallVariantUserFilters ? 'true' : 'false',
     });
     if (resolvedProjectId) params.set('project_id', resolvedProjectId);
     Object.entries(variantFilters).forEach(([key, value]) => params.append(key, value));
@@ -312,8 +293,7 @@ const ChromosomeViewPage: React.FC = () => {
             apcad: entry.apcad,
             apcadPcf: !!entry.apcad_pcf,
             variants: entry.variants,
-            smallVariants:
-              entry.small_variants || (!showSmallVariantDetails && !hasSmallVariantUserFilters),
+            smallVariants: entry.small_variants || (!showSmallVariantDetails && !hasSmallVariantUserFilters),
             haplotypes: entry.haplotypes,
             repeatExpansions: entry.repeat_expansions,
           },
@@ -401,6 +381,8 @@ const ChromosomeViewPage: React.FC = () => {
     }
     return data.roi;
   }, [assemblyId, data?.roi]);
+  const inheritanceModel = (data?.metadata?.pgt as { inheritance_model?: string | null } | undefined)
+    ?.inheritance_model;
 
   const chromosomeRoiRange = useMemo(() => {
     if (!visibleRoi || !chromInfo?.size) return null;
@@ -499,10 +481,16 @@ const ChromosomeViewPage: React.FC = () => {
         trackVisibility={trackVisibility}
         trackLabels={TRACK_LABELS}
         onToggleSample={(sampleId) =>
-          setSelected((current) => ({ ...current, [sampleId]: !current[sampleId] }))
+          setSelected((current) => ({
+            ...current,
+            [sampleId]: !current[sampleId],
+          }))
         }
         onToggleTrack={(track) =>
-          setTrackVisibility((current) => ({ ...current, [track]: !current[track] }))
+          setTrackVisibility((current) => ({
+            ...current,
+            [track]: !current[track],
+          }))
         }
       />
       <ChromosomeViewWorkspace
@@ -523,6 +511,7 @@ const ChromosomeViewPage: React.FC = () => {
         igvHref={igvHref}
         chromInfoSize={chromInfo?.size}
         visibleRoi={visibleRoi}
+        inheritanceModel={inheritanceModel}
         chromosomeRoiRange={chromosomeRoiRange}
         regionRoiRange={regionRoiRange}
         onChromChange={(nextChrom) => {
@@ -556,6 +545,7 @@ const ChromosomeViewPage: React.FC = () => {
           setRegion(nextRegion);
           navigateToChromosomeRegion(nextChrom, nextRegion);
         }}
+        familyMembers={orderedMembers}
         visibleMembers={visibleMembers}
         membersWithData={membersWithData}
         availability={availability}

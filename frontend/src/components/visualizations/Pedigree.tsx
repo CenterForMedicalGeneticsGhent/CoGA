@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import * as d3 from "d3";
+import React, { useEffect, useRef } from 'react';
+import * as d3 from 'd3';
 
 interface PedRow {
   fid: string;
@@ -13,15 +13,15 @@ interface PedRow {
 interface PedigreeMember {
   sample_id: string;
   role?: string | null;
-  carrier_status?: "unknown" | "not_carrier" | "carrier" | boolean | null;
-  carrier_type?: "obligate" | "proven" | "reported" | "inferred" | null;
+  carrier_status?: 'unknown' | 'not_carrier' | 'carrier' | boolean | null;
+  carrier_type?: 'obligate' | 'proven' | 'reported' | 'inferred' | null;
   clinical_status?: string | null;
   sex?: string | null;
   affected?: boolean | null;
 }
 
 interface PedigreeRelationship {
-  relationship_type: "parent_child" | "couple";
+  relationship_type: 'parent_child' | 'couple';
   sample_id_a: string;
   sample_id_b: string;
   role_a?: string | null;
@@ -48,45 +48,877 @@ type FamilyUnit = {
   children: string[];
 };
 
-const NODE_SIZE = 20;
-const GEN_VERTICAL_GAP = 100;
-const ROOT_HORIZONTAL_GAP = 56;
-const PERSON_HORIZONTAL_GAP = 32;
-const CHILD_HORIZONTAL_GAP = 32;
-const COUPLE_GAP = 50;
-const SIBLING_LINE_OFFSET = 20;
+type CoupleEdge = {
+  left: string;
+  right: string;
+  source: 'children' | 'explicit';
+  metadata?: Record<string, unknown> | null;
+};
 
-const isAffectedPhenotype = (phenotype: string): boolean => phenotype === "2";
+type Position = {
+  x: number;
+  y: number;
+  generation: number;
+};
+
+type LayoutBlock = {
+  key: string;
+  generation: number;
+  members: string[];
+  orderedMembers: string[];
+  width: number;
+  initialOrder: number;
+};
+
+type NormalizedPedigree = {
+  rows: PedRow[];
+  rowMap: Map<string, PedRow>;
+  rowOrder: Map<string, number>;
+  memberMap: Map<string, PedigreeMember>;
+  parentInfoByChild: Map<string, ParentInfo>;
+  childrenByParent: Map<string, string[]>;
+  familyUnits: FamilyUnit[];
+  coupleEdges: CoupleEdge[];
+};
+
+type LayoutResult = {
+  rows: PedRow[];
+  memberMap: Map<string, PedigreeMember>;
+  familyUnits: FamilyUnit[];
+  coupleEdges: CoupleEdge[];
+  positions: Map<string, Position>;
+  generationMembers: string[][];
+  generationCount: number;
+  width: number;
+  height: number;
+};
+
+const NODE_SIZE = 20;
+const GEN_VERTICAL_GAP = 110;
+const SVG_PADDING_X = 60;
+const SVG_PADDING_TOP = 50;
+const SVG_PADDING_BOTTOM = 44;
+const CHILD_HORIZONTAL_GAP = 44;
+const COUPLE_GAP = 54;
+const BLOCK_HORIZONTAL_GAP = 42;
+const SIBLING_LINE_OFFSET = 24;
+
+const isAffectedPhenotype = (phenotype: string): boolean => phenotype === '2';
+
+const trimId = (sampleId?: string | null): string => (sampleId || '').trim();
+
+const average = (values: number[]): number | undefined => {
+  if (!values.length) return undefined;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+};
+
+const isFiniteNumber = (value: number | undefined): value is number =>
+  value !== undefined && Number.isFinite(value);
 
 const sexCodeFromMember = (member?: PedigreeMember): string => {
-  if (member?.sex === "male") return "1";
-  if (member?.sex === "female") return "2";
-  return "0";
+  if (member?.sex === 'male' || member?.sex === '1') return '1';
+  if (member?.sex === 'female' || member?.sex === '2') return '2';
+  return '0';
 };
 
 const phenotypeFromMember = (member?: PedigreeMember): string => {
-  if (member?.clinical_status === "affected" || member?.affected) return "2";
-  if (member?.clinical_status === "unaffected") return "1";
-  return "0";
+  if (member?.clinical_status === 'affected' || member?.affected) return '2';
+  if (member?.clinical_status === 'unaffected') return '1';
+  return '0';
 };
 
-const familyKey = (parents: string[]): string => [...parents].sort().join("|");
+const sexHintFromParentRole = (role?: string | null): string | undefined => {
+  const normalizedRole = (role || '').trim().toLowerCase();
+  if (normalizedRole === 'father') return '1';
+  if (normalizedRole === 'mother') return '2';
+  return undefined;
+};
+
+const familyKey = (parents: string[]): string => [...parents].sort().join('|');
+
+const pairKey = (left: string, right: string): string =>
+  [left, right].sort().join('|');
 
 const addUnique = (values: string[], value?: string | null) => {
-  const cleaned = (value || "").trim();
-  if (cleaned && cleaned !== "0" && !values.includes(cleaned)) {
+  const cleaned = trimId(value);
+  if (cleaned && cleaned !== '0' && !values.includes(cleaned)) {
     values.push(cleaned);
   }
 };
 
-const isCarrierStatus = (status: PedigreeMember["carrier_status"]): boolean =>
-  status === true || status === "carrier";
+const isCarrierStatus = (status: PedigreeMember['carrier_status']): boolean =>
+  status === true || status === 'carrier';
 
-const carrierFillFor = (carrierType?: PedigreeMember["carrier_type"]): string => {
-  if (carrierType === "obligate") return "#2563eb";
-  if (carrierType === "reported") return "#7c3aed";
-  if (carrierType === "inferred") return "#0f766e";
-  return "black";
+const carrierFillFor = (
+  carrierType?: PedigreeMember['carrier_type']
+): string => {
+  if (carrierType === 'obligate') return '#2563eb';
+  if (carrierType === 'reported') return '#7c3aed';
+  if (carrierType === 'inferred') return '#0f766e';
+  return 'black';
+};
+
+const normalizedSexFor = (row: PedRow, member?: PedigreeMember): string => {
+  if (row.sex && row.sex !== '0') return row.sex;
+  return sexCodeFromMember(member);
+};
+
+const sampleOrder = (sampleId: string, rowOrder: Map<string, number>): number =>
+  rowOrder.get(sampleId) ?? Number.MAX_SAFE_INTEGER;
+
+const normalizePedigree = (
+  rows: PedRow[],
+  members: PedigreeMember[],
+  relationships: PedigreeRelationship[]
+): NormalizedPedigree => {
+  const memberMap = new Map(
+    members.map((member) => [member.sample_id, member])
+  );
+  const normalizedRows: PedRow[] = [];
+  const rowMap = new Map<string, PedRow>();
+  const rowOrder = new Map<string, number>();
+  const fallbackFamilyId = rows[0]?.fid || 'FAM';
+
+  const addRow = (sampleId: string, sexHint?: string): PedRow | undefined => {
+    const iid = trimId(sampleId);
+    if (!iid || iid === '0') return undefined;
+    const existing = rowMap.get(iid);
+    if (existing) {
+      if ((!existing.sex || existing.sex === '0') && sexHint) {
+        existing.sex = sexHint;
+      }
+      return existing;
+    }
+
+    const member = memberMap.get(iid);
+    const row: PedRow = {
+      fid: fallbackFamilyId,
+      iid,
+      pid: '0',
+      mid: '0',
+      sex: sexHint || sexCodeFromMember(member),
+      phen: phenotypeFromMember(member),
+    };
+    rowMap.set(iid, row);
+    rowOrder.set(iid, rowOrder.size);
+    normalizedRows.push(row);
+    return row;
+  };
+
+  rows.forEach((row) => {
+    const iid = trimId(row.iid);
+    if (!iid || rowMap.has(iid)) return;
+    const member = memberMap.get(iid);
+    const normalizedRow: PedRow = {
+      fid: row.fid || fallbackFamilyId,
+      iid,
+      pid: trimId(row.pid) || '0',
+      mid: trimId(row.mid) || '0',
+      sex: row.sex && row.sex !== '0' ? row.sex : sexCodeFromMember(member),
+      phen: row.phen || phenotypeFromMember(member),
+    };
+    rowMap.set(iid, normalizedRow);
+    rowOrder.set(iid, rowOrder.size);
+    normalizedRows.push(normalizedRow);
+  });
+
+  members.forEach((member) => addRow(member.sample_id));
+
+  [...normalizedRows].forEach((row) => {
+    addRow(row.pid, '1');
+    addRow(row.mid, '2');
+  });
+
+  relationships.forEach((relationship) => {
+    if (relationship.relationship_type === 'parent_child') {
+      addRow(
+        relationship.sample_id_a,
+        sexHintFromParentRole(relationship.role_a)
+      );
+      addRow(relationship.sample_id_b);
+    } else if (relationship.relationship_type === 'couple') {
+      addRow(relationship.sample_id_a);
+      addRow(relationship.sample_id_b);
+    }
+  });
+
+  const parentInfoByChild = new Map<string, ParentInfo>();
+  const ensureParentInfo = (childId: string): ParentInfo => {
+    const existing = parentInfoByChild.get(childId);
+    if (existing) return existing;
+    const created: ParentInfo = { others: [] };
+    parentInfoByChild.set(childId, created);
+    return created;
+  };
+
+  normalizedRows.forEach((row) => {
+    const info = ensureParentInfo(row.iid);
+    if (row.pid && row.pid !== '0') info.father = row.pid;
+    if (row.mid && row.mid !== '0') info.mother = row.mid;
+  });
+
+  relationships.forEach((relationship) => {
+    if (relationship.relationship_type !== 'parent_child') return;
+    const parentId = trimId(relationship.sample_id_a);
+    const childId = trimId(relationship.sample_id_b);
+    if (!parentId || !childId || parentId === childId) return;
+    const info = ensureParentInfo(childId);
+    const role = (relationship.role_a || '').toLowerCase();
+    if (role === 'father') {
+      info.father = parentId;
+    } else if (role === 'mother') {
+      info.mother = parentId;
+    } else {
+      addUnique(info.others, parentId);
+    }
+  });
+
+  const parentIdsFor = (childId: string): string[] => {
+    const info = parentInfoByChild.get(childId);
+    if (!info) return [];
+    const parents: string[] = [];
+    addUnique(parents, info.father);
+    addUnique(parents, info.mother);
+    info.others.forEach((parentId) => addUnique(parents, parentId));
+    return parents;
+  };
+
+  const childrenByParent = new Map<string, string[]>();
+  parentInfoByChild.forEach((_info, childId) => {
+    parentIdsFor(childId).forEach((parentId) => {
+      const children = childrenByParent.get(parentId) || [];
+      addUnique(children, childId);
+      childrenByParent.set(parentId, children);
+    });
+  });
+
+  const familyUnitsByKey = new Map<string, FamilyUnit>();
+  parentInfoByChild.forEach((_info, childId) => {
+    const parents = parentIdsFor(childId);
+    if (!parents.length) return;
+    const key = familyKey(parents);
+    if (!familyUnitsByKey.has(key)) {
+      familyUnitsByKey.set(key, { key, parents, children: [] });
+    }
+    addUnique(familyUnitsByKey.get(key)!.children, childId);
+  });
+
+  const coupleEdgesByKey = new Map<string, CoupleEdge>();
+  const addCoupleEdge = (
+    left: string,
+    right: string,
+    source: CoupleEdge['source'],
+    metadata?: Record<string, unknown> | null
+  ) => {
+    const leftId = trimId(left);
+    const rightId = trimId(right);
+    if (!leftId || !rightId || leftId === rightId) return;
+    const key = pairKey(leftId, rightId);
+    const existing = coupleEdgesByKey.get(key);
+    if (
+      !existing ||
+      (existing.source === 'children' && source === 'explicit')
+    ) {
+      coupleEdgesByKey.set(key, {
+        left: leftId,
+        right: rightId,
+        source,
+        metadata,
+      });
+    }
+  };
+
+  familyUnitsByKey.forEach((unit) => {
+    for (let i = 0; i < unit.parents.length; i += 1) {
+      for (let j = i + 1; j < unit.parents.length; j += 1) {
+        addCoupleEdge(unit.parents[i], unit.parents[j], 'children');
+      }
+    }
+    unit.children.sort(
+      (left, right) =>
+        sampleOrder(left, rowOrder) - sampleOrder(right, rowOrder)
+    );
+  });
+
+  relationships.forEach((relationship) => {
+    if (relationship.relationship_type !== 'couple') return;
+    const parents: string[] = [];
+    addUnique(parents, relationship.sample_id_a);
+    addUnique(parents, relationship.sample_id_b);
+    if (parents.length !== 2) return;
+    const key = familyKey(parents);
+    if (!familyUnitsByKey.has(key)) {
+      familyUnitsByKey.set(key, { key, parents, children: [] });
+    }
+    addCoupleEdge(parents[0], parents[1], 'explicit', relationship.metadata);
+  });
+
+  const familyUnits = [...familyUnitsByKey.values()].sort((left, right) => {
+    const leftOrder = Math.min(
+      ...left.parents.map((parentId) => sampleOrder(parentId, rowOrder))
+    );
+    const rightOrder = Math.min(
+      ...right.parents.map((parentId) => sampleOrder(parentId, rowOrder))
+    );
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    return left.key.localeCompare(right.key);
+  });
+
+  return {
+    rows: normalizedRows,
+    rowMap,
+    rowOrder,
+    memberMap,
+    parentInfoByChild,
+    childrenByParent,
+    familyUnits,
+    coupleEdges: [...coupleEdgesByKey.values()],
+  };
+};
+
+const parentIdsFromInfo = (info?: ParentInfo): string[] => {
+  if (!info) return [];
+  const parents: string[] = [];
+  addUnique(parents, info.father);
+  addUnique(parents, info.mother);
+  info.others.forEach((parentId) => addUnique(parents, parentId));
+  return parents;
+};
+
+const assignGenerations = (
+  normalized: NormalizedPedigree
+): Map<string, number> => {
+  const generationCache = new Map<string, number>();
+  const visiting = new Set<string>();
+
+  const getInitialGeneration = (sampleId: string): number => {
+    if (generationCache.has(sampleId)) return generationCache.get(sampleId)!;
+    if (visiting.has(sampleId)) return 0;
+    visiting.add(sampleId);
+    const parents = parentIdsFromInfo(
+      normalized.parentInfoByChild.get(sampleId)
+    );
+    const generation = parents.length
+      ? Math.max(
+          ...parents.map((parentId) => getInitialGeneration(parentId) + 1)
+        )
+      : 0;
+    visiting.delete(sampleId);
+    generationCache.set(sampleId, generation);
+    return generation;
+  };
+
+  normalized.rows.forEach((row) => getInitialGeneration(row.iid));
+
+  const isAncestor = (ancestorId: string, targetId: string): boolean => {
+    const stack = [...(normalized.childrenByParent.get(ancestorId) || [])];
+    const seen = new Set<string>();
+    while (stack.length) {
+      const current = stack.pop()!;
+      if (current === targetId) return true;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      stack.push(...(normalized.childrenByParent.get(current) || []));
+    }
+    return false;
+  };
+
+  const maxIterations = normalized.rows.length * 4 + 4;
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    let changed = false;
+
+    normalized.coupleEdges.forEach((edge) => {
+      if (
+        isAncestor(edge.left, edge.right) ||
+        isAncestor(edge.right, edge.left)
+      )
+        return;
+      const leftGeneration = generationCache.get(edge.left) ?? 0;
+      const rightGeneration = generationCache.get(edge.right) ?? 0;
+      const alignedGeneration = Math.max(leftGeneration, rightGeneration);
+      if (leftGeneration !== alignedGeneration) {
+        generationCache.set(edge.left, alignedGeneration);
+        changed = true;
+      }
+      if (rightGeneration !== alignedGeneration) {
+        generationCache.set(edge.right, alignedGeneration);
+        changed = true;
+      }
+    });
+
+    normalized.parentInfoByChild.forEach((_info, childId) => {
+      const parents = parentIdsFromInfo(
+        normalized.parentInfoByChild.get(childId)
+      );
+      if (!parents.length) return;
+      const childGeneration = generationCache.get(childId) ?? 0;
+      const requiredGeneration =
+        Math.max(
+          ...parents.map((parentId) => generationCache.get(parentId) ?? 0)
+        ) + 1;
+      if (childGeneration < requiredGeneration) {
+        generationCache.set(childId, requiredGeneration);
+        changed = true;
+      }
+    });
+
+    if (!changed) break;
+  }
+
+  normalized.rows.forEach((row) => {
+    if (!generationCache.has(row.iid)) {
+      generationCache.set(row.iid, 0);
+    }
+  });
+
+  return generationCache;
+};
+
+class DisjointSet {
+  private parents = new Map<string, string>();
+
+  constructor(values: string[]) {
+    values.forEach((value) => this.parents.set(value, value));
+  }
+
+  find(value: string): string {
+    const parent = this.parents.get(value);
+    if (!parent || parent === value) return value;
+    const root = this.find(parent);
+    this.parents.set(value, root);
+    return root;
+  }
+
+  union(left: string, right: string) {
+    const leftRoot = this.find(left);
+    const rightRoot = this.find(right);
+    if (leftRoot !== rightRoot) {
+      this.parents.set(rightRoot, leftRoot);
+    }
+  }
+}
+
+const rowSexRank = (row?: PedRow): number => {
+  if (row?.sex === '1') return 0;
+  if (row?.sex === '2') return 1;
+  return 2;
+};
+
+const orderBlockMembers = (
+  members: string[],
+  coupleEdges: CoupleEdge[],
+  generations: Map<string, number>,
+  rowMap: Map<string, PedRow>,
+  rowOrder: Map<string, number>
+): string[] => {
+  const sortedMembers = [...members].sort(
+    (left, right) => sampleOrder(left, rowOrder) - sampleOrder(right, rowOrder)
+  );
+  if (sortedMembers.length <= 1) return sortedMembers;
+
+  const memberSet = new Set(sortedMembers);
+  const adjacency = new Map<string, string[]>();
+  sortedMembers.forEach((member) => adjacency.set(member, []));
+  coupleEdges.forEach((edge) => {
+    if (
+      memberSet.has(edge.left) &&
+      memberSet.has(edge.right) &&
+      generations.get(edge.left) === generations.get(edge.right)
+    ) {
+      adjacency.get(edge.left)?.push(edge.right);
+      adjacency.get(edge.right)?.push(edge.left);
+    }
+  });
+
+  adjacency.forEach((partners) => {
+    partners.sort(
+      (left, right) =>
+        sampleOrder(left, rowOrder) - sampleOrder(right, rowOrder)
+    );
+  });
+
+  if (sortedMembers.length === 2) {
+    const [left, right] = sortedMembers;
+    const arePartners = adjacency.get(left)?.includes(right);
+    if (!arePartners) return sortedMembers;
+    return [left, right].sort((a, b) => {
+      const sexDelta = rowSexRank(rowMap.get(a)) - rowSexRank(rowMap.get(b));
+      if (sexDelta !== 0) return sexDelta;
+      return sampleOrder(a, rowOrder) - sampleOrder(b, rowOrder);
+    });
+  }
+
+  const degrees = sortedMembers.map((member) => ({
+    member,
+    degree: adjacency.get(member)?.length || 0,
+  }));
+  const isPathLike = degrees.every(({ degree }) => degree <= 2);
+  if (isPathLike) {
+    const endpoint = [...degrees]
+      .filter(({ degree }) => degree <= 1)
+      .sort(
+        (left, right) =>
+          sampleOrder(left.member, rowOrder) -
+          sampleOrder(right.member, rowOrder)
+      )[0];
+    const ordered: string[] = [];
+    let current = endpoint?.member || sortedMembers[0];
+    let previous: string | undefined;
+    while (current && !ordered.includes(current)) {
+      ordered.push(current);
+      const next = (adjacency.get(current) || []).find(
+        (partner) => partner !== previous
+      );
+      previous = current;
+      current = next || '';
+    }
+    if (ordered.length === sortedMembers.length) return ordered;
+  }
+
+  const center = [...degrees].sort((left, right) => {
+    if (right.degree !== left.degree) return right.degree - left.degree;
+    return (
+      sampleOrder(left.member, rowOrder) - sampleOrder(right.member, rowOrder)
+    );
+  })[0].member;
+  const around = sortedMembers.filter((member) => member !== center);
+  const splitIndex = Math.ceil(around.length / 2);
+  return [...around.slice(0, splitIndex), center, ...around.slice(splitIndex)];
+};
+
+const buildBlocksByGeneration = (
+  normalized: NormalizedPedigree,
+  generations: Map<string, number>
+): Map<number, LayoutBlock[]> => {
+  const idsByGeneration = new Map<number, string[]>();
+  normalized.rows.forEach((row) => {
+    const generation = generations.get(row.iid) ?? 0;
+    const ids = idsByGeneration.get(generation) || [];
+    ids.push(row.iid);
+    idsByGeneration.set(generation, ids);
+  });
+
+  const blocksByGeneration = new Map<number, LayoutBlock[]>();
+  idsByGeneration.forEach((ids, generation) => {
+    ids.sort(
+      (left, right) =>
+        sampleOrder(left, normalized.rowOrder) -
+        sampleOrder(right, normalized.rowOrder)
+    );
+    const dsu = new DisjointSet(ids);
+    normalized.coupleEdges.forEach((edge) => {
+      if (
+        ids.includes(edge.left) &&
+        ids.includes(edge.right) &&
+        generations.get(edge.left) === generation &&
+        generations.get(edge.right) === generation
+      ) {
+        dsu.union(edge.left, edge.right);
+      }
+    });
+
+    const membersByRoot = new Map<string, string[]>();
+    ids.forEach((id) => {
+      const root = dsu.find(id);
+      const members = membersByRoot.get(root) || [];
+      members.push(id);
+      membersByRoot.set(root, members);
+    });
+
+    const blocks = [...membersByRoot.values()].map((members) => {
+      const orderedMembers = orderBlockMembers(
+        members,
+        normalized.coupleEdges,
+        generations,
+        normalized.rowMap,
+        normalized.rowOrder
+      );
+      const key = `${generation}:${[...members].sort().join('|')}`;
+      return {
+        key,
+        generation,
+        members,
+        orderedMembers,
+        width: Math.max(
+          NODE_SIZE,
+          (orderedMembers.length - 1) * COUPLE_GAP + NODE_SIZE
+        ),
+        initialOrder: Math.min(
+          ...members.map((member) => sampleOrder(member, normalized.rowOrder))
+        ),
+      };
+    });
+
+    blocks.sort((left, right) => {
+      if (left.initialOrder !== right.initialOrder)
+        return left.initialOrder - right.initialOrder;
+      return left.key.localeCompare(right.key);
+    });
+    blocksByGeneration.set(generation, blocks);
+  });
+
+  return blocksByGeneration;
+};
+
+const blockOrderMapsFor = (
+  blocksByGeneration: Map<number, LayoutBlock[]>
+): Map<number, Map<string, number>> => {
+  const orderMaps = new Map<number, Map<string, number>>();
+  blocksByGeneration.forEach((blocks, generation) => {
+    orderMaps.set(
+      generation,
+      new Map(blocks.map((block, index) => [block.key, index]))
+    );
+  });
+  return orderMaps;
+};
+
+const refineBlockOrdering = (
+  normalized: NormalizedPedigree,
+  generations: Map<string, number>,
+  blocksByGeneration: Map<number, LayoutBlock[]>,
+  memberToBlock: Map<string, LayoutBlock>
+) => {
+  const generationCount =
+    Math.max(
+      0,
+      ...normalized.rows.map((row) => generations.get(row.iid) ?? 0)
+    ) + 1;
+
+  const scoreBlocks = (
+    blocks: LayoutBlock[],
+    scoreFor: (
+      block: LayoutBlock,
+      orderMaps: Map<number, Map<string, number>>
+    ) => number | undefined
+  ): LayoutBlock[] => {
+    const orderMaps = blockOrderMapsFor(blocksByGeneration);
+    return blocks
+      .map((block, index) => ({
+        block,
+        index,
+        score: scoreFor(block, orderMaps),
+      }))
+      .sort((left, right) => {
+        if (isFiniteNumber(left.score) && isFiniteNumber(right.score)) {
+          const delta = left.score - right.score;
+          if (Math.abs(delta) > 0.001) return delta;
+        }
+        return left.index - right.index;
+      })
+      .map(({ block }) => block);
+  };
+
+  const parentScore = (
+    block: LayoutBlock,
+    orderMaps: Map<number, Map<string, number>>
+  ): number | undefined => {
+    const scores: number[] = [];
+    block.members.forEach((member) => {
+      parentIdsFromInfo(normalized.parentInfoByChild.get(member)).forEach(
+        (parentId) => {
+          const parentBlock = memberToBlock.get(parentId);
+          if (!parentBlock || parentBlock.generation === block.generation)
+            return;
+          const score = orderMaps
+            .get(parentBlock.generation)
+            ?.get(parentBlock.key);
+          if (score !== undefined) scores.push(score);
+        }
+      );
+    });
+    return average(scores);
+  };
+
+  const childScore = (
+    block: LayoutBlock,
+    orderMaps: Map<number, Map<string, number>>
+  ): number | undefined => {
+    const scores: number[] = [];
+    block.members.forEach((member) => {
+      (normalized.childrenByParent.get(member) || []).forEach((childId) => {
+        const childBlock = memberToBlock.get(childId);
+        if (!childBlock || childBlock.generation === block.generation) return;
+        const score = orderMaps.get(childBlock.generation)?.get(childBlock.key);
+        if (score !== undefined) scores.push(score);
+      });
+    });
+    return average(scores);
+  };
+
+  for (let iteration = 0; iteration < 6; iteration += 1) {
+    for (let generation = 1; generation < generationCount; generation += 1) {
+      const blocks = blocksByGeneration.get(generation);
+      if (blocks) {
+        blocksByGeneration.set(generation, scoreBlocks(blocks, parentScore));
+      }
+    }
+    for (
+      let generation = generationCount - 2;
+      generation >= 0;
+      generation -= 1
+    ) {
+      const blocks = blocksByGeneration.get(generation);
+      if (blocks) {
+        blocksByGeneration.set(generation, scoreBlocks(blocks, childScore));
+      }
+    }
+  }
+};
+
+const layoutPedigree = (
+  rows: PedRow[],
+  members: PedigreeMember[],
+  relationships: PedigreeRelationship[]
+): LayoutResult => {
+  const normalized = normalizePedigree(rows, members, relationships);
+  if (!normalized.rows.length) {
+    return {
+      rows: [],
+      memberMap: normalized.memberMap,
+      familyUnits: [],
+      coupleEdges: [],
+      positions: new Map(),
+      generationMembers: [],
+      generationCount: 0,
+      width: 0,
+      height: 0,
+    };
+  }
+
+  const generations = assignGenerations(normalized);
+  const generationCount =
+    Math.max(
+      0,
+      ...normalized.rows.map((row) => generations.get(row.iid) ?? 0)
+    ) + 1;
+  const blocksByGeneration = buildBlocksByGeneration(normalized, generations);
+  const memberToBlock = new Map<string, LayoutBlock>();
+  blocksByGeneration.forEach((blocks) => {
+    blocks.forEach((block) => {
+      block.members.forEach((member) => memberToBlock.set(member, block));
+    });
+  });
+  refineBlockOrdering(
+    normalized,
+    generations,
+    blocksByGeneration,
+    memberToBlock
+  );
+
+  const positions = new Map<string, Position>();
+  const addDesiredCenter = (
+    desiredCenters: Map<string, number[]>,
+    block: LayoutBlock | undefined,
+    desiredCenter: number
+  ) => {
+    if (!block || !Number.isFinite(desiredCenter)) return;
+    const centers = desiredCenters.get(block.key) || [];
+    centers.push(desiredCenter);
+    desiredCenters.set(block.key, centers);
+  };
+
+  for (let generation = 0; generation < generationCount; generation += 1) {
+    const blocks = blocksByGeneration.get(generation) || [];
+    const desiredCenters = new Map<string, number[]>();
+    const blockOrder = new Map(
+      blocks.map((block, index) => [block.key, index])
+    );
+
+    normalized.familyUnits.forEach((unit) => {
+      const childBlocks = Array.from(
+        new Set(
+          unit.children
+            .filter((childId) => generations.get(childId) === generation)
+            .map((childId) => memberToBlock.get(childId))
+            .filter((block): block is LayoutBlock => Boolean(block))
+        )
+      ).sort(
+        (left, right) =>
+          (blockOrder.get(left.key) ?? 0) - (blockOrder.get(right.key) ?? 0)
+      );
+      if (!childBlocks.length) return;
+      const parentPositions = unit.parents
+        .map((parentId) => positions.get(parentId))
+        .filter((position): position is Position => Boolean(position));
+      const parentCenter = average(
+        parentPositions.map((position) => position.x)
+      );
+      if (!isFiniteNumber(parentCenter)) return;
+      childBlocks.forEach((block, index) => {
+        const offset =
+          (index - (childBlocks.length - 1) / 2) * CHILD_HORIZONTAL_GAP;
+        addDesiredCenter(desiredCenters, block, parentCenter + offset);
+      });
+    });
+
+    let cursor = 0;
+    blocks.forEach((block) => {
+      const desiredCenter = average(desiredCenters.get(block.key) || []);
+      const minimumCenter = cursor + block.width / 2;
+      const center = Math.max(desiredCenter ?? minimumCenter, minimumCenter);
+      block.orderedMembers.forEach((member, index) => {
+        const offset =
+          (index - (block.orderedMembers.length - 1) / 2) * COUPLE_GAP;
+        positions.set(member, {
+          x: center + offset,
+          y: generation * GEN_VERTICAL_GAP + SVG_PADDING_TOP,
+          generation,
+        });
+      });
+      cursor = center + block.width / 2 + BLOCK_HORIZONTAL_GAP;
+    });
+  }
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  positions.forEach((position) => {
+    minX = Math.min(minX, position.x - NODE_SIZE / 2);
+    maxX = Math.max(maxX, position.x + NODE_SIZE / 2);
+    maxY = Math.max(maxY, position.y);
+  });
+  if (!Number.isFinite(minX)) {
+    minX = 0;
+    maxX = 0;
+    maxY = 0;
+  }
+  const offsetX = SVG_PADDING_X - minX;
+  positions.forEach((position) => {
+    position.x += offsetX;
+  });
+
+  const generationMembers = Array.from(
+    { length: generationCount },
+    (_, generation) =>
+      [...positions.entries()]
+        .filter(([, position]) => position.generation === generation)
+        .sort((left, right) => left[1].x - right[1].x)
+        .map(([sampleId]) => sampleId)
+  );
+
+  return {
+    rows: normalized.rows,
+    memberMap: normalized.memberMap,
+    familyUnits: normalized.familyUnits,
+    coupleEdges: normalized.coupleEdges,
+    positions,
+    generationMembers,
+    generationCount,
+    width: maxX - minX + SVG_PADDING_X * 2,
+    height: maxY + SVG_PADDING_BOTTOM,
+  };
+};
+
+const isConsanguineous = (
+  metadata?: Record<string, unknown> | null
+): boolean => {
+  if (!metadata) return false;
+  if (metadata.consanguineous === true) return true;
+  const context = String(
+    metadata.context || metadata.relationship || ''
+  ).toLowerCase();
+  return context.includes('consanguin') || context.includes('related');
 };
 
 const Pedigree: React.FC<Props> = ({
@@ -98,350 +930,224 @@ const Pedigree: React.FC<Props> = ({
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
-    const memberMap = new Map(members.map((member) => [member.sample_id, member]));
-    const normalizedRows = [...rows];
-    const rowMap = new Map(normalizedRows.map((row) => [row.iid, row]));
-
-    members.forEach((member) => {
-      if (!rowMap.has(member.sample_id)) {
-        const row = {
-          fid: rows[0]?.fid || "FAM",
-          iid: member.sample_id,
-          pid: "0",
-          mid: "0",
-          sex: sexCodeFromMember(member),
-          phen: phenotypeFromMember(member),
-        };
-        normalizedRows.push(row);
-        rowMap.set(row.iid, row);
-      }
-    });
-
-    const normalizedInheritance = (inheritanceModel || "").trim().toUpperCase();
-    const parentInfoByChild = new Map<string, ParentInfo>();
-    const ensureParentInfo = (childId: string): ParentInfo => {
-      const existing = parentInfoByChild.get(childId);
-      if (existing) return existing;
-      const created = { others: [] };
-      parentInfoByChild.set(childId, created);
-      return created;
-    };
-
-    normalizedRows.forEach((row) => {
-      const info = ensureParentInfo(row.iid);
-      if (row.pid && row.pid !== "0") info.father = row.pid;
-      if (row.mid && row.mid !== "0") info.mother = row.mid;
-    });
-
-    relationships.forEach((relationship) => {
-      if (relationship.relationship_type !== "parent_child") return;
-      const parentId = relationship.sample_id_a;
-      const childId = relationship.sample_id_b;
-      if (!parentId || !childId || parentId === childId) return;
-      const info = ensureParentInfo(childId);
-      const role = (relationship.role_a || "").toLowerCase();
-      if (role === "father") {
-        info.father = parentId;
-      } else if (role === "mother") {
-        info.mother = parentId;
-      } else {
-        addUnique(info.others, parentId);
-      }
-    });
-
-    const parentIdsFor = (childId: string): string[] => {
-      const info = parentInfoByChild.get(childId);
-      if (!info) return [];
-      const parents: string[] = [];
-      addUnique(parents, info.father);
-      addUnique(parents, info.mother);
-      info.others.forEach((parentId) => addUnique(parents, parentId));
-      return parents;
-    };
-
-    const familyUnits = new Map<string, FamilyUnit>();
-    normalizedRows.forEach((row) => {
-      const parents = parentIdsFor(row.iid);
-      if (!parents.length) return;
-      const key = familyKey(parents);
-      if (!familyUnits.has(key)) {
-        familyUnits.set(key, { key, parents, children: [] });
-      }
-      addUnique(familyUnits.get(key)!.children, row.iid);
-    });
-
-    relationships.forEach((relationship) => {
-      if (relationship.relationship_type !== "couple") return;
-      const parents: string[] = [];
-      addUnique(parents, relationship.sample_id_a);
-      addUnique(parents, relationship.sample_id_b);
-      if (parents.length !== 2) return;
-      const key = familyKey(parents);
-      if (!familyUnits.has(key)) {
-        familyUnits.set(key, { key, parents, children: [] });
-      }
-    });
-
-    const generationCache = new Map<string, number>();
-    const visiting = new Set<string>();
-    const getGeneration = (iid: string): number => {
-      if (generationCache.has(iid)) return generationCache.get(iid)!;
-      if (visiting.has(iid)) return 0;
-      visiting.add(iid);
-      const parents = parentIdsFor(iid);
-      const generation = parents.length
-        ? Math.max(...parents.map((parentId) => getGeneration(parentId) + 1))
-        : 0;
-      visiting.delete(iid);
-      generationCache.set(iid, generation);
-      return generation;
-    };
-
-    normalizedRows.forEach((row) => getGeneration(row.iid));
-
-    const positions = new Map<string, { x: number; y: number; generation: number }>();
-    const occupiedByGeneration = new Map<number, number[]>();
-    const nextXByGeneration = new Map<number, number>();
-
-    const isFree = (generation: number, x: number): boolean =>
-      (occupiedByGeneration.get(generation) || []).every(
-        (existingX) => Math.abs(existingX - x) >= PERSON_HORIZONTAL_GAP,
+    const normalizedInheritance = (inheritanceModel || '').trim().toUpperCase();
+    const layout = layoutPedigree(rows, members, relationships);
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+    svg
+      .attr('width', layout.width)
+      .attr('height', layout.height)
+      .attr('data-generation-count', layout.generationCount)
+      .attr(
+        'data-generation-members',
+        JSON.stringify(layout.generationMembers)
       );
 
-    const reserveX = (generation: number, desiredX?: number): number => {
-      const base = Number.isFinite(desiredX)
-        ? Number(desiredX)
-        : nextXByGeneration.get(generation) ?? 50;
-      for (let step = 0; step < 200; step += 1) {
-        const candidates = step === 0
-          ? [base]
-          : [base + step * PERSON_HORIZONTAL_GAP, base - step * PERSON_HORIZONTAL_GAP];
-        const found = candidates.find((candidate) => isFree(generation, candidate));
-        if (found !== undefined) {
-          occupiedByGeneration.set(generation, [
-            ...(occupiedByGeneration.get(generation) || []),
-            found,
-          ]);
-          nextXByGeneration.set(
-            generation,
-            Math.max(nextXByGeneration.get(generation) ?? 50, found + ROOT_HORIZONTAL_GAP),
-          );
-          return found;
-        }
+    const appendLine = (
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      options: { dashed?: boolean } = {}
+    ) => {
+      const line = svg
+        .append('line')
+        .attr('x1', x1)
+        .attr('y1', y1)
+        .attr('x2', x2)
+        .attr('y2', y2)
+        .attr('stroke', 'black')
+        .attr('stroke-linecap', 'round');
+      if (options.dashed) {
+        line.attr('stroke-dasharray', '4 4');
       }
-      const fallback = (nextXByGeneration.get(generation) ?? 50) + ROOT_HORIZONTAL_GAP;
-      occupiedByGeneration.set(generation, [
-        ...(occupiedByGeneration.get(generation) || []),
-        fallback,
-      ]);
-      nextXByGeneration.set(generation, fallback + ROOT_HORIZONTAL_GAP);
-      return fallback;
+      return line;
     };
 
-    const placePerson = (sampleId: string, generation: number, desiredX?: number) => {
-      if (positions.has(sampleId)) return positions.get(sampleId)!;
-      const x = reserveX(generation, desiredX);
-      const position = {
-        x,
-        y: generation * GEN_VERTICAL_GAP + 50,
-        generation,
-      };
-      positions.set(sampleId, position);
-      return position;
+    const appendPolyline = (
+      points: Array<[number, number]>,
+      options: { dashed?: boolean } = {}
+    ) => {
+      const polyline = svg
+        .append('polyline')
+        .attr('points', points.map(([x, y]) => `${x},${y}`).join(' '))
+        .attr('fill', 'none')
+        .attr('stroke', 'black')
+        .attr('stroke-linecap', 'round')
+        .attr('stroke-linejoin', 'round');
+      if (options.dashed) {
+        polyline.attr('stroke-dasharray', '4 4');
+      }
+      return polyline;
     };
 
-    const orderedFamilyUnits = [...familyUnits.values()].sort((left, right) => {
-      const leftGeneration = Math.min(...left.parents.map((parentId) => getGeneration(parentId)));
-      const rightGeneration = Math.min(...right.parents.map((parentId) => getGeneration(parentId)));
-      if (leftGeneration !== rightGeneration) return leftGeneration - rightGeneration;
-      return left.key.localeCompare(right.key);
-    });
-
-    orderedFamilyUnits.forEach((unit) => {
-      const parentGeneration = unit.parents.length
-        ? Math.min(...unit.parents.map((parentId) => getGeneration(parentId)))
-        : Math.max(0, Math.min(...unit.children.map((childId) => getGeneration(childId))) - 1);
-      if (unit.parents.length === 1) {
-        placePerson(unit.parents[0], parentGeneration);
-      } else if (unit.parents.length >= 2) {
-        const [leftParent, rightParent] = unit.parents;
-        const leftPosition = positions.get(leftParent);
-        const rightPosition = positions.get(rightParent);
-        if (!leftPosition && !rightPosition) {
-          const leftX = nextXByGeneration.get(parentGeneration) ?? 50;
-          placePerson(leftParent, parentGeneration, leftX);
-          placePerson(rightParent, parentGeneration, leftX + COUPLE_GAP);
-        } else if (leftPosition && !rightPosition) {
-          placePerson(rightParent, parentGeneration, leftPosition.x + COUPLE_GAP);
-        } else if (!leftPosition && rightPosition) {
-          placePerson(leftParent, parentGeneration, rightPosition.x - COUPLE_GAP);
-        }
+    layout.coupleEdges.forEach((edge) => {
+      const left = layout.positions.get(edge.left);
+      const right = layout.positions.get(edge.right);
+      if (!left || !right) return;
+      const relatedPartners = isConsanguineous(edge.metadata);
+      if (left.generation === right.generation) {
+        const yOffsets = relatedPartners ? [-3, 3] : [0];
+        yOffsets.forEach((offset) => {
+          appendLine(left.x, left.y + offset, right.x, right.y + offset);
+        });
+      } else {
+        const midY = (left.y + right.y) / 2;
+        appendPolyline(
+          [
+            [left.x, left.y],
+            [left.x, midY],
+            [right.x, midY],
+            [right.x, right.y],
+          ],
+          { dashed: true }
+        );
       }
-
-      const placedParents = unit.parents
-        .map((parentId) => positions.get(parentId))
-        .filter((position): position is { x: number; y: number; generation: number } => Boolean(position));
-      const centerX = placedParents.length
-        ? d3.mean(placedParents, (position) => position.x) ?? undefined
-        : undefined;
-
-      unit.children.forEach((childId, index) => {
-        const childGeneration = Math.max(parentGeneration + 1, getGeneration(childId));
-        const offset = (index - (unit.children.length - 1) / 2) * CHILD_HORIZONTAL_GAP;
-        placePerson(childId, childGeneration, centerX === undefined ? undefined : centerX + offset);
-      });
     });
 
-    normalizedRows.forEach((row) => {
-      placePerson(row.iid, getGeneration(row.iid));
-    });
-
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    positions.forEach((position) => {
-      minX = Math.min(minX, position.x);
-      maxX = Math.max(maxX, position.x);
-      maxY = Math.max(maxY, position.y);
-    });
-    if (!Number.isFinite(minX)) {
-      minX = 0;
-      maxX = 0;
-      maxY = 0;
-    }
-    const offsetX = -minX + 50;
-    positions.forEach((position) => {
-      position.x += offsetX;
-    });
-    const width = maxX - minX + 100;
-    const height = maxY + 50;
-
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-    svg.attr("width", width).attr("height", height);
-
-    familyUnits.forEach((unit) => {
+    layout.familyUnits.forEach((unit) => {
       const parentPositions = unit.parents
-        .map((parentId) => positions.get(parentId))
-        .filter((position): position is { x: number; y: number; generation: number } => Boolean(position));
-      if (!parentPositions.length) return;
-      const parentY = parentPositions[0].y;
-      const parentBottomY = parentY + NODE_SIZE / 2;
-      const centerX = d3.mean(parentPositions, (position) => position.x) ?? parentPositions[0].x;
+        .map((parentId) => layout.positions.get(parentId))
+        .filter((position): position is Position => Boolean(position));
+      const childPositions = unit.children
+        .map((childId) => layout.positions.get(childId))
+        .filter((position): position is Position => Boolean(position))
+        .sort((left, right) => left.x - right.x);
+      if (!parentPositions.length || !childPositions.length) return;
 
-      if (parentPositions.length >= 2) {
-        const orderedParents = [...parentPositions].sort((left, right) => left.x - right.x);
-        svg
-          .append("line")
-          .attr("x1", orderedParents[0].x)
-          .attr("y1", orderedParents[0].y)
-          .attr("x2", orderedParents[orderedParents.length - 1].x)
-          .attr("y2", orderedParents[orderedParents.length - 1].y)
-          .attr("stroke", "black");
+      const centerX =
+        average(parentPositions.map((position) => position.x)) ??
+        parentPositions[0].x;
+      const parentGenerations = new Set(
+        parentPositions.map((position) => position.generation)
+      );
+      const sameGenerationParents = parentGenerations.size === 1;
+      const maxParentBottomY = Math.max(
+        ...parentPositions.map((position) => position.y + NODE_SIZE / 2)
+      );
+      const minChildTopY = Math.min(
+        ...childPositions.map((position) => position.y - NODE_SIZE / 2)
+      );
+      let connectorY = maxParentBottomY + SIBLING_LINE_OFFSET;
+      if (connectorY > minChildTopY - SIBLING_LINE_OFFSET) {
+        connectorY = (maxParentBottomY + minChildTopY) / 2;
       }
 
-      const childPositions = unit.children
-        .map((childId) => positions.get(childId))
-        .filter((position): position is { x: number; y: number; generation: number } => Boolean(position))
-        .sort((left, right) => left.x - right.x);
-      if (!childPositions.length) return;
+      if (parentPositions.length >= 2 && sameGenerationParents) {
+        appendLine(centerX, parentPositions[0].y, centerX, connectorY);
+      } else {
+        parentPositions.forEach((parentPosition) => {
+          appendLine(
+            parentPosition.x,
+            parentPosition.y + NODE_SIZE / 2,
+            parentPosition.x,
+            connectorY
+          );
+          if (Math.abs(parentPosition.x - centerX) > 0.1) {
+            appendLine(parentPosition.x, connectorY, centerX, connectorY);
+          }
+        });
+      }
 
       if (childPositions.length === 1) {
         const childPosition = childPositions[0];
-        svg
-          .append("line")
-          .attr("x1", centerX)
-          .attr("y1", parentBottomY)
-          .attr("x2", centerX)
-          .attr("y2", childPosition.y - NODE_SIZE / 2)
-          .attr("stroke", "black");
+        if (Math.abs(centerX - childPosition.x) > 0.1) {
+          appendLine(centerX, connectorY, childPosition.x, connectorY);
+        }
+        appendLine(
+          childPosition.x,
+          connectorY,
+          childPosition.x,
+          childPosition.y - NODE_SIZE / 2
+        );
       } else {
-        const siblingLineY = parentBottomY + SIBLING_LINE_OFFSET;
-        svg
-          .append("line")
-          .attr("x1", centerX)
-          .attr("y1", parentBottomY)
-          .attr("x2", centerX)
-          .attr("y2", siblingLineY)
-          .attr("stroke", "black");
-        svg
-          .append("line")
-          .attr("x1", childPositions[0].x)
-          .attr("y1", siblingLineY)
-          .attr("x2", childPositions[childPositions.length - 1].x)
-          .attr("y2", siblingLineY)
-          .attr("stroke", "black");
+        appendLine(
+          childPositions[0].x,
+          connectorY,
+          childPositions[childPositions.length - 1].x,
+          connectorY
+        );
         childPositions.forEach((childPosition) => {
-          svg
-            .append("line")
-            .attr("x1", childPosition.x)
-            .attr("y1", siblingLineY)
-            .attr("x2", childPosition.x)
-            .attr("y2", childPosition.y - NODE_SIZE / 2)
-            .attr("stroke", "black");
+          appendLine(
+            childPosition.x,
+            connectorY,
+            childPosition.x,
+            childPosition.y - NODE_SIZE / 2
+          );
         });
       }
     });
 
-    normalizedRows.forEach((row) => {
-      const position = positions.get(row.iid);
+    layout.rows.forEach((row) => {
+      const position = layout.positions.get(row.iid);
       if (!position) return;
-      const member = memberMap.get(row.iid);
-      const affected = isAffectedPhenotype(row.phen) || member?.clinical_status === "affected";
+      const member = layout.memberMap.get(row.iid);
+      const rowSex = normalizedSexFor(row, member);
+      const affected =
+        isAffectedPhenotype(row.phen) ||
+        member?.clinical_status === 'affected' ||
+        member?.affected === true;
       const carrier = isCarrierStatus(member?.carrier_status);
-      const xLinkedRecessiveFemaleCarrier = carrier && normalizedInheritance === "XLR" && row.sex === "2";
-      const fill = affected ? "black" : "white";
-      const stroke = "black";
+      const xLinkedRecessiveFemaleCarrier =
+        carrier && normalizedInheritance === 'XLR' && rowSex === '2';
+      const fill = affected ? 'black' : 'white';
+      const stroke = 'black';
+      const generationIndex =
+        layout.generationMembers[position.generation]?.indexOf(row.iid) ?? -1;
       const group = svg
-        .append("g")
-        .attr("data-pedigree-node", row.iid)
-        .attr("transform", `translate(${position.x}, ${position.y})`);
+        .append('g')
+        .attr('data-pedigree-node', row.iid)
+        .attr('data-generation', position.generation)
+        .attr('data-generation-index', generationIndex)
+        .attr('transform', `translate(${position.x}, ${position.y})`);
 
-      const drawCarrierHalfFill = (shape: d3.Selection<any, unknown, null, undefined>) => {
+      const drawCarrierHalfFill = (
+        shape: d3.Selection<any, unknown, null, undefined>
+      ) => {
         if (!carrier || affected || xLinkedRecessiveFemaleCarrier) return;
-        const clipId = `pedigree-carrier-${row.iid.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+        const clipId = `pedigree-carrier-${row.iid.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
         svg
-          .append("clipPath")
-          .attr("id", clipId)
-          .append("rect")
-          .attr("x", position.x - NODE_SIZE / 2)
-          .attr("y", position.y - NODE_SIZE / 2)
-          .attr("width", NODE_SIZE / 2)
-          .attr("height", NODE_SIZE);
+          .append('clipPath')
+          .attr('id', clipId)
+          .append('rect')
+          .attr('x', position.x - NODE_SIZE / 2)
+          .attr('y', position.y - NODE_SIZE / 2)
+          .attr('width', NODE_SIZE / 2)
+          .attr('height', NODE_SIZE);
         shape
           .clone(true)
-          .attr("fill", carrierFillFor(member?.carrier_type))
-          .attr("stroke", "none")
-          .attr("clip-path", `url(#${clipId})`);
+          .attr('fill', carrierFillFor(member?.carrier_type))
+          .attr('stroke', 'none')
+          .attr('clip-path', `url(#${clipId})`);
       };
 
-      if (row.sex === "1") {
+      if (rowSex === '1') {
         const shape = group
-          .append("rect")
-          .attr("x", -NODE_SIZE / 2)
-          .attr("y", -NODE_SIZE / 2)
-          .attr("width", NODE_SIZE)
-          .attr("height", NODE_SIZE)
-          .attr("fill", fill)
-          .attr("stroke", stroke);
+          .append('rect')
+          .attr('x', -NODE_SIZE / 2)
+          .attr('y', -NODE_SIZE / 2)
+          .attr('width', NODE_SIZE)
+          .attr('height', NODE_SIZE)
+          .attr('fill', fill)
+          .attr('stroke', stroke);
         drawCarrierHalfFill(shape);
-      } else if (row.sex === "2") {
+      } else if (rowSex === '2') {
         const shape = group
-          .append("circle")
-          .attr("cx", 0)
-          .attr("cy", 0)
-          .attr("r", NODE_SIZE / 2)
-          .attr("fill", fill)
-          .attr("stroke", stroke);
+          .append('circle')
+          .attr('cx', 0)
+          .attr('cy', 0)
+          .attr('r', NODE_SIZE / 2)
+          .attr('fill', fill)
+          .attr('stroke', stroke);
         drawCarrierHalfFill(shape);
         if (xLinkedRecessiveFemaleCarrier && !affected) {
           group
-            .append("circle")
-            .attr("cx", 0)
-            .attr("cy", 0)
-            .attr("r", NODE_SIZE / 4)
-            .attr("fill", carrierFillFor(member?.carrier_type))
-            .attr("stroke", "none");
+            .append('circle')
+            .attr('cx', 0)
+            .attr('cy', 0)
+            .attr('r', NODE_SIZE / 4)
+            .attr('fill', carrierFillFor(member?.carrier_type))
+            .attr('stroke', 'none');
         }
       } else {
         const diamondPath =
@@ -450,29 +1156,24 @@ const Pedigree: React.FC<Props> = ({
           `L0 ${NODE_SIZE / 2} ` +
           `L${-NODE_SIZE / 2} 0 Z`;
         const shape = group
-          .append("path")
-          .attr("d", diamondPath)
-          .attr("fill", fill)
-          .attr("stroke", stroke);
+          .append('path')
+          .attr('d', diamondPath)
+          .attr('fill', fill)
+          .attr('stroke', stroke);
         drawCarrierHalfFill(shape);
       }
 
       group
-        .append("text")
-        .attr("x", 0)
-        .attr("y", NODE_SIZE)
-        .attr("text-anchor", "middle")
-        .attr("font-size", member?.role === "embryo" ? 7 : 8)
+        .append('text')
+        .attr('x', 0)
+        .attr('y', NODE_SIZE)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', member?.role === 'embryo' ? 7 : 8)
         .text(row.iid);
     });
   }, [rows, members, relationships, inheritanceModel]);
 
-  return (
-    <svg
-      ref={svgRef}
-      className="pedigree-svg"
-    />
-  );
+  return <svg ref={svgRef} className="pedigree-svg" />;
 };
 
 export default Pedigree;

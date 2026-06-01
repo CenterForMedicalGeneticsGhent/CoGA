@@ -2,33 +2,17 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import type {
-  ApiFamilyRecord,
-  ApiGenomeTrackAvailability,
-  ApiTrackAvailabilityResponse,
-} from '../../lib/apiTypes';
+import type { ApiFamilyRecord, ApiGenomeTrackAvailability, ApiTrackAvailabilityResponse } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { getGenomeWindow } from '../../lib/settings';
 import { parseExplicitSampleFilterMap } from '../../lib/sampleFilterState';
-import {
-  getAdaptiveTrackWindow,
-  getTrackBinLimit,
-  getTrackSegmentLimit,
-} from '../../lib/trackSampling';
+import { getAdaptiveTrackWindow, getTrackBinLimit, getTrackSegmentLimit } from '../../lib/trackSampling';
 import { useFamilyReference } from '../../lib/reference';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
-import GenomeOverviewSidebar, {
-  type GenomeTrackKey,
-  type GenomeTrackVisibility,
-} from './GenomeOverviewSidebar';
+import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import GenomeOverviewWorkspace from './GenomeOverviewWorkspace';
-import {
-  CHROMS,
-  DEFAULT_TRACK_WIDTH,
-  TRACK_WIDTH_PADDING,
-  normalizeChrom,
-} from './viewerShared';
+import { CHROMS, DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING, normalizeChrom } from './viewerShared';
 
 interface Layout {
   offsets: Record<string, number>;
@@ -43,19 +27,16 @@ const GenomeOverviewPage: React.FC = () => {
   const location = useLocation();
 
   const { data, isLoading } = useQuery<
-    Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi'>
+    Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const response = await api.get(`/families/${familyId}`);
-      return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi'>;
+      return response.data as Pick<ApiFamilyRecord, 'family_id' | 'members' | 'projects' | 'roi' | 'metadata'>;
     },
   });
 
-  const orderedMembers = useMemo(
-    () => sortFamilyMembersProbandFirst(data?.members || []),
-    [data?.members],
-  );
+  const orderedMembers = useMemo(() => sortFamilyMembersProbandFirst(data?.members || []), [data?.members]);
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [trackVisibility, setTrackVisibility] = useState<GenomeTrackVisibility>({
@@ -86,18 +67,13 @@ const GenomeOverviewPage: React.FC = () => {
     const params = new URLSearchParams(location.search);
     const chromParams = params.getAll('chrom');
     if (chromParams.length === 0) {
-      setChromSelected(
-        CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: true }), {} as Record<string, boolean>),
-      );
+      setChromSelected(CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: true }), {} as Record<string, boolean>));
       return;
     }
 
     const next = new Set(chromParams.map(normalizeChrom));
     setChromSelected(
-      CHROMS.reduce(
-        (acc, chrom) => ({ ...acc, [chrom]: next.has(chrom) }),
-        {} as Record<string, boolean>,
-      ),
+      CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: next.has(chrom) }), {} as Record<string, boolean>),
     );
   }, [location.search]);
 
@@ -159,10 +135,7 @@ const GenomeOverviewPage: React.FC = () => {
     assemblyId,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
-  } = useFamilyReference(
-    data?.projects as string[] | undefined,
-    projectIdParam,
-  );
+  } = useFamilyReference(data?.projects as string[] | undefined, projectIdParam);
   const resolvedSearch = useMemo(() => {
     const params = new URLSearchParams(location.search);
     params.delete('project_id');
@@ -226,7 +199,13 @@ const GenomeOverviewPage: React.FC = () => {
 
   const urlMaps = useMemo(() => {
     if (!data) {
-      return { coverage: {}, segments: {}, apcad: {}, apcadPcf: {}, haplotypes: {} };
+      return {
+        coverage: {},
+        segments: {},
+        apcad: {},
+        apcadPcf: {},
+        haplotypes: {},
+      };
     }
 
     const buildBatchBedUrl = (
@@ -255,7 +234,9 @@ const GenomeOverviewPage: React.FC = () => {
         }),
       ];
       segments[member.sample_id] = [
-        buildBatchBedUrl(member.sample_id, 'segments', { limit: String(segmentLimit) }),
+        buildBatchBedUrl(member.sample_id, 'segments', {
+          limit: String(segmentLimit),
+        }),
       ];
       apcad[member.sample_id] = [
         buildBatchBedUrl(member.sample_id, 'apcad', {
@@ -264,7 +245,9 @@ const GenomeOverviewPage: React.FC = () => {
         }),
       ];
       apcadPcf[member.sample_id] = [
-        buildBatchBedUrl(member.sample_id, 'apcad_pcf', { limit: String(segmentLimit) }),
+        buildBatchBedUrl(member.sample_id, 'apcad_pcf', {
+          limit: String(segmentLimit),
+        }),
       ];
       haplotypes[member.sample_id] = haplotypeUrls;
     });
@@ -276,8 +259,7 @@ const GenomeOverviewPage: React.FC = () => {
     if (!orderedMembers.length) return;
     const initial: Record<string, boolean> = {};
     orderedMembers.forEach((member) => {
-      initial[member.sample_id] =
-        sampleFilters.length === 0 || sampleFilters.includes(member.sample_id);
+      initial[member.sample_id] = sampleFilters.length === 0 || sampleFilters.includes(member.sample_id);
     });
     setSelected(initial);
   }, [orderedMembers, sampleFilters]);
@@ -356,6 +338,8 @@ const GenomeOverviewPage: React.FC = () => {
     }
     return data.roi;
   }, [assemblyId, data?.roi]);
+  const inheritanceModel = (data?.metadata?.pgt as { inheritance_model?: string | null } | undefined)
+    ?.inheritance_model;
 
   const genomeRoiRange = useMemo(() => {
     if (!visibleRoi || !layout) return null;
@@ -429,29 +413,28 @@ const GenomeOverviewPage: React.FC = () => {
         trackVisibility={trackVisibility}
         chromSelected={chromSelected}
         onToggleSample={(sampleId) =>
-          setSelected((current) => ({ ...current, [sampleId]: !current[sampleId] }))
+          setSelected((current) => ({
+            ...current,
+            [sampleId]: !current[sampleId],
+          }))
         }
         onToggleTrack={(track) =>
-          setTrackVisibility((current) => ({ ...current, [track]: !current[track] }))
+          setTrackVisibility((current) => ({
+            ...current,
+            [track]: !current[track],
+          }))
         }
         onToggleChrom={(chrom) =>
-          setChromSelected((current) => ({ ...current, [chrom]: !current[chrom] }))
+          setChromSelected((current) => ({
+            ...current,
+            [chrom]: !current[chrom],
+          }))
         }
         onSelectAllChroms={() =>
-          setChromSelected(
-            CHROMS.reduce(
-              (acc, chrom) => ({ ...acc, [chrom]: true }),
-              {} as Record<string, boolean>,
-            ),
-          )
+          setChromSelected(CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: true }), {} as Record<string, boolean>))
         }
         onDeselectAllChroms={() =>
-          setChromSelected(
-            CHROMS.reduce(
-              (acc, chrom) => ({ ...acc, [chrom]: false }),
-              {} as Record<string, boolean>,
-            ),
-          )
+          setChromSelected(CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: false }), {} as Record<string, boolean>))
         }
       />
       <GenomeOverviewWorkspace
@@ -465,6 +448,7 @@ const GenomeOverviewPage: React.FC = () => {
         projectId={resolvedProjectId}
         backDest={`/families/${familyId}/structural-variants${backSearch ? `?${backSearch}` : ''}`}
         visibleRoi={visibleRoi}
+        inheritanceModel={inheritanceModel}
         genomeRoiRange={genomeRoiRange}
         navigateToChromosome={(chrom, region) => {
           const params = new URLSearchParams(resolvedSearch);
@@ -478,6 +462,7 @@ const GenomeOverviewPage: React.FC = () => {
           const search = params.toString();
           navigate(`/families/${familyId}/chromosome/${chrom}${search ? `?${search}` : ''}`);
         }}
+        familyMembers={orderedMembers}
         visibleMembers={visibleMembers}
         membersWithData={membersWithData}
         trackVisibility={trackVisibility}

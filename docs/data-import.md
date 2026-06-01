@@ -270,6 +270,25 @@ tracks (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`), repeat expan
 variant review rows for the family. Phenotype and carrier-label changes are applied immediately
 to filters and pedigree displays; saved interpretations should still be reviewed before reuse.
 
+Pedigree visualization layout assumes that parent-child relationships form a directed acyclic
+graph. The renderer first assigns generations from this graph so every child is at least one row
+below every recorded parent. Unrelated partners are then aligned to the same generation when that
+does not violate ancestry, which keeps married-in spouses and embryo/proband partners on the
+correct horizontal level. Within a generation, same-row couple edges are treated as fixed partner
+blocks, ordered deterministically by parent/child barycenters, and spaced so offspring can be
+centered below the corresponding parent unit where possible. The SVG exposes
+`data-generation-count` and per-node `data-generation` attributes to make complex layouts
+testable.
+
+Current visualization limits follow the stored relationship model: classic PED rows encode only
+father and mother IDs, and the structure editor allows at most two parents per child. Explicit
+`couple` relationships can represent childless partnerships and consanguinity context, but
+divorce, adoption, twins, donor gametes, deceased symbols, and proband arrows are not yet modeled.
+Ancestor-descendant or otherwise cross-generation couples are drawn without forcing both people
+onto the same row, because preserving chronological generations takes priority. For individuals
+with more than two partners, the layout keeps the partner component deterministic and compact, but
+not every partner can be immediately adjacent at the same time.
+
 The PED upload form also accepts an ROI gene/region and inheritance model (`AD`, `AR`, `XLD`,
 `XLR`, or `mitochondrial`). The PGT context can still be provided under `metadata.pgt`:
 
@@ -280,6 +299,25 @@ metadata:
     obligate_carriers: [FATHER]
     proven_carriers: [MOTHER]
 ```
+
+Haplotype risk coloring is inferred from imported haplotype blocks and the family structure
+metadata. CoGA treats `hap1` as the paternal inherited haplotype and `hap2` as the maternal
+inherited haplotype for children and embryos; parental rows use their own two haplotypes on the
+corresponding parent side. Disease colors are applied only when the inheritance model and
+affected/carrier labels provide a deterministic shared block:
+
+- `AD` / dominant: a single haplotype shared by affected individuals and obligate carriers is
+  colored dark red. Ambiguous single-sample or multi-candidate cases remain neutral.
+- `AR` / recessive: affected individuals define one paternal and one maternal risk haplotype;
+  paternal risk is orange-red and maternal risk is pink-red. Carriers show only the inherited
+  risk side when the shared block is informative.
+- `XLR`: males are treated as hemizygous on chromosome X and display one X haplotype. Affected
+  males define the disease-associated X haplotype; carrier females show one red X haplotype and
+  affected females show two when both X risk blocks are inferable.
+
+If the ROI is available, inference is anchored to the ROI-overlapping haplotype block; otherwise
+the current viewed interval is used. Non-informative or unrelated haplotypes keep the neutral
+parental colors.
 
 TRGT locus reference data is seeded from `TRGT_STRCHIVE_LOCI_PATH`, defaulting to
 `/data/ref-data/STRchive-loci.json`. For local development, the bundled

@@ -24,7 +24,10 @@ beforeEach(() => {
   document.documentElement.style.setProperty('--color-haplotype-mother-dark', '#047857');
   document.documentElement.style.setProperty('--color-haplotype-mother-light', '#86efac');
   document.documentElement.style.setProperty('--color-haplotype-dominant', '#b42318');
-  document.documentElement.style.setProperty('--color-haplotype-recessive', '#ea580c');
+  document.documentElement.style.setProperty('--color-haplotype-recessive', '#e11d48');
+  document.documentElement.style.setProperty('--color-haplotype-recessive-maternal', '#e11d48');
+  document.documentElement.style.setProperty('--color-haplotype-recessive-paternal', '#ea580c');
+  document.documentElement.style.setProperty('--color-haplotype-x-linked', '#991b1b');
   document.documentElement.style.setProperty('--color-haplotype-unknown', '#9ca3af');
   document.documentElement.style.setProperty('--color-haplotype-deleted-fill', '#fee2e2');
   document.documentElement.style.setProperty('--color-haplotype-deleted-stroke', '#b42318');
@@ -73,7 +76,7 @@ test('draws inherited paternal and maternal haplotype switches for an embryo', a
   expect(container.querySelector('line[stroke-dasharray="4 2"]')).toBeInTheDocument();
 });
 
-test('carries recessive risk haplotype coloring into embryos', async () => {
+test('colors inferred recessive maternal and paternal risk haplotypes in embryos', async () => {
   useQueryMock.mockReturnValue({
     isLoading: false,
     data: {
@@ -82,10 +85,12 @@ test('carries recessive risk haplotype coloring into embryos', async () => {
       end: 100,
       samples: [
         {
+          sample: 'PROBAND',
+          segments: [{ start: 0, end: 100, hap1: '1', hap2: '0', ps: null }],
+        },
+        {
           sample: 'EMBRYO1',
-          segments: [
-            { start: 0, end: 100, hap1: '1', hap2: '0', ps: null },
-          ],
+          segments: [{ start: 0, end: 100, hap1: '1', hap2: '0', ps: null }],
         },
       ],
     },
@@ -103,12 +108,114 @@ test('carries recessive risk haplotype coloring into embryos', async () => {
       role="embryo"
       affected={false}
       highlightRiskHaplotype
-      disorder="recessive"
+      inheritanceModel="AR"
+      familyMembers={[
+        {
+          sample_id: 'PROBAND',
+          role: 'proband',
+          affected: true,
+          sex: 'female',
+        },
+        {
+          sample_id: 'EMBRYO1',
+          role: 'embryo',
+          affected: false,
+          sex: 'female',
+        },
+      ]}
     />,
   );
 
   await waitFor(() => expect(container.querySelectorAll('rect')).toHaveLength(2));
   const rects = Array.from(container.querySelectorAll('rect'));
   expect(rects[0]).toHaveAttribute('fill', '#ea580c');
-  expect(rects[1]).toHaveAttribute('fill', '#047857');
+  expect(rects[1]).toHaveAttribute('fill', '#e11d48');
+  expect(container.querySelector('.haplotype-track')).toHaveAttribute('data-risk-state', 'affected_or_at_risk');
+});
+
+test('does not color a dominant haplotype without a deterministic shared block', async () => {
+  useQueryMock.mockReturnValue({
+    isLoading: false,
+    data: {
+      chr: '1',
+      start: 0,
+      end: 100,
+      samples: [
+        {
+          sample: 'PROBAND',
+          segments: [{ start: 0, end: 100, hap1: '1', hap2: '1', ps: null }],
+        },
+      ],
+    },
+  });
+
+  const { container } = render(
+    <HaplotypeTrack
+      familyId="F1"
+      sampleId="PROBAND"
+      chrom="1"
+      regionStart={0}
+      regionEnd={100}
+      width={100}
+      height={20}
+      role="proband"
+      affected
+      highlightRiskHaplotype
+      inheritanceModel="AD"
+      familyMembers={[
+        {
+          sample_id: 'PROBAND',
+          role: 'proband',
+          affected: true,
+          sex: 'female',
+        },
+      ]}
+    />,
+  );
+
+  await waitFor(() => expect(container.querySelectorAll('rect')).toHaveLength(2));
+  const rects = Array.from(container.querySelectorAll('rect'));
+  expect(rects[0]).toHaveAttribute('fill', '#93c5fd');
+  expect(rects[1]).toHaveAttribute('fill', '#86efac');
+  expect(container.querySelector('.haplotype-track')).toHaveAttribute('data-risk-state', 'uninformative');
+});
+
+test('renders a single disease-associated X haplotype for affected males', async () => {
+  useQueryMock.mockReturnValue({
+    isLoading: false,
+    data: {
+      chr: 'X',
+      start: 0,
+      end: 100,
+      samples: [
+        {
+          sample: 'SON',
+          segments: [{ start: 0, end: 100, hap1: '0', hap2: '1', ps: null }],
+        },
+      ],
+    },
+  });
+
+  const { container } = render(
+    <HaplotypeTrack
+      familyId="F1"
+      sampleId="SON"
+      chrom="X"
+      regionStart={0}
+      regionEnd={100}
+      width={100}
+      height={20}
+      role="proband"
+      affected
+      sex="male"
+      highlightRiskHaplotype
+      inheritanceModel="XLR"
+      familyMembers={[{ sample_id: 'SON', role: 'proband', affected: true, sex: 'male' }]}
+    />,
+  );
+
+  await waitFor(() => expect(container.querySelectorAll('rect')).toHaveLength(1));
+  const rects = Array.from(container.querySelectorAll('rect'));
+  expect(rects[0]).toHaveAttribute('fill', '#991b1b');
+  expect(rects[0]).toHaveAttribute('height', '20');
 });

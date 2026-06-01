@@ -72,13 +72,7 @@ vi.mock('../ViewerMemberSection', () => ({
 }));
 
 vi.mock('../ViewerTrackBlock', () => ({
-  default: ({
-    children,
-    label,
-  }: {
-    children: React.ReactNode;
-    label: string;
-  }) => (
+  default: ({ children, label }: { children: React.ReactNode; label: string }) => (
     <section>
       <h2>{label}</h2>
       {children}
@@ -121,13 +115,13 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
           onRegionSelect={vi.fn()}
           onRoiZoom={vi.fn()}
           onJumpToRegion={onJumpToRegion}
+          familyMembers={[]}
           visibleMembers={[]}
           membersWithData={[]}
           availability={{}}
           trackVisibility={{
             coverage: false,
             apcad: false,
-            apcadPcf: false,
             variants: false,
             smallVariants: false,
             haplotypes: false,
@@ -229,9 +223,6 @@ describe('ChromosomeViewWorkspace', () => {
       }),
     );
 
-    expect(api.get as unknown as Mock).not.toHaveBeenCalledWith(
-      '/genes/profile',
-      expect.anything(),
-    );
+    expect(api.get as unknown as Mock).not.toHaveBeenCalledWith('/genes/profile', expect.anything());
   });
 });
