@@ -48,6 +48,7 @@ def test_project_and_family_schemas_accept_uuid_identifiers() -> None:
     family = FamilyOut(
         id=family_id,
         family_id="FAM1",
+        created_at=datetime.now(timezone.utc),
         members=[],
         projects=[metadata_project_id, str(uuid4())],
         roi=FamilyRegionOfInterestOut(

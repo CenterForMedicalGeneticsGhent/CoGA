@@ -54,6 +54,7 @@ export interface ApiFamilyBase<TMember = ApiFamilyMemberRef> {
   family_id: string;
   members: TMember[];
   projects?: string[];
+  created_at?: string;
 }
 
 export interface ApiFamilySummary extends ApiFamilyBase<ApiFamilyMember> {
