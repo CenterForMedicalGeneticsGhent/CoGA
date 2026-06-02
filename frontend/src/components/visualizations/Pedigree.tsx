@@ -872,6 +872,78 @@ const layoutPedigree = (
     });
   }
 
+  const positionedBlockCenter = (block: LayoutBlock): number | undefined => {
+    const xs = block.orderedMembers
+      .map((member) => positions.get(member)?.x)
+      .filter(isFiniteNumber);
+    return average(xs);
+  };
+
+  const shiftBlock = (block: LayoutBlock, delta: number) => {
+    if (!Number.isFinite(delta) || Math.abs(delta) < 0.001) return;
+    block.orderedMembers.forEach((member) => {
+      const position = positions.get(member);
+      if (position) {
+        position.x += delta;
+      }
+    });
+  };
+
+  for (
+    let generation = generationCount - 2;
+    generation >= 0;
+    generation -= 1
+  ) {
+    const blocks = blocksByGeneration.get(generation) || [];
+    if (!blocks.length) continue;
+    const desiredCenters = new Map<string, number[]>();
+
+    normalized.familyUnits.forEach((unit) => {
+      const childPositions = unit.children
+        .map((childId) => positions.get(childId))
+        .filter((position): position is Position => Boolean(position));
+      if (!childPositions.length) return;
+      const childXs = childPositions.map((position) => position.x);
+      const childCenter = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+      const parentBlocks = new Map<string, LayoutBlock>();
+      unit.parents.forEach((parentId) => {
+        const parentPosition = positions.get(parentId);
+        const parentBlock = memberToBlock.get(parentId);
+        if (parentPosition?.generation === generation && parentBlock) {
+          parentBlocks.set(parentBlock.key, parentBlock);
+        }
+      });
+      parentBlocks.forEach((block) => {
+        addDesiredCenter(desiredCenters, block, childCenter);
+      });
+    });
+
+    if (!desiredCenters.size) continue;
+    const positionedBlocks = blocks
+      .map((block) => ({
+        block,
+        currentCenter: positionedBlockCenter(block),
+      }))
+      .filter(
+        (entry): entry is { block: LayoutBlock; currentCenter: number } =>
+          isFiniteNumber(entry.currentCenter)
+      )
+      .sort((left, right) => left.currentCenter - right.currentCenter);
+
+    let previousRight: number | undefined;
+    positionedBlocks.forEach(({ block, currentCenter }) => {
+      const targetCenter =
+        average(desiredCenters.get(block.key) || []) ?? currentCenter;
+      const minimumCenter =
+        previousRight === undefined
+          ? targetCenter
+          : previousRight + BLOCK_HORIZONTAL_GAP + block.width / 2;
+      const nextCenter = Math.max(targetCenter, minimumCenter);
+      shiftBlock(block, nextCenter - currentCenter);
+      previousRight = nextCenter + block.width / 2;
+    });
+  }
+
   let minX = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
