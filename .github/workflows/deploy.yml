@@ -4,7 +4,7 @@ on:
   workflow_run:
     workflows: ["Build and push image"]
     types: [completed]
-    branches: [main, master]
+    branches: [main, master, add/tf-deploy-scripts]
 
 env:
   COGA_PROJECT_ID: ${{ secrets.GCP_COGA_PROJECT_ID }}
