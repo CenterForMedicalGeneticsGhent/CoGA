@@ -6,6 +6,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -67,6 +68,60 @@ def notify_admin(email: str) -> None:
         logging.error("Failed to send signup notification: %s", exc)
 
 
+async def _authenticate_and_issue_token(
+    session: AsyncSession,
+    *,
+    email: str,
+    password: str,
+    remote_ip: str | None,
+) -> Token:
+    throttle_state = await get_login_throttle_state(
+        session,
+        email=email,
+        remote_ip=remote_ip,
+    )
+    if throttle_state is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Try again later.",
+            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
+        )
+
+    user = await get_auth_user_mapping_by_email(session, email)
+    if user is None:
+        await record_failed_login(
+            session,
+            email=email,
+            remote_ip=remote_ip,
+        )
+        await session.commit()
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    if not verify_password(password, user["hashed_password"]):
+        await record_failed_login(
+            session,
+            email=email,
+            remote_ip=remote_ip,
+        )
+        await session.commit()
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    if not user["is_active"]:
+        await record_failed_login(
+            session,
+            email=email,
+            remote_ip=remote_ip,
+        )
+        await session.commit()
+        raise HTTPException(status_code=403, detail="User not active")
+    await clear_login_failures(
+        session,
+        email=email,
+        remote_ip=remote_ip,
+    )
+    await session.commit()
+    access_token = create_access_token(data={"sub": user["email"]})
+    return Token(access_token=access_token, token_type="bearer", role=user["role"])
+
+
 @router.post("/signup", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def signup(
     user_in: UserCreate,
@@ -91,56 +146,30 @@ async def login(
     request: Request,
     session: AsyncSession = Depends(get_postgres_session),
 ):
-    remote_ip = _request_remote_ip(request)
-    throttle_state = await get_login_throttle_state(
+    return await _authenticate_and_issue_token(
         session,
         email=credentials.email,
-        remote_ip=remote_ip,
+        password=credentials.password,
+        remote_ip=_request_remote_ip(request),
     )
-    if throttle_state is not None:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many login attempts. Try again later.",
-            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
-        )
 
-    user = await get_auth_user_mapping_by_email(session, credentials.email)
-    if user is None:
-        await record_failed_login(
-            session,
-            email=credentials.email,
-            remote_ip=remote_ip,
-        )
-        await session.commit()
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-    if not verify_password(credentials.password, user["hashed_password"]):
-        await record_failed_login(
-            session,
-            email=credentials.email,
-            remote_ip=remote_ip,
-        )
-        await session.commit()
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-    if not user["is_active"]:
-        await record_failed_login(
-            session,
-            email=credentials.email,
-            remote_ip=remote_ip,
-        )
-        await session.commit()
-        raise HTTPException(status_code=403, detail="User not active")
-    await clear_login_failures(
+@router.post(
+    "/token",
+    response_model=Token,
+    summary="Swagger-compatible OAuth2 password token",
+    description="Use the user's email address in the username field.",
+)
+async def token(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    session: AsyncSession = Depends(get_postgres_session),
+):
+    return await _authenticate_and_issue_token(
         session,
-        email=credentials.email,
-        remote_ip=remote_ip,
+        email=form_data.username,
+        password=form_data.password,
+        remote_ip=_request_remote_ip(request) if request is not None else None,
     )
-    await session.commit()
-    access_token = create_access_token(data={"sub": user["email"]})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "role": user["role"],
-    }
 
 
 @router.get("/me", response_model=UserRead)
