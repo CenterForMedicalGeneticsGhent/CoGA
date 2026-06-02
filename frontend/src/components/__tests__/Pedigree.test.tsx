@@ -75,6 +75,37 @@ test('draws child sibling groups with compact horizontal spacing', async () => {
   expect(regularWidth).toBe(compactWidth);
 });
 
+test('centers parent couples above wide sibling groups', async () => {
+  const rows = [
+    ...baseRows,
+    ...Array.from({ length: 8 }, (_, index) => ({
+      fid: 'F1',
+      iid: `CHILD${index}`,
+      pid: 'DAD',
+      mid: 'MOM',
+      sex: index % 2 === 0 ? '1' : '2',
+      phen: '1',
+    })),
+  ];
+
+  const result = render(<Pedigree rows={rows} />);
+  await waitFor(() =>
+    expect(
+      result.container.querySelector('svg')?.getAttribute('width')
+    ).toBeTruthy()
+  );
+
+  const positions = pedigreePositions(result.container);
+  const parentCenter =
+    (positions.get('DAD')!.x + positions.get('MOM')!.x) / 2;
+  const childXs = Array.from({ length: 8 }, (_, index) =>
+    positions.get(`CHILD${index}`)!.x
+  );
+  const childCenter = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+
+  expect(Math.abs(parentCenter - childCenter)).toBeLessThanOrEqual(2);
+});
+
 test('assigns every generation to a chronological horizontal row', async () => {
   const rows = [
     { fid: 'F1', iid: 'GPA', pid: '0', mid: '0', sex: '1', phen: '1' },
