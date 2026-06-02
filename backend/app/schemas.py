@@ -142,6 +142,7 @@ class FamilyOut(ApiDocumentModel):
     """Schema for families returned by the API."""
 
     family_id: str
+    created_at: datetime
     members: List[FamilyMemberOut] = Field(default_factory=list)
     relationships: List[FamilyRelationshipOut] = Field(default_factory=list)
     structure_version: Optional[FamilyStructureVersionOut] = None

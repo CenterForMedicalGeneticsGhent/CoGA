@@ -30,6 +30,8 @@ interface PageStatus {
   message: string;
 }
 
+type FamilySortKey = 'family_id' | 'created_at' | 'samples' | 'sample_ids';
+
 const EMPTY_FORM: ProjectFormState = {
   name: '',
   description: '',
@@ -38,7 +40,8 @@ const EMPTY_FORM: ProjectFormState = {
   userIds: [],
 };
 
-const pluralize = (count: number, label: string) => `${count} ${label}${count === 1 ? '' : 's'}`;
+const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
+  `${count} ${count === 1 ? singular : plural}`;
 
 const truncateText = (value?: string, maxLength = 110) => {
   const text = (value || '').trim();
@@ -70,6 +73,25 @@ const getUserLabel = (user: User) => {
   return displayName ? `${displayName} · ${user.email}` : user.email;
 };
 
+const uploadedDateMs = (family: Project['families'][number]) => {
+  const timestamp = family.created_at ? Date.parse(family.created_at) : 0;
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const formatUploadedDate = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+};
+
+const familySampleIds = (family: Project['families'][number]) =>
+  family.members.map((member) => member.sample_id);
+
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (typeof error === 'object' && error && 'response' in error) {
     const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
@@ -90,6 +112,8 @@ const ProjectsPage: React.FC = () => {
   const [editForm, setEditForm] = useState<ProjectFormState>(EMPTY_FORM);
   const [busy, setBusy] = useState<string | null>(null);
   const [status, setStatus] = useState<PageStatus | null>(null);
+  const [familySortKey, setFamilySortKey] = useState<FamilySortKey>('created_at');
+  const [familySortAsc, setFamilySortAsc] = useState(false);
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -169,6 +193,35 @@ const ProjectsPage: React.FC = () => {
     () => filteredProjects.find((project) => project.id === selectedProjectId) ?? null,
     [filteredProjects, selectedProjectId],
   );
+
+  const sortedSelectedFamilies = useMemo(() => {
+    if (!selectedProject) return [];
+    const direction = familySortAsc ? 1 : -1;
+    return [...selectedProject.families].sort((left, right) => {
+      let delta = 0;
+      if (familySortKey === 'created_at') {
+        delta = uploadedDateMs(left) - uploadedDateMs(right);
+      } else if (familySortKey === 'samples') {
+        delta = left.members.length - right.members.length;
+      } else if (familySortKey === 'sample_ids') {
+        delta = familySampleIds(left).join(' ').localeCompare(
+          familySampleIds(right).join(' '),
+          undefined,
+          { numeric: true, sensitivity: 'base' },
+        );
+      } else {
+        delta = left.family_id.localeCompare(right.family_id, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }
+      if (delta !== 0) return delta * direction;
+      return left.family_id.localeCompare(right.family_id, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
+  }, [familySortAsc, familySortKey, selectedProject]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -278,6 +331,18 @@ const ProjectsPage: React.FC = () => {
       setBusy(null);
     }
   };
+
+  const handleFamilySort = (key: FamilySortKey) => {
+    if (familySortKey === key) {
+      setFamilySortAsc((currentAsc) => !currentAsc);
+      return;
+    }
+    setFamilySortKey(key);
+    setFamilySortAsc(key === 'created_at' ? false : true);
+  };
+
+  const familySortIndicator = (key: FamilySortKey) =>
+    familySortKey === key ? (familySortAsc ? '▲' : '▼') : '';
 
   return (
     <div className="page-shell project-page space-y-6">
@@ -542,7 +607,7 @@ const ProjectsPage: React.FC = () => {
               </div>
               <div className="project-header-actions">
                 <span className="badge-chip">
-                  {pluralize(selectedProject.families.length, 'family')} ·{' '}
+                  {pluralize(selectedProject.families.length, 'family', 'families')} ·{' '}
                   {pluralize(getProjectSampleCount(selectedProject), 'sample')}
                 </span>
                 {userIsAdmin && (
@@ -617,18 +682,33 @@ const ProjectsPage: React.FC = () => {
                   <h3 className="section-title !text-[1.15rem]">Linked families</h3>
                   {selectedProject.families.length ? (
                     <div className="data-table-shell overflow-x-auto">
-                      <table className="analysis-table">
+                      <table className="analysis-table project-family-table">
                         <thead>
                           <tr>
-                            <th>Family</th>
-                            <th>Samples</th>
-                            <th>Sample IDs</th>
+                            <th className="table-sortable" onClick={() => handleFamilySort('family_id')}>
+                              Family {familySortIndicator('family_id')}
+                            </th>
+                            <th
+                              className="table-sortable project-family-uploaded-header"
+                              onClick={() => handleFamilySort('created_at')}
+                            >
+                              Uploaded {familySortIndicator('created_at')}
+                            </th>
+                            <th className="table-sortable" onClick={() => handleFamilySort('samples')}>
+                              Samples {familySortIndicator('samples')}
+                            </th>
+                            <th className="table-sortable" onClick={() => handleFamilySort('sample_ids')}>
+                              Sample IDs {familySortIndicator('sample_ids')}
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
-                          {selectedProject.families.map((family) => (
+                          {sortedSelectedFamilies.map((family) => (
                             <tr key={family.family_id}>
                               <td>{family.family_id}</td>
+                              <td className="project-family-uploaded-cell" title={family.created_at ?? undefined}>
+                                {formatUploadedDate(family.created_at)}
+                              </td>
                               <td>{family.members.length}</td>
                               <td>
                                 <div className="project-family-samples">

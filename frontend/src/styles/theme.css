@@ -7835,6 +7835,16 @@ a.button-danger:hover {
   gap: 0.45rem;
 }
 
+.project-family-uploaded-header,
+.project-family-uploaded-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-family-table th {
+  white-space: nowrap;
+}
+
 @media (min-width: 1080px) {
   .project-detail-layout {
     grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr);

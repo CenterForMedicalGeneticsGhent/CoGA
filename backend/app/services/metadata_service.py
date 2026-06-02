@@ -166,6 +166,7 @@ def _family_out_from_mapping(
     return FamilyOut(
         id=str(family_mapping["id"]),
         family_id=family_mapping["family_id"],
+        created_at=family_mapping["created_at"],
         members=members,
         relationships=relationships or [],
         structure_version=structure_version,
@@ -698,7 +699,8 @@ async def _fetch_project_family_rows(
             f.roi_assembly_id::text AS roi_assembly_id,
             f.roi_chr,
             f.roi_start,
-            f.roi_end
+            f.roi_end,
+            f.created_at
         FROM family_projects fp
         JOIN families f ON f.id = fp.family_id
         WHERE fp.project_id IN :project_ids
@@ -1001,6 +1003,7 @@ async def _fetch_family_rows(
             f.roi_chr,
             f.roi_start,
             f.roi_end,
+            f.created_at,
             f.metadata,
             COALESCE(
                 ARRAY_AGG(DISTINCT fp.project_id::text)
