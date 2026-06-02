@@ -1,85 +1,85 @@
-name: Deploy
+# name: Deploy
 
-on:
-  workflow_dispatch:
-  workflow_run:
-    workflows: ["Build and push image"]
-    types: [completed]
-    branches: [main, master, add/tf-deploy-scripts]
+# on:
+#   workflow_dispatch:
+#   workflow_run:
+#     workflows: ["Build and push image"]
+#     types: [completed]
+#     branches: [main, master, add/tf-deploy-scripts]
 
-env:
-  COGA_PROJECT_ID: ${{ secrets.GCP_COGA_PROJECT_ID }}
-  REGISTRY_PROJECT_ID: ${{ secrets.GCP_REGISTRY_PROJECT_ID }}
-  WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
-  TF_STATE_BUCKET: ${{ secrets.GCP_COGA_TF_STATE_BUCKET }}
-  GCP_ENV: dev
-  GCP_REGION_SHORT: ${{ vars.GCP_REGION_SHORT }}
-  GCP_REGION: europe-west1
-  REGISTRY_HOST: europe-west1-docker.pkg.dev
+# env:
+#   COGA_PROJECT_ID: ${{ secrets.GCP_COGA_PROJECT_ID }}
+#   REGISTRY_PROJECT_ID: ${{ secrets.GCP_REGISTRY_PROJECT_ID }}
+#   WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+#   TF_STATE_BUCKET: ${{ secrets.GCP_COGA_TF_STATE_BUCKET }}
+#   GCP_ENV: dev
+#   GCP_REGION_SHORT: ${{ vars.GCP_REGION_SHORT }}
+#   GCP_REGION: europe-west1
+#   REGISTRY_HOST: europe-west1-docker.pkg.dev
 
-jobs:
-  deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
+# jobs:
+#   deploy:
+#     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+#     runs-on: ubuntu-latest
+#     permissions:
+#       id-token: write
+#       contents: read
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v4
+#         with:
+#           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Derive image tag
-        id: tag
-        run: |
-          BRANCH="${{ github.event.workflow_run.head_branch }}"
-          if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
-            echo "tag=main" >> $GITHUB_OUTPUT
-          else
-            CLEAN_TAG=$(echo "$BRANCH" | tr '/.' '_')
-            echo "tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
-          fi
-          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-          echo "repo_name=${REPO}" >> $GITHUB_OUTPUT
+#       - name: Derive image tag
+#         id: tag
+#         run: |
+#           BRANCH="${{ github.event.workflow_run.head_branch }}"
+#           if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
+#             echo "tag=main" >> $GITHUB_OUTPUT
+#           else
+#             CLEAN_TAG=$(echo "$BRANCH" | tr '/.' '_')
+#             echo "tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
+#           fi
+#           REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+#           echo "repo_name=${REPO}" >> $GITHUB_OUTPUT
 
-      - name: Authenticate to Google Cloud (WIF)
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ env.WIF_PROVIDER }}
-          service_account: coga-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.COGA_PROJECT_ID }}.iam.gserviceaccount.com
-          project_id: ${{ env.COGA_PROJECT_ID }}
+#       - name: Authenticate to Google Cloud (WIF)
+#         uses: google-github-actions/auth@v2
+#         with:
+#           workload_identity_provider: ${{ env.WIF_PROVIDER }}
+#           service_account: coga-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.COGA_PROJECT_ID }}.iam.gserviceaccount.com
+#           project_id: ${{ env.COGA_PROJECT_ID }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+#       - name: Set up Cloud SDK
+#         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+#       - name: Set up Terraform
+#         uses: hashicorp/setup-terraform@v3
 
-      - name: Terraform Init
-        working-directory: terraform
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
-            -backend-config="prefix=coga/${{ env.GCP_ENV }}"
+#       - name: Terraform Init
+#         working-directory: terraform
+#         run: |
+#           terraform init \
+#             -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+#             -backend-config="prefix=coga/${{ env.GCP_ENV }}"
 
-      - name: Terraform Validate
-        working-directory: terraform
-        run: terraform validate
+#       - name: Terraform Validate
+#         working-directory: terraform
+#         run: terraform validate
 
-      - name: Terraform Plan
-        working-directory: terraform
-        run: |
-          terraform plan \
-            -var="project_id=${{ env.COGA_PROJECT_ID }}" \
-            -var="region=${{ env.GCP_REGION }}" \
-            -var="backend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ steps.tag.outputs.repo_name }}-backend:${{ steps.tag.outputs.tag }}" \
-            -var="frontend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ steps.tag.outputs.repo_name }}-frontend:${{ steps.tag.outputs.tag }}" \
-            -var="pg_db_password=${{ secrets.COGA_PG_DB_PASSWORD }}" \
-            -var="ch_db_password=${{ secrets.COGA_CH_DB_PASSWORD }}" \
-            -out=tfplan
+#       - name: Terraform Plan
+#         working-directory: terraform
+#         run: |
+#           terraform plan \
+#             -var="project_id=${{ env.COGA_PROJECT_ID }}" \
+#             -var="region=${{ env.GCP_REGION }}" \
+#             -var="backend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ steps.tag.outputs.repo_name }}-backend:${{ steps.tag.outputs.tag }}" \
+#             -var="frontend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ steps.tag.outputs.repo_name }}-frontend:${{ steps.tag.outputs.tag }}" \
+#             -var="pg_db_password=${{ secrets.COGA_PG_DB_PASSWORD }}" \
+#             -var="ch_db_password=${{ secrets.COGA_CH_DB_PASSWORD }}" \
+#             -out=tfplan
 
-      - name: Terraform Apply
-        working-directory: terraform
-        run: terraform apply -auto-approve tfplan
+#       - name: Terraform Apply
+#         working-directory: terraform
+#         run: terraform apply -auto-approve tfplan
