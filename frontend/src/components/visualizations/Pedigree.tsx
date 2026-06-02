@@ -34,6 +34,8 @@ interface Props {
   members?: PedigreeMember[];
   relationships?: PedigreeRelationship[];
   inheritanceModel?: string | null;
+  phenotypeSampleIds?: string[];
+  highlightedSampleIds?: string[];
 }
 
 type ParentInfo = {
@@ -926,11 +928,15 @@ const Pedigree: React.FC<Props> = ({
   members = [],
   relationships = [],
   inheritanceModel,
+  phenotypeSampleIds = [],
+  highlightedSampleIds = [],
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     const normalizedInheritance = (inheritanceModel || '').trim().toUpperCase();
+    const phenotypeSampleSet = new Set(phenotypeSampleIds);
+    const highlightedSampleSet = new Set(highlightedSampleIds);
     const layout = layoutPedigree(rows, members, relationships);
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -1088,10 +1094,13 @@ const Pedigree: React.FC<Props> = ({
         member?.clinical_status === 'affected' ||
         member?.affected === true;
       const carrier = isCarrierStatus(member?.carrier_status);
+      const hasPhenotypeAnnotation = phenotypeSampleSet.has(row.iid);
+      const highlighted = highlightedSampleSet.has(row.iid);
       const xLinkedRecessiveFemaleCarrier =
         carrier && normalizedInheritance === 'XLR' && rowSex === '2';
       const fill = affected ? 'black' : 'white';
-      const stroke = 'black';
+      const stroke = highlighted ? '#b91c1c' : 'black';
+      const strokeWidth = highlighted ? 2.4 : 1;
       const generationIndex =
         layout.generationMembers[position.generation]?.indexOf(row.iid) ?? -1;
       const group = svg
@@ -1121,6 +1130,18 @@ const Pedigree: React.FC<Props> = ({
           .attr('clip-path', `url(#${clipId})`);
       };
 
+      if (highlighted) {
+        group
+          .append('circle')
+          .attr('data-phenotype-highlight', row.iid)
+          .attr('cx', 0)
+          .attr('cy', 0)
+          .attr('r', NODE_SIZE / 2 + 8)
+          .attr('fill', 'rgba(185, 28, 28, 0.12)')
+          .attr('stroke', '#b91c1c')
+          .attr('stroke-width', 1.6);
+      }
+
       if (rowSex === '1') {
         const shape = group
           .append('rect')
@@ -1129,7 +1150,8 @@ const Pedigree: React.FC<Props> = ({
           .attr('width', NODE_SIZE)
           .attr('height', NODE_SIZE)
           .attr('fill', fill)
-          .attr('stroke', stroke);
+          .attr('stroke', stroke)
+          .attr('stroke-width', strokeWidth);
         drawCarrierHalfFill(shape);
       } else if (rowSex === '2') {
         const shape = group
@@ -1138,7 +1160,8 @@ const Pedigree: React.FC<Props> = ({
           .attr('cy', 0)
           .attr('r', NODE_SIZE / 2)
           .attr('fill', fill)
-          .attr('stroke', stroke);
+          .attr('stroke', stroke)
+          .attr('stroke-width', strokeWidth);
         drawCarrierHalfFill(shape);
         if (xLinkedRecessiveFemaleCarrier && !affected) {
           group
@@ -1159,8 +1182,23 @@ const Pedigree: React.FC<Props> = ({
           .append('path')
           .attr('d', diamondPath)
           .attr('fill', fill)
-          .attr('stroke', stroke);
+          .attr('stroke', stroke)
+          .attr('stroke-width', strokeWidth);
         drawCarrierHalfFill(shape);
+      }
+
+      if (hasPhenotypeAnnotation) {
+        group
+          .append('circle')
+          .attr('data-phenotype-badge', row.iid)
+          .attr('cx', NODE_SIZE / 2 + 6)
+          .attr('cy', -NODE_SIZE / 2 - 4)
+          .attr('r', 4.5)
+          .attr('fill', '#dc2626')
+          .attr('stroke', 'white')
+          .attr('stroke-width', 1.4)
+          .append('title')
+          .text('HPO phenotype annotation');
       }
 
       group
@@ -1171,7 +1209,7 @@ const Pedigree: React.FC<Props> = ({
         .attr('font-size', member?.role === 'embryo' ? 7 : 8)
         .text(row.iid);
     });
-  }, [rows, members, relationships, inheritanceModel]);
+  }, [rows, members, relationships, inheritanceModel, phenotypeSampleIds, highlightedSampleIds]);
 
   return <svg ref={svgRef} className="pedigree-svg" />;
 };

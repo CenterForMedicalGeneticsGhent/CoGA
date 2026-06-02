@@ -81,6 +81,54 @@ The PED/manual intake populates Postgres metadata tables:
 - `family_projects`
 - `sample_projects`
 
+PED phenotype codes remain coarse affected/unaffected labels. Detailed phenotype observations are
+stored separately as HPO annotations so the pedigree structure can stay compatible with standard
+PED tooling.
+
+## HPO Phenotypes
+
+Load the HPO ontology into the global HPO tables before importing per-individual annotations:
+
+- `hpo_term`
+- `hpo_synonym`
+- `hpo_edge`
+- `hpo_closure`
+
+The backend HPO service accepts `hp.obo` or `hp.json`, stores terms/synonyms/edges, and computes
+the ancestor closure used for descendant queries. The API exposes:
+
+- `GET /hpo/search?q=seizure`
+- `GET /hpo/{hpo_id}`
+- `POST /hpo/import` for admins to load an ontology file visible to the backend host
+
+Per-family HPO annotation APIs:
+
+- `GET /families/{family_id}/hpo`
+- `POST /families/{family_id}/members/{sample_id}/hpo`
+- `PUT /families/{family_id}/hpo/{annotation_id}`
+- `DELETE /families/{family_id}/hpo/{annotation_id}`
+- `GET /families/{family_id}/hpo/query?hpo_id=HP:0001250&include_descendants=true`
+
+Phenotype TSV files use one tab-delimited row per individual term:
+
+```text
+family_id	individual_id	hpo_id	label	status	onset	evidence	source	note
+FAM001	PROBAND	HP:0001250	Seizure	present	childhood	clinical	imported	Observed in chart
+FAM001	MOTHER	HP:0004322	Short stature	absent			imported	Specifically excluded
+```
+
+Assumptions:
+
+- `status` is one of `present`, `absent`, or `unknown`.
+- `individual_id` must match a PED/sample ID in the family.
+- HPO IDs must already exist in the loaded ontology for database import; unknown terms are reported
+  as row-level import errors and skipped.
+- Exact and descendant family queries match `present` annotations only. `absent` annotations are
+  stored for review and exclusion context but do not highlight an individual as matching a
+  phenotype query.
+- Inline manifest HPO annotations are accepted under `individuals.{sample_id}.hpo.present`,
+  `.absent`, and `.unknown`.
+
 ## Family Folder Packages
 
 Admins can start a backend-driven package import from the Family Intake page or through the API.
@@ -122,7 +170,7 @@ The Family Intake UI exposes this flow for admins:
 3. Choose the existing-data policy: cancel, update, or overwrite.
 4. Enter or auto-detect the PED path.
 5. Choose the naming scheme, currently `standard_v1`.
-6. Add HPO terms and optional notes.
+6. Add optional phenotype TSV or inline HPO annotations, plus optional notes.
 7. Discover the package to generate a manifest preview and availability table.
 8. Edit the YAML if needed, write `manifest.yaml`, then run dry-run validation or start import.
 9. Re-open the Family Intake page later and use "Recent family imports" to inspect job status.
@@ -139,6 +187,7 @@ Expected layout:
 FAM001/
   manifest.yaml
   family.ped
+  phenotypes.tsv
   snv/
     family.annotated.vcf.gz
     family.annotated.vcf.gz.tbi
@@ -339,6 +388,18 @@ metadata:
     - HP:0004322
   notes: Example family import
 
+phenotypes:
+  file: phenotypes.tsv
+  format: hpo_tsv
+
+individuals:
+  PROBAND:
+    hpo:
+      present:
+        - HP:0001250
+      absent:
+        - HP:0004322
+
 samples:
   SAMPLE1:
     external_id: lab-SAMPLE1
@@ -406,6 +467,8 @@ Validation rules:
 - the PED file must exist, parse as six-column PED, contain a single family, and match `family_id`
 - sample IDs must be unique; non-zero parent IDs must refer to samples in the PED
 - manifest `samples` and per-sample datasets must reference PED sample IDs
+- manifest `phenotypes.file` must exist when provided, use `format: hpo_tsv`, and reference PED
+  sample IDs; malformed rows are reported as warnings and skipped during import
 - referenced files must exist
 - VCF/BCF datasets must include an index path or have a sibling `.tbi`, `.csi`, or `.idx`; uncompressed `repeats_trgt` `.vcf` files are accepted without an index
 - unsupported dataset keys are validation errors
@@ -418,8 +481,10 @@ QDNAseq CSV bins as `coverage`, QDNAseq segment CSVs as `segments`, Needlr famil
 ClickHouse structural variants with source `needlr`, family or sample APCAD VCF/TSV/BED files as
 APCAD interval tracks, sample-scoped TRGT VCFs, family TRGT VCFs into the repeat expansion table,
 family GLIMPSE2 VCFs as small variants plus haplotype blocks, and sample-scoped Paraphase JSON into
-`sample_paraphase_results`. Direct per-sample GLIMPSE2 BCF haplotypes are still registered as
-provenance until a dedicated BCF importer is added. Imported Paraphase results are
+`sample_paraphase_results`. Valid HPO phenotype rows are upserted into `individual_hpo`; invalid
+phenotype rows are recorded in the `phenotypes` package summary without blocking genomic dataset
+imports. Direct per-sample GLIMPSE2 BCF haplotypes are still registered as provenance until a
+dedicated BCF importer is added. Imported Paraphase results are
 available from the family workspace Paraphase page and `GET /families/{family_id}/paraphase`.
 The Paraphase page uses the curated medically relevant region catalog at
 `/data/ref-data/paraphase-medical-regions.json`, with the bundled

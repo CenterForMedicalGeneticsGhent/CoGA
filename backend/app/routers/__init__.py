@@ -21,6 +21,7 @@ from . import (
     repeat_expansions,
     family_imports,
     product,
+    hpo,
 )
 
 all_routers = [
@@ -44,6 +45,7 @@ all_routers = [
     repeat_expansions.router,
     family_imports.router,
     product.router,
+    hpo.router,
 ]
 
 __all__ = ["all_routers"]

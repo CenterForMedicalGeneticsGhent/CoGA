@@ -10,6 +10,7 @@ import api from '../../../lib/api';
 const mockApiState = vi.hoisted(() => ({
   smallVariantTotal: 1,
   structuralVariantTotal: 1,
+  hpoAnnotations: [] as unknown[],
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -34,6 +35,14 @@ vi.mock('../../../lib/api', () => ({
               end: 43125482,
             },
           },
+        });
+      }
+      if (url === '/families/F1/hpo') {
+        return Promise.resolve({ data: mockApiState.hpoAnnotations });
+      }
+      if (url === '/hpo/search') {
+        return Promise.resolve({
+          data: [{ hpo_id: 'HP:0001250', label: 'Seizure', definition: null, is_obsolete: false }],
         });
       }
       if (url.startsWith('/families/F1/structural-variants')) {
@@ -150,6 +159,7 @@ describe('FamilyDetailPage', () => {
     localStorage.clear();
     mockApiState.smallVariantTotal = 1;
     mockApiState.structuralVariantTotal = 1;
+    mockApiState.hpoAnnotations = [];
     vi.mocked(api.put).mockReset();
   });
 
@@ -235,6 +245,44 @@ describe('FamilyDetailPage', () => {
     await waitFor(() =>
       expect(screen.getByText(/No family variant data is loaded yet/i)).toBeInTheDocument(),
     );
+  });
+
+  it('shows HPO phenotype annotations on the family detail page', async () => {
+    mockApiState.hpoAnnotations = [
+      {
+        id: 'hpo1',
+        sample_id: 'S1',
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        status: 'present',
+        onset: null,
+        evidence: null,
+        source: 'manual',
+        note: 'Observed',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ];
+    localStorage.setItem('role', 'viewer');
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: /phenotypes/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('HP:0001250')).toBeInTheDocument();
+      expect(screen.getByText('Seizure')).toBeInTheDocument();
+      expect(screen.getAllByText('present').length).toBeGreaterThan(0);
+    });
   });
 
   it('preserves the selected project in variant workspace links', async () => {

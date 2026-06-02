@@ -122,6 +122,30 @@ test('assigns every generation to a chronological horizontal row', async () => {
   expect(positions.get('PROBAND')?.y).toBe(positions.get('PARTNER')?.y);
 });
 
+test('draws phenotype badges and active HPO highlights', async () => {
+  const rows = [
+    { fid: 'F1', iid: 'DAD', pid: '0', mid: '0', sex: '1', phen: '1' },
+    { fid: 'F1', iid: 'MOM', pid: '0', mid: '0', sex: '2', phen: '1' },
+    { fid: 'F1', iid: 'CHILD', pid: 'DAD', mid: 'MOM', sex: '2', phen: '2' },
+  ];
+
+  const result = render(
+    <Pedigree
+      rows={rows}
+      phenotypeSampleIds={['CHILD']}
+      highlightedSampleIds={['CHILD']}
+    />
+  );
+  await waitFor(() =>
+    expect(
+      result.container.querySelector('svg')?.getAttribute('width')
+    ).toBeTruthy()
+  );
+
+  expect(result.container.querySelector('[data-phenotype-badge="CHILD"]')).toBeTruthy();
+  expect(result.container.querySelector('[data-phenotype-highlight="CHILD"]')).toBeTruthy();
+});
+
 test('keeps multiple partnerships adjacent and centers half-sibling branches', async () => {
   const rows = [
     { fid: 'F1', iid: 'DAD', pid: '0', mid: '0', sex: '1', phen: '1' },
