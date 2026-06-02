@@ -3,6 +3,16 @@ variable "project_id" {
   type        = string
 }
 
+variable "backend_image" {
+  description = "Full backend container image URL, e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-backend:<tag>"
+  type        = string
+}
+
+variable "frontend_image" {
+  description = "Full frontend container image URL, e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-frontend:<tag>"
+  type        = string
+}
+
 variable "region" {
   description = "Primary region for Cloud Run and Artifact Registry"
   type        = string

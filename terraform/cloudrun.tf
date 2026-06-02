@@ -10,7 +10,7 @@ resource "google_cloud_run_v2_service" "backend" {
 
   template {
     containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/coga-repo/backend:latest"
+      image = var.backend_image
       ports {
         container_port = 8000
       }
@@ -59,7 +59,7 @@ resource "google_cloud_run_v2_service" "frontend" {
 
   template {
     containers {
-      image = "${var.region}-docker.pkg.dev/${var.project_id}/coga-repo/frontend:latest"
+      image = var.frontend_image
       ports {
         container_port = 3000
       }
