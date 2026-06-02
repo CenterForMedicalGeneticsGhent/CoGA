@@ -5,6 +5,9 @@ import api from '../../lib/api';
 import type {
   ApiFamilyRecord,
   ApiFamilyRegionOfInterest,
+  ApiHpoAnnotation,
+  ApiHpoFamilyQuery,
+  ApiHpoTerm,
   ApiPaginatedTotalResponse,
   ApiSmallVariantReviewSummary,
 } from '../../lib/apiTypes';
@@ -37,6 +40,7 @@ interface PedRow {
 type ClinicalStatus = 'unknown' | 'unaffected' | 'affected';
 type CarrierStatus = 'unknown' | 'not_carrier' | 'carrier';
 type CarrierType = 'obligate' | 'proven' | 'reported' | 'inferred';
+type HpoAnnotationStatus = 'present' | 'absent' | 'unknown';
 
 interface StructureMemberDraft {
   sample_id: string;
@@ -76,6 +80,7 @@ const CLINICAL_STATUS_OPTIONS: ClinicalStatus[] = ['unknown', 'unaffected', 'aff
 const CARRIER_STATUS_OPTIONS: CarrierStatus[] = ['unknown', 'not_carrier', 'carrier'];
 const CARRIER_TYPE_OPTIONS: CarrierType[] = ['proven', 'obligate', 'reported', 'inferred'];
 const PARENT_ROLE_OPTIONS: ParentChildDraft['parent_role'][] = ['father', 'mother', 'parent'];
+const HPO_STATUS_OPTIONS: HpoAnnotationStatus[] = ['present', 'absent', 'unknown'];
 
 const defaultNewMember: StructureMemberDraft = {
   sample_id: '',
@@ -99,6 +104,8 @@ const parsePedigree = (pedigree?: string | null): PedRow[] => {
 };
 
 const sampleKey = (sampleId: string): string => sampleId.trim().toLowerCase();
+
+const formatHpoTermOption = (term: ApiHpoTerm): string => `${term.hpo_id} ${term.label}`;
 
 const clinicalStatusForMember = (member: {
   clinical_status?: string | null;
@@ -221,6 +228,14 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
     message: string;
   } | null>(null);
   const [clearExistingGenomicData, setClearExistingGenomicData] = useState(false);
+  const [hpoMemberId, setHpoMemberId] = useState('');
+  const [hpoSearchInput, setHpoSearchInput] = useState('');
+  const [selectedHpoTerm, setSelectedHpoTerm] = useState<ApiHpoTerm | null>(null);
+  const [hpoAnnotationStatus, setHpoAnnotationStatus] = useState<HpoAnnotationStatus>('present');
+  const [hpoNote, setHpoNote] = useState('');
+  const [hpoIncludeDescendants, setHpoIncludeDescendants] = useState(true);
+  const [hpoBusy, setHpoBusy] = useState(false);
+  const [hpoStatus, setHpoStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
 
   const { data, isLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
@@ -311,6 +326,38 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
       return res.data as SmallVariantTagDefinition[];
     },
   });
+  const { data: hpoAnnotations = [] } = useQuery<ApiHpoAnnotation[]>({
+    queryKey: ['family', familyId, 'hpo'],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/hpo`);
+      return res.data as ApiHpoAnnotation[];
+    },
+  });
+  const hpoSearchQuery = hpoSearchInput.trim();
+  const { data: hpoSearchResults = [] } = useQuery<ApiHpoTerm[]>({
+    queryKey: ['hpo-search', hpoSearchQuery],
+    enabled: hpoSearchQuery.length >= 2,
+    queryFn: async () => {
+      const res = await api.get('/hpo/search', {
+        params: { q: hpoSearchQuery, limit: 8 },
+      });
+      return res.data as ApiHpoTerm[];
+    },
+  });
+  const { data: hpoQueryResult } = useQuery<ApiHpoFamilyQuery>({
+    queryKey: ['family', familyId, 'hpo-query', selectedHpoTerm?.hpo_id || null, hpoIncludeDescendants],
+    enabled: Boolean(familyId && selectedHpoTerm?.hpo_id),
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/hpo/query`, {
+        params: {
+          hpo_id: selectedHpoTerm!.hpo_id,
+          include_descendants: hpoIncludeDescendants,
+        },
+      });
+      return res.data as ApiHpoFamilyQuery;
+    },
+  });
 
   const familyProjects = useMemo(() => {
     if (!data?.projects?.length) return [];
@@ -333,6 +380,25 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
   }, [structuralReviewSummary?.tag_counts, structuralVariantTags]);
   const variantPageQuerySuffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : '';
   const pedRows = useMemo(() => parsePedigree(data?.pedigree), [data?.pedigree]);
+  const orderedMembers = useMemo(
+    () => sortFamilyMembersProbandFirst(data?.members || []),
+    [data?.members],
+  );
+  const hpoAnnotationsBySample = useMemo(() => {
+    return hpoAnnotations.reduce<Record<string, ApiHpoAnnotation[]>>((acc, annotation) => {
+      acc[annotation.sample_id] = acc[annotation.sample_id] || [];
+      acc[annotation.sample_id].push(annotation);
+      return acc;
+    }, {});
+  }, [hpoAnnotations]);
+  const phenotypeSampleIds = useMemo(
+    () => Object.keys(hpoAnnotationsBySample),
+    [hpoAnnotationsBySample],
+  );
+  const highlightedHpoSampleIds = useMemo(
+    () => hpoQueryResult?.sample_ids || [],
+    [hpoQueryResult?.sample_ids],
+  );
 
   useEffect(() => {
     setRoiInput(data?.roi?.query ?? '');
@@ -351,6 +417,19 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
     setNewMember(defaultNewMember);
     setClearExistingGenomicData(false);
   }, [data]);
+
+  useEffect(() => {
+    if (!orderedMembers.length) {
+      setHpoMemberId('');
+      return;
+    }
+    setHpoMemberId((current) => {
+      if (current && orderedMembers.some((member) => member.sample_id === current)) {
+        return current;
+      }
+      return orderedMembers[0].sample_id;
+    });
+  }, [orderedMembers]);
 
   if (isLoading) {
     return (
@@ -371,8 +450,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
       />
     );
   }
-
-  const orderedMembers = sortFamilyMembersProbandFirst(data.members);
 
   const saveRoi = async (clear = false) => {
     if (!familyId) return;
@@ -603,6 +680,70 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
     }
   };
 
+  const selectHpoTerm = (term: ApiHpoTerm) => {
+    setSelectedHpoTerm(term);
+    setHpoSearchInput(formatHpoTermOption(term));
+  };
+
+  const updateHpoSearchInput = (value: string) => {
+    setHpoSearchInput(value);
+    const normalizedValue = value.trim().toLowerCase();
+    const matchedTerm = hpoSearchResults.find((term) => {
+      return (
+        term.hpo_id.toLowerCase() === normalizedValue ||
+        formatHpoTermOption(term).toLowerCase() === normalizedValue
+      );
+    });
+    setSelectedHpoTerm(matchedTerm ?? null);
+  };
+
+  const addHpoAnnotation = async () => {
+    if (!familyId || !selectedHpoTerm || !hpoMemberId) {
+      setHpoStatus({ tone: 'error', message: 'Select a family member and HPO term.' });
+      return;
+    }
+    setHpoBusy(true);
+    setHpoStatus(null);
+    try {
+      await api.post(`/families/${familyId}/members/${encodeURIComponent(hpoMemberId)}/hpo`, {
+        hpo_id: selectedHpoTerm.hpo_id,
+        status: hpoAnnotationStatus,
+        source: 'manual',
+        note: hpoNote.trim() || null,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo-query'] });
+      setHpoNote('');
+      setHpoStatus({ tone: 'success', message: 'Phenotype annotation saved.' });
+    } catch (error) {
+      setHpoStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'Failed to save phenotype annotation.'),
+      });
+    } finally {
+      setHpoBusy(false);
+    }
+  };
+
+  const removeHpoAnnotation = async (annotationId: string) => {
+    if (!familyId) return;
+    setHpoBusy(true);
+    setHpoStatus(null);
+    try {
+      await api.delete(`/families/${familyId}/hpo/${annotationId}`);
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo-query'] });
+      setHpoStatus({ tone: 'success', message: 'Phenotype annotation removed.' });
+    } catch (error) {
+      setHpoStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'Failed to remove phenotype annotation.'),
+      });
+    } finally {
+      setHpoBusy(false);
+    }
+  };
+
   return (
     <div className="page-shell family-detail-page space-y-6">
       <section className="surface-card page-top-card">
@@ -707,6 +848,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                     members={data.members}
                     relationships={data.relationships}
                     inheritanceModel={(data.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
+                    phenotypeSampleIds={phenotypeSampleIds}
+                    highlightedSampleIds={highlightedHpoSampleIds}
                   />
                 </div>
               </div>
@@ -855,6 +998,192 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
             </div>
           )}
         </article>
+      </section>
+
+      <section className="surface-card family-phenotypes-card space-y-4">
+        <div className="family-workspace-card-head">
+          <div>
+            <h2 className="section-title">Phenotypes</h2>
+          </div>
+          <div className="compact-toolbar family-toolbar">
+            <span className="table-chip">{hpoAnnotations.length} annotations</span>
+            {selectedHpoTerm && (
+              <span className="table-chip table-chip--critical">
+                {highlightedHpoSampleIds.length} highlighted
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="family-hpo-controls">
+          <label className="field-label">
+            Member
+            <select
+              value={hpoMemberId}
+              onChange={(event) => setHpoMemberId(event.target.value)}
+              disabled={hpoBusy || orderedMembers.length === 0}
+            >
+              {orderedMembers.map((member) => (
+                <option key={member.sample_id} value={member.sample_id}>
+                  {member.sample_id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label family-hpo-term-field">
+            HPO term
+            <input
+              type="text"
+              value={hpoSearchInput}
+              onChange={(event) => updateHpoSearchInput(event.target.value)}
+              placeholder="HP:0001250 or seizure"
+              disabled={hpoBusy}
+              list={`hpo-term-options-${data.family_id}`}
+            />
+            <datalist id={`hpo-term-options-${data.family_id}`}>
+              {hpoSearchResults.map((term) => (
+                <option key={term.hpo_id} value={formatHpoTermOption(term)} />
+              ))}
+            </datalist>
+          </label>
+          <label className="field-label">
+            Status
+            <select
+              value={hpoAnnotationStatus}
+              onChange={(event) => setHpoAnnotationStatus(event.target.value as HpoAnnotationStatus)}
+              disabled={hpoBusy}
+            >
+              {HPO_STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label family-hpo-note-field">
+            Note
+            <input
+              type="text"
+              value={hpoNote}
+              onChange={(event) => setHpoNote(event.target.value)}
+              disabled={hpoBusy}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={addHpoAnnotation}
+            disabled={hpoBusy || !selectedHpoTerm || !hpoMemberId}
+          >
+            Add phenotype
+          </button>
+        </div>
+
+        {hpoSearchResults.length > 0 && hpoSearchQuery.length >= 2 && (
+          <div className="family-hpo-term-results" aria-label="HPO search results">
+            {hpoSearchResults.map((term) => (
+              <button
+                key={term.hpo_id}
+                type="button"
+                className={`button-ghost family-hpo-term-button${
+                  selectedHpoTerm?.hpo_id === term.hpo_id ? ' family-hpo-term-button--selected' : ''
+                }`}
+                onClick={() => selectHpoTerm(term)}
+              >
+                <span>{term.hpo_id}</span>
+                <strong>{term.label}</strong>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="compact-toolbar family-toolbar">
+          <label className="variant-compact-checkbox">
+            <input
+              type="checkbox"
+              checked={hpoIncludeDescendants}
+              onChange={(event) => setHpoIncludeDescendants(event.target.checked)}
+              disabled={!selectedHpoTerm}
+            />
+            Include descendants
+          </label>
+          {selectedHpoTerm && (
+            <>
+              <span className="table-chip">
+                {selectedHpoTerm.hpo_id} {selectedHpoTerm.label}
+              </span>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => {
+                  setSelectedHpoTerm(null);
+                  setHpoSearchInput('');
+                }}
+              >
+                Clear highlight
+              </button>
+            </>
+          )}
+        </div>
+
+        {hpoStatus && (
+          <div
+            className={`status-note ${
+              hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+            }`}
+          >
+            {hpoStatus.message}
+          </div>
+        )}
+
+        <div className="data-table-shell overflow-x-auto">
+          <table className="analysis-table family-hpo-table">
+            <thead>
+              <tr>
+                <th>Sample</th>
+                <th>Phenotype terms</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orderedMembers.map((member) => {
+                const annotations = hpoAnnotationsBySample[member.sample_id] || [];
+                return (
+                  <tr key={member.sample_id}>
+                    <td>{member.sample_id}</td>
+                    <td>
+                      {annotations.length ? (
+                        <div className="family-hpo-chip-list">
+                          {annotations.map((annotation) => (
+                            <span
+                              key={annotation.id}
+                              className={`table-chip family-hpo-chip family-hpo-chip--${annotation.status}`}
+                              title={[annotation.onset, annotation.evidence, annotation.note]
+                                .filter(Boolean)
+                                .join(' | ')}
+                            >
+                              <span>{annotation.hpo_id}</span>
+                              <strong>{annotation.label}</strong>
+                              <em>{annotation.status}</em>
+                              <button
+                                type="button"
+                                className="button-ghost"
+                                onClick={() => removeHpoAnnotation(annotation.id)}
+                                disabled={hpoBusy}
+                              >
+                                Remove
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="dashboard-link-note">No HPO annotations</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="surface-card family-members-card space-y-3">

@@ -55,6 +55,13 @@ from .family_metadata_context import (
     SampleMetadataContext,
     build_family_metadata_context,
 )
+from .hpo_service import (
+    HpoAnnotationImportIssue,
+    HpoAnnotationImportRow,
+    import_family_hpo_annotations,
+    parse_hpo_tsv_path,
+    parse_manifest_inline_hpo,
+)
 from .metadata_service import CurrentUser, get_current_user_by_email
 from . import ped_service
 from .repeat_expansion_pg import (
@@ -351,6 +358,14 @@ class ManifestDataset(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
+class ManifestPhenotypes(BaseModel):
+    enabled: bool = True
+    file: str | None = None
+    format: str = "hpo_tsv"
+
+    model_config = ConfigDict(extra="allow")
+
+
 class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
@@ -358,6 +373,7 @@ class PackageManifest(BaseModel):
     roi: str | dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     samples: dict[str, Any] | list[Any] | None = None
+    phenotypes: ManifestPhenotypes | None = None
     datasets: dict[str, ManifestDataset] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="allow")
@@ -1696,6 +1712,153 @@ def _validate_dataset(
     return FamilyImportDatasetSummary(dataset_type=dataset_type, enabled=True, status="error")
 
 
+def _manifest_individuals(manifest: PackageManifest) -> Any:
+    return getattr(manifest, "individuals", None)
+
+
+def _hpo_issue_to_validation_issue(
+    issue: HpoAnnotationImportIssue,
+    *,
+    path: Path | None = None,
+) -> FamilyImportValidationIssue:
+    location = f"line {issue.line_no}: " if issue.line_no else ""
+    return _issue(
+        issue.code,
+        f"{location}{issue.message}",
+        dataset="phenotypes",
+        sample_id=issue.sample_id,
+        path=path,
+    )
+
+
+def _manifest_hpo_rows(
+    *,
+    root: Path,
+    manifest: PackageManifest,
+    family_id: str,
+) -> tuple[list[HpoAnnotationImportRow], list[HpoAnnotationImportIssue], list[str], list[FamilyImportValidationIssue]]:
+    rows: list[HpoAnnotationImportRow] = []
+    issues: list[HpoAnnotationImportIssue] = []
+    files: list[str] = []
+    fatal_errors: list[FamilyImportValidationIssue] = []
+
+    phenotype_config = manifest.phenotypes
+    if phenotype_config is not None and phenotype_config.enabled:
+        phenotype_format = phenotype_config.format.strip().lower()
+        if phenotype_format != "hpo_tsv":
+            fatal_errors.append(
+                _issue(
+                    "phenotype_format_unsupported",
+                    f"Unsupported phenotypes format '{phenotype_config.format}'; expected hpo_tsv",
+                    dataset="phenotypes",
+                )
+            )
+        elif not phenotype_config.file:
+            fatal_errors.append(
+                _issue(
+                    "phenotype_file_missing_path",
+                    "Phenotypes manifest must define a file path",
+                    dataset="phenotypes",
+                )
+            )
+        else:
+            phenotype_path = _resolve_package_path(root, phenotype_config.file)
+            if phenotype_path is None:
+                fatal_errors.append(
+                    _issue(
+                        "phenotype_file_missing_path",
+                        "Phenotypes manifest must define a file path",
+                        dataset="phenotypes",
+                    )
+                )
+            else:
+                files.append(_display_path(root, phenotype_path))
+                if not phenotype_path.is_file():
+                    fatal_errors.append(
+                        _issue(
+                            "phenotype_file_missing",
+                            f"Phenotype TSV does not exist: {_display_path(root, phenotype_path)}",
+                            dataset="phenotypes",
+                            path=phenotype_path,
+                        )
+                    )
+                else:
+                    parsed_rows, parsed_issues = parse_hpo_tsv_path(
+                        phenotype_path,
+                        expected_family_id=family_id,
+                        default_source=f"family_package:{phenotype_path.name}",
+                    )
+                    rows.extend(parsed_rows)
+                    issues.extend(parsed_issues)
+    inline_rows, inline_issues = parse_manifest_inline_hpo(
+        _manifest_individuals(manifest),
+        family_id=family_id,
+    )
+    rows.extend(inline_rows)
+    issues.extend(inline_issues)
+    return rows, issues, files, fatal_errors
+
+
+def _validate_manifest_hpo_annotations(
+    *,
+    root: Path,
+    manifest: PackageManifest,
+    family_id: str,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+    warnings: list[FamilyImportValidationIssue],
+) -> FamilyImportDatasetSummary | None:
+    has_phenotype_block = manifest.phenotypes is not None
+    has_inline_block = _manifest_individuals(manifest) is not None
+    if not has_phenotype_block and not has_inline_block:
+        return None
+    if manifest.phenotypes is not None and not manifest.phenotypes.enabled and not has_inline_block:
+        return FamilyImportDatasetSummary(
+            dataset_type="phenotypes",
+            enabled=False,
+            status="disabled",
+            message="Phenotype import disabled in manifest",
+        )
+    before_errors = len(errors)
+    before_warnings = len(warnings)
+    rows, issues, files, fatal_errors = _manifest_hpo_rows(
+        root=root,
+        manifest=manifest,
+        family_id=family_id,
+    )
+    errors.extend(fatal_errors)
+    for issue in issues:
+        warnings.append(_hpo_issue_to_validation_issue(issue))
+    for row in rows:
+        if row.individual_id not in ped_sample_ids:
+            warnings.append(
+                _issue(
+                    "phenotype_sample_unknown",
+                    f"Phenotype annotation references '{row.individual_id}', which is not present in the PED",
+                    dataset="phenotypes",
+                    sample_id=row.individual_id,
+                )
+            )
+    status = "error" if len(errors) > before_errors else "warning" if len(warnings) > before_warnings else "valid"
+    return FamilyImportDatasetSummary(
+        dataset_type="phenotypes",
+        enabled=True,
+        status=status,
+        files=list(dict.fromkeys(files)),
+        samples=sorted({row.individual_id for row in rows}),
+        message=(
+            f"Validated {len(rows)} HPO phenotype annotation row(s)"
+            if rows
+            else "No valid HPO phenotype annotation rows were found"
+        ),
+        summary={
+            "rows": len(rows),
+            "issues": len(issues),
+            "assumption": "PED files remain structural; per-individual HPO annotations are imported from phenotypes.tsv or manifest individuals.*.hpo.",
+        },
+    )
+
+
 def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
@@ -1852,6 +2015,16 @@ def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackag
                     errors=errors,
                 )
             )
+        phenotype_summary = _validate_manifest_hpo_annotations(
+            root=root,
+            manifest=manifest,
+            family_id=family_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+            warnings=warnings,
+        )
+        if phenotype_summary is not None:
+            summaries.append(phenotype_summary)
         _add_missing_optional_dataset_warnings(warnings, summaries, present_datasets)
 
     validation = FamilyPackageValidationOut(
@@ -5687,6 +5860,57 @@ async def _import_paraphase_dataset(
     )
 
 
+async def _import_phenotypes_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    summary: FamilyImportDatasetSummary,
+    family_context: FamilyMetadataContext,
+    sample_contexts: dict[str, SampleMetadataContext],
+) -> FamilyImportDatasetSummary:
+    rows, issues, _files, fatal_errors = _manifest_hpo_rows(
+        root=bundle.root,
+        manifest=bundle.manifest,
+        family_id=family_context.family_id,
+    )
+    if fatal_errors:
+        return summary.model_copy(
+            update={
+                "status": "failed",
+                "message": "; ".join(error.message for error in fatal_errors),
+                "summary": {"errors": [error.model_dump() for error in fatal_errors]},
+            }
+        )
+    result = await import_family_hpo_annotations(
+        session,
+        family_uuid=family_context.family_uuid,
+        family_id=family_context.family_id,
+        sample_uuids_by_id={
+            sample_id: sample_context.sample_uuid
+            for sample_id, sample_context in sample_contexts.items()
+        },
+        rows=rows,
+        issues=issues,
+    )
+    status = "imported" if result["imported"] else "skipped"
+    if result["errors"]:
+        status = "warning" if result["imported"] else "skipped"
+    return summary.model_copy(
+        update={
+            "status": status,
+            "message": (
+                f"Imported {result['imported']} HPO phenotype annotation row(s)"
+                if result["imported"]
+                else "No HPO phenotype annotation rows were imported"
+            ),
+            "summary": {
+                **result,
+                "assumption": "PED phenotype remains coarse affected/unaffected status; detailed HPO phenotypes are stored in individual_hpo.",
+            },
+        }
+    )
+
+
 async def _import_dataset(
     session: AsyncSession,
     *,
@@ -5697,6 +5921,14 @@ async def _import_dataset(
     conflict_mode: str = "overwrite",
     progress: DatasetProgressCallback | None = None,
 ) -> FamilyImportDatasetSummary:
+    if summary.dataset_type == "phenotypes":
+        return await _import_phenotypes_dataset(
+            session,
+            bundle=bundle,
+            summary=summary,
+            family_context=family_context,
+            sample_contexts=sample_contexts,
+        )
     dataset = bundle.manifest.datasets.get(summary.dataset_type)
     if dataset is None or not dataset.enabled:
         return summary

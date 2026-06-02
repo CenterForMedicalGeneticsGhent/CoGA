@@ -1485,6 +1485,121 @@ tbody tr:hover {
   font-size: 0.72rem;
 }
 
+.family-phenotypes-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.family-hpo-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.family-hpo-controls .field-label {
+  margin: 0;
+}
+
+.family-hpo-controls > button {
+  min-height: 2.45rem;
+}
+
+.family-hpo-term-field,
+.family-hpo-note-field {
+  min-width: min(100%, 14rem);
+}
+
+.family-hpo-term-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.family-hpo-term-button {
+  display: inline-flex;
+  max-width: min(100%, 24rem);
+  justify-content: flex-start;
+  gap: 0.4rem;
+  text-align: left;
+  white-space: normal;
+}
+
+.family-hpo-term-button span {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.family-hpo-term-button strong {
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.family-hpo-term-button--selected {
+  border-color: rgba(185, 28, 28, 0.28);
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.family-hpo-table td:last-child {
+  min-width: 18rem;
+}
+
+.family-hpo-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.family-hpo-chip {
+  max-width: 100%;
+  gap: 0.34rem;
+  white-space: normal;
+}
+
+.family-hpo-chip span {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.family-hpo-chip strong {
+  color: inherit;
+  font-weight: 750;
+}
+
+.family-hpo-chip em {
+  color: inherit;
+  font-size: 0.66rem;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.family-hpo-chip .button-ghost {
+  min-height: 1.55rem;
+  padding: 0.18rem 0.36rem;
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+}
+
+.family-hpo-chip--present {
+  border-color: rgba(185, 28, 28, 0.22);
+  background: rgba(185, 28, 28, 0.08);
+  color: #8f1d1d;
+}
+
+.family-hpo-chip--absent {
+  border-color: rgba(22, 101, 52, 0.2);
+  background: rgba(22, 101, 52, 0.08);
+  color: #166534;
+}
+
+.family-hpo-chip--unknown {
+  border-color: rgba(82, 111, 161, 0.2);
+  background: rgba(82, 111, 161, 0.08);
+  color: #466592;
+}
+
 @media (min-width: 980px) {
   .dashboard-catalog-header {
     grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);

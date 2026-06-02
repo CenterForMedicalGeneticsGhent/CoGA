@@ -70,6 +70,34 @@ export interface ApiFamilyRecord extends ApiFamilyBase<ApiFamilyMember> {
   metadata?: Record<string, unknown>;
 }
 
+export interface ApiHpoTerm {
+  hpo_id: string;
+  label: string;
+  definition?: string | null;
+  is_obsolete?: boolean;
+}
+
+export interface ApiHpoAnnotation {
+  id: string;
+  sample_id: string;
+  hpo_id: string;
+  label: string;
+  status: 'present' | 'absent' | 'unknown';
+  onset?: string | null;
+  evidence?: string | null;
+  source: string;
+  note?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiHpoFamilyQuery {
+  hpo_id: string;
+  include_descendants: boolean;
+  sample_ids: string[];
+  annotations: ApiHpoAnnotation[];
+}
+
 export interface ApiSmallVariantReviewSummary {
   reviewed_variant_count: number;
   note_count: number;

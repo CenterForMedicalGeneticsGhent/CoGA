@@ -15,6 +15,10 @@ from ..schemas import (
     FamilyStructureUpdateOut,
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
+    HpoAnnotationCreate,
+    HpoAnnotationOut,
+    HpoAnnotationUpdate,
+    HpoFamilyQueryOut,
     RepeatExpansionTrackResponse,
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
@@ -45,6 +49,13 @@ from ..services.family_service import (
     update_family_roi_for_admin,
 )
 from ..services.family_structure_service import update_family_structure_for_admin
+from ..services.hpo_service import (
+    create_individual_hpo_annotation,
+    delete_individual_hpo_annotation,
+    list_family_hpo_annotations,
+    query_family_hpo_annotations,
+    update_individual_hpo_annotation,
+)
 from ..services.metadata_service import CurrentUser
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.paraphase_pg import get_family_paraphase_table_response
@@ -176,6 +187,108 @@ async def update_family_structure(
         update=update,
         user=user,
     )
+
+
+@router.get("/{family_id}/hpo", response_model=List[HpoAnnotationOut])
+async def list_family_hpo(
+    family_id: str,
+    sample_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> List[HpoAnnotationOut]:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    return await list_family_hpo_annotations(
+        session,
+        family_uuid=context.family_uuid,
+        sample_id=sample_id,
+    )
+
+
+@router.get("/{family_id}/hpo/query", response_model=HpoFamilyQueryOut)
+async def query_family_hpo(
+    family_id: str,
+    hpo_id: str = Query(min_length=1),
+    include_descendants: bool = True,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> HpoFamilyQueryOut:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    return await query_family_hpo_annotations(
+        session,
+        family_uuid=context.family_uuid,
+        hpo_id=hpo_id,
+        include_descendants=include_descendants,
+    )
+
+
+@router.post("/{family_id}/members/{sample_id}/hpo", response_model=HpoAnnotationOut)
+async def create_family_member_hpo(
+    family_id: str,
+    sample_id: str,
+    annotation: HpoAnnotationCreate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> HpoAnnotationOut:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    return await create_individual_hpo_annotation(
+        session,
+        family_uuid=context.family_uuid,
+        sample_id=sample_id,
+        payload=annotation,
+    )
+
+
+@router.put("/{family_id}/hpo/{annotation_id}", response_model=HpoAnnotationOut)
+async def update_family_hpo(
+    family_id: str,
+    annotation_id: str,
+    annotation: HpoAnnotationUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> HpoAnnotationOut:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    return await update_individual_hpo_annotation(
+        session,
+        family_uuid=context.family_uuid,
+        annotation_id=annotation_id,
+        payload=annotation,
+    )
+
+
+@router.delete("/{family_id}/hpo/{annotation_id}", status_code=204)
+async def delete_family_hpo(
+    family_id: str,
+    annotation_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> Response:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    await delete_individual_hpo_annotation(
+        session,
+        family_uuid=context.family_uuid,
+        annotation_id=annotation_id,
+    )
+    return Response(status_code=204)
 
 
 @router.post("/{family_id}/small-variants/upload")

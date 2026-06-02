@@ -1,0 +1,18 @@
+format-version: 1.2
+
+[Term]
+id: HP:0000118
+name: Phenotypic abnormality
+
+[Term]
+id: HP:0001250
+name: Seizure
+def: "A seizure is an intermittent abnormality of nervous system physiology." []
+synonym: "Epileptic seizure" EXACT []
+is_a: HP:0000118 ! Phenotypic abnormality
+
+[Term]
+id: HP:0004322
+name: Short stature
+def: "A height below that expected for age and sex." []
+is_a: HP:0000118 ! Phenotypic abnormality
