@@ -17,11 +17,6 @@ import {
   id = "projects/${var.project_id}/global/addresses/coga-private-ip-alloc"
 }
 
-import {
-  to = google_vpc_access_connector.connector
-  id = "projects/${var.project_id}/locations/${var.region}/connectors/coga-vpc-connector"
-}
-
 resource "google_compute_network" "vpc_network" {
   name                    = "coga-vpc"
   auto_create_subnetworks = false

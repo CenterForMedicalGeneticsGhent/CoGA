@@ -2,26 +2,6 @@
 # 2. MANAGED DATABASES (POSTGRES & CLICKHOUSE)
 # ==========================================
 
-import {
-  to = google_sql_database_instance.postgres
-  id = "projects/${var.project_id}/instances/coga-postgres-db"
-}
-
-import {
-  to = google_sql_user.db_user
-  id = "projects/${var.project_id}/instances/coga-postgres-db/users/coga_admin"
-}
-
-import {
-  to = google_compute_instance.clickhouse
-  id = "projects/${var.project_id}/zones/${var.region}-b/instances/coga-clickhouse-vm"
-}
-
-import {
-  to = google_compute_firewall.allow_internal_db
-  id = "projects/${var.project_id}/global/firewalls/allow-internal-db-traffic"
-}
-
 resource "google_sql_database_instance" "postgres" {
   name             = "coga-postgres-db"
   database_version = "POSTGRES_16"
