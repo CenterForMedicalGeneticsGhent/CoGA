@@ -13,6 +13,11 @@ variable "frontend_image" {
   type        = string
 }
 
+variable "cmek_key_self_link" {
+  description = "Self-link of the KMS crypto key used for CMEK-protected Compute disks"
+  type        = string
+}
+
 variable "region" {
   description = "Primary region for Cloud Run and Artifact Registry"
   type        = string

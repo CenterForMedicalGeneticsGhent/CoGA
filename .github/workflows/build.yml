@@ -163,6 +163,7 @@ jobs:
             -var="region=${{ env.GCP_REGION }}" \
             -var="backend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ needs.prepare.outputs.repo_name }}-backend:${{ needs.prepare.outputs.tag }}" \
             -var="frontend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/gen-ghreg-shared-gbl/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }}" \
+            -var="cmek_key_self_link=${{ secrets.GCP_COGA_CMEK_KEY_SELF_LINK }}" \
             -var="pg_db_password=${{ secrets.COGA_PG_DB_PASSWORD }}" \
             -var="ch_db_password=${{ secrets.COGA_CH_DB_PASSWORD }}" \
             -out=tfplan

@@ -31,6 +31,7 @@ resource "google_compute_instance" "clickhouse" {
   zone         = "${var.region}-b"
 
   boot_disk {
+    kms_key_self_link = var.cmek_key_self_link
     initialize_params {
       image = "cos-cloud/cos-stable"
       size  = 50
