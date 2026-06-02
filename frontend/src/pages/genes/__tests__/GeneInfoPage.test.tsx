@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -69,6 +70,15 @@ describe('GeneInfoPage', () => {
               biotype: 'protein_coding',
               transcript_count: 2,
               transcripts: [
+                {
+                  transcript_id: 'ENST00000357654.9',
+                  start: 43044295,
+                  end: 43125482,
+                  exon_count: 24,
+                  strand: -1,
+                  biotype: 'protein_coding',
+                  source: 'ensembl',
+                },
                 {
                   transcript_id: 'TX1',
                   start: 43044295,
@@ -260,6 +270,17 @@ describe('GeneInfoPage', () => {
     expect(screen.getByText('0.094')).toBeInTheDocument();
     expect(screen.getByText('0.880')).toBeInTheDocument();
     expect(screen.getByText('0.060')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /show 2 transcripts/i }));
+    const transcriptTable = screen.getByRole('table');
+    expect(transcriptTable).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /hide 2 transcripts/i })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(within(transcriptTable).getByText('ENST00000357654.9')).toBeInTheDocument();
+    expect(within(transcriptTable).getByText('MANE Select')).toBeInTheDocument();
+    expect(within(transcriptTable).getByText('Canonical')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Protein Atlas' })).toHaveAttribute(
       'href',
       'https://www.proteinatlas.org/ENSG00000012048-BRCA1',

@@ -4334,6 +4334,26 @@ tbody tr:hover {
   gap: 0.8rem;
 }
 
+.gene-compact-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.gene-compact-collapse-button {
+  min-height: 2rem;
+  padding: 0.3rem 0.72rem;
+  white-space: nowrap;
+}
+
+.gene-transcript-table td:first-child {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
 .gene-compact-link-grid {
   display: flex;
   flex-wrap: wrap;
@@ -4378,6 +4398,10 @@ tbody tr:hover {
   .gene-compact-section-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .gene-compact-section-actions {
+    justify-content: flex-start;
   }
 
   .gene-compact-title-meta {

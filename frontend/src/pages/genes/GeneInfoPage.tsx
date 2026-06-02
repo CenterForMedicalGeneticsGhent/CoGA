@@ -181,6 +181,13 @@ interface ParsedDbnsfpAssociation {
   meta?: string | null;
 }
 
+type TranscriptBadgeTone = 'success' | 'warning';
+
+interface TranscriptBadge {
+  label: string;
+  tone: TranscriptBadgeTone;
+}
+
 const formatLocus = (profile: Pick<GeneProfile, 'chr' | 'start' | 'end'>) => {
   const chrom = profile.chr.startsWith('chr') ? profile.chr : `chr${profile.chr}`;
   return `${chrom}:${profile.start.toLocaleString()}-${profile.end.toLocaleString()}`;
@@ -228,6 +235,20 @@ const classifyTranscript = (transcriptId: string) => {
   if (/^(NM_|NR_|XM_|XR_)/i.test(transcriptId)) return 'RefSeq';
   return 'Imported';
 };
+
+const transcriptBadgesFor = (
+  transcriptId: string,
+  canonicalTranscript?: string | null,
+  maneTranscript?: string | null,
+): TranscriptBadge[] =>
+  [
+    isSameTranscript(transcriptId, maneTranscript)
+      ? { label: 'MANE Select', tone: 'success' as const }
+      : null,
+    isSameTranscript(transcriptId, canonicalTranscript)
+      ? { label: 'Canonical', tone: 'warning' as const }
+      : null,
+  ].filter((badge): badge is TranscriptBadge => Boolean(badge));
 
 const pickAssemblyLocation = (
   locations: GeneAssemblyLocation[],
@@ -372,9 +393,14 @@ const GeneInfoPage: React.FC = () => {
   const assemblyParam = searchParams.get('assembly_id') || '';
 
   const [draftGene, setDraftGene] = useState(geneParam);
+  const [transcriptsExpanded, setTranscriptsExpanded] = useState(false);
 
   useEffect(() => {
     setDraftGene(geneParam);
+  }, [geneParam]);
+
+  useEffect(() => {
+    setTranscriptsExpanded(false);
   }, [geneParam]);
 
   const { data: family } = useQuery<Pick<ApiFamilyRecord, 'projects'>>({
@@ -894,68 +920,84 @@ const GeneInfoPage: React.FC = () => {
                 <p className="page-kicker">Transcripts</p>
                 <h3 className="gene-compact-section-title">Canonical and MANE first</h3>
               </div>
-              <span className="gene-compact-section-note">
-                Imported transcripts are ordered with canonical and MANE models first.
-              </span>
+              <div className="gene-compact-section-actions">
+                <span className="gene-compact-section-note">
+                  Imported transcripts are ordered with canonical and MANE models first.
+                </span>
+                <button
+                  type="button"
+                  className="button-secondary gene-compact-collapse-button"
+                  aria-expanded={transcriptsExpanded}
+                  aria-controls="gene-transcript-table"
+                  onClick={() => setTranscriptsExpanded((expanded) => !expanded)}
+                >
+                  {transcriptsExpanded ? 'Hide' : 'Show'} {orderedTranscripts.length} transcript
+                  {orderedTranscripts.length === 1 ? '' : 's'}
+                </button>
+              </div>
             </div>
 
-            <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table table-sticky">
-                <thead>
-                  <tr>
-                    <th>Priority</th>
-                    <th>Transcript</th>
-                    <th>Type</th>
-                    <th>Source</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Exons</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orderedTranscripts.map((transcript) => {
-                    const flags = [
-                      isSameTranscript(
-                        transcript.transcript_id,
-                        profile.extra.ensembl_canonical_transcript,
-                      )
-                        ? 'Canonical'
-                        : null,
-                      isSameTranscript(
-                        transcript.transcript_id,
-                        clingenFacts?.mane_select_transcript,
-                      )
-                        ? 'MANE'
-                        : null,
-                    ].filter((flag): flag is string => Boolean(flag));
+            {transcriptsExpanded ? (
+              <div id="gene-transcript-table" className="data-table-shell overflow-x-auto">
+                <table className="analysis-table table-sticky gene-transcript-table">
+                  <thead>
+                    <tr>
+                      <th>Transcript</th>
+                      <th>Type</th>
+                      <th>Source</th>
+                      <th>Start</th>
+                      <th>End</th>
+                      <th>Exons</th>
+                      <th>Flags</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderedTranscripts.length ? (
+                      orderedTranscripts.map((transcript) => {
+                        const badges = transcriptBadgesFor(
+                          transcript.transcript_id,
+                          profile.extra.ensembl_canonical_transcript,
+                          clingenFacts?.mane_select_transcript,
+                        );
 
-                    return (
-                      <tr key={transcript.transcript_id}>
-                        <td>
-                          {flags.length ? (
-                            <span className="gene-compact-inline-links">
-                              {flags.map((flag) => (
-                                <span key={`${transcript.transcript_id}-${flag}`} className="gene-compact-token">
-                                  {flag}
-                                </span>
-                              ))}
-                            </span>
-                          ) : (
-                            <span className="table-subtle">Standard</span>
-                          )}
+                        return (
+                          <tr key={transcript.transcript_id}>
+                            <td>{transcript.transcript_id}</td>
+                            <td>{classifyTranscript(transcript.transcript_id)}</td>
+                            <td>{transcript.source || '—'}</td>
+                            <td>{transcript.start.toLocaleString()}</td>
+                            <td>{transcript.end.toLocaleString()}</td>
+                            <td>{transcript.exon_count}</td>
+                            <td>
+                              {badges.length ? (
+                                <div className="variant-transcript-badges">
+                                  {badges.map((badge) => (
+                                    <span
+                                      key={`${transcript.transcript_id}-${badge.label}`}
+                                      className={`variant-card-chip variant-card-chip--${badge.tone}`}
+                                    >
+                                      {badge.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="table-empty">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="table-empty">
+                          No transcripts are cached for this gene.
                         </td>
-                        <td>{transcript.transcript_id}</td>
-                        <td>{classifyTranscript(transcript.transcript_id)}</td>
-                        <td>{transcript.source || '—'}</td>
-                        <td>{transcript.start.toLocaleString()}</td>
-                        <td>{transcript.end.toLocaleString()}</td>
-                        <td>{transcript.exon_count}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </section>
 
           <section className="gene-compact-section">
