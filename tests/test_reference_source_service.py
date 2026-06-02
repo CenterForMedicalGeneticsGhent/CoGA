@@ -29,10 +29,19 @@ class _FakeExecuteResult:
         return _FakeMappingsResult(self._rows)
 
 
+class _FakeScalarResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one(self):
+        return self._value
+
+
 class _RecordingSession:
-    def __init__(self) -> None:
+    def __init__(self, dataset_counts: dict[str, int] | None = None) -> None:
         self.sql: list[str] = []
         self.params: list[dict[str, object] | None] = []
+        self.dataset_counts = dataset_counts or {}
         self.committed = False
 
     async def execute(self, statement, params=None):
@@ -40,6 +49,12 @@ class _RecordingSession:
         self.sql.append(sql)
         self.params.append(params)
 
+        if "FROM chromosomes" in sql and "COUNT(*)" in sql:
+            return _FakeScalarResult(self.dataset_counts.get("cytobands", 0))
+        if "FROM genes" in sql and "COUNT(*)" in sql:
+            return _FakeScalarResult(self.dataset_counts.get("genes", 0))
+        if "JOIN assemblies" in sql:
+            return _FakeExecuteResult([])
         if "FROM species" in sql and "SELECT id::text AS id, name" in sql:
             return _FakeExecuteResult([])
         if "INSERT INTO species" in sql:
@@ -52,6 +67,9 @@ class _RecordingSession:
 
     async def commit(self):
         self.committed = True
+
+    async def rollback(self):
+        pass
 
 
 def test_build_gene_import_text_converts_ucsc_table_rows() -> None:
@@ -250,6 +268,83 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         ("assembly-1", "cytobands", "chr1\t0\t100\tp36.33\tgneg\n", True, False),
         ("assembly-1", "genes", "chr1\t100\t200\tGENE1\t\t+\t\tNM_000001\t1\t100-200\t0\t\n", True, False),
     ]
+
+
+@pytest.mark.asyncio
+async def test_import_reference_from_ucsc_missing_only_skips_loaded_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_list_reference_source_assemblies(*, tax_id: int):
+        return [
+            ReferenceImportSourceAssemblyOut(
+                scientific_name="Homo sapiens",
+                common_name="human",
+                tax_id=tax_id,
+                ucsc_genome="hg38",
+                assembly_name="GRCh38",
+                assembly_version="hg38",
+                release_date=date(2024, 1, 1),
+                description="Dec. 2013 (GRCh38/hg38)",
+                source_name="Genome Reference Consortium",
+                gene_source="UCSC gene tables",
+            )
+        ]
+
+    async def fake_resolve_find_genome_record(client, *, ucsc_genome: str):
+        return {"description": "Dec. 2013 (GRCh38/hg38)"}
+
+    async def forbidden_download(*args, **kwargs):
+        raise AssertionError("startup missing-only import should not redownload loaded datasets")
+
+    async def forbidden_apply(*args, **kwargs):
+        raise AssertionError("startup missing-only import should not reapply loaded datasets")
+
+    monkeypatch.setattr(
+        reference_source_service,
+        "list_reference_source_assemblies",
+        fake_list_reference_source_assemblies,
+    )
+    monkeypatch.setattr(
+        reference_source_service,
+        "_resolve_find_genome_record",
+        fake_resolve_find_genome_record,
+    )
+    monkeypatch.setattr(reference_source_service, "_download_cytobands", forbidden_download)
+    monkeypatch.setattr(reference_source_service, "_download_genes", forbidden_download)
+    monkeypatch.setattr(reference_source_service, "apply_reference_dataset_text", forbidden_apply)
+
+    session = _RecordingSession(dataset_counts={"cytobands": 24, "genes": 2})
+    result = await reference_source_service.import_reference_from_ucsc(
+        session,
+        tax_id=9606,
+        ucsc_genome="hg38",
+        overwrite=False,
+        missing_only=True,
+    )
+
+    assert result.cytobands_inserted == 0
+    assert result.genes_inserted == 0
+    assert result.cytobands_replaced is False
+    assert result.genes_replaced is False
+    assert session.committed is True
+
+
+@pytest.mark.asyncio
+async def test_startup_reference_bootstrap_falls_back_to_species_assembly_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def failing_import(*args, **kwargs):
+        raise RuntimeError("UCSC unavailable")
+
+    monkeypatch.setattr(reference_source_service, "import_reference_from_ucsc", failing_import)
+
+    session = _RecordingSession()
+    result = await reference_source_service.ensure_human_grch38_reference_on_startup(session)
+
+    assert result is None
+    assert session.committed is True
+    assert any("INSERT INTO species" in sql for sql in session.sql)
+    assert any("INSERT INTO assemblies" in sql for sql in session.sql)
 
 
 @pytest.mark.asyncio

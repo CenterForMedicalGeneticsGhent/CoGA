@@ -15,6 +15,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
@@ -23,7 +24,7 @@ from ..schemas import (
     GeneInfoSourceSummaryOut,
     GeneReferenceAdminStatusOut,
 )
-from .gene_info_bulk_sources import load_human_gene_bulk_context
+from .gene_info_bulk_sources import find_local_dbnsfp_gene_path, load_human_gene_bulk_context
 from .gene_info_external import fetch_external_gene_bundle
 
 logger = logging.getLogger(__name__)
@@ -419,6 +420,73 @@ async def queue_gene_reference_refresh_job(
         ) from exc
     row = result.mappings().one()
     return _serialize_job(dict(row))
+
+
+async def queue_startup_gene_reference_refresh_if_needed(
+    session: AsyncSession,
+) -> GeneInfoRefreshJobOut | None:
+    if not settings.gene_reference_bootstrap_on_startup:
+        return None
+
+    dbnsfp_gene_path = find_local_dbnsfp_gene_path()
+    if dbnsfp_gene_path is None:
+        logger.info("Skipping startup gene reference sync: local dbNSFP gene file was not found")
+        return None
+
+    try:
+        human_context = await _get_human_context(session)
+    except HTTPException:
+        logger.info("Skipping startup gene reference sync: Homo sapiens reference assembly is not available")
+        return None
+
+    assembly_ids = [assembly["id"] for assembly in human_context.assemblies]
+    human_gene_symbols = await _count_distinct_human_gene_symbols(
+        session,
+        assembly_ids=assembly_ids,
+    )
+    if human_gene_symbols == 0:
+        logger.info("Skipping startup gene reference sync: no human reference genes are loaded")
+        return None
+
+    cached_result = await session.execute(
+        text("SELECT COUNT(*) FROM gene_info WHERE assembly_id IN :assembly_ids").bindparams(
+            uuid_list_bindparam("assembly_ids")
+        ),
+        {"assembly_ids": uuid_values(assembly_ids)},
+    )
+    if int(cached_result.scalar_one() or 0) > 0:
+        return None
+
+    active_result = await session.execute(
+        text(
+            """
+            SELECT id
+            FROM gene_info_refresh_jobs
+            WHERE active_slot = :active_slot
+              AND status IN ('queued', 'running')
+            LIMIT 1
+            """
+        ),
+        {"active_slot": ACTIVE_GENE_REFERENCE_SLOT},
+    )
+    if active_result.scalar_one_or_none() is not None:
+        return None
+
+    try:
+        job = await queue_gene_reference_refresh_job(
+            session,
+            scope="all_human",
+            requested_by="startup-bootstrap",
+        )
+        logger.info(
+            "Queued startup dbNSFP-backed human gene reference sync from %s",
+            dbnsfp_gene_path,
+        )
+        return job
+    except HTTPException as exc:
+        if exc.status_code == 409:
+            return None
+        raise
 
 
 async def claim_next_gene_reference_refresh_job(

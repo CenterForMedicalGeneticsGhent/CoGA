@@ -110,6 +110,9 @@ Application startup:
 2. applies the Postgres schema
 3. ensures the admin user exists
 4. seeds the built-in repeat catalog
-5. waits for ClickHouse
-6. applies the ClickHouse schema
-7. starts the gene refresh worker
+5. ensures Homo sapiens GRCh38 exists and imports missing GRCh38 cytobands/genes from UCSC when available
+6. seeds built-in hg38 reference tracks such as clinical CNVs and segmental duplications
+7. queues the first dbNSFP-backed human gene reference sync when the local dbNSFP gene file is present and `gene_info` is empty
+8. waits for ClickHouse
+9. applies the ClickHouse schema
+10. starts the gene refresh worker
