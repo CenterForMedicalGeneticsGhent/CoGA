@@ -28,7 +28,7 @@ resource "google_sql_user" "db_user" {
 resource "google_compute_instance" "clickhouse" {
   name         = "coga-clickhouse-vm"
   machine_type = "e2-medium"
-  zone         = "${var.region}-a"
+  zone         = "${var.region}-b"
 
   boot_disk {
     initialize_params {
