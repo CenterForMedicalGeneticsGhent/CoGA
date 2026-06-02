@@ -76,31 +76,127 @@ def test_parse_clinvar_gene_condition_rows_preserves_commas_in_disease_names() -
 def test_parse_dbnsfp_gene_rows_extracts_constraint_metrics_and_omim(tmp_path: Path) -> None:
     dbnsfp_path = tmp_path / "dbNSFP_gene.tsv"
     dbnsfp_path.write_text(
-        "Gene_name\tMIM_id\tDisease_description\tmis_z\ts_het\tpHaplo\tpTriplo\tGene_full_name\n"
-        "BRCA1\t113705;604370\tBreast-ovarian cancer syndrome\t3.21\t0.094\t0.88\t0.06\tBRCA1 DNA repair associated\n",
+        "Gene_name\tEnsembl_gene\tGene_other_names\tMIM_id\tGene_full_name\tFunction_description\tMIM_disease\t"
+        "GenCC_disease_title\tGenCC_impact_class\tGenCC_model_of_inheritance\tmis_z\ts_het\t"
+        "pHaplo\tpTriplo\tP(HI)\tgnomAD_pLI\tgnomAD_LOEUF\n"
+        "BRCA1\tENSG00000012048\tBRCC1;FANCS\t113705\tBRCA1 DNA repair associated\t"
+        "FUNCTION: Tumor suppressor involved in DNA repair.\t"
+        "[MIM:604370]Breast-ovarian cancer syndrome\tBreast-ovarian cancer syndrome\t"
+        "Definitive\tAutosomal dominant\t3.21\t0.094\t0.88\t0.06\t0.99\t1.0\t0.16\n",
         encoding="utf-8",
     )
 
     result = gene_info_bulk_sources.parse_dbnsfp_gene_rows(dbnsfp_path)
 
     assert result["BRCA1"]["omim_gene_id"] == "113705"
+    assert result["BRCA1"]["profile"]["display_name"] == "BRCA1 DNA repair associated"
+    assert result["BRCA1"]["profile"]["summary"] == "Tumor suppressor involved in DNA repair."
+    assert result["BRCA1"]["profile"]["aliases"] == ["BRCC1", "FANCS"]
+    assert result["BRCA1"]["profile"]["ensembl_gene_id"] == "ENSG00000012048"
     assert result["BRCA1"]["extra"]["constraint_metrics"] == {
         "missense_z": 3.21,
         "shet": 0.094,
         "phaplo": 0.88,
         "ptriplo": 0.06,
+        "p_hi": 0.99,
+        "gnomad_pli": 1.0,
+        "gnomad_loeuf": 0.16,
+    }
+    assert result["BRCA1"]["extra"]["clingen_gene_facts"] == {
+        "hgnc_name": "BRCA1 DNA repair associated",
+        "alias_symbols": ["BRCC1", "FANCS"],
+        "function": "Tumor suppressor involved in DNA repair.",
+        "haploinsufficiency_index": 99.0,
+        "pli": 1.0,
+        "loeuf": 0.16,
+        "gencc_classifications": {"Definitive": 1},
     }
     assert result["BRCA1"]["extra"]["omim_diseases"] == [
         {
             "label": "Breast-ovarian cancer syndrome",
-            "omim_id": "113705",
-            "href": "https://www.omim.org/entry/113705",
+            "omim_id": "604370",
+            "href": "https://www.omim.org/entry/604370",
+        }
+    ]
+    assert result["BRCA1"]["extra"]["gencc_assertions"] == [
+        {
+            "disease_title": "Breast-ovarian cancer syndrome",
+            "classification_title": "Definitive",
+            "moi_title": "Autosomal dominant",
         }
     ]
 
 
 @pytest.mark.asyncio
-async def test_fetch_external_gene_bundle_merges_bulk_context(
+async def test_fetch_external_gene_bundle_uses_dbnsfp_without_online_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def forbidden_fetch(*args, **kwargs):
+        raise AssertionError("Online source should not be called when dbNSFP has the gene")
+
+    monkeypatch.setattr(gene_info_external, "fetch_hgnc_gene", forbidden_fetch)
+    monkeypatch.setattr(gene_info_external, "fetch_ensembl_gene", forbidden_fetch)
+    monkeypatch.setattr(gene_info_external, "fetch_ensembl_homologies", forbidden_fetch)
+    monkeypatch.setattr(gene_info_external, "fetch_ncbi_gene", forbidden_fetch)
+    monkeypatch.setattr(gene_info_external, "fetch_clingen_gene", forbidden_fetch)
+
+    bulk_context = HumanGeneBulkContext(
+        datasets={
+            "dbnsfp_gene": GeneBulkSourceDataset(
+                name="dbNSFP gene",
+                source_url="/data/ref-data/dbNSFP5.3_gene.gz",
+                status="success",
+                records_by_symbol={
+                    "BRCA1": {
+                        "omim_gene_id": "113705",
+                        "profile": {
+                            "display_name": "BRCA1 DNA repair associated",
+                            "summary": "Tumor suppressor involved in DNA repair.",
+                            "aliases": ["BRCC1"],
+                            "previous_symbols": ["RNF53"],
+                            "ensembl_gene_id": "ENSG00000012048",
+                            "ncbi_gene_id": "672",
+                        },
+                        "extra": {
+                            "constraint_metrics": {"missense_z": 3.21},
+                            "clingen_gene_facts": {"gencc_classifications": {"Definitive": 5}},
+                        },
+                        "homologs": [
+                            {
+                                "species_name": "Mus Musculus",
+                                "common_name": "mouse",
+                                "symbol": "Brca1",
+                                "homology_type": "dbNSFP model organism ortholog",
+                                "in_platform": False,
+                            }
+                        ],
+                    }
+                },
+            )
+        }
+    )
+
+    result = await gene_info_external.fetch_external_gene_bundle(
+        symbol="BRCA1",
+        species_document={"name": "Homo sapiens"},
+        species_docs=[],
+        bulk_context=bulk_context,
+    )
+
+    assert result["display_name"] == "BRCA1 DNA repair associated"
+    assert result["summary"] == "Tumor suppressor involved in DNA repair."
+    assert result["aliases"] == ["BRCC1"]
+    assert result["previous_symbols"] == ["RNF53"]
+    assert result["ensembl_gene_id"] == "ENSG00000012048"
+    assert result["ncbi_gene_id"] == "672"
+    assert result["omim_gene_id"] == "113705"
+    assert result["homologs"][0]["symbol"] == "Brca1"
+    assert result["source_status"]["dbnsfp_gene"]["status"] == "success"
+    assert result["extra"]["constraint_metrics"] == {"missense_z": 3.21}
+
+
+@pytest.mark.asyncio
+async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_dbnsfp_record(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_fetch_hgnc_gene(symbol: str):
@@ -209,16 +305,7 @@ async def test_fetch_external_gene_bundle_merges_bulk_context(
                 name="dbNSFP gene",
                 source_url="/tmp/dbNSFP_gene.tsv.gz",
                 status="success",
-                records_by_symbol={
-                    "BRCA1": {
-                        "omim_gene_id": "113705",
-                        "extra": {
-                            "constraint_metrics": {
-                                "missense_z": 3.21,
-                            }
-                        },
-                    }
-                },
+                records_by_symbol={},
             ),
         }
     )
@@ -230,8 +317,8 @@ async def test_fetch_external_gene_bundle_merges_bulk_context(
         bulk_context=bulk_context,
     )
 
-    assert result["omim_gene_id"] == "113705"
-    assert result["source_status"]["dbnsfp_gene"]["status"] == "success"
+    assert result["omim_gene_id"] is None
+    assert result["source_status"]["dbnsfp_gene"]["status"] == "missing"
     assert isinstance(result["source_status"]["dbnsfp_gene"]["fetched_at"], str)
     assert result["extra"]["clingen_curation_counts"] == {
         "clinical_actionability": 2,
@@ -253,4 +340,3 @@ async def test_fetch_external_gene_bundle_merges_bulk_context(
             "source": "ClinVar",
         }
     ]
-    assert result["extra"]["constraint_metrics"] == {"missense_z": 3.21}

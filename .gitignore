@@ -59,3 +59,4 @@ build/
 /data/**/*.npz
 /data/**/*.tsv
 /data/**/*.tsv.gz
+/data/ref-data/dbNSFP*

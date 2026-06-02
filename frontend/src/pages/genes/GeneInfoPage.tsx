@@ -93,6 +93,32 @@ interface GeneConstraintMetrics {
   shet?: number | null;
   phaplo?: number | null;
   ptriplo?: number | null;
+  p_hi?: number | null;
+  hipred_score?: number | null;
+  ghis?: number | null;
+  p_rec?: number | null;
+  rvis_evs?: number | null;
+  rvis_percentile_evs?: number | null;
+  lof_fdr_exac?: number | null;
+  rvis_exac?: number | null;
+  rvis_percentile_exac?: number | null;
+  exac_pli?: number | null;
+  exac_prec?: number | null;
+  exac_pnull?: number | null;
+  gnomad_pli?: number | null;
+  gnomad_prec?: number | null;
+  gnomad_pnull?: number | null;
+  gnomad_lof_oe?: number | null;
+  gnomad_mis_oe?: number | null;
+  gnomad_loeuf?: number | null;
+  gnomad_moeuf?: number | null;
+  exac_del_score?: number | null;
+  exac_dup_score?: number | null;
+  exac_cnv_score?: number | null;
+  gdi?: number | null;
+  gdi_phred?: number | null;
+  loftool_score?: number | null;
+  gene_indispensability_score?: number | null;
 }
 
 interface GeneOmimDiseaseEntry {
@@ -112,6 +138,66 @@ interface GeneDbnsfpAssociationEntry {
   details?: string | null;
 }
 
+interface GeneHpoTerm {
+  hpo_id?: string | null;
+  label?: string | null;
+}
+
+interface GeneOntology {
+  biological_process?: string[];
+  cellular_component?: string[];
+  molecular_function?: string[];
+}
+
+interface GeneDbnsfpPathways {
+  uniprot?: string[];
+  biocarta_short?: string[];
+  biocarta_full?: string[];
+  consensus_path_db?: string[];
+  kegg_ids?: string[];
+  kegg?: string[];
+}
+
+interface GeneOrphanetAssertion {
+  orphanet_id?: string | null;
+  disease_title?: string | null;
+  association_type?: string | null;
+}
+
+interface GeneGenccAssertion {
+  gencc_id?: string | null;
+  disease_title?: string | null;
+  classification_title?: string | null;
+  moi_title?: string | null;
+  pmids?: string[];
+}
+
+interface GeneClingenDosageAssertion {
+  haploinsufficiency?: string | null;
+  description?: string | null;
+  disease?: string | null;
+  pmids?: string[];
+}
+
+interface GeneModelOrganism {
+  symbol?: string | null;
+  phenotypes?: string[];
+  structures?: string[];
+  phenotype_quality?: string[];
+  phenotype_tags?: string[];
+}
+
+interface GeneDbnsfpModelOrganisms {
+  mouse?: GeneModelOrganism;
+  zebrafish?: GeneModelOrganism;
+}
+
+interface GeneDbnsfpExpression {
+  tissue_specificity?: string | null;
+  hpa_consensus_tpm?: Record<string, number>;
+  hpa_highly_expressed?: string[];
+}
+
 interface GeneProfileExtra {
   hgnc_name?: string | null;
   hgnc_gene_group?: string[];
@@ -124,6 +210,15 @@ interface GeneProfileExtra {
   refseq_accessions?: string[];
   omim_diseases?: Array<string | GeneOmimDiseaseEntry>;
   dbnsfp_disease_associations?: Array<string | GeneDbnsfpAssociationEntry>;
+  hpo_terms?: GeneHpoTerm[];
+  dbnsfp_orphanet_assertions?: GeneOrphanetAssertion[];
+  dbnsfp_trait_associations?: string[];
+  gencc_assertions?: GeneGenccAssertion[];
+  clingen_dosage_assertions?: GeneClingenDosageAssertion[];
+  gene_ontology?: GeneOntology;
+  dbnsfp_pathways?: GeneDbnsfpPathways;
+  dbnsfp_tissue_expression?: GeneDbnsfpExpression;
+  dbnsfp_model_organisms?: GeneDbnsfpModelOrganisms;
   constraint_metrics?: GeneConstraintMetrics;
   primad_url?: string | null;
 }
@@ -181,6 +276,11 @@ interface ParsedDbnsfpAssociation {
   meta?: string | null;
 }
 
+interface NamedStringGroup {
+  label: string;
+  items: string[];
+}
+
 type TranscriptBadgeTone = 'success' | 'warning';
 
 interface TranscriptBadge {
@@ -212,6 +312,20 @@ const formatNumber = (value?: number | null, digits = 2) =>
 const formatInteger = (value?: number | null) =>
   typeof value === 'number' ? value.toLocaleString() : '—';
 
+const formatMetricNumber = (value: number, digits?: number) => {
+  if (typeof digits === 'number') return value.toFixed(digits);
+  if (Math.abs(value) < 0.01 && value !== 0) return value.toFixed(4);
+  if (Math.abs(value) < 1) return value.toFixed(3);
+  return value.toFixed(2);
+};
+
+const formatReadableKey = (value: string) =>
+  value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 const uniqueStrings = (...groups: Array<string[] | undefined>) =>
   Array.from(
     new Set(
@@ -221,6 +335,13 @@ const uniqueStrings = (...groups: Array<string[] | undefined>) =>
         .filter(Boolean),
     ),
   );
+
+const compactStrings = (items?: Array<string | null | undefined>, limit?: number) => {
+  const values = Array.from(
+    new Set((items || []).map((item) => item?.trim()).filter((item): item is string => Boolean(item))),
+  );
+  return typeof limit === 'number' ? values.slice(0, limit) : values;
+};
 
 const normalizeTranscriptId = (value?: string | null) => value?.split('.')[0] || '';
 
@@ -249,6 +370,51 @@ const transcriptBadgesFor = (
       ? { label: 'Canonical', tone: 'warning' as const }
       : null,
   ].filter((badge): badge is TranscriptBadge => Boolean(badge));
+
+const ADVANCED_CONSTRAINT_METRICS: Array<{
+  key: keyof GeneConstraintMetrics;
+  label: string;
+  digits?: number;
+}> = [
+  { key: 'gnomad_lof_oe', label: 'gnomAD LoF OE', digits: 3 },
+  { key: 'gnomad_loeuf', label: 'gnomAD LOEUF', digits: 3 },
+  { key: 'gnomad_mis_oe', label: 'gnomAD missense OE', digits: 3 },
+  { key: 'gnomad_moeuf', label: 'gnomAD MOEUF', digits: 3 },
+  { key: 'gnomad_pli', label: 'gnomAD pLI', digits: 3 },
+  { key: 'gnomad_prec', label: 'gnomAD pRec', digits: 3 },
+  { key: 'gnomad_pnull', label: 'gnomAD pNull', digits: 3 },
+  { key: 'p_hi', label: 'DECIPHER P(HI)', digits: 3 },
+  { key: 'p_rec', label: 'DECIPHER P(rec)', digits: 3 },
+  { key: 'phaplo', label: 'pHaplo', digits: 3 },
+  { key: 'ptriplo', label: 'pTriplo', digits: 3 },
+  { key: 'shet', label: 'sHet', digits: 3 },
+  { key: 'missense_z', label: 'Missense z-score', digits: 2 },
+  { key: 'gdi', label: 'GDI', digits: 2 },
+  { key: 'gdi_phred', label: 'GDI Phred', digits: 2 },
+  { key: 'loftool_score', label: 'LoFtool score', digits: 3 },
+  { key: 'hipred_score', label: 'HIPred score', digits: 3 },
+  { key: 'ghis', label: 'GHIS', digits: 3 },
+  { key: 'rvis_exac', label: 'RVIS ExAC', digits: 3 },
+  { key: 'rvis_percentile_exac', label: 'RVIS percentile ExAC', digits: 2 },
+  { key: 'rvis_evs', label: 'RVIS EVS', digits: 3 },
+  { key: 'rvis_percentile_evs', label: 'RVIS percentile EVS', digits: 2 },
+  { key: 'lof_fdr_exac', label: 'LoF FDR ExAC', digits: 3 },
+  { key: 'exac_pli', label: 'ExAC pLI', digits: 3 },
+  { key: 'exac_prec', label: 'ExAC pRec', digits: 3 },
+  { key: 'exac_pnull', label: 'ExAC pNull', digits: 3 },
+  { key: 'exac_del_score', label: 'ExAC deletion score', digits: 3 },
+  { key: 'exac_dup_score', label: 'ExAC duplication score', digits: 3 },
+  { key: 'exac_cnv_score', label: 'ExAC CNV score', digits: 3 },
+  { key: 'gene_indispensability_score', label: 'Gene indispensability score', digits: 3 },
+];
+
+const buildAdvancedConstraintRows = (metrics?: GeneConstraintMetrics | null): DetailRow[] =>
+  ADVANCED_CONSTRAINT_METRICS.flatMap(({ key, label, digits }) => {
+    const value = metrics?.[key];
+    return typeof value === 'number'
+      ? [{ label, value: formatMetricNumber(value, digits) }]
+      : [];
+  });
 
 const pickAssemblyLocation = (
   locations: GeneAssemblyLocation[],
@@ -384,6 +550,49 @@ const DetailList: React.FC<{ rows: DetailRow[] }> = ({ rows }) => (
   </dl>
 );
 
+const PubmedLinks: React.FC<{ pmids?: string[] }> = ({ pmids }) => {
+  const visiblePmids = compactStrings(pmids, 4);
+  if (!visiblePmids.length) return null;
+
+  return (
+    <span className="gene-compact-inline-links">
+      {visiblePmids.map((pmid) => (
+        <a
+          key={pmid}
+          href={`https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`}
+          target="_blank"
+          rel="noreferrer"
+          className="gene-compact-link"
+        >
+          PMID {pmid}
+        </a>
+      ))}
+    </span>
+  );
+};
+
+const CompactStringGroup: React.FC<{
+  group: NamedStringGroup;
+  expanded: boolean;
+  limit?: number;
+}> = ({ group, expanded, limit = 4 }) => {
+  const visibleItems = expanded ? group.items : group.items.slice(0, limit);
+  if (!visibleItems.length) return null;
+
+  return (
+    <div className="gene-compact-subsection">
+      <p className="gene-compact-subtitle-label">{group.label}</p>
+      <div className="gene-compact-chip-grid">
+        {visibleItems.map((item) => (
+          <span key={`${group.label}-${item}`} className="gene-compact-term-chip">
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const GeneInfoPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -394,6 +603,9 @@ const GeneInfoPage: React.FC = () => {
 
   const [draftGene, setDraftGene] = useState(geneParam);
   const [transcriptsExpanded, setTranscriptsExpanded] = useState(false);
+  const [diseaseEvidenceExpanded, setDiseaseEvidenceExpanded] = useState(false);
+  const [advancedConstraintExpanded, setAdvancedConstraintExpanded] = useState(false);
+  const [functionContextExpanded, setFunctionContextExpanded] = useState(false);
 
   useEffect(() => {
     setDraftGene(geneParam);
@@ -401,6 +613,9 @@ const GeneInfoPage: React.FC = () => {
 
   useEffect(() => {
     setTranscriptsExpanded(false);
+    setDiseaseEvidenceExpanded(false);
+    setAdvancedConstraintExpanded(false);
+    setFunctionContextExpanded(false);
   }, [geneParam]);
 
   const { data: family } = useQuery<Pick<ApiFamilyRecord, 'projects'>>({
@@ -520,6 +735,129 @@ const GeneInfoPage: React.FC = () => {
     [profile],
   );
   const constraintMetrics = profile?.extra.constraint_metrics;
+  const hpoTerms = useMemo<GeneHpoTerm[]>(() => {
+    const seen = new Set<string>();
+    return (profile?.extra.hpo_terms || []).filter((term) => {
+      const label = term.label?.trim() || '';
+      const hpoId = term.hpo_id?.trim() || '';
+      if (!label && !hpoId) return false;
+      const key = `${hpoId}-${label}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [profile]);
+  const orphanetAssertions = useMemo<GeneOrphanetAssertion[]>(
+    () =>
+      (profile?.extra.dbnsfp_orphanet_assertions || []).filter(
+        (entry) =>
+          Boolean(entry.disease_title?.trim()) ||
+          Boolean(entry.orphanet_id?.trim()) ||
+          Boolean(entry.association_type?.trim()),
+      ),
+    [profile],
+  );
+  const genccAssertions = useMemo<GeneGenccAssertion[]>(
+    () =>
+      (profile?.extra.gencc_assertions || []).filter(
+        (entry) =>
+          Boolean(entry.disease_title?.trim()) ||
+          Boolean(entry.classification_title?.trim()) ||
+          Boolean(entry.moi_title?.trim()),
+      ),
+    [profile],
+  );
+  const clingenDosageAssertions = useMemo<GeneClingenDosageAssertion[]>(
+    () =>
+      (profile?.extra.clingen_dosage_assertions || []).filter(
+        (entry) =>
+          Boolean(entry.haploinsufficiency?.trim()) ||
+          Boolean(entry.description?.trim()) ||
+          Boolean(entry.disease?.trim()) ||
+          Boolean(entry.pmids?.length),
+      ),
+    [profile],
+  );
+  const traitAssociations = useMemo(
+    () => compactStrings(profile?.extra.dbnsfp_trait_associations),
+    [profile],
+  );
+  const advancedConstraintRows = useMemo(
+    () => buildAdvancedConstraintRows(constraintMetrics),
+    [constraintMetrics],
+  );
+  const ontologyGroups = useMemo<NamedStringGroup[]>(() => {
+    const ontology = profile?.extra.gene_ontology;
+    return [
+      { label: 'Biological process', items: compactStrings(ontology?.biological_process) },
+      { label: 'Cellular component', items: compactStrings(ontology?.cellular_component) },
+      { label: 'Molecular function', items: compactStrings(ontology?.molecular_function) },
+    ].filter((group) => group.items.length);
+  }, [profile]);
+  const pathwayGroups = useMemo<NamedStringGroup[]>(() => {
+    const pathways = profile?.extra.dbnsfp_pathways;
+    return [
+      { label: 'UniProt pathways', items: compactStrings(pathways?.uniprot) },
+      { label: 'BioCarta pathways', items: compactStrings(pathways?.biocarta_full) },
+      { label: 'ConsensusPathDB', items: compactStrings(pathways?.consensus_path_db) },
+      { label: 'KEGG pathways', items: compactStrings(pathways?.kegg) },
+      { label: 'KEGG IDs', items: compactStrings(pathways?.kegg_ids) },
+    ].filter((group) => group.items.length);
+  }, [profile]);
+  const tissueExpression = profile?.extra.dbnsfp_tissue_expression;
+  const highlightedTissues = useMemo(
+    () => compactStrings(tissueExpression?.hpa_highly_expressed),
+    [tissueExpression],
+  );
+  const topTissueExpression = useMemo(
+    () =>
+      Object.entries(tissueExpression?.hpa_consensus_tpm || {})
+        .filter((entry): entry is [string, number] => Number.isFinite(entry[1]))
+        .sort(([leftName, leftValue], [rightName, rightValue]) =>
+          rightValue === leftValue ? leftName.localeCompare(rightName) : rightValue - leftValue,
+        )
+        .slice(0, 5),
+    [tissueExpression],
+  );
+  const modelOrganismRows = useMemo<
+    Array<{ label: string; symbol?: string | null; details: string[] }>
+  >(() => {
+    const modelOrganisms = profile?.extra.dbnsfp_model_organisms;
+    const mouse = modelOrganisms?.mouse;
+    const zebrafish = modelOrganisms?.zebrafish;
+    return [
+      {
+        label: 'Mouse',
+        symbol: mouse?.symbol,
+        details: compactStrings(mouse?.phenotypes),
+      },
+      {
+        label: 'Zebrafish',
+        symbol: zebrafish?.symbol,
+        details: compactStrings([
+          ...(zebrafish?.structures || []),
+          ...(zebrafish?.phenotype_quality || []),
+          ...(zebrafish?.phenotype_tags || []),
+        ]),
+      },
+    ].filter((row) => Boolean(row.symbol?.trim()) || row.details.length);
+  }, [profile]);
+  const clingenHaploIndex =
+    clingenFacts?.haploinsufficiency_index ??
+    (typeof constraintMetrics?.p_hi === 'number' ? constraintMetrics.p_hi * 100 : undefined);
+  const gnomadPli = clingenFacts?.pli ?? constraintMetrics?.gnomad_pli ?? constraintMetrics?.exac_pli;
+  const gnomadLoeuf = clingenFacts?.loeuf ?? constraintMetrics?.gnomad_loeuf;
+  const diseaseEvidenceCanExpand =
+    hpoTerms.length > 8 ||
+    orphanetAssertions.length > 3 ||
+    genccAssertions.length > 0 ||
+    traitAssociations.length > 0;
+  const functionContextCanExpand =
+    pathwayGroups.some((group) => group.items.length > 4) ||
+    ontologyGroups.some((group) => group.items.length > 4) ||
+    highlightedTissues.length > 6 ||
+    modelOrganismRows.some((row) => row.details.length > 4);
+  const maxTissueTpm = Math.max(...topTissueExpression.map(([, value]) => value), 0);
 
   const overviewRows = useMemo<DetailRow[]>(
     () =>
@@ -612,15 +950,15 @@ const GeneInfoPage: React.FC = () => {
         ? [
             {
               label: 'DECIPHER %HI',
-              value: formatPercent(clingenFacts?.haploinsufficiency_index),
+              value: formatPercent(clingenHaploIndex),
             },
             {
               label: 'gnomAD pLI',
-              value: formatNumber(clingenFacts?.pli),
+              value: formatNumber(gnomadPli),
             },
             {
               label: 'gnomAD LOEUF',
-              value: formatNumber(clingenFacts?.loeuf),
+              value: formatNumber(gnomadLoeuf),
             },
             {
               label: 'Missense z-score',
@@ -631,7 +969,7 @@ const GeneInfoPage: React.FC = () => {
             { label: 'pTriplo', value: formatNumber(constraintMetrics?.ptriplo, 3) },
           ]
         : [],
-    [clingenFacts?.haploinsufficiency_index, clingenFacts?.loeuf, clingenFacts?.pli, constraintMetrics, profile],
+    [clingenHaploIndex, constraintMetrics, gnomadLoeuf, gnomadPli, profile],
   );
 
   const orderedTranscripts = useMemo(() => {
@@ -892,6 +1230,108 @@ const GeneInfoPage: React.FC = () => {
                   )}
                 </div>
 
+                {hpoTerms.length ? (
+                  <div className="gene-compact-subsection">
+                    <p className="gene-compact-subtitle-label">HPO phenotypes</p>
+                    <div className="gene-compact-chip-grid">
+                      {hpoTerms
+                        .slice(0, diseaseEvidenceExpanded ? hpoTerms.length : 8)
+                        .map((term) => (
+                          <span
+                            key={`${term.hpo_id || 'hpo'}-${term.label || 'term'}`}
+                            className="gene-compact-term-chip"
+                          >
+                            {term.label || term.hpo_id}
+                            {term.label && term.hpo_id ? <span>{term.hpo_id}</span> : null}
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {orphanetAssertions.length ? (
+                  <div className="gene-compact-subsection">
+                    <p className="gene-compact-subtitle-label">Orphanet assertions</p>
+                    <ul className="gene-compact-list">
+                      {orphanetAssertions
+                        .slice(0, diseaseEvidenceExpanded ? orphanetAssertions.length : 3)
+                        .map((entry, index) => {
+                          const meta = [
+                            entry.association_type,
+                            entry.orphanet_id ? `Orphanet ${entry.orphanet_id}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ');
+                          return (
+                            <li
+                              key={`${entry.orphanet_id || index}-${entry.disease_title || 'orphanet'}`}
+                            >
+                              <span>{entry.disease_title || entry.orphanet_id}</span>
+                              {meta ? <span className="gene-compact-list-meta">{meta}</span> : null}
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {diseaseEvidenceExpanded ? (
+                  <div id="gene-disease-expanded" className="gene-compact-advanced-block">
+                    {genccAssertions.length ? (
+                      <div className="gene-compact-subsection">
+                        <p className="gene-compact-subtitle-label">GenCC assertions</p>
+                        <ul className="gene-compact-list">
+                          {genccAssertions.map((entry, index) => {
+                            const meta = [
+                              entry.classification_title,
+                              entry.moi_title,
+                              entry.gencc_id ? `GenCC ${entry.gencc_id}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ');
+                            return (
+                              <li
+                                key={`${entry.gencc_id || index}-${entry.disease_title || 'gencc'}`}
+                              >
+                                <span>{entry.disease_title || entry.classification_title}</span>
+                                {meta ? (
+                                  <span className="gene-compact-list-meta">{meta}</span>
+                                ) : null}
+                                <PubmedLinks pmids={entry.pmids} />
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    {traitAssociations.length ? (
+                      <div className="gene-compact-subsection">
+                        <p className="gene-compact-subtitle-label">GWAS traits</p>
+                        <div className="gene-compact-chip-grid">
+                          {traitAssociations.map((trait) => (
+                            <span key={trait} className="gene-compact-term-chip">
+                              {trait}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {diseaseEvidenceCanExpand ? (
+                  <button
+                    type="button"
+                    className="button-secondary gene-compact-collapse-button"
+                    aria-expanded={diseaseEvidenceExpanded}
+                    aria-controls="gene-disease-expanded"
+                    onClick={() => setDiseaseEvidenceExpanded((expanded) => !expanded)}
+                  >
+                    {diseaseEvidenceExpanded ? 'Show less' : 'Show more'} disease evidence
+                  </button>
+                ) : null}
+
                 <div className="gene-compact-subsection">
                   <p className="gene-compact-subtitle-label">GenCC details</p>
                   <DetailList rows={genccRows} />
@@ -901,6 +1341,53 @@ const GeneInfoPage: React.FC = () => {
               <div className="gene-compact-block">
                 <h3>Constraint and dosage</h3>
                 <DetailList rows={constraintRows} />
+
+                {clingenDosageAssertions.length ? (
+                  <div className="gene-compact-subsection">
+                    <p className="gene-compact-subtitle-label">ClinGen dosage assertions</p>
+                    <ul className="gene-compact-list">
+                      {clingenDosageAssertions.map((entry, index) => {
+                        const meta = [
+                          entry.haploinsufficiency
+                            ? `HI score ${entry.haploinsufficiency}`
+                            : null,
+                          entry.description,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ');
+                        return (
+                          <li key={`${entry.disease || index}-${entry.haploinsufficiency || 'hi'}`}>
+                            <span>{entry.disease || 'ClinGen haploinsufficiency'}</span>
+                            {meta ? <span className="gene-compact-list-meta">{meta}</span> : null}
+                            <PubmedLinks pmids={entry.pmids} />
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {advancedConstraintRows.length ? (
+                  <div className="gene-compact-subsection">
+                    <button
+                      type="button"
+                      className="button-secondary gene-compact-collapse-button"
+                      aria-expanded={advancedConstraintExpanded}
+                      aria-controls="gene-advanced-constraint-metrics"
+                      onClick={() => setAdvancedConstraintExpanded((expanded) => !expanded)}
+                    >
+                      {advancedConstraintExpanded ? 'Hide' : 'Show'} advanced constraint metrics
+                    </button>
+                    {advancedConstraintExpanded ? (
+                      <div
+                        id="gene-advanced-constraint-metrics"
+                        className="gene-compact-advanced-block"
+                      >
+                        <DetailList rows={advancedConstraintRows} />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 <div className="gene-compact-subsection">
                   <p className="gene-compact-subtitle-label">Description</p>
@@ -913,6 +1400,140 @@ const GeneInfoPage: React.FC = () => {
               </div>
             </div>
           </section>
+
+          {pathwayGroups.length ||
+          ontologyGroups.length ||
+          tissueExpression?.tissue_specificity ||
+          highlightedTissues.length ||
+          topTissueExpression.length ||
+          modelOrganismRows.length ? (
+            <section className="gene-compact-section">
+              <div className="gene-compact-section-header">
+                <div>
+                  <p className="page-kicker">dbNSFP context</p>
+                  <h3 className="gene-compact-section-title">Function and expression</h3>
+                </div>
+                {functionContextCanExpand ? (
+                  <button
+                    type="button"
+                    className="button-secondary gene-compact-collapse-button"
+                    aria-expanded={functionContextExpanded}
+                    aria-controls="gene-function-context"
+                    onClick={() => setFunctionContextExpanded((expanded) => !expanded)}
+                  >
+                    {functionContextExpanded ? 'Show less' : 'Show more'} function context
+                  </button>
+                ) : null}
+              </div>
+
+              <div id="gene-function-context" className="gene-compact-columns">
+                <div className="gene-compact-block">
+                  <h3>Pathways and ontology</h3>
+                  {pathwayGroups.length || ontologyGroups.length ? (
+                    <div className="gene-compact-group-stack">
+                      {pathwayGroups.map((group) => (
+                        <CompactStringGroup
+                          key={group.label}
+                          group={group}
+                          expanded={functionContextExpanded}
+                        />
+                      ))}
+                      {ontologyGroups.map((group) => (
+                        <CompactStringGroup
+                          key={group.label}
+                          group={group}
+                          expanded={functionContextExpanded}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="gene-compact-empty">
+                      No pathway or ontology annotations are cached for this gene.
+                    </p>
+                  )}
+                </div>
+
+                <div className="gene-compact-block">
+                  <h3>Tissue and model systems</h3>
+
+                  {tissueExpression?.tissue_specificity ? (
+                    <div className="gene-compact-subsection">
+                      <p className="gene-compact-subtitle-label">Tissue specificity</p>
+                      <p className="gene-compact-paragraph">
+                        {tissueExpression.tissue_specificity}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {highlightedTissues.length ? (
+                    <div className="gene-compact-subsection">
+                      <p className="gene-compact-subtitle-label">Highly expressed tissues</p>
+                      <div className="gene-compact-chip-grid">
+                        {highlightedTissues
+                          .slice(0, functionContextExpanded ? highlightedTissues.length : 6)
+                          .map((tissue) => (
+                            <span key={tissue} className="gene-compact-term-chip">
+                              {formatReadableKey(tissue)}
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {topTissueExpression.length ? (
+                    <div className="gene-compact-subsection">
+                      <p className="gene-compact-subtitle-label">Top HPA consensus TPM</p>
+                      <div className="gene-compact-expression-list">
+                        {topTissueExpression.map(([tissue, value]) => (
+                          <div key={tissue} className="gene-compact-expression-row">
+                            <div className="gene-compact-expression-labels">
+                              <span>{formatReadableKey(tissue)}</span>
+                              <span>{formatMetricNumber(value, 1)} TPM</span>
+                            </div>
+                            <div className="gene-compact-mini-bar" aria-hidden="true">
+                              <span
+                                className="gene-compact-mini-bar-fill"
+                                style={{
+                                  width: `${
+                                    maxTissueTpm > 0
+                                      ? Math.max(4, (value / maxTissueTpm) * 100)
+                                      : 0
+                                  }%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {modelOrganismRows.length ? (
+                    <div className="gene-compact-subsection">
+                      <p className="gene-compact-subtitle-label">Model organisms</p>
+                      <ul className="gene-compact-list">
+                        {modelOrganismRows.map((row) => (
+                          <li key={row.label}>
+                            <span>
+                              {row.label}
+                              {row.symbol ? `: ${row.symbol}` : ''}
+                            </span>
+                            {row.details.length ? (
+                              <span className="gene-compact-list-meta">
+                                {row.details
+                                  .slice(0, functionContextExpanded ? row.details.length : 4)
+                                  .join(' · ')}
+                              </span>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <section className="gene-compact-section">
             <div className="gene-compact-section-header">

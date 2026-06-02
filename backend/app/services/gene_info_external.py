@@ -315,10 +315,38 @@ async def fetch_external_gene_bundle(
     bulk_context: HumanGeneBulkContext | None = None,
 ) -> Dict[str, Any]:
     cleaned_symbol = symbol.strip()
+    is_human = str(species_document.get("name", "")).lower() == "homo sapiens"
+    bulk_bundle = build_bulk_gene_bundle(symbol=cleaned_symbol, bulk_context=bulk_context)
+    if is_human and bulk_bundle.get("primary_source") == "dbnsfp_gene":
+        local_profile = bulk_bundle.get("profile") or {}
+        local_extra = bulk_bundle.get("extra") or {}
+        return {
+            "display_name": first_non_empty(
+                local_profile.get("display_name"),
+                local_extra.get("hgnc_name"),
+            ),
+            "summary": first_non_empty(
+                local_profile.get("summary"),
+                local_extra.get("ensembl_description"),
+                (local_extra.get("clingen_gene_facts") or {}).get("function"),
+            ),
+            "aliases": sorted(set(as_list(local_profile.get("aliases")))),
+            "previous_symbols": sorted(set(as_list(local_profile.get("previous_symbols")))),
+            "ensembl_gene_id": first_non_empty(local_profile.get("ensembl_gene_id")),
+            "ncbi_gene_id": first_non_empty(local_profile.get("ncbi_gene_id")),
+            "hgnc_id": first_non_empty(local_profile.get("hgnc_id")),
+            "omim_gene_id": first_non_empty(bulk_bundle.get("omim_gene_id")),
+            "gene_type": first_non_empty(local_profile.get("gene_type")),
+            "location": first_non_empty(local_profile.get("location")),
+            "homologs": bulk_bundle.get("homologs") or [],
+            "source_status": bulk_bundle.get("source_status") or {},
+            "extra": local_extra,
+        }
+
     source_status_map: Dict[str, Dict[str, Any]] = {}
 
     hgnc_payload: Dict[str, Any] = {}
-    if str(species_document.get("name", "")).lower() == "homo sapiens":
+    if is_human:
         try:
             hgnc_payload = await fetch_hgnc_gene(cleaned_symbol)
             source_status_map["hgnc"] = source_status(
@@ -403,7 +431,7 @@ async def fetch_external_gene_bundle(
     previous_symbols = sorted(set(as_list(hgnc_payload.get("prev_symbol"))))
     omim_ids = as_list(hgnc_payload.get("omim_id"))
     clingen_payload: Dict[str, Any] = {}
-    if str(species_document.get("name", "")).lower() == "homo sapiens":
+    if is_human:
         try:
             clingen_payload = await fetch_clingen_gene(
                 cleaned_symbol,
@@ -445,7 +473,6 @@ async def fetch_external_gene_bundle(
         "clingen_curation_counts": clingen_payload.get("curation_counts", {}),
         "clingen_gene_facts": clingen_payload.get("gene_facts", {}),
     }
-    bulk_bundle = build_bulk_gene_bundle(symbol=cleaned_symbol, bulk_context=bulk_context)
     source_status_map.update(bulk_bundle.get("source_status") or {})
     extra = merge_gene_extra(extra, bulk_bundle.get("extra") or {})
 

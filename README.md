@@ -98,7 +98,8 @@ Optional:
 - `GENE_REFERENCE_CLINGEN_DOSAGE_URL`
 - `GENE_REFERENCE_GENCC_URL`
 - `GENE_REFERENCE_CLINVAR_GENE_CONDITION_URL`
-- `GENE_REFERENCE_DBNSFP_GENE_PATH`
+- `GENE_REFERENCE_DBNSFP_GENE_PATH`, defaulting to `/data/ref-data/dbNSFP5.3_gene.gz` for local-first gene reference sync
+- `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, defaulting to `true` to queue the first dbNSFP-backed human gene reference sync when a clean GRCh38 database has no cached gene info
 - `READS_PATH`
 - `REFERENCE_FASTA_PATH`
 - `REFERENCE_ALIAS_PATH`
@@ -157,6 +158,6 @@ npm run build
 ## Notes
 
 - Variant IDs exposed by the API are storage-agnostic strings. Metadata IDs are UUIDs.
-- Startup seeds the built-in repeat catalog into Postgres and starts the gene-reference refresh worker.
+- Startup ensures Homo sapiens GRCh38 is present, imports missing GRCh38 cytobands/genes from UCSC when available, seeds built-in hg38 tracks, queues the first dbNSFP-backed human gene-reference sync when the local dbNSFP gene file is present, and starts the gene-reference refresh worker.
 - Admin users can inspect and repair ClickHouse variant tables from the data-management page or via `/admin/clickhouse/variants`, `/admin/clickhouse/variants/{assembly_name}/ensure`, and `/admin/clickhouse/variants/{assembly_name}/optimize`.
 - The in-app `New features` page reads GitHub releases through `/product/releases`; private repositories require `GITHUB_API_TOKEN` on the backend to keep that page synced.

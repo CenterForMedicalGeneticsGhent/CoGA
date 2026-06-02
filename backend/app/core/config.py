@@ -108,8 +108,12 @@ class Settings(BaseSettings):
         alias="GITHUB_RELEASE_CACHE_TTL_SECONDS",
     )
     gene_reference_dbnsfp_gene_path: str | None = Field(
-        default=None,
+        default="/data/ref-data/dbNSFP5.3_gene.gz",
         alias="GENE_REFERENCE_DBNSFP_GENE_PATH",
+    )
+    gene_reference_bootstrap_on_startup: bool = Field(
+        default=True,
+        alias="GENE_REFERENCE_BOOTSTRAP_ON_STARTUP",
     )
     reads_path: str | None = None
     family_import_roots: list[str] = Field(default_factory=list, alias="FAMILY_IMPORT_ROOTS")

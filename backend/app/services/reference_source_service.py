@@ -4,6 +4,7 @@ import asyncio
 import csv
 import gzip
 import io
+import logging
 import re
 import time
 from collections import defaultdict
@@ -15,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..schemas import (
     ReferenceAutoImportResult,
     ReferenceImportSourceAssemblyOut,
@@ -24,10 +26,18 @@ from .reference_metadata_service import apply_reference_dataset_text
 
 UCSC_API_ROOT = "https://api.genome.ucsc.edu"
 UCSC_DOWNLOAD_ROOT = "https://hgdownload.soe.ucsc.edu/goldenPath"
+HUMAN_GRCH38_TAX_ID = 9606
+HUMAN_GRCH38_SCIENTIFIC_NAME = "Homo sapiens"
+HUMAN_GRCH38_COMMON_NAME = "human"
+HUMAN_GRCH38_UCSC_GENOME = "hg38"
+HUMAN_GRCH38_ASSEMBLY_NAME = "GRCh38"
+HUMAN_GRCH38_FALLBACK_VERSION = "hg38"
+HUMAN_GRCH38_RELEASE_DATE = date(2013, 12, 1)
 _CATALOG_TTL_SECONDS = 60 * 60
 _catalog_lock = asyncio.Lock()
 _catalog_cached_at = 0.0
 _catalog_entries: list[dict[str, Any]] | None = None
+logger = logging.getLogger(__name__)
 
 _MONTH_BY_PREFIX = {
     "jan": 1,
@@ -564,12 +574,101 @@ async def _get_or_create_assembly(
     return str(created_row["id"]), True
 
 
+async def _find_human_grch38_assembly(
+    session: AsyncSession,
+) -> dict[str, Any] | None:
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                s.id::text AS species_id,
+                s.name AS species_name,
+                a.id::text AS assembly_id,
+                a.assembly_name,
+                a.version
+            FROM species s
+            JOIN assemblies a ON a.species_id = s.id
+            WHERE (s.tax_id = :tax_id OR s.name = :scientific_name)
+              AND (
+                    a.assembly_name = :assembly_name
+                 OR lower(a.version) = :ucsc_genome
+                 OR lower(a.assembly_name) = :ucsc_genome
+              )
+            ORDER BY
+                CASE WHEN a.assembly_name = :assembly_name THEN 0 ELSE 1 END,
+                CASE WHEN lower(a.version) = :ucsc_genome THEN 0 ELSE 1 END,
+                a.release_date DESC,
+                a.version DESC
+            LIMIT 1
+            """
+        ),
+        {
+            "tax_id": HUMAN_GRCH38_TAX_ID,
+            "scientific_name": HUMAN_GRCH38_SCIENTIFIC_NAME,
+            "assembly_name": HUMAN_GRCH38_ASSEMBLY_NAME,
+            "ucsc_genome": HUMAN_GRCH38_UCSC_GENOME,
+        },
+    )
+    row = result.mappings().first()
+    return dict(row) if row is not None else None
+
+
+async def _count_reference_dataset_rows(
+    session: AsyncSession,
+    *,
+    assembly_id: str,
+    dataset_type: str,
+) -> int:
+    count_query = {
+        "cytobands": "SELECT COUNT(*) FROM chromosomes WHERE assembly_id = CAST(:assembly_id AS uuid)",
+        "genes": "SELECT COUNT(*) FROM genes WHERE assembly_id = CAST(:assembly_id AS uuid)",
+    }[dataset_type]
+    result = await session.execute(text(count_query), {"assembly_id": assembly_id})
+    return int(result.scalar_one() or 0)
+
+
+async def ensure_human_grch38_species_assembly(
+    session: AsyncSession,
+) -> dict[str, Any]:
+    existing = await _find_human_grch38_assembly(session)
+    if existing is not None:
+        return {
+            **existing,
+            "created_species": False,
+            "created_assembly": False,
+        }
+
+    species_id, species_name, created_species = await _get_or_create_species(
+        session,
+        scientific_name=HUMAN_GRCH38_SCIENTIFIC_NAME,
+        common_name=HUMAN_GRCH38_COMMON_NAME,
+        tax_id=HUMAN_GRCH38_TAX_ID,
+    )
+    assembly_id, created_assembly = await _get_or_create_assembly(
+        session,
+        species_id=species_id,
+        assembly_name=HUMAN_GRCH38_ASSEMBLY_NAME,
+        assembly_version=HUMAN_GRCH38_FALLBACK_VERSION,
+        release_date=HUMAN_GRCH38_RELEASE_DATE,
+    )
+    return {
+        "species_id": species_id,
+        "species_name": species_name,
+        "assembly_id": assembly_id,
+        "assembly_name": HUMAN_GRCH38_ASSEMBLY_NAME,
+        "version": HUMAN_GRCH38_FALLBACK_VERSION,
+        "created_species": created_species,
+        "created_assembly": created_assembly,
+    }
+
+
 async def import_reference_from_ucsc(
     session: AsyncSession,
     *,
     tax_id: int,
     ucsc_genome: str,
     overwrite: bool,
+    missing_only: bool = False,
 ) -> ReferenceAutoImportResult:
     source_entries = await list_reference_source_assemblies(tax_id=tax_id)
     source_assembly = next((entry for entry in source_entries if entry.ucsc_genome == ucsc_genome), None)
@@ -586,39 +685,86 @@ async def import_reference_from_ucsc(
             resolved_alias,
             ucsc_genome,
         )
-        cytoband_text, cytoband_source_url = await _download_cytobands(client, ucsc_genome=ucsc_genome)
-        gene_text, gene_source_url, gene_source = await _download_genes(client, ucsc_genome=ucsc_genome)
 
-    species_id, species_name, created_species = await _get_or_create_species(
-        session,
-        scientific_name=source_assembly.scientific_name,
-        common_name=source_assembly.common_name,
-        tax_id=source_assembly.tax_id,
+    existing_startup_assembly = (
+        await _find_human_grch38_assembly(session)
+        if missing_only and tax_id == HUMAN_GRCH38_TAX_ID and ucsc_genome == HUMAN_GRCH38_UCSC_GENOME
+        else None
     )
-    assembly_id, created_assembly = await _get_or_create_assembly(
-        session,
-        species_id=species_id,
-        assembly_name=assembly_name,
-        assembly_version=assembly_version,
-        release_date=source_assembly.release_date,
-    )
+    if existing_startup_assembly is not None:
+        species_id = str(existing_startup_assembly["species_id"])
+        species_name = str(existing_startup_assembly["species_name"])
+        assembly_id = str(existing_startup_assembly["assembly_id"])
+        assembly_name = str(existing_startup_assembly["assembly_name"])
+        assembly_version = str(existing_startup_assembly["version"])
+        created_species = False
+        created_assembly = False
+    else:
+        species_id, species_name, created_species = await _get_or_create_species(
+            session,
+            scientific_name=source_assembly.scientific_name,
+            common_name=source_assembly.common_name,
+            tax_id=source_assembly.tax_id,
+        )
+        assembly_id, created_assembly = await _get_or_create_assembly(
+            session,
+            species_id=species_id,
+            assembly_name=assembly_name,
+            assembly_version=assembly_version,
+            release_date=source_assembly.release_date,
+        )
 
-    cytobands = await apply_reference_dataset_text(
-        session,
-        assembly_id=assembly_id,
-        dataset_type="cytobands",
-        text_value=cytoband_text,
-        overwrite=overwrite,
-        commit=False,
+    cytobands_existing = (
+        await _count_reference_dataset_rows(
+            session,
+            assembly_id=assembly_id,
+            dataset_type="cytobands",
+        )
+        if missing_only
+        else 0
     )
-    genes = await apply_reference_dataset_text(
-        session,
-        assembly_id=assembly_id,
-        dataset_type="genes",
-        text_value=gene_text,
-        overwrite=overwrite,
-        commit=False,
+    genes_existing = (
+        await _count_reference_dataset_rows(
+            session,
+            assembly_id=assembly_id,
+            dataset_type="genes",
+        )
+        if missing_only
+        else 0
     )
+    cytoband_source_url = ""
+    gene_source_url = ""
+    gene_source = "UCSC gene tables"
+    cytobands_inserted = 0
+    genes_inserted = 0
+    cytobands_replaced = False
+    genes_replaced = False
+
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        if not missing_only or cytobands_existing == 0 or overwrite:
+            cytoband_text, cytoband_source_url = await _download_cytobands(client, ucsc_genome=ucsc_genome)
+            cytobands = await apply_reference_dataset_text(
+                session,
+                assembly_id=assembly_id,
+                dataset_type="cytobands",
+                text_value=cytoband_text,
+                overwrite=overwrite,
+                commit=False,
+            )
+            cytobands_inserted = cytobands.inserted
+            cytobands_replaced = cytobands.replaced
+        if not missing_only or genes_existing == 0 or overwrite:
+            gene_text, gene_source_url, gene_source = await _download_genes(client, ucsc_genome=ucsc_genome)
+            genes = await apply_reference_dataset_text(
+                session,
+                assembly_id=assembly_id,
+                dataset_type="genes",
+                text_value=gene_text,
+                overwrite=overwrite,
+                commit=False,
+            )
+            genes_inserted = genes.inserted
+            genes_replaced = genes.replaced
     await session.commit()
 
     return ReferenceAutoImportResult(
@@ -630,11 +776,68 @@ async def import_reference_from_ucsc(
         ucsc_genome=ucsc_genome,
         created_species=created_species,
         created_assembly=created_assembly,
-        cytobands_inserted=cytobands.inserted,
-        genes_inserted=genes.inserted,
-        cytobands_replaced=cytobands.replaced,
-        genes_replaced=genes.replaced,
+        cytobands_inserted=cytobands_inserted,
+        genes_inserted=genes_inserted,
+        cytobands_replaced=cytobands_replaced,
+        genes_replaced=genes_replaced,
         cytoband_source_url=cytoband_source_url,
         gene_source_url=gene_source_url,
         gene_source=gene_source,
     )
+
+
+async def ensure_human_grch38_reference_on_startup(
+    session: AsyncSession,
+) -> ReferenceAutoImportResult | None:
+    if not settings.reference_bootstrap_enabled:
+        return None
+    existing = await _find_human_grch38_assembly(session)
+    if existing is not None:
+        assembly_id = str(existing["assembly_id"])
+        cytobands_existing = await _count_reference_dataset_rows(
+            session,
+            assembly_id=assembly_id,
+            dataset_type="cytobands",
+        )
+        genes_existing = await _count_reference_dataset_rows(
+            session,
+            assembly_id=assembly_id,
+            dataset_type="genes",
+        )
+        if cytobands_existing > 0 and genes_existing > 0:
+            return None
+    try:
+        result = await import_reference_from_ucsc(
+            session,
+            tax_id=HUMAN_GRCH38_TAX_ID,
+            ucsc_genome=HUMAN_GRCH38_UCSC_GENOME,
+            overwrite=False,
+            missing_only=True,
+        )
+        if result.cytobands_inserted or result.genes_inserted:
+            logger.info(
+                "Bootstrapped Homo sapiens %s/%s reference data from UCSC (%d chromosomes, %d genes)",
+                result.assembly_name,
+                result.assembly_version,
+                result.cytobands_inserted,
+                result.genes_inserted,
+            )
+        return result
+    except Exception:
+        logger.exception(
+            "Failed to bootstrap Homo sapiens GRCh38 reference data from UCSC; "
+            "creating the species and assembly shell only"
+        )
+        try:
+            await session.rollback()
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to roll back failed GRCh38 reference bootstrap")
+        fallback = await ensure_human_grch38_species_assembly(session)
+        await session.commit()
+        logger.info(
+            "Ensured Homo sapiens %s/%s assembly shell (%s)",
+            fallback["assembly_name"],
+            fallback["version"],
+            fallback["assembly_id"],
+        )
+        return None

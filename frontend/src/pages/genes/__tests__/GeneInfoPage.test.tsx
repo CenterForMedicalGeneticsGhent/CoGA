@@ -159,6 +159,13 @@ describe('GeneInfoPage', () => {
                     },
                   },
                 },
+                dbnsfp_gene: {
+                  status: 'success',
+                  fetched_at: '2026-03-27T12:00:00Z',
+                  source_url: '/data/ref-data/dbNSFP5.3_gene.gz',
+                  message: null,
+                  payload: { record_count: 1 },
+                },
               },
               external_links: [
                 { label: 'Ensembl', href: 'https://www.ensembl.org/id/ENSG00000012048' },
@@ -189,11 +196,91 @@ describe('GeneInfoPage', () => {
                     significance: 'Pathogenic',
                   },
                 ],
+                hpo_terms: [
+                  { hpo_id: 'HP:0003002', label: 'Breast carcinoma' },
+                  { hpo_id: 'HP:0002896', label: 'Neoplasm of the liver' },
+                ],
+                dbnsfp_orphanet_assertions: [
+                  {
+                    orphanet_id: '145',
+                    disease_title: 'Hereditary breast and/or ovarian cancer syndrome',
+                    association_type: 'Disease-causing germline mutation(s) in',
+                  },
+                ],
+                dbnsfp_trait_associations: ['Breast neoplasm', 'Ovarian neoplasm'],
+                gencc_assertions: [
+                  {
+                    gencc_id: 'GENCC:0000001',
+                    disease_title: 'breast-ovarian cancer, familial, susceptibility to, 1',
+                    classification_title: 'Definitive',
+                    moi_title: 'Autosomal dominant',
+                    pmids: ['12345678'],
+                  },
+                ],
+                clingen_dosage_assertions: [
+                  {
+                    haploinsufficiency: '3',
+                    description: 'Sufficient evidence for dosage pathogenicity',
+                    disease: 'BRCA1-related cancer predisposition',
+                    pmids: ['32375709'],
+                  },
+                ],
                 constraint_metrics: {
                   missense_z: 3.21,
                   shet: 0.094,
                   phaplo: 0.88,
                   ptriplo: 0.06,
+                  p_hi: 0.134,
+                  p_rec: 0.021,
+                  gnomad_pli: 1.0,
+                  gnomad_prec: 0.002,
+                  gnomad_pnull: 0.0,
+                  gnomad_lof_oe: 0.061,
+                  gnomad_mis_oe: 0.27,
+                  gnomad_loeuf: 0.16,
+                  gnomad_moeuf: 0.54,
+                  gdi: 72.4,
+                  gdi_phred: 48.2,
+                  loftool_score: 0.002,
+                },
+                gene_ontology: {
+                  biological_process: [
+                    'double-strand break repair via homologous recombination',
+                    'DNA repair',
+                    'DNA recombination',
+                    'response to ionizing radiation',
+                    'DNA damage response',
+                  ],
+                  cellular_component: ['nucleus'],
+                  molecular_function: ['ubiquitin-protein transferase activity'],
+                },
+                dbnsfp_pathways: {
+                  uniprot: ['Protein modification'],
+                  consensus_path_db: ['DNA repair pathway'],
+                  kegg: ['Ubiquitin mediated proteolysis'],
+                  kegg_ids: ['hsa04120'],
+                },
+                dbnsfp_tissue_expression: {
+                  tissue_specificity: 'Expressed in several tissues with enriched immune expression.',
+                  hpa_highly_expressed: ['thymus', 'testis', 'bone marrow'],
+                  hpa_consensus_tpm: {
+                    thymus: 13.5,
+                    testis: 11.6,
+                    bone_marrow: 10.9,
+                    breast: 3.3,
+                    ovary: 2.7,
+                  },
+                },
+                dbnsfp_model_organisms: {
+                  mouse: {
+                    symbol: 'Brca1',
+                    phenotypes: ['neoplasm', 'embryo phenotype'],
+                  },
+                  zebrafish: {
+                    symbol: 'brca1',
+                    structures: ['nervous system'],
+                    phenotype_tags: ['abnormal'],
+                  },
                 },
                 clingen_curation_counts: {
                   gene_disease_validity: 12,
@@ -262,14 +349,49 @@ describe('GeneInfoPage', () => {
       screen.getByText(/Hereditary breast and ovarian cancer syndrome/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/ClinVar · Pathogenic/i)).toBeInTheDocument();
+    expect(screen.getByText('Breast carcinoma')).toBeInTheDocument();
+    expect(screen.getByText('HP:0003002')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Hereditary breast and\/or ovarian cancer syndrome/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Disease-causing germline mutation/i)).toBeInTheDocument();
     expect(screen.getAllByText(/gene-disease validity/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/DECIPHER %HI/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sufficient evidence for dosage pathogenicity/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'PMID 32375709' })).toHaveAttribute(
+      'href',
+      'https://pubmed.ncbi.nlm.nih.gov/32375709/',
+    );
     expect(screen.getByText('OTTHUMG00000157426')).toBeInTheDocument();
     expect(screen.getByText('NM_007294.4')).toBeInTheDocument();
     expect(screen.getByText('3.21')).toBeInTheDocument();
     expect(screen.getByText('0.094')).toBeInTheDocument();
     expect(screen.getByText('0.880')).toBeInTheDocument();
     expect(screen.getByText('0.060')).toBeInTheDocument();
+    expect(
+      screen.getByText(/double-strand break repair via homologous recombination/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Ubiquitin mediated proteolysis/i)).toBeInTheDocument();
+    expect(screen.getByText(/Expressed in several tissues/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Thymus/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/13.5 TPM/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mouse: Brca1/i)).toBeInTheDocument();
+    expect(screen.queryByText(/DNA damage response/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /show more function context/i }));
+    expect(screen.getByText(/DNA damage response/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /show more disease evidence/i }));
+    expect(screen.getByText(/Definitive · Autosomal dominant/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'PMID 12345678' })).toHaveAttribute(
+      'href',
+      'https://pubmed.ncbi.nlm.nih.gov/12345678/',
+    );
+    expect(screen.getByText('Breast neoplasm')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /show advanced constraint metrics/i }));
+    expect(screen.getByText(/gnomAD missense OE/i)).toBeInTheDocument();
+    expect(screen.getByText('0.270')).toBeInTheDocument();
+    expect(screen.getByText(/GDI Phred/i)).toBeInTheDocument();
+    expect(screen.getByText('48.20')).toBeInTheDocument();
+    expect(screen.getByText(/LoFtool score/i)).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /show 2 transcripts/i }));
     const transcriptTable = screen.getByRole('table');

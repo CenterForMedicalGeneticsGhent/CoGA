@@ -4403,12 +4403,47 @@ tbody tr:hover {
   gap: 0.35rem;
 }
 
+.gene-compact-group-stack {
+  display: grid;
+  gap: 0.65rem;
+}
+
 .gene-compact-subtitle-label {
   margin: 0;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.gene-compact-term-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.28rem;
+  border: 1px solid rgba(198, 31, 45, 0.14);
+  border-radius: 999px;
+  background: rgba(198, 31, 45, 0.055);
+  padding: 0.22rem 0.56rem;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--color-heading);
+}
+
+.gene-compact-term-chip span {
+  font-size: 0.68rem;
+  font-weight: 700;
   color: var(--color-text-muted);
 }
 
@@ -4461,6 +4496,51 @@ tbody tr:hover {
   min-height: 2rem;
   padding: 0.3rem 0.72rem;
   white-space: nowrap;
+}
+
+.gene-compact-advanced-block {
+  display: grid;
+  gap: 0.55rem;
+  border-left: 3px solid rgba(198, 31, 45, 0.22);
+  padding-left: 0.7rem;
+}
+
+.gene-compact-expression-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.gene-compact-expression-row {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.gene-compact-expression-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--color-heading);
+}
+
+.gene-compact-expression-labels span:last-child {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.gene-compact-mini-bar {
+  height: 0.42rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(10, 11, 12, 0.07);
+}
+
+.gene-compact-mini-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c61f2d, #d56c3b);
 }
 
 .gene-transcript-table td:first-child {

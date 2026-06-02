@@ -25,18 +25,27 @@ Manual uploads remain available per assembly through:
 
 Startup bootstrap:
 
-- On backend startup, CoGA can automatically seed `clinical_cnvs` and
-  `segmental_duplications` for one assembly when those tables are empty.
+- On backend startup, CoGA ensures Homo sapiens GRCh38 is present as the default human
+  organism/assembly.
+- When GRCh38 cytobands or genes are missing, CoGA imports the missing core reference tables from
+  UCSC `hg38`. If UCSC is unavailable, startup continues after creating the species/assembly shell.
+- CoGA can automatically seed `clinical_cnvs` and `segmental_duplications` for GRCh38 when those
+  tables are empty.
+- When `/data/ref-data/dbNSFP5.3_gene.gz` or `GENE_REFERENCE_DBNSFP_GENE_PATH` is present and
+  `gene_info` is empty, startup queues the first dbNSFP-backed human gene reference sync.
 - Defaults:
   - assembly: `GRCh38`
   - CNV file: `/data/ref-data/clinical_cnv_syndromes_hg38_combined.tsv`
   - SegDup/LCR file:
     `/data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`
+  - dbNSFP gene file: `/data/ref-data/dbNSFP5.3_gene.gz`
 - Controls:
   - `REFERENCE_BOOTSTRAP_ENABLED=true|false`
   - `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME=GRCh38`
   - `REFERENCE_CLINICAL_CNVS_PATH=...`
   - `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH=...`
+  - `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP=true|false`
+  - `GENE_REFERENCE_DBNSFP_GENE_PATH=...`
 
 Expected content:
 
@@ -56,11 +65,14 @@ The sync now combines:
 - bulk ClinGen gene-validity and dosage downloads
 - the GenCC submissions export
 - ClinVar `gene_condition_source_id` for gene-disease relationships
-- optional local `dbNSFP_gene` raw files through `GENE_REFERENCE_DBNSFP_GENE_PATH`
+- local `dbNSFP_gene` raw files through `GENE_REFERENCE_DBNSFP_GENE_PATH`
 
-The public ClinGen, GenCC, and ClinVar sources work without extra setup. `dbNSFP` is treated as an
-optional local raw download because it is a large external dataset; when configured, the gene sync
-adds extra OMIM-style disease context and constraint metrics from that file.
+CoGA prefers the local dbNSFP gene file, defaulting to
+`/data/ref-data/dbNSFP5.3_gene.gz` in Docker. During gene reference sync, public ClinGen, GenCC,
+ClinVar, HGNC, Ensembl, and NCBI sources are used as fallback sources only when the local dbNSFP
+file is unavailable or does not contain the requested gene. The dbNSFP file enriches cached gene
+records with identifiers, names and aliases, OMIM/Orphanet/GenCC disease context, ClinGen dosage
+fields, HPO/GO/pathway terms, model organism context, tissue expression, and constraint metrics.
 
 ## Pedigrees
 

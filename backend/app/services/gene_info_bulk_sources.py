@@ -16,6 +16,19 @@ import httpx
 from ..core.config import settings
 
 _MAX_ASSOCIATIONS_PER_GENE = 24
+_MAX_TERMS_PER_GENE = 96
+_DEFAULT_DBNSFP_GENE_PATH = Path("/data/ref-data/dbNSFP5.3_gene.gz")
+_REPO_DBNSFP_GENE_PATH = (
+    Path(__file__).resolve().parents[3] / "data" / "ref-data" / "dbNSFP5.3_gene.gz"
+)
+_MISSING_CELL_VALUES = {"", ".", "-", "na", "n/a", "none", "null"}
+
+
+def _clean_cell(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.lower() in _MISSING_CELL_VALUES:
+        return ""
+    return text
 
 
 def _normalize_symbol(value: Any) -> str:
@@ -31,13 +44,13 @@ def _normalized_row(row: dict[str, Any]) -> dict[str, str]:
     for key, value in row.items():
         if key is None:
             continue
-        normalized[_normalize_header(key)] = str(value or "").strip()
+        normalized[_normalize_header(key)] = _clean_cell(value)
     return normalized
 
 
 def _row_value(row: dict[str, str], *aliases: str) -> str:
     for alias in aliases:
-        value = row.get(_normalize_header(alias), "").strip()
+        value = _clean_cell(row.get(_normalize_header(alias), ""))
         if value:
             return value
     return ""
@@ -46,16 +59,17 @@ def _row_value(row: dict[str, str], *aliases: str) -> str:
 def _split_multi_value(value: str) -> list[str]:
     if not value:
         return []
-    return [entry.strip() for entry in re.split(r"[|;]", value) if entry.strip()]
+    return [cleaned for entry in re.split(r"[|;]", value) if (cleaned := _clean_cell(entry))]
 
 
 def _split_gene_list(value: str) -> list[str]:
     if not value:
         return []
-    return [entry.strip() for entry in re.split(r"[|;,]", value) if entry.strip()]
+    return [cleaned for entry in re.split(r"[|;,]", value) if (cleaned := _clean_cell(entry))]
 
 
 def _leading_float(value: str) -> float | None:
+    value = _clean_cell(value)
     if not value:
         return None
     match = re.search(r"-?\d+(?:\.\d+)?", value)
@@ -147,6 +161,12 @@ class GeneBulkSourceDataset:
 class HumanGeneBulkContext:
     datasets: dict[str, GeneBulkSourceDataset] = field(default_factory=dict)
 
+    def dbnsfp_record_for_symbol(self, symbol: str) -> dict[str, Any] | None:
+        dataset = self.datasets.get("dbnsfp_gene")
+        if dataset is None or dataset.status != "success":
+            return None
+        return dataset.records_by_symbol.get(_normalize_symbol(symbol))
+
 
 def build_bulk_gene_bundle(
     *,
@@ -158,23 +178,39 @@ def build_bulk_gene_bundle(
 
     normalized_symbol = _normalize_symbol(symbol)
     merged_extra: dict[str, Any] = {}
+    merged_profile: dict[str, Any] = {}
+    merged_homologs: list[dict[str, Any]] = []
+    seen_homologs: set[str] = set()
     source_status_map: dict[str, dict[str, Any]] = {}
     omim_gene_id: str | None = None
+    primary_source: str | None = None
 
     for name, dataset in bulk_context.datasets.items():
         source_status_map[name] = dataset.status_for_symbol(normalized_symbol)
         record = dataset.records_by_symbol.get(normalized_symbol)
         if record is None:
             continue
+        if name == "dbnsfp_gene":
+            primary_source = "dbnsfp_gene"
         merged_extra = merge_gene_extra(merged_extra, record.get("extra") or {})
+        merged_profile = merge_gene_extra(merged_profile, record.get("profile") or {})
+        for homolog in record.get("homologs") or []:
+            homolog_key = _json_key(homolog)
+            if homolog_key in seen_homologs:
+                continue
+            seen_homologs.add(homolog_key)
+            merged_homologs.append(homolog)
         candidate_omim_gene_id = str(record.get("omim_gene_id") or "").strip()
         if candidate_omim_gene_id and not omim_gene_id:
             omim_gene_id = candidate_omim_gene_id
 
     return {
         "extra": merged_extra,
+        "profile": merged_profile,
+        "homologs": merged_homologs,
         "source_status": source_status_map,
         "omim_gene_id": omim_gene_id,
+        "primary_source": primary_source,
     }
 
 
@@ -223,6 +259,8 @@ def _finalize_gene_records(records_by_symbol: dict[str, dict[str, Any]]) -> dict
                 extra.pop(key, None)
         finalized[symbol] = {
             "extra": extra,
+            "profile": record.get("profile") or {},
+            "homologs": record.get("homologs") or [],
             "omim_gene_id": record.get("omim_gene_id"),
             "status_payload": status_payload,
         }
@@ -403,6 +441,243 @@ def _open_text_handle(path: Path) -> TextIO:
     return path.open("rt")
 
 
+def _unique_values(values: Iterable[Any], *, limit: int | None = None) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        cleaned = _clean_cell(value)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
+        if limit is not None and len(result) >= limit:
+            break
+    return result
+
+
+def _limited_split(value: str, *, limit: int | None = None) -> list[str]:
+    return _unique_values(_split_multi_value(value), limit=limit)
+
+
+def _clean_prefixed_text(value: str, *prefixes: str) -> str:
+    cleaned = _clean_cell(value)
+    for prefix in prefixes:
+        cleaned = re.sub(rf"^{re.escape(prefix)}:\s*", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" ;")
+
+
+def _numeric_metrics(row: dict[str, str], mapping: dict[str, tuple[str, ...]]) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    for output_key, aliases in mapping.items():
+        value = _leading_float(_row_value(row, *aliases))
+        if value is not None:
+            metrics[output_key] = value
+    return metrics
+
+
+def _aligned_records(
+    row: dict[str, str],
+    columns: dict[str, tuple[str, ...]],
+    *,
+    limit: int = _MAX_ASSOCIATIONS_PER_GENE,
+) -> list[dict[str, Any]]:
+    values_by_key = {
+        output_key: _split_multi_value(_row_value(row, *aliases))
+        for output_key, aliases in columns.items()
+    }
+    max_len = min(max((len(values) for values in values_by_key.values()), default=0), limit)
+    records: list[dict[str, Any]] = []
+    for index in range(max_len):
+        record = {
+            output_key: values[index]
+            for output_key, values in values_by_key.items()
+            if index < len(values) and values[index]
+        }
+        if record:
+            records.append(record)
+    return records
+
+
+def _parse_pubmed_ids(value: str) -> list[str]:
+    return _unique_values(re.findall(r"\d{5,}", value), limit=24)
+
+
+def _parse_mim_disease_entries(row: dict[str, str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for raw_entry in _split_multi_value(_row_value(row, "MIM_disease")):
+        match = re.match(r"\[MIM:(?P<omim>\d+)\]\s*(?P<label>.+)", raw_entry)
+        if not match:
+            continue
+        entries.append(
+            {
+                "label": match.group("label").strip(),
+                "omim_id": match.group("omim"),
+                "href": f"https://www.omim.org/entry/{match.group('omim')}",
+            }
+        )
+
+    if entries:
+        return entries[:_MAX_ASSOCIATIONS_PER_GENE]
+
+    disease_text = _row_value(row, "Disease_description", "Disease_description_OMIM")
+    if not disease_text:
+        return []
+    candidate_entries = re.split(r"(?=DISEASE:\s*)", disease_text)
+    if len(candidate_entries) <= 1:
+        candidate_entries = _split_multi_value(disease_text)
+    for raw_entry in candidate_entries:
+        cleaned = _clean_prefixed_text(raw_entry, "DISEASE")
+        if not cleaned:
+            continue
+        mim_match = re.search(r"\[MIM:(\d+)\]", cleaned)
+        label = re.split(r"\s*\[MIM:\d+\]", cleaned, maxsplit=1)[0].strip(" :;")
+        if not label:
+            continue
+        entry = {"label": label}
+        if mim_match:
+            entry["omim_id"] = mim_match.group(1)
+            entry["href"] = f"https://www.omim.org/entry/{mim_match.group(1)}"
+        entries.append(entry)
+        if len(entries) >= _MAX_ASSOCIATIONS_PER_GENE:
+            break
+    return entries
+
+
+def _dbnsfp_pathways(row: dict[str, str]) -> dict[str, Any]:
+    pathways = {
+        "uniprot": _limited_split(_row_value(row, "Pathway(Uniprot)"), limit=32),
+        "biocarta_short": _limited_split(_row_value(row, "Pathway(BioCarta)_short"), limit=32),
+        "biocarta_full": _limited_split(_row_value(row, "Pathway(BioCarta)_full"), limit=32),
+        "consensus_path_db": _limited_split(_row_value(row, "Pathway(ConsensusPathDB)"), limit=64),
+        "kegg_ids": _limited_split(_row_value(row, "Pathway(KEGG)_id"), limit=32),
+        "kegg": _limited_split(_row_value(row, "Pathway(KEGG)_full"), limit=32),
+    }
+    return {key: value for key, value in pathways.items() if value}
+
+
+def _dbnsfp_gene_ontology(row: dict[str, str]) -> dict[str, list[str]]:
+    ontology = {
+        "biological_process": _limited_split(_row_value(row, "GO_biological_process"), limit=64),
+        "cellular_component": _limited_split(_row_value(row, "GO_cellular_component"), limit=64),
+        "molecular_function": _limited_split(_row_value(row, "GO_molecular_function"), limit=64),
+    }
+    return {key: value for key, value in ontology.items() if value}
+
+
+def _dbnsfp_hpo_terms(row: dict[str, str]) -> list[dict[str, str]]:
+    hpo_ids = _split_multi_value(_row_value(row, "HPO_id"))
+    hpo_names = _split_multi_value(_row_value(row, "HPO_name"))
+    terms: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, hpo_id in enumerate(hpo_ids):
+        key = hpo_id
+        if key in seen:
+            continue
+        seen.add(key)
+        term = {"hpo_id": hpo_id}
+        if index < len(hpo_names) and hpo_names[index]:
+            term["label"] = hpo_names[index]
+        terms.append(term)
+        if len(terms) >= _MAX_TERMS_PER_GENE:
+            break
+    return terms
+
+
+def _dbnsfp_expression(row: dict[str, str]) -> dict[str, Any]:
+    tissue_values: dict[str, float] = {}
+    for key, value in row.items():
+        if not key.startswith("hpa_consensus_") or key == "hpa_consensus_highly_expressed":
+            continue
+        numeric_value = _leading_float(value)
+        if numeric_value is None:
+            continue
+        tissue = key.removeprefix("hpa_consensus_")
+        tissue_values[tissue] = numeric_value
+    expression = {
+        "tissue_specificity": _row_value(row, "Tissue_specificity(Uniprot)"),
+        "hpa_consensus_tpm": tissue_values,
+        "hpa_highly_expressed": _split_gene_list(_row_value(row, "HPA_consensus_highly_expressed")),
+    }
+    return {key: value for key, value in expression.items() if value}
+
+
+def _dbnsfp_homologs(row: dict[str, str]) -> list[dict[str, Any]]:
+    homologs: list[dict[str, Any]] = []
+    mouse_symbol = _row_value(row, "MGI_mouse_gene")
+    if mouse_symbol:
+        homologs.append(
+            {
+                "species_name": "Mus Musculus",
+                "common_name": "mouse",
+                "symbol": mouse_symbol,
+                "homology_type": "dbNSFP model organism ortholog",
+                "in_platform": False,
+            }
+        )
+    zebrafish_symbol = _row_value(row, "ZFIN_zebrafish_gene")
+    if zebrafish_symbol:
+        homologs.append(
+            {
+                "species_name": "Danio Rerio",
+                "common_name": "zebrafish",
+                "symbol": zebrafish_symbol,
+                "homology_type": "dbNSFP model organism ortholog",
+                "in_platform": False,
+            }
+        )
+    return homologs
+
+
+def _unique_homologs(homologs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for homolog in homologs:
+        homolog_key = _json_key(homolog)
+        if homolog_key in seen:
+            continue
+        seen.add(homolog_key)
+        unique.append(homolog)
+    return unique
+
+
+def _dbnsfp_constraint_metrics(row: dict[str, str]) -> dict[str, float]:
+    return _numeric_metrics(
+        row,
+        {
+            "missense_z": ("mis_z", "missense_z"),
+            "shet": ("s_het", "shet"),
+            "phaplo": ("phaplo", "p_haplo", "phi", "ghis"),
+            "ptriplo": ("ptriplo", "p_triplo"),
+            "p_hi": ("P(HI)",),
+            "hipred_score": ("HIPred_score",),
+            "ghis": ("GHIS",),
+            "p_rec": ("P(rec)",),
+            "rvis_evs": ("RVIS_EVS",),
+            "rvis_percentile_evs": ("RVIS_percentile_EVS",),
+            "lof_fdr_exac": ("LoF-FDR_ExAC",),
+            "rvis_exac": ("RVIS_ExAC",),
+            "rvis_percentile_exac": ("RVIS_percentile_ExAC",),
+            "exac_pli": ("ExAC_pLI",),
+            "exac_prec": ("ExAC_pRec",),
+            "exac_pnull": ("ExAC_pNull",),
+            "gnomad_pli": ("gnomAD_pLI",),
+            "gnomad_prec": ("gnomAD_pRec",),
+            "gnomad_pnull": ("gnomAD_pNull",),
+            "gnomad_lof_oe": ("gnomAD_lof.oe",),
+            "gnomad_mis_oe": ("gnomAD_mis.oe",),
+            "gnomad_loeuf": ("gnomAD_LOEUF",),
+            "gnomad_moeuf": ("gnomAD_MOEUF",),
+            "exac_del_score": ("ExAC_del.score",),
+            "exac_dup_score": ("ExAC_dup.score",),
+            "exac_cnv_score": ("ExAC_cnv.score",),
+            "gdi": ("GDI",),
+            "gdi_phred": ("GDI-Phred",),
+            "loftool_score": ("LoFtool_score",),
+            "gene_indispensability_score": ("Gene_indispensability_score",),
+        },
+    )
+
+
 def parse_dbnsfp_gene_rows(
     path: str | Path,
     *,
@@ -424,68 +699,259 @@ def parse_dbnsfp_gene_rows(
             if symbol_filter and symbol not in symbol_filter:
                 continue
 
+            aliases = _unique_values(_split_gene_list(_row_value(row, "Gene_other_names")))
+            previous_symbols = _unique_values(_split_gene_list(_row_value(row, "Gene_old_names")))
+            ensembl_gene_id = _row_value(row, "Ensembl_gene")
+            ncbi_gene_id = _row_value(row, "Entrez_gene_id")
+            omim_gene_id = _clean_omim_id(_row_value(row, "MIM_id", "OMIM_id"))
+            gene_full_name = _row_value(row, "Gene_full_name")
+            function_description = _clean_prefixed_text(
+                _row_value(row, "Function_description"),
+                "FUNCTION",
+            )
+            refseq_accessions = _unique_values(_split_gene_list(_row_value(row, "Refseq_id")))
+            uniprot_accessions = _unique_values(_split_gene_list(_row_value(row, "Uniprot_acc")))
+            uniprot_ids = _unique_values(_split_gene_list(_row_value(row, "Uniprot_id")))
+            ccds_ids = _unique_values(_split_gene_list(_row_value(row, "CCDS_id")))
+            ucsc_ids = _unique_values(_split_gene_list(_row_value(row, "ucsc_id")))
+            constraint_metrics = _dbnsfp_constraint_metrics(row)
+            mim_diseases = _parse_mim_disease_entries(row)
+            orphanet_assertions = _aligned_records(
+                row,
+                {
+                    "orphanet_id": ("Orphanet_disorder_id",),
+                    "disease_title": ("Orphanet_disorder",),
+                    "association_type": ("Orphanet_association_type",),
+                },
+            )
+            gencc_assertions = _aligned_records(
+                row,
+                {
+                    "gencc_id": ("GenCC_id",),
+                    "disease_title": ("GenCC_disease_title",),
+                    "classification_title": ("GenCC_impact_class",),
+                    "moi_title": ("GenCC_model_of_inheritance",),
+                    "pmids": ("GenCC_pmid",),
+                },
+            )
+            for assertion in gencc_assertions:
+                if "pmids" in assertion:
+                    assertion["pmids"] = _parse_pubmed_ids(str(assertion["pmids"]))
+
+            clingen_haplo_score = _row_value(row, "ClinGen_Haploinsufficiency_Score")
+            clingen_haplo_description = _row_value(row, "ClinGen_Haploinsufficiency_Description")
+            clingen_haplo_disease = _row_value(row, "ClinGen_Haploinsufficiency_Disease")
+            clingen_haplo_pmids = _parse_pubmed_ids(
+                _row_value(row, "ClinGen_Haploinsufficiency_PMID")
+            )
+            clingen_dosage_assertions = []
+            if any(
+                [
+                    clingen_haplo_score,
+                    clingen_haplo_description,
+                    clingen_haplo_disease,
+                    clingen_haplo_pmids,
+                ]
+            ):
+                clingen_dosage_assertions.append(
+                    {
+                        "haploinsufficiency": clingen_haplo_score,
+                        "description": clingen_haplo_description,
+                        "disease": clingen_haplo_disease,
+                        "pmids": clingen_haplo_pmids,
+                    }
+                )
+
+            gencc_classification_counts: dict[str, int] = {}
+            for assertion in gencc_assertions:
+                classification = str(assertion.get("classification_title") or "").strip()
+                if not classification:
+                    continue
+                gencc_classification_counts[classification] = (
+                    gencc_classification_counts.get(classification, 0) + 1
+                )
+
+            dbnsfp_identifiers = {
+                "ensembl_gene_id": ensembl_gene_id,
+                "entrez_gene_id": ncbi_gene_id,
+                "mim_id": _row_value(row, "MIM_id"),
+                "omim_id": _row_value(row, "OMIM_id"),
+                "uniprot_accessions": uniprot_accessions,
+                "uniprot_ids": uniprot_ids,
+                "ccds_ids": ccds_ids,
+                "refseq_accessions": refseq_accessions,
+                "ucsc_ids": ucsc_ids,
+            }
+            dbnsfp_identifiers = {
+                key: value for key, value in dbnsfp_identifiers.items() if value
+            }
+
+            clingen_gene_facts = {
+                "hgnc_name": gene_full_name,
+                "previous_symbols": previous_symbols,
+                "alias_symbols": aliases,
+                "function": function_description,
+                "haploinsufficiency_index": (
+                    constraint_metrics["p_hi"] * 100 if "p_hi" in constraint_metrics else None
+                ),
+                "pli": constraint_metrics.get("gnomad_pli"),
+                "loeuf": constraint_metrics.get("gnomad_loeuf"),
+                "gencc_classifications": gencc_classification_counts,
+            }
+            clingen_gene_facts = {
+                key: value
+                for key, value in clingen_gene_facts.items()
+                if value not in (None, "", [], {})
+            }
+
             record = records_by_symbol.setdefault(
                 symbol,
                 {
+                    "profile": {},
+                    "homologs": [],
                     "extra": {
                         "omim_diseases": [],
                         "dbnsfp_disease_associations": [],
+                        "gencc_assertions": [],
+                        "clingen_dosage_assertions": [],
                         "constraint_metrics": {},
+                        "clingen_gene_facts": {},
                     },
                     "status_payload": {"record_count": 0},
-                    "omim_gene_id": _clean_omim_id(_row_value(row, "mim_id", "omim_id")),
+                    "omim_gene_id": omim_gene_id,
+                },
+            )
+            record["profile"] = merge_gene_extra(
+                record.get("profile") or {},
+                {
+                    key: value
+                    for key, value in {
+                        "display_name": gene_full_name,
+                        "summary": function_description,
+                        "aliases": aliases,
+                        "previous_symbols": previous_symbols,
+                        "ensembl_gene_id": ensembl_gene_id,
+                        "ncbi_gene_id": ncbi_gene_id,
+                    }.items()
+                    if value
+                },
+            )
+            if omim_gene_id and not record.get("omim_gene_id"):
+                record["omim_gene_id"] = omim_gene_id
+
+            model_organisms = {
+                "mouse": {
+                    "symbol": _row_value(row, "MGI_mouse_gene"),
+                    "phenotypes": _limited_split(_row_value(row, "MGI_mouse_phenotype"), limit=32),
+                },
+                "zebrafish": {
+                    "symbol": _row_value(row, "ZFIN_zebrafish_gene"),
+                    "structures": _limited_split(_row_value(row, "ZFIN_zebrafish_structure"), limit=32),
+                    "phenotype_quality": _limited_split(
+                        _row_value(row, "ZFIN_zebrafish_phenotype_quality"),
+                        limit=32,
+                    ),
+                    "phenotype_tags": _limited_split(
+                        _row_value(row, "ZFIN_zebrafish_phenotype_tag"),
+                        limit=32,
+                    ),
+                },
+            }
+            model_organisms = {
+                key: value for key, value in model_organisms.items() if any(value.values())
+            }
+            curation_counts = {
+                "dosage_sensitivity": len(clingen_dosage_assertions) or None,
+            }
+            curation_counts = {
+                key: value for key, value in curation_counts.items() if value is not None
+            }
+            record["extra"] = merge_gene_extra(
+                record.get("extra") or {},
+                {
+                    "hgnc_name": gene_full_name,
+                    "ensembl_description": function_description,
+                    "refseq_accessions": refseq_accessions,
+                    "dbnsfp_identifiers": dbnsfp_identifiers,
+                    "dbnsfp_pathways": _dbnsfp_pathways(row),
+                    "gene_ontology": _dbnsfp_gene_ontology(row),
+                    "hpo_terms": _dbnsfp_hpo_terms(row),
+                    "dbnsfp_orphanet_assertions": orphanet_assertions,
+                    "dbnsfp_trait_associations": _limited_split(
+                        _row_value(row, "Trait_association(GWAS)"),
+                        limit=_MAX_ASSOCIATIONS_PER_GENE,
+                    ),
+                    "dbnsfp_model_organisms": model_organisms,
+                    "dbnsfp_tissue_expression": _dbnsfp_expression(row),
+                    "clingen_gene_facts": clingen_gene_facts,
+                    "clingen_curation_counts": curation_counts,
+                    "constraint_metrics": constraint_metrics,
                 },
             )
 
-            disease_descriptions = _split_multi_value(
-                _row_value(row, "disease_description", "disease", "disease_description_omim")
-            )
-            if not disease_descriptions:
-                disease_descriptions = _split_multi_value(_row_value(row, "disease_description"))
-            mim_ids = [
-                candidate
-                for candidate in (
-                    _clean_omim_id(value) for value in _split_gene_list(_row_value(row, "mim_id", "omim_id"))
-                )
-                if candidate
-            ]
-
-            for index, disease_name in enumerate(disease_descriptions):
+            for disease in mim_diseases:
+                _add_unique_record(record["extra"]["omim_diseases"], disease)
                 association = {
-                    "label": disease_name,
+                    "label": disease["label"],
                     "source": "dbNSFP",
-                    "details": _row_value(row, "gene_full_name"),
+                    "details": "OMIM" if disease.get("omim_id") else None,
                 }
                 _add_unique_record(record["extra"]["dbnsfp_disease_associations"], association)
-                if index < len(mim_ids):
-                    omim_id = mim_ids[index]
-                    omim_entry = {
-                        "label": disease_name,
-                        "omim_id": omim_id,
-                        "href": f"https://www.omim.org/entry/{omim_id}",
-                    }
-                    _add_unique_record(record["extra"]["omim_diseases"], omim_entry)
 
-            constraint_metrics = {
-                "missense_z": _leading_float(_row_value(row, "mis_z", "missense_z")),
-                "shet": _leading_float(_row_value(row, "s_het", "shet")),
-                "phaplo": _leading_float(_row_value(row, "phaplo", "p_haplo", "phi", "ghis")),
-                "ptriplo": _leading_float(_row_value(row, "ptriplo", "p_triplo")),
+            for orphanet_assertion in orphanet_assertions:
+                label = orphanet_assertion.get("disease_title")
+                if label:
+                    _add_unique_record(
+                        record["extra"]["dbnsfp_disease_associations"],
+                        {
+                            "label": label,
+                            "source": "Orphanet",
+                            "details": orphanet_assertion.get("association_type"),
+                        },
+                    )
+
+            for gencc_assertion in gencc_assertions:
+                _add_unique_record(record["extra"]["gencc_assertions"], gencc_assertion)
+                label = gencc_assertion.get("disease_title")
+                if label:
+                    _add_unique_record(
+                        record["extra"]["dbnsfp_disease_associations"],
+                        {
+                            "label": label,
+                            "source": "GenCC",
+                            "significance": gencc_assertion.get("classification_title"),
+                            "details": gencc_assertion.get("moi_title"),
+                        },
+                    )
+
+            for dosage_assertion in clingen_dosage_assertions:
+                _add_unique_record(record["extra"]["clingen_dosage_assertions"], dosage_assertion)
+
+            record["homologs"] = _unique_homologs(
+                [*(record.get("homologs") or []), *_dbnsfp_homologs(row)]
+            )
+            record["extra"] = {
+                key: value
+                for key, value in (record.get("extra") or {}).items()
+                if value not in (None, "", [], {})
             }
-            constraint_metrics = {
-                key: value for key, value in constraint_metrics.items() if value is not None
+            record["profile"] = {
+                key: value
+                for key, value in (record.get("profile") or {}).items()
+                if value not in (None, "", [], {})
             }
-            if constraint_metrics:
-                record["extra"]["constraint_metrics"] = merge_gene_extra(
-                    record["extra"].get("constraint_metrics") or {},
-                    constraint_metrics,
-                )
-            if record["extra"]["dbnsfp_disease_associations"] or record["extra"]["omim_diseases"] or constraint_metrics:
-                record["status_payload"]["record_count"] = (
-                    len(record["extra"]["dbnsfp_disease_associations"])
-                    + len(record["extra"]["omim_diseases"])
-                    + len(record["extra"].get("constraint_metrics") or {})
-                )
+            record["status_payload"]["record_count"] = (
+                len(record["extra"].get("dbnsfp_disease_associations") or [])
+                + len(record["extra"].get("omim_diseases") or [])
+                + len(record["extra"].get("gencc_assertions") or [])
+                + len(record["extra"].get("clingen_dosage_assertions") or [])
+                + len(record["extra"].get("constraint_metrics") or {})
+            )
+            record["status_payload"]["fields"] = sorted(
+                key
+                for key, value in (record.get("extra") or {}).items()
+                if value not in (None, "", [], {})
+            )
     return _finalize_gene_records(records_by_symbol)
 
 
@@ -514,10 +980,10 @@ async def _load_csv_dataset(
         )
 
 
-async def load_human_gene_bulk_context(
+async def _load_online_gene_bulk_datasets(
     *,
     symbols: Iterable[str] | None = None,
-) -> HumanGeneBulkContext:
+) -> dict[str, GeneBulkSourceDataset]:
     clingen_validity, clingen_dosage, gencc, clinvar_gene_condition = await asyncio.gather(
         _load_csv_dataset(
             name="ClinGen gene validity",
@@ -540,37 +1006,91 @@ async def load_human_gene_bulk_context(
             parser=parse_clinvar_gene_condition_rows,
         ),
     )
-    datasets = {
+    return {
         "clingen_gene_validity": clingen_validity,
         "clingen_dosage": clingen_dosage,
         "gencc": gencc,
         "clinvar_gene_condition": clinvar_gene_condition,
     }
 
-    dbnsfp_path = str(settings.gene_reference_dbnsfp_gene_path or "").strip()
-    if dbnsfp_path:
-        try:
-            records_by_symbol = parse_dbnsfp_gene_rows(dbnsfp_path, symbols=symbols)
-            datasets["dbnsfp_gene"] = GeneBulkSourceDataset(
-                name="dbNSFP gene",
-                source_url=dbnsfp_path,
-                status="success",
-                records_by_symbol=records_by_symbol,
-                payload={"symbols_with_records": len(records_by_symbol)},
-            )
-        except Exception as exc:  # pragma: no cover
-            datasets["dbnsfp_gene"] = GeneBulkSourceDataset(
-                name="dbNSFP gene",
-                source_url=dbnsfp_path,
-                status="error",
-                message=str(exc),
-            )
-    else:
-        datasets["dbnsfp_gene"] = GeneBulkSourceDataset(
+
+def _dbnsfp_gene_path_candidates() -> list[Path]:
+    configured_path = str(settings.gene_reference_dbnsfp_gene_path or "").strip()
+    candidates = [Path(configured_path)] if configured_path else []
+    candidates.extend([_DEFAULT_DBNSFP_GENE_PATH, _REPO_DBNSFP_GENE_PATH])
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def find_local_dbnsfp_gene_path() -> Path | None:
+    return next((candidate for candidate in _dbnsfp_gene_path_candidates() if candidate.exists()), None)
+
+
+def _load_dbnsfp_gene_dataset(
+    *,
+    symbols: Iterable[str] | None,
+) -> GeneBulkSourceDataset:
+    candidates = _dbnsfp_gene_path_candidates()
+    existing_path = find_local_dbnsfp_gene_path()
+    source_url = str(existing_path or candidates[0]) if candidates else None
+
+    if existing_path is None:
+        return GeneBulkSourceDataset(
             name="dbNSFP gene",
-            source_url=None,
+            source_url=source_url,
             status="missing",
-            message="GENE_REFERENCE_DBNSFP_GENE_PATH is not configured",
+            message="No local dbNSFP gene file found; checked "
+            + ", ".join(str(candidate) for candidate in candidates),
         )
+
+    try:
+        records_by_symbol = parse_dbnsfp_gene_rows(existing_path, symbols=symbols)
+        return GeneBulkSourceDataset(
+            name="dbNSFP gene",
+            source_url=str(existing_path),
+            status="success",
+            records_by_symbol=records_by_symbol,
+            payload={"symbols_with_records": len(records_by_symbol)},
+        )
+    except Exception as exc:  # pragma: no cover
+        return GeneBulkSourceDataset(
+            name="dbNSFP gene",
+            source_url=str(existing_path),
+            status="error",
+            message=str(exc),
+        )
+
+
+async def load_human_gene_bulk_context(
+    *,
+    symbols: Iterable[str] | None = None,
+) -> HumanGeneBulkContext:
+    normalized_symbols = sorted(
+        {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
+    )
+    dbnsfp_gene = _load_dbnsfp_gene_dataset(symbols=normalized_symbols or None)
+    datasets: dict[str, GeneBulkSourceDataset] = {
+        "dbnsfp_gene": dbnsfp_gene,
+    }
+
+    fallback_symbols: list[str] | None
+    if dbnsfp_gene.status == "success":
+        fallback_symbols = [
+            symbol for symbol in normalized_symbols if symbol not in dbnsfp_gene.records_by_symbol
+        ]
+    else:
+        fallback_symbols = normalized_symbols or None
+
+    if dbnsfp_gene.status != "success" or fallback_symbols:
+        online_datasets = await _load_online_gene_bulk_datasets(symbols=fallback_symbols)
+        datasets.update(online_datasets)
 
     return HumanGeneBulkContext(datasets=datasets)
