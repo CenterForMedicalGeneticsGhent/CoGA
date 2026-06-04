@@ -31,4 +31,18 @@ describe('errorMessage helpers', () => {
       )
     ).toBe('Incorrect email or password');
   });
+
+  it('uses object-shaped backend detail messages', () => {
+    expect(
+      getErrorMessage({
+        response: {
+          data: {
+            detail: {
+              message: 'Renaming this member is blocked because genomic data exists.',
+            },
+          },
+        },
+      })
+    ).toBe('Renaming this member is blocked because genomic data exists.');
+  });
 });

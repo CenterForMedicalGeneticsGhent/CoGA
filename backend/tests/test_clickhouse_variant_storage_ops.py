@@ -74,6 +74,47 @@ async def test_get_clickhouse_variant_storage_status_reports_missing_tables_and_
 
 
 @pytest.mark.asyncio
+async def test_count_family_small_variants_by_sample_counts_non_reference_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(
+        query: str,
+        params: dict[str, object] | None = None,
+        data=None,
+    ):
+        captured["query"] = query
+        captured["params"] = params
+        return [("embryo-1", 7)]
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage,
+        "ensure_clickhouse_variant_tables",
+        fake_ensure,
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    counts = await clickhouse_variant_storage.count_family_small_variants_by_sample(
+        "GRCh38",
+        "family-1",
+        sample_ids=["embryo-1"],
+        project_ids=["project-1"],
+    )
+
+    assert counts == {"embryo-1": 7}
+    assert "ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt" in str(captured["query"])
+    assert captured["params"] == {
+        "family_guid": "family-1",
+        "sample_ids": ("embryo-1",),
+        "project_ids": ("project-1",),
+    }
+
+
+@pytest.mark.asyncio
 async def test_optimize_clickhouse_variant_tables_skips_materialized_views(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

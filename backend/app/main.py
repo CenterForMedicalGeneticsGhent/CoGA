@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -137,5 +137,30 @@ app.add_middleware(
 
 app.middleware("http")(log_request_response)
 
+api_router = APIRouter(prefix="/api")
 for router in all_routers:
-    app.include_router(router)
+    api_router.include_router(router)
+
+app.include_router(api_router)
+
+api_collection_alias_paths = frozenset(
+    route.path[:-1]
+    for route in app.routes
+    if getattr(route, "path", "").startswith("/api/")
+    and route.path.endswith("/")
+    and "{" not in route.path
+)
+
+
+@app.middleware("http")
+async def normalize_api_collection_root_paths(request, call_next):
+    """Accept collection roots with or without FastAPI's trailing slash."""
+
+    path = request.scope.get("path")
+    if path in api_collection_alias_paths:
+        request.scope["path"] = f"{path}/"
+        raw_path = request.scope.get("raw_path")
+        if isinstance(raw_path, bytes) and not raw_path.endswith(b"/"):
+            request.scope["raw_path"] = raw_path + b"/"
+
+    return await call_next(request)

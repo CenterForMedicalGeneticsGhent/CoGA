@@ -8,6 +8,13 @@ from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import (
     FamilyOut,
     FamilyMitoDNAAnalysisOut,
+    FamilyMemberBatchUpdate,
+    FamilyMemberBatchUpdateOut,
+    FamilyMemberDeleteOut,
+    FamilyMemberDetailOut,
+    FamilyMemberImpactOut,
+    FamilyMemberUpdate,
+    FamilyMemberUpdateOut,
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
     FamilyRegionOfInterestUpdate,
@@ -47,6 +54,13 @@ from ..services.family_service import (
     get_shared_family_structural_variant_counts_for_user,
     list_families_for_user,
     update_family_roi_for_admin,
+)
+from ..services.family_member_management_service import (
+    delete_family_member_for_admin,
+    get_family_member_detail_for_user,
+    get_family_member_impact_for_user,
+    update_family_members_batch_for_admin,
+    update_family_member_for_admin,
 )
 from ..services.family_structure_service import update_family_structure_for_admin
 from ..services.hpo_service import (
@@ -185,6 +199,87 @@ async def update_family_structure(
         session,
         family_id=family_id,
         update=update,
+        user=user,
+    )
+
+
+@router.put("/{family_id}/members/batch", response_model=FamilyMemberBatchUpdateOut)
+async def update_family_members_batch(
+    family_id: str,
+    update: FamilyMemberBatchUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FamilyMemberBatchUpdateOut:
+    return await update_family_members_batch_for_admin(
+        session,
+        family_id=family_id,
+        update=update,
+        user=user,
+    )
+
+
+@router.get("/{family_id}/members/{sample_id}", response_model=FamilyMemberDetailOut)
+async def get_family_member_detail(
+    family_id: str,
+    sample_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FamilyMemberDetailOut:
+    return await get_family_member_detail_for_user(
+        session,
+        family_id=family_id,
+        sample_id=sample_id,
+        user=user,
+    )
+
+
+@router.get("/{family_id}/members/{sample_id}/impact", response_model=FamilyMemberImpactOut)
+async def get_family_member_impact(
+    family_id: str,
+    sample_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FamilyMemberImpactOut:
+    return await get_family_member_impact_for_user(
+        session,
+        family_id=family_id,
+        sample_id=sample_id,
+        user=user,
+    )
+
+
+@router.put("/{family_id}/members/{sample_id}", response_model=FamilyMemberUpdateOut)
+async def update_family_member(
+    family_id: str,
+    sample_id: str,
+    update: FamilyMemberUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FamilyMemberUpdateOut:
+    return await update_family_member_for_admin(
+        session,
+        family_id=family_id,
+        sample_id=sample_id,
+        update=update,
+        user=user,
+    )
+
+
+@router.delete("/{family_id}/members/{sample_id}", response_model=FamilyMemberDeleteOut)
+async def delete_family_member(
+    family_id: str,
+    sample_id: str,
+    confirm: bool = Query(False),
+    clear_existing_genomic_data: bool = Query(False),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FamilyMemberDeleteOut:
+    return await delete_family_member_for_admin(
+        session,
+        family_id=family_id,
+        sample_id=sample_id,
+        confirmed=confirm,
+        clear_existing_genomic_data=clear_existing_genomic_data,
         user=user,
     )
 

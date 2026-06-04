@@ -23,6 +23,8 @@ from ..schemas import (
     UserRead,
 )
 
+ADMIN_ROLES = {"admin", "superuser"}
+
 
 class CurrentUser(BaseModel):
     id: str
@@ -48,6 +50,10 @@ def _is_uuid(value: str | None) -> bool:
     except (TypeError, ValueError):
         return False
     return True
+
+
+def _is_admin_user(user: CurrentUser) -> bool:
+    return user.role in ADMIN_ROLES
 
 
 def _string_list(values: Iterable[Any] | None) -> list[str]:
@@ -889,7 +895,7 @@ async def list_project_dashboards(
     session: AsyncSession,
     user: CurrentUser,
 ) -> list[ProjectDashboardOut]:
-    project_ids = None if user.role == "admin" else _string_list(user.metadata_project_ids)
+    project_ids = None if _is_admin_user(user) else _string_list(user.metadata_project_ids)
     project_rows = await _fetch_project_mappings(session, project_ids=project_ids)
     if not project_rows:
         return []
@@ -935,14 +941,14 @@ def _user_metadata_project_ids(user: CurrentUser) -> list[str]:
 
 def _visible_metadata_project_ids(project_ids: Iterable[Any] | None, user: CurrentUser) -> list[str]:
     normalized_project_ids = _string_list(project_ids)
-    if user.role == "admin":
+    if _is_admin_user(user):
         return normalized_project_ids
     allowed_project_ids = set(_user_metadata_project_ids(user))
     return [project_id for project_id in normalized_project_ids if project_id in allowed_project_ids]
 
 
 def _ensure_user_can_access_metadata_projects(project_ids: list[str], user: CurrentUser) -> None:
-    if user.role == "admin":
+    if _is_admin_user(user):
         return
     if not set(project_ids).intersection(_user_metadata_project_ids(user)):
         raise HTTPException(status_code=403, detail="Not authorized")
@@ -1157,7 +1163,7 @@ async def list_family_records(
 ) -> list[FamilyOut]:
     family_rows = await _fetch_family_rows(
         session,
-        metadata_project_ids=None if user.role == "admin" else _user_metadata_project_ids(user),
+        metadata_project_ids=None if _is_admin_user(user) else _user_metadata_project_ids(user),
     )
     family_uuids = [row["id"] for row in family_rows]
     sample_rows_by_family = await _fetch_family_sample_rows(session, family_uuids)

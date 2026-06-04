@@ -873,22 +873,22 @@ def _warning_payload(
         if cleared_counts:
             warnings.append("Removed family members are inactive and previously imported genomic data was cleared for reload.")
         else:
-            warnings.append("Removed family members are inactive.")
+            warnings.append("Removed family members are inactive; imported genomic datasets were preserved.")
         stale_scopes.append("sample-data")
     if relationships_changed:
         if cleared_counts:
             warnings.append("Relationship-dependent data was cleared; reload genomic datasets before review.")
         else:
-            warnings.append("Relationship-dependent analyses should be rerun before clinical review.")
+            warnings.append("Relationship-dependent analyses were marked stale; imported genomic datasets were preserved.")
         stale_scopes.extend(["segregation", "haplotypes", "phasing"])
     elif structure_changed:
         if cleared_counts:
             warnings.append("Family structure changed and genomic data was cleared; reload datasets before review.")
         else:
-            warnings.append("Family structure metadata changed; review relationship-dependent outputs before reuse.")
+            warnings.append("Family structure metadata changed; relationship-dependent outputs were marked stale without reloading raw datasets.")
         stale_scopes.extend(["segregation", "haplotypes"])
     if status_changed:
-        warnings.append("Phenotype and carrier labels now apply to filters and pedigree displays; saved interpretations may need review.")
+        warnings.append("Phenotype and carrier labels were updated; downstream interpretation views were marked stale without reloading raw datasets.")
         stale_scopes.append("variant-interpretation")
     deduped_scopes = list(dict.fromkeys(stale_scopes))
     return warnings, deduped_scopes
@@ -999,21 +999,11 @@ async def update_family_structure_for_admin(
     current_relationship_keys = {_relationship_key(relationship) for relationship in current_relationships}
     target_relationship_keys = {_relationship_key(relationship) for relationship in target_relationships}
     relationships_changed = current_relationship_keys != target_relationship_keys
-    data_sensitive_change = structure_changed or relationships_changed or update.clear_existing_genomic_data
     data_counts: dict[str, int] = {}
     cleared_data_counts: dict[str, int] = {}
-    if data_sensitive_change:
+    if update.clear_existing_genomic_data:
         data_counts = await _family_genomic_data_counts(session, family_uuid=family_uuid)
         if _nonzero_counts(data_counts):
-            if not update.clear_existing_genomic_data:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "Family structure changes require clearing imported genomic data first. "
-                        "Set clear_existing_genomic_data=true to clear and reload. "
-                        f"Current data: {_format_data_counts(data_counts)}"
-                    ),
-                )
             cleared_data_counts = await _clear_family_genomic_data(session, family_uuid=family_uuid)
 
     for member in true_new_members:
@@ -1023,31 +1013,18 @@ async def update_family_structure_for_admin(
             raise HTTPException(status_code=500, detail=f"Missing sample id for '{member['sample_id']}'")
         await _update_member_row(session, member=member)
 
-    await _replace_relationship_rows(
-        session,
-        family_uuid=family_uuid,
-        target_members=target_members,
-        relationships=target_relationships,
-    )
+    if relationships_changed:
+        await _replace_relationship_rows(
+            session,
+            family_uuid=family_uuid,
+            target_members=target_members,
+            relationships=target_relationships,
+        )
     pedigree = _pedigree_text_from_target(
         family_id=str(family_row["family_id"]),
         target_members=target_members,
         relationships=target_relationships,
     )
-    await session.execute(
-        text(
-            """
-            UPDATE families
-            SET pedigree = :pedigree
-            WHERE id = CAST(:family_uuid AS uuid)
-            """
-        ),
-        {
-            "family_uuid": family_uuid,
-            "pedigree": pedigree,
-        },
-    )
-
     warnings, stale_scopes = _warning_payload(
         added_sample_ids=[*added_sample_ids, *reactivated_sample_ids],
         removed_sample_ids=removed_sample_ids,
@@ -1056,6 +1033,42 @@ async def update_family_structure_for_admin(
         relationships_changed=relationships_changed,
         cleared_data_counts=cleared_data_counts,
     )
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET pedigree = :pedigree,
+                metadata = CASE
+                    WHEN :stale_scopes = '[]' THEN metadata
+                    ELSE jsonb_set(
+                        jsonb_set(
+                            COALESCE(metadata, '{}'::jsonb),
+                            '{derived_data_status,family_metadata}',
+                            jsonb_build_object(
+                                'state', 'stale',
+                                'reason', :reason,
+                                'scopes', CAST(:stale_scopes AS jsonb),
+                                'raw_datasets_preserved', TRUE,
+                                'updated_at', timezone('utc', now())
+                            ),
+                            TRUE
+                        ),
+                        '{derived_data_status,updated_at}',
+                        to_jsonb(timezone('utc', now())),
+                        TRUE
+                    )
+                END
+            WHERE id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {
+            "family_uuid": family_uuid,
+            "pedigree": pedigree,
+            "reason": update.change_reason or "family_structure_metadata_updated",
+            "stale_scopes": json.dumps(stale_scopes),
+        },
+    )
+
     await _record_family_structure_version(
         session,
         family_uuid=family_uuid,

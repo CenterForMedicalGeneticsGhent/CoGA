@@ -86,7 +86,7 @@ Optional:
 - `ADMIN_USERNAME`
 - `ADMIN_PASSWORD`
 - `ADMIN_EMAIL`
-- `VITE_API_BASE_URL` for pointing the frontend at a non-default API host
+- `VITE_API_BASE_URL` for pointing the frontend at a non-default API host; defaults to `/api`
 - `GITHUB_REPOSITORY`
 - `GITHUB_REPOSITORY_URL`
 - `GITHUB_RELEASES_URL`

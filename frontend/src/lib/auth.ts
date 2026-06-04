@@ -6,7 +6,7 @@ export const AUTH_STORAGE_KEYS = {
   role: 'role',
 } as const;
 
-export type UserRole = 'admin' | 'viewer' | null;
+export type UserRole = 'admin' | 'superuser' | 'viewer' | null;
 
 export function getAuthToken(): string | null {
   return storage.getItem(AUTH_STORAGE_KEYS.token);
@@ -18,7 +18,7 @@ export function getStoredUsername(): string | null {
 
 export function getStoredRole(): UserRole {
   const role = storage.getItem(AUTH_STORAGE_KEYS.role);
-  return role === 'admin' || role === 'viewer' ? role : null;
+  return role === 'admin' || role === 'superuser' || role === 'viewer' ? role : null;
 }
 
 export function isAuthenticated(): boolean {
@@ -26,7 +26,8 @@ export function isAuthenticated(): boolean {
 }
 
 export function isAdmin(): boolean {
-  return getStoredRole() === 'admin';
+  const role = getStoredRole();
+  return role === 'admin' || role === 'superuser';
 }
 
 export function persistSession(token: string, username: string, role: string): void {

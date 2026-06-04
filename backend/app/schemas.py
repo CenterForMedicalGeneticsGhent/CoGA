@@ -209,6 +209,82 @@ class FamilyStructureUpdateOut(BaseModel):
     cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
 
 
+class FamilyMemberImpactOut(BaseModel):
+    sample_id: str
+    pedigree_references: Dict[str, int] = Field(default_factory=dict)
+    data_counts: Dict[str, int] = Field(default_factory=dict)
+    affected_analysis_scopes: List[str] = Field(default_factory=list)
+    stale_analysis_scopes: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    destructive: bool = False
+    requires_manual_recalculation: bool = False
+
+
+class FamilyMemberDetailOut(BaseModel):
+    member: FamilyMemberOut
+    father_id: Optional[str] = None
+    mother_id: Optional[str] = None
+    hpo_annotations: List["HpoAnnotationOut"] = Field(default_factory=list)
+    impact: FamilyMemberImpactOut
+
+
+class FamilyMemberUpdate(BaseModel):
+    sample_id: Optional[str] = None
+    sex: Optional[Literal["male", "female", "und"]] = None
+    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
+    phenotype_status: Optional[Literal["unknown", "unaffected", "affected", "carrier"]] = None
+    father_id: Optional[str] = None
+    mother_id: Optional[str] = None
+    expected_structure_version: Optional[int] = None
+    clear_existing_genomic_data: bool = False
+    change_reason: Optional[str] = None
+
+
+class FamilyMemberBatchUpdateItem(BaseModel):
+    sample_id: str = Field(min_length=1)
+    new_sample_id: Optional[str] = None
+    sex: Optional[Literal["male", "female", "und"]] = None
+    role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
+    phenotype_status: Optional[Literal["unknown", "unaffected", "affected", "carrier"]] = None
+    father_id: Optional[str] = None
+    mother_id: Optional[str] = None
+
+
+class FamilyMemberBatchUpdate(BaseModel):
+    expected_structure_version: Optional[int] = None
+    change_reason: Optional[str] = None
+    updates: List[FamilyMemberBatchUpdateItem] = Field(default_factory=list)
+
+
+class FamilyMemberUpdateOut(BaseModel):
+    family: FamilyOut
+    member: FamilyMemberOut
+    father_id: Optional[str] = None
+    mother_id: Optional[str] = None
+    impact: FamilyMemberImpactOut
+    warnings: List[str] = Field(default_factory=list)
+    stale_analysis_scopes: List[str] = Field(default_factory=list)
+    data_counts: Dict[str, int] = Field(default_factory=dict)
+    cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
+
+
+class FamilyMemberDeleteOut(BaseModel):
+    family: FamilyOut
+    impact: FamilyMemberImpactOut
+    warnings: List[str] = Field(default_factory=list)
+    stale_analysis_scopes: List[str] = Field(default_factory=list)
+    data_counts: Dict[str, int] = Field(default_factory=dict)
+    cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
+
+
+class FamilyMemberBatchUpdateOut(BaseModel):
+    family: FamilyOut
+    warnings: List[str] = Field(default_factory=list)
+    stale_analysis_scopes: List[str] = Field(default_factory=list)
+    data_counts: Dict[str, int] = Field(default_factory=dict)
+    cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
+
+
 class HpoTermOut(BaseModel):
     hpo_id: str
     label: str
@@ -254,6 +330,7 @@ class HpoAnnotationOut(BaseModel):
     sample_id: str
     hpo_id: str
     label: str
+    definition: Optional[str] = None
     status: Literal["present", "absent", "unknown"]
     onset: Optional[str] = None
     evidence: Optional[str] = None

@@ -4,9 +4,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
   ApiFamilyRecord,
+  ApiFamilyMemberBatchUpdateItem,
+  ApiFamilyMemberBatchUpdateResponse,
+  ApiFamilyMemberDeleteResponse,
+  ApiFamilyMemberDetail,
   ApiFamilyRegionOfInterest,
   ApiHpoAnnotation,
-  ApiHpoFamilyQuery,
   ApiHpoTerm,
   ApiPaginatedTotalResponse,
   ApiSmallVariantReviewSummary,
@@ -14,7 +17,7 @@ import type {
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
 import { isAdmin } from '../../lib/auth';
-import { getErrorMessage } from '../../lib/errorMessage';
+import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import {
   formatResolvedReferenceLabel,
@@ -41,6 +44,7 @@ type ClinicalStatus = 'unknown' | 'unaffected' | 'affected';
 type CarrierStatus = 'unknown' | 'not_carrier' | 'carrier';
 type CarrierType = 'obligate' | 'proven' | 'reported' | 'inferred';
 type HpoAnnotationStatus = 'present' | 'absent' | 'unknown';
+type PhenotypeStatus = ClinicalStatus | 'carrier';
 
 interface StructureMemberDraft {
   sample_id: string;
@@ -67,6 +71,15 @@ interface CoupleDraft {
   context: string;
 }
 
+interface MemberDetailDraft {
+  sample_id: string;
+  sex: StructureMemberDraft['sex'];
+  role: StructureMemberDraft['role'];
+  phenotype_status: PhenotypeStatus;
+  father_id: string;
+  mother_id: string;
+}
+
 const ROLE_OPTIONS: StructureMemberDraft['role'][] = [
   'proband',
   'father',
@@ -81,6 +94,7 @@ const CARRIER_STATUS_OPTIONS: CarrierStatus[] = ['unknown', 'not_carrier', 'carr
 const CARRIER_TYPE_OPTIONS: CarrierType[] = ['proven', 'obligate', 'reported', 'inferred'];
 const PARENT_ROLE_OPTIONS: ParentChildDraft['parent_role'][] = ['father', 'mother', 'parent'];
 const HPO_STATUS_OPTIONS: HpoAnnotationStatus[] = ['present', 'absent', 'unknown'];
+const PHENOTYPE_STATUS_OPTIONS: PhenotypeStatus[] = ['unknown', 'unaffected', 'affected', 'carrier'];
 
 const defaultNewMember: StructureMemberDraft = {
   sample_id: '',
@@ -127,6 +141,25 @@ const carrierStatusForMember = (member: {
   return 'unknown';
 };
 
+const phenotypeStatusForMember = (member: {
+  clinical_status?: string | null;
+  carrier_status?: string | boolean | null;
+  affected?: boolean;
+}): PhenotypeStatus => {
+  if (carrierStatusForMember(member) === 'carrier') return 'carrier';
+  return clinicalStatusForMember(member);
+};
+
+const hpoTooltip = (annotation: ApiHpoAnnotation): string => {
+  return [
+    `${annotation.hpo_id}: ${annotation.definition || annotation.label}`,
+    annotation.note ? `Note: ${annotation.note}` : '',
+    annotation.evidence ? `Evidence: ${annotation.evidence}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+};
+
 const memberDraftFromFamilyMember = (member: ApiFamilyRecord['members'][number]): StructureMemberDraft => ({
   sample_id: member.sample_id,
   sex: member.sex === 'male' || member.sex === 'female' ? member.sex : 'und',
@@ -153,6 +186,30 @@ const parentChildDraftsFromRelationships = (family: ApiFamilyRecord | undefined)
         ? relationship.role_a
         : 'parent',
   }));
+};
+
+const parentsForSample = (
+  family: ApiFamilyRecord | undefined,
+  sampleId: string,
+): { father_id: string; mother_id: string } => {
+  const childKey = sampleKey(sampleId);
+  return (family?.relationships || []).reduce(
+    (parents, relationship) => {
+      if (
+        relationship.relationship_type !== 'parent_child' ||
+        sampleKey(relationship.sample_id_b) !== childKey
+      ) {
+        return parents;
+      }
+      if (relationship.role_a === 'father') {
+        parents.father_id = relationship.sample_id_a;
+      } else if (relationship.role_a === 'mother') {
+        parents.mother_id = relationship.sample_id_a;
+      }
+      return parents;
+    },
+    { father_id: '', mother_id: '' },
+  );
 };
 
 const coupleDraftsFromRelationships = (family: ApiFamilyRecord | undefined): CoupleDraft[] =>
@@ -228,12 +285,21 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
     message: string;
   } | null>(null);
   const [clearExistingGenomicData, setClearExistingGenomicData] = useState(false);
-  const [hpoMemberId, setHpoMemberId] = useState('');
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [memberDraft, setMemberDraft] = useState<MemberDetailDraft | null>(null);
+  const [memberBusy, setMemberBusy] = useState(false);
+  const [pendingMemberUpdates, setPendingMemberUpdates] = useState<Record<string, MemberDetailDraft>>({});
+  const [pendingMembersBusy, setPendingMembersBusy] = useState(false);
+  const [pendingMembersStatus, setPendingMembersStatus] = useState<{
+    tone: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [memberStatus, setMemberStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [clearMemberGenomicData, setClearMemberGenomicData] = useState(false);
   const [hpoSearchInput, setHpoSearchInput] = useState('');
   const [selectedHpoTerm, setSelectedHpoTerm] = useState<ApiHpoTerm | null>(null);
   const [hpoAnnotationStatus, setHpoAnnotationStatus] = useState<HpoAnnotationStatus>('present');
   const [hpoNote, setHpoNote] = useState('');
-  const [hpoIncludeDescendants, setHpoIncludeDescendants] = useState(true);
   const [hpoBusy, setHpoBusy] = useState(false);
   const [hpoStatus, setHpoStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
 
@@ -345,17 +411,14 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
       return res.data as ApiHpoTerm[];
     },
   });
-  const { data: hpoQueryResult } = useQuery<ApiHpoFamilyQuery>({
-    queryKey: ['family', familyId, 'hpo-query', selectedHpoTerm?.hpo_id || null, hpoIncludeDescendants],
-    enabled: Boolean(familyId && selectedHpoTerm?.hpo_id),
+  const { data: selectedMemberDetail } = useQuery<ApiFamilyMemberDetail>({
+    queryKey: ['family', familyId, 'member', selectedMemberId],
+    enabled: Boolean(familyId && selectedMemberId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/hpo/query`, {
-        params: {
-          hpo_id: selectedHpoTerm!.hpo_id,
-          include_descendants: hpoIncludeDescendants,
-        },
-      });
-      return res.data as ApiHpoFamilyQuery;
+      const res = await api.get(
+        `/families/${familyId}/members/${encodeURIComponent(selectedMemberId!)}`,
+      );
+      return res.data as ApiFamilyMemberDetail;
     },
   });
 
@@ -391,18 +454,44 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
       return acc;
     }, {});
   }, [hpoAnnotations]);
+  const pendingMemberCount = Object.keys(pendingMemberUpdates).length;
+  const memberViewWithPending = (
+    member: ApiFamilyRecord['members'][number],
+  ): ApiFamilyRecord['members'][number] => {
+    const pending = pendingMemberUpdates[member.sample_id];
+    if (!pending) return member;
+    const clinicalStatus: ClinicalStatus =
+      pending.phenotype_status === 'carrier' ? 'unknown' : pending.phenotype_status;
+    const carrierStatus: CarrierStatus =
+      pending.phenotype_status === 'carrier'
+        ? 'carrier'
+        : pending.phenotype_status === 'unaffected'
+          ? 'not_carrier'
+          : 'unknown';
+    return {
+      ...member,
+      sample_id: pending.sample_id || member.sample_id,
+      sex: pending.sex,
+      role: pending.role,
+      affected: clinicalStatus === 'affected',
+      clinical_status: clinicalStatus,
+      carrier_status: carrierStatus,
+      carrier_type: carrierStatus === 'carrier' ? null : member.carrier_type,
+    };
+  };
   const phenotypeSampleIds = useMemo(
     () => Object.keys(hpoAnnotationsBySample),
     [hpoAnnotationsBySample],
-  );
-  const highlightedHpoSampleIds = useMemo(
-    () => hpoQueryResult?.sample_ids || [],
-    [hpoQueryResult?.sample_ids],
   );
 
   useEffect(() => {
     setRoiInput(data?.roi?.query ?? '');
   }, [data?.roi?.query]);
+
+  useEffect(() => {
+    setPendingMemberUpdates({});
+    setSelectedMemberId(null);
+  }, [familyId]);
 
   useEffect(() => {
     if (!data) {
@@ -419,17 +508,42 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
   }, [data]);
 
   useEffect(() => {
-    if (!orderedMembers.length) {
-      setHpoMemberId('');
+    if (!selectedMemberDetail) {
+      setMemberDraft(null);
       return;
     }
-    setHpoMemberId((current) => {
-      if (current && orderedMembers.some((member) => member.sample_id === current)) {
-        return current;
-      }
-      return orderedMembers[0].sample_id;
+    const pending = pendingMemberUpdates[selectedMemberDetail.member.sample_id];
+    if (pending) {
+      setMemberDraft(pending);
+      return;
+    }
+    setMemberDraft({
+      sample_id: selectedMemberDetail.member.sample_id,
+      sex:
+        selectedMemberDetail.member.sex === 'male' || selectedMemberDetail.member.sex === 'female'
+          ? selectedMemberDetail.member.sex
+          : 'und',
+      role: ROLE_OPTIONS.includes(selectedMemberDetail.member.role as StructureMemberDraft['role'])
+        ? (selectedMemberDetail.member.role as StructureMemberDraft['role'])
+        : 'relative',
+      phenotype_status: phenotypeStatusForMember(selectedMemberDetail.member),
+      father_id: selectedMemberDetail.father_id ?? '',
+      mother_id: selectedMemberDetail.mother_id ?? '',
     });
-  }, [orderedMembers]);
+    setClearMemberGenomicData(false);
+    setMemberStatus(null);
+    setHpoStatus(null);
+    setHpoSearchInput('');
+    setSelectedHpoTerm(null);
+    setHpoNote('');
+    setHpoAnnotationStatus('present');
+  }, [pendingMemberUpdates, selectedMemberDetail]);
+
+  useEffect(() => {
+    if (selectedMemberId && !orderedMembers.some((member) => member.sample_id === selectedMemberId)) {
+      setSelectedMemberId(null);
+    }
+  }, [orderedMembers, selectedMemberId]);
 
   if (isLoading) {
     return (
@@ -697,23 +811,172 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
     setSelectedHpoTerm(matchedTerm ?? null);
   };
 
+  const openMemberDetail = (sampleId: string) => {
+    setSelectedMemberId(sampleId);
+  };
+
+  const closeMemberDetail = () => {
+    setSelectedMemberId(null);
+    setMemberDraft(null);
+    setMemberStatus(null);
+    setHpoStatus(null);
+    setHpoSearchInput('');
+    setSelectedHpoTerm(null);
+    setHpoNote('');
+  };
+
+  const applyMemberDetail = () => {
+    if (!selectedMemberDetail || !memberDraft) return;
+    setPendingMembersStatus(null);
+    setPendingMemberUpdates((updates) => ({
+      ...updates,
+      [selectedMemberDetail.member.sample_id]: {
+        ...memberDraft,
+        sample_id: memberDraft.sample_id.trim() || selectedMemberDetail.member.sample_id,
+      },
+    }));
+    setMemberStatus({
+      tone: 'success',
+      message: 'Member changes are pending. Save pending updates to commit them together.',
+    });
+  };
+
+  const savePendingMemberUpdates = async () => {
+    if (!familyId || !data || pendingMemberCount === 0) return;
+    setPendingMembersBusy(true);
+    setPendingMembersStatus(null);
+    try {
+      const membersByKey = new Map(data.members.map((member) => [sampleKey(member.sample_id), member]));
+      const updates: ApiFamilyMemberBatchUpdateItem[] = Object.entries(pendingMemberUpdates)
+        .map(([originalSampleId, draft]) => {
+          const currentMember = membersByKey.get(sampleKey(originalSampleId));
+          const currentParents = parentsForSample(data, originalSampleId);
+          const nextSampleId = draft.sample_id.trim();
+          const item: ApiFamilyMemberBatchUpdateItem = { sample_id: originalSampleId };
+
+          if (nextSampleId && sampleKey(nextSampleId) !== sampleKey(originalSampleId)) {
+            item.new_sample_id = nextSampleId;
+          }
+          if (currentMember && draft.sex !== currentMember.sex) {
+            item.sex = draft.sex;
+          }
+          if (currentMember && draft.role !== currentMember.role) {
+            item.role = draft.role;
+          }
+          if (currentMember && draft.phenotype_status !== phenotypeStatusForMember(currentMember)) {
+            item.phenotype_status = draft.phenotype_status;
+          }
+          if (sampleKey(draft.father_id) !== sampleKey(currentParents.father_id)) {
+            item.father_id = draft.father_id.trim() || null;
+          }
+          if (sampleKey(draft.mother_id) !== sampleKey(currentParents.mother_id)) {
+            item.mother_id = draft.mother_id.trim() || null;
+          }
+          return Object.keys(item).length > 1 ? item : null;
+        })
+        .filter((item): item is ApiFamilyMemberBatchUpdateItem => item !== null);
+      if (updates.length === 0) {
+        setPendingMemberUpdates({});
+        setPendingMembersStatus({
+          tone: 'success',
+          message: 'No metadata changes to save.',
+        });
+        return;
+      }
+      const response = await api.put(
+        `/families/${familyId}/members/batch`,
+        {
+          expected_structure_version: data.structure_version?.version ?? null,
+          change_reason: 'family_member_batch_update',
+          updates,
+        },
+      );
+      const payload = response.data as ApiFamilyMemberBatchUpdateResponse;
+      queryClient.setQueryData(['family', familyId], payload.family);
+      setPendingMemberUpdates({});
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
+      setPendingMembersStatus({
+        tone: 'success',
+        message: payload.warnings?.length
+          ? `Pending updates saved. ${payload.warnings.join(' ')}`
+          : 'Pending updates saved.',
+      });
+    } catch (error) {
+      setPendingMembersStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'Failed to save pending member updates.', {
+          networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
+        }),
+      });
+    } finally {
+      setPendingMembersBusy(false);
+    }
+  };
+
+  const deleteMemberDetail = async () => {
+    if (!familyId || !selectedMemberDetail) return;
+    const impactWarnings = selectedMemberDetail.impact.warnings.join('\n');
+    const confirmed = window.confirm(
+      [
+        `Remove ${selectedMemberDetail.member.sample_id} from the active family?`,
+        impactWarnings,
+        'This can make derived analyses stale.',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    );
+    if (!confirmed) return;
+    setMemberBusy(true);
+    setMemberStatus(null);
+    try {
+      const response = await api.delete(
+        `/families/${familyId}/members/${encodeURIComponent(selectedMemberDetail.member.sample_id)}`,
+        {
+          params: {
+            confirm: true,
+            clear_existing_genomic_data: clearMemberGenomicData,
+          },
+        },
+      );
+      const payload = response.data as ApiFamilyMemberDeleteResponse;
+      queryClient.setQueryData(['family', familyId], payload.family);
+      await queryClient.invalidateQueries({ queryKey: ['families'] });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
+      closeMemberDetail();
+    } catch (error) {
+      setMemberStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'Failed to remove family member.'),
+      });
+    } finally {
+      setMemberBusy(false);
+    }
+  };
+
   const addHpoAnnotation = async () => {
-    if (!familyId || !selectedHpoTerm || !hpoMemberId) {
+    if (!familyId || !selectedHpoTerm || !selectedMemberDetail) {
       setHpoStatus({ tone: 'error', message: 'Select a family member and HPO term.' });
       return;
     }
     setHpoBusy(true);
     setHpoStatus(null);
     try {
-      await api.post(`/families/${familyId}/members/${encodeURIComponent(hpoMemberId)}/hpo`, {
-        hpo_id: selectedHpoTerm.hpo_id,
-        status: hpoAnnotationStatus,
-        source: 'manual',
-        note: hpoNote.trim() || null,
-      });
+      await api.post(
+        `/families/${familyId}/members/${encodeURIComponent(selectedMemberDetail.member.sample_id)}/hpo`,
+        {
+          hpo_id: selectedHpoTerm.hpo_id,
+          status: hpoAnnotationStatus,
+          source: 'manual',
+          note: hpoNote.trim() || null,
+        },
+      );
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
-      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo-query'] });
+      await queryClient.invalidateQueries({
+        queryKey: ['family', familyId, 'member', selectedMemberDetail.member.sample_id],
+      });
       setHpoNote('');
+      setHpoSearchInput('');
+      setSelectedHpoTerm(null);
       setHpoStatus({ tone: 'success', message: 'Phenotype annotation saved.' });
     } catch (error) {
       setHpoStatus({
@@ -732,7 +995,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
     try {
       await api.delete(`/families/${familyId}/hpo/${annotationId}`);
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
-      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo-query'] });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'member'] });
       setHpoStatus({ tone: 'success', message: 'Phenotype annotation removed.' });
     } catch (error) {
       setHpoStatus({
@@ -849,7 +1112,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                     relationships={data.relationships}
                     inheritanceModel={(data.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
                     phenotypeSampleIds={phenotypeSampleIds}
-                    highlightedSampleIds={highlightedHpoSampleIds}
                   />
                 </div>
               </div>
@@ -1000,199 +1262,51 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
         </article>
       </section>
 
-      <section className="surface-card family-phenotypes-card space-y-4">
+      <section className="surface-card family-members-card space-y-3">
         <div className="family-workspace-card-head">
-          <div>
-            <h2 className="section-title">Phenotypes</h2>
+          <div className="space-y-1">
+            <h2 className="section-title">Family members</h2>
+            <p className="dashboard-link-note">
+              Proband-first overview with pedigree relations and phenotype labels.
+            </p>
           </div>
-          <div className="compact-toolbar family-toolbar">
-            <span className="table-chip">{hpoAnnotations.length} annotations</span>
-            {selectedHpoTerm && (
-              <span className="table-chip table-chip--critical">
-                {highlightedHpoSampleIds.length} highlighted
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="family-hpo-controls">
-          <label className="field-label">
-            Member
-            <select
-              value={hpoMemberId}
-              onChange={(event) => setHpoMemberId(event.target.value)}
-              disabled={hpoBusy || orderedMembers.length === 0}
-            >
-              {orderedMembers.map((member) => (
-                <option key={member.sample_id} value={member.sample_id}>
-                  {member.sample_id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label family-hpo-term-field">
-            HPO term
-            <input
-              type="text"
-              value={hpoSearchInput}
-              onChange={(event) => updateHpoSearchInput(event.target.value)}
-              placeholder="HP:0001250 or seizure"
-              disabled={hpoBusy}
-              list={`hpo-term-options-${data.family_id}`}
-            />
-            <datalist id={`hpo-term-options-${data.family_id}`}>
-              {hpoSearchResults.map((term) => (
-                <option key={term.hpo_id} value={formatHpoTermOption(term)} />
-              ))}
-            </datalist>
-          </label>
-          <label className="field-label">
-            Status
-            <select
-              value={hpoAnnotationStatus}
-              onChange={(event) => setHpoAnnotationStatus(event.target.value as HpoAnnotationStatus)}
-              disabled={hpoBusy}
-            >
-              {HPO_STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label family-hpo-note-field">
-            Note
-            <input
-              type="text"
-              value={hpoNote}
-              onChange={(event) => setHpoNote(event.target.value)}
-              disabled={hpoBusy}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={addHpoAnnotation}
-            disabled={hpoBusy || !selectedHpoTerm || !hpoMemberId}
-          >
-            Add phenotype
-          </button>
-        </div>
-
-        {hpoSearchResults.length > 0 && hpoSearchQuery.length >= 2 && (
-          <div className="family-hpo-term-results" aria-label="HPO search results">
-            {hpoSearchResults.map((term) => (
+          {userIsAdmin && (
+            <div className="compact-toolbar family-toolbar">
+              {pendingMemberCount > 0 && (
+                <span className="table-chip table-chip--critical">
+                  {pendingMemberCount} pending
+                </span>
+              )}
               <button
-                key={term.hpo_id}
                 type="button"
-                className={`button-ghost family-hpo-term-button${
-                  selectedHpoTerm?.hpo_id === term.hpo_id ? ' family-hpo-term-button--selected' : ''
-                }`}
-                onClick={() => selectHpoTerm(term)}
+                onClick={savePendingMemberUpdates}
+                disabled={pendingMembersBusy || pendingMemberCount === 0}
               >
-                <span>{term.hpo_id}</span>
-                <strong>{term.label}</strong>
+                Save pending updates
               </button>
-            ))}
-          </div>
-        )}
-
-        <div className="compact-toolbar family-toolbar">
-          <label className="variant-compact-checkbox">
-            <input
-              type="checkbox"
-              checked={hpoIncludeDescendants}
-              onChange={(event) => setHpoIncludeDescendants(event.target.checked)}
-              disabled={!selectedHpoTerm}
-            />
-            Include descendants
-          </label>
-          {selectedHpoTerm && (
-            <>
-              <span className="table-chip">
-                {selectedHpoTerm.hpo_id} {selectedHpoTerm.label}
-              </span>
               <button
                 type="button"
                 className="button-ghost"
                 onClick={() => {
-                  setSelectedHpoTerm(null);
-                  setHpoSearchInput('');
+                  setPendingMemberUpdates({});
+                  setPendingMembersStatus(null);
                 }}
+                disabled={pendingMembersBusy || pendingMemberCount === 0}
               >
-                Clear highlight
+                Discard
               </button>
-            </>
+            </div>
           )}
         </div>
-
-        {hpoStatus && (
+        {pendingMembersStatus && (
           <div
             className={`status-note ${
-              hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+              pendingMembersStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
             }`}
           >
-            {hpoStatus.message}
+            {pendingMembersStatus.message}
           </div>
         )}
-
-        <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table family-hpo-table">
-            <thead>
-              <tr>
-                <th>Sample</th>
-                <th>Phenotype terms</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orderedMembers.map((member) => {
-                const annotations = hpoAnnotationsBySample[member.sample_id] || [];
-                return (
-                  <tr key={member.sample_id}>
-                    <td>{member.sample_id}</td>
-                    <td>
-                      {annotations.length ? (
-                        <div className="family-hpo-chip-list">
-                          {annotations.map((annotation) => (
-                            <span
-                              key={annotation.id}
-                              className={`table-chip family-hpo-chip family-hpo-chip--${annotation.status}`}
-                              title={[annotation.onset, annotation.evidence, annotation.note]
-                                .filter(Boolean)
-                                .join(' | ')}
-                            >
-                              <span>{annotation.hpo_id}</span>
-                              <strong>{annotation.label}</strong>
-                              <em>{annotation.status}</em>
-                              <button
-                                type="button"
-                                className="button-ghost"
-                                onClick={() => removeHpoAnnotation(annotation.id)}
-                                disabled={hpoBusy}
-                              >
-                                Remove
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="dashboard-link-note">No HPO annotations</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="surface-card family-members-card space-y-3">
-        <div className="space-y-1">
-          <h2 className="section-title">Family members</h2>
-          <p className="dashboard-link-note">
-            Proband-first overview with pedigree relations and phenotype labels.
-          </p>
-        </div>
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table">
             <thead>
@@ -1204,6 +1318,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                 <th>Mother</th>
                 <th>Phenotype</th>
                 <th>Carrier</th>
+                <th>HPO terms</th>
                 {canEditFamilyDetails && <th>Actions</th>}
               </tr>
             </thead>
@@ -1211,25 +1326,46 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
               {(canEditFamilyDetails ? activeStructureMembers : orderedMembers).map((member) => {
                 const draftMember = canEditFamilyDetails ? (member as StructureMemberDraft) : null;
                 const apiMember = canEditFamilyDetails ? null : (member as ApiFamilyRecord['members'][number]);
-                const parents = parentLabelByChild[sampleKey(member.sample_id)] || {};
+                const displayMember = canEditFamilyDetails
+                  ? member
+                  : memberViewWithPending(apiMember!);
+                const pending = !canEditFamilyDetails ? pendingMemberUpdates[apiMember!.sample_id] : null;
+                const parents = pending
+                  ? {
+                      father: pending.father_id || undefined,
+                      mother: pending.mother_id || undefined,
+                    }
+                  : parentLabelByChild[sampleKey(member.sample_id)] || {};
                 const sexSymbol =
-                  member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚧';
+                  displayMember.sex === 'male' ? '♂' : displayMember.sex === 'female' ? '♀' : '⚧';
                 const clinicalStatus = draftMember
                   ? draftMember.clinical_status
-                  : clinicalStatusForMember(apiMember!);
+                  : clinicalStatusForMember(displayMember);
                 const carrierStatus = draftMember
                   ? draftMember.carrier_status
-                  : carrierStatusForMember(apiMember!);
-                const affected = draftMember ? clinicalStatus === 'affected' : Boolean(apiMember?.affected);
+                  : carrierStatusForMember(displayMember);
+                const affected = clinicalStatus === 'affected';
+                const annotations = hpoAnnotationsBySample[member.sample_id] || [];
                 return (
                   <tr key={member.sample_id}>
                     <td>
                       <span className="flex items-center gap-1">
                         <span>{sexSymbol}</span>
-                        {member.sample_id}
+                        <button
+                          type="button"
+                          className="button-link family-member-name-button"
+                          onClick={() => openMemberDetail(member.sample_id)}
+                        >
+                          {displayMember.sample_id}
+                        </button>
                         {affected && (
                           <span className="ml-1" title="Affected">
                             *
+                          </span>
+                        )}
+                        {pending && (
+                          <span className="table-chip table-chip--critical" title="Pending update">
+                            pending
                           </span>
                         )}
                       </span>
@@ -1253,7 +1389,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                           ))}
                         </select>
                       ) : (
-                        apiMember?.role
+                        displayMember.role
                       )}
                     </td>
                     {canEditFamilyDetails && (
@@ -1341,8 +1477,31 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                         </div>
                       ) : (
                         <span className="table-chip">
-                          {carrierStatus === 'carrier' ? apiMember?.carrier_type || 'carrier' : carrierStatus}
+                          {carrierStatus === 'carrier' ? displayMember.carrier_type || 'carrier' : carrierStatus}
                         </span>
+                      )}
+                    </td>
+                    <td>
+                      {annotations.length ? (
+                        <div className="family-hpo-chip-list family-hpo-chip-list--compact">
+                          {annotations.slice(0, 3).map((annotation) => (
+                            <span
+                              key={annotation.id}
+                              className={`table-chip family-hpo-chip family-hpo-chip--${annotation.status}`}
+                              title={hpoTooltip(annotation)}
+                            >
+                              <strong>{annotation.label}</strong>
+                              {annotation.status !== 'present' && <em>{annotation.status}</em>}
+                            </span>
+                          ))}
+                          {annotations.length > 3 && (
+                            <span className="table-chip" title={`${annotations.length} HPO annotations`}>
+                              +{annotations.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="dashboard-link-note">-</span>
                       )}
                     </td>
                     {canEditFamilyDetails && (
@@ -1757,6 +1916,341 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
           </div>
         )}
       </section>
+
+      {selectedMemberId && (
+        <div
+          className="modal-backdrop family-member-modal-backdrop"
+          role="presentation"
+          onMouseDown={closeMemberDetail}
+        >
+          <section
+            className="modal-surface surface-card family-member-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Family member details"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="variant-review-modal-header">
+              <div>
+                <p className="page-kicker">Family Member</p>
+                <h2 className="catalog-card-title">
+                  {selectedMemberDetail?.member.sample_id ?? selectedMemberId}
+                </h2>
+              </div>
+              <button type="button" className="button-secondary" onClick={closeMemberDetail}>
+                Close
+              </button>
+            </div>
+
+            {!selectedMemberDetail || !memberDraft ? (
+              <p className="dashboard-link-note">Loading member details.</p>
+            ) : (
+              <>
+                <div className="family-member-modal-grid">
+                  <label className="field-label">
+                    Identifier
+                    <input
+                      type="text"
+                      value={memberDraft.sample_id}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft ? { ...draft, sample_id: event.target.value } : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    />
+                  </label>
+                  <label className="field-label">
+                    Sex
+                    <select
+                      value={memberDraft.sex}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft
+                            ? { ...draft, sex: event.target.value as StructureMemberDraft['sex'] }
+                            : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      {SEX_OPTIONS.map((sex) => (
+                        <option key={sex} value={sex}>
+                          {sex}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    Family role
+                    <select
+                      value={memberDraft.role}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft
+                            ? { ...draft, role: event.target.value as StructureMemberDraft['role'] }
+                            : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      {ROLE_OPTIONS.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    Phenotype status
+                    <select
+                      value={memberDraft.phenotype_status}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft
+                            ? { ...draft, phenotype_status: event.target.value as PhenotypeStatus }
+                            : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      {PHENOTYPE_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    Father
+                    <select
+                      value={memberDraft.father_id}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft ? { ...draft, father_id: event.target.value } : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      <option value="">None</option>
+                      {orderedMembers
+                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
+                        .map((member) => (
+                          <option key={member.sample_id} value={member.sample_id}>
+                            {member.sample_id}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label className="field-label">
+                    Mother
+                    <select
+                      value={memberDraft.mother_id}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft ? { ...draft, mother_id: event.target.value } : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      <option value="">None</option>
+                      {orderedMembers
+                        .filter((member) => member.sample_id !== selectedMemberDetail.member.sample_id)
+                        .map((member) => (
+                          <option key={member.sample_id} value={member.sample_id}>
+                            {member.sample_id}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="family-member-modal-review-grid">
+                  <div className="variant-review-modal-section family-member-modal-section">
+                    <div className="family-workspace-card-head">
+                      <h3 className="section-title">HPO Phenotypes</h3>
+                      <span className="table-chip">
+                        {selectedMemberDetail.hpo_annotations.length} terms
+                      </span>
+                    </div>
+                    {selectedMemberDetail.hpo_annotations.length ? (
+                      <div className="family-hpo-chip-list">
+                        {selectedMemberDetail.hpo_annotations.map((annotation) => (
+                          <span
+                            key={annotation.id}
+                            className={`table-chip family-hpo-chip family-hpo-chip--${annotation.status}`}
+                            title={hpoTooltip(annotation)}
+                          >
+                            <span>{annotation.hpo_id}</span>
+                            <strong>{annotation.label}</strong>
+                            <em>{annotation.status}</em>
+                            {userIsAdmin && (
+                              <button
+                                type="button"
+                                className="button-ghost"
+                                onClick={() => removeHpoAnnotation(annotation.id)}
+                                disabled={hpoBusy}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="dashboard-link-note">No HPO phenotypes linked.</p>
+                    )}
+
+                    {userIsAdmin && (
+                      <>
+                        <div className="family-hpo-controls">
+                          <label className="field-label family-hpo-term-field">
+                            HPO term
+                            <input
+                              type="text"
+                              value={hpoSearchInput}
+                              onChange={(event) => updateHpoSearchInput(event.target.value)}
+                              placeholder="HP:0001250 or seizure"
+                              disabled={hpoBusy}
+                              list={`hpo-term-options-${data.family_id}`}
+                            />
+                            <datalist id={`hpo-term-options-${data.family_id}`}>
+                              {hpoSearchResults.map((term) => (
+                                <option key={term.hpo_id} value={formatHpoTermOption(term)} />
+                              ))}
+                            </datalist>
+                          </label>
+                          <label className="field-label">
+                            Status
+                            <select
+                              value={hpoAnnotationStatus}
+                              onChange={(event) =>
+                                setHpoAnnotationStatus(event.target.value as HpoAnnotationStatus)
+                              }
+                              disabled={hpoBusy}
+                            >
+                              {HPO_STATUS_OPTIONS.map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="field-label family-hpo-note-field">
+                            Note
+                            <input
+                              type="text"
+                              value={hpoNote}
+                              onChange={(event) => setHpoNote(event.target.value)}
+                              disabled={hpoBusy}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={addHpoAnnotation}
+                            disabled={hpoBusy || !selectedHpoTerm}
+                          >
+                            Add phenotype
+                          </button>
+                        </div>
+
+                        {hpoSearchResults.length > 0 && hpoSearchQuery.length >= 2 && (
+                          <div className="family-hpo-term-results" aria-label="HPO search results">
+                            {hpoSearchResults.map((term) => (
+                              <button
+                                key={term.hpo_id}
+                                type="button"
+                                className={`button-ghost family-hpo-term-button${
+                                  selectedHpoTerm?.hpo_id === term.hpo_id
+                                    ? ' family-hpo-term-button--selected'
+                                    : ''
+                                }`}
+                                onClick={() => selectHpoTerm(term)}
+                              >
+                                <span>{term.hpo_id}</span>
+                                <strong>{term.label}</strong>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {hpoStatus && (
+                      <div
+                        className={`status-note ${
+                          hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+                        }`}
+                      >
+                        {hpoStatus.message}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="variant-review-modal-section family-member-modal-section">
+                    <div className="family-workspace-card-head">
+                      <h3 className="section-title">Impact</h3>
+                      {selectedMemberDetail.impact.destructive && (
+                        <span className="table-chip table-chip--critical">Linked data</span>
+                      )}
+                    </div>
+                    {selectedMemberDetail.impact.warnings.length ? (
+                      <ul className="family-member-impact-list">
+                        {selectedMemberDetail.impact.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="dashboard-link-note">No derived-data dependencies detected.</p>
+                    )}
+                    <div className="family-member-impact-chips">
+                      {Object.entries(selectedMemberDetail.impact.pedigree_references).map(([key, count]) => (
+                        <span key={key} className="table-chip">
+                          {key} {count}
+                        </span>
+                      ))}
+                      {Object.entries(selectedMemberDetail.impact.data_counts).map(([key, count]) => (
+                        <span key={key} className="table-chip">
+                          {key} {count}
+                        </span>
+                      ))}
+                      {selectedMemberDetail.impact.stale_analysis_scopes.map((scope) => (
+                        <span key={scope} className="table-chip table-chip--critical">
+                          {scope}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {memberStatus && (
+                  <div
+                    className={`status-note ${
+                      memberStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+                    }`}
+                  >
+                    {memberStatus.message}
+                  </div>
+                )}
+
+                {userIsAdmin && (
+                  <div className="variant-review-modal-actions compact-toolbar">
+                    <button type="button" onClick={applyMemberDetail} disabled={memberBusy}>
+                      Apply to pending
+                    </button>
+                    <button
+                      type="button"
+                      className="button-ghost"
+                      onClick={deleteMemberDetail}
+                      disabled={memberBusy || orderedMembers.length <= 1}
+                    >
+                      Remove member
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 };

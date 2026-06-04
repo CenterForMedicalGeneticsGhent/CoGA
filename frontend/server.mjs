@@ -1,14 +1,74 @@
 import express from 'express';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
+const BACKEND_URL = (process.env.BACKEND_URL || 'http://backend:8000').replace(/\/+$/, '');
 const app = express();
 
 const distPath = path.join(__dirname, 'dist');
+const hopByHopHeaders = new Set([
+  'connection',
+  'content-length',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+app.use('/api', async (req, res) => {
+  const targetUrl = `${BACKEND_URL}${req.originalUrl}`;
+  const headers = new Headers();
+
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (!value || hopByHopHeaders.has(name.toLowerCase())) {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry) => headers.append(name, entry));
+    } else {
+      headers.set(name, value);
+    }
+  }
+
+  try {
+    const requestInit = {
+      method: req.method,
+      headers,
+      redirect: 'manual',
+    };
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      requestInit.body = req;
+      requestInit.duplex = 'half';
+    }
+
+    const upstream = await fetch(targetUrl, requestInit);
+    res.status(upstream.status);
+    upstream.headers.forEach((value, name) => {
+      if (!hopByHopHeaders.has(name.toLowerCase())) {
+        res.setHeader(name, value);
+      }
+    });
+
+    if (!upstream.body) {
+      res.end();
+      return;
+    }
+    Readable.fromWeb(upstream.body).pipe(res);
+  } catch (error) {
+    console.error(`API proxy failed for ${targetUrl}`, error);
+    res.status(502).json({
+      detail: `Unable to reach backend API at ${BACKEND_URL}.`,
+    });
+  }
+});
 
 // Serve static assets from the Vite build output
 app.use(express.static(distPath));

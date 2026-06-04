@@ -721,6 +721,7 @@ async def _annotation_by_id(
                 s.sample_id AS sample_id,
                 ih.hpo_id AS hpo_id,
                 COALESCE(t.label, ih.hpo_id) AS label,
+                t.definition AS definition,
                 ih.status AS status,
                 ih.onset AS onset,
                 ih.evidence AS evidence,
@@ -760,6 +761,7 @@ async def list_family_hpo_annotations(
                 s.sample_id AS sample_id,
                 ih.hpo_id AS hpo_id,
                 COALESCE(t.label, ih.hpo_id) AS label,
+                t.definition AS definition,
                 ih.status AS status,
                 ih.onset AS onset,
                 ih.evidence AS evidence,
@@ -778,6 +780,44 @@ async def list_family_hpo_annotations(
         params,
     )
     return [dict(row) for row in result.mappings().all()]
+
+
+async def mark_family_hpo_annotations_stale(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    sample_id: str | None,
+    reason: str,
+) -> None:
+    await session.execute(
+        text(
+            """
+            UPDATE families
+            SET metadata = jsonb_set(
+                jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{derived_data_status,hpo_annotations}',
+                    jsonb_build_object(
+                        'state', 'stale',
+                        'reason', :reason,
+                        'sample_id', :sample_id,
+                        'updated_at', timezone('utc', now())
+                    ),
+                    TRUE
+                ),
+                '{derived_data_status,updated_at}',
+                to_jsonb(timezone('utc', now())),
+                TRUE
+            )
+            WHERE id = CAST(:family_uuid AS uuid)
+            """
+        ),
+        {
+            "family_uuid": family_uuid,
+            "sample_id": sample_id,
+            "reason": reason,
+        },
+    )
 
 
 async def search_hpo_terms(
@@ -947,6 +987,12 @@ async def create_individual_hpo_annotation(
         },
     )
     annotation_id = str(result.scalar_one())
+    await mark_family_hpo_annotations_stale(
+        session,
+        family_uuid=family_uuid,
+        sample_id=sample_id,
+        reason="hpo_annotation_created",
+    )
     if commit:
         await session.commit()
     annotation = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
@@ -1002,6 +1048,12 @@ async def update_individual_hpo_annotation(
             "note": _payload_value(payload, "note", existing["note"]),
         },
     )
+    await mark_family_hpo_annotations_stale(
+        session,
+        family_uuid=family_uuid,
+        sample_id=str(existing["sample_id"]),
+        reason="hpo_annotation_updated",
+    )
     if commit:
         await session.commit()
     updated = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
@@ -1028,6 +1080,12 @@ async def delete_individual_hpo_annotation(
     )
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="HPO annotation was not found")
+    await mark_family_hpo_annotations_stale(
+        session,
+        family_uuid=family_uuid,
+        sample_id=None,
+        reason="hpo_annotation_deleted",
+    )
     if commit:
         await session.commit()
 
@@ -1062,6 +1120,7 @@ async def query_family_hpo_annotations(
                 s.sample_id AS sample_id,
                 ih.hpo_id AS hpo_id,
                 COALESCE(t.label, ih.hpo_id) AS label,
+                t.definition AS definition,
                 ih.status AS status,
                 ih.onset AS onset,
                 ih.evidence AS evidence,

@@ -23,6 +23,64 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   active?: boolean;
 }
 
+export interface ApiFamilyMemberImpact {
+  sample_id: string;
+  pedigree_references: Record<string, number>;
+  data_counts: Record<string, number>;
+  affected_analysis_scopes: string[];
+  stale_analysis_scopes: string[];
+  warnings: string[];
+  destructive: boolean;
+  requires_manual_recalculation: boolean;
+}
+
+export interface ApiFamilyMemberDetail {
+  member: ApiFamilyMember;
+  father_id?: string | null;
+  mother_id?: string | null;
+  hpo_annotations: ApiHpoAnnotation[];
+  impact: ApiFamilyMemberImpact;
+}
+
+export interface ApiFamilyMemberUpdateResponse {
+  family: ApiFamilyRecord;
+  member: ApiFamilyMember;
+  father_id?: string | null;
+  mother_id?: string | null;
+  impact: ApiFamilyMemberImpact;
+  warnings?: string[];
+  stale_analysis_scopes?: string[];
+  data_counts?: Record<string, number>;
+  cleared_data_counts?: Record<string, number>;
+}
+
+export interface ApiFamilyMemberBatchUpdateItem {
+  sample_id: string;
+  new_sample_id?: string | null;
+  sex?: 'male' | 'female' | 'und' | null;
+  role?: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'relative' | null;
+  phenotype_status?: 'unknown' | 'unaffected' | 'affected' | 'carrier' | null;
+  father_id?: string | null;
+  mother_id?: string | null;
+}
+
+export interface ApiFamilyMemberBatchUpdateResponse {
+  family: ApiFamilyRecord;
+  warnings?: string[];
+  stale_analysis_scopes?: string[];
+  data_counts?: Record<string, number>;
+  cleared_data_counts?: Record<string, number>;
+}
+
+export interface ApiFamilyMemberDeleteResponse {
+  family: ApiFamilyRecord;
+  impact: ApiFamilyMemberImpact;
+  warnings?: string[];
+  stale_analysis_scopes?: string[];
+  data_counts?: Record<string, number>;
+  cleared_data_counts?: Record<string, number>;
+}
+
 export interface ApiFamilyRelationship {
   id: string;
   relationship_type: 'parent_child' | 'couple';
@@ -83,6 +141,7 @@ export interface ApiHpoAnnotation {
   sample_id: string;
   hpo_id: string;
   label: string;
+  definition?: string | null;
   status: 'present' | 'absent' | 'unknown';
   onset?: string | null;
   evidence?: string | null;
