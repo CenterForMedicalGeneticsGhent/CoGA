@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { clearSession, getAuthToken } from './auth';
+import { buildApiUnavailableMessage, isNetworkTransportError } from './errorMessage';
 
-const DEFAULT_API_BASE_URL = 'http://localhost:8000';
+const DEFAULT_API_BASE_URL = '/api';
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL;
 const AUTH_EXCLUDED_PATHS = new Set(['/auth/login', '/auth/signup']);
 
@@ -28,6 +29,13 @@ export const shouldAttachStoredToken = (url?: string, headers?: unknown): boolea
   return !AUTH_EXCLUDED_PATHS.has(normalizedUrl);
 };
 
+export const normalizeApiTransportError = (error: unknown, baseUrl = apiBaseUrl): unknown => {
+  if (isNetworkTransportError(error) && error instanceof Error) {
+    error.message = buildApiUnavailableMessage(baseUrl);
+  }
+  return error;
+};
+
 const api = axios.create({
   baseURL: apiBaseUrl,
 });
@@ -44,6 +52,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    normalizeApiTransportError(error, api.defaults.baseURL);
     if (error?.response?.status === 401) {
       clearSession();
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {

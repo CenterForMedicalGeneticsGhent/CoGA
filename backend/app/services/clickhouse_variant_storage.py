@@ -1422,6 +1422,43 @@ async def count_family_small_variants(
     return int(rows[0][0]) if rows else 0
 
 
+async def count_family_small_variants_by_sample(
+    assembly_name: str,
+    family_uuid: str,
+    *,
+    sample_ids: Sequence[str],
+    project_ids: Sequence[str] | None = None,
+) -> dict[str, int]:
+    deduped_sample_ids = list(dict.fromkeys(str(sample_id).strip() for sample_id in sample_ids if str(sample_id).strip()))
+    if not deduped_sample_ids:
+        return {}
+    await ensure_clickhouse_variant_tables(assembly_name)
+    clauses = [
+        "family_guid = %(family_guid)s",
+        "sign = 1",
+        "sample_id IN %(sample_ids)s",
+    ]
+    params: dict[str, Any] = {
+        "family_guid": family_uuid,
+        "sample_ids": tuple(deduped_sample_ids),
+    }
+    if project_ids:
+        clauses.append("project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(_normalized_project_ids(project_ids))
+    ref_or_missing_gts = tuple(sorted([*_SMALL_GT_REF, *_SMALL_GT_MISSING]))
+    rows = await _execute(
+        f"""
+        SELECT sample_id, countDistinctIf(key, gt NOT IN {ref_or_missing_gts})
+        FROM {_small_table_name(assembly_name, 'entries')}
+        ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
+        WHERE {' AND '.join(clauses)}
+        GROUP BY sample_id
+        """,
+        params,
+    )
+    return {str(sample_id): int(count) for sample_id, count in rows}
+
+
 async def count_family_structural_variants(
     assembly_name: str,
     family_uuid: str,

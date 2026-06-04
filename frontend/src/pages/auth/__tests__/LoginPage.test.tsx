@@ -116,7 +116,7 @@ describe('LoginPage', () => {
 
     expect(
       await screen.findByText(
-        /unable to reach the api at http:\/\/localhost:8000\. check that the backend, postgres, and clickhouse services are running\./i
+        /unable to reach the api at \/api\. check that the backend, postgres, and clickhouse services are running\./i
       )
     ).toBeInTheDocument();
   });

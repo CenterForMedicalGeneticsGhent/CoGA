@@ -93,7 +93,7 @@ The frontend is the only Node package in the repository. Run npm commands from `
 | `REFERENCE_CYTOBAND_PATH` | Optional cytoband fallback file |
 | `GENE_REFERENCE_DBNSFP_GENE_PATH` | Local dbNSFP gene file for gene reference sync; defaults to `/data/ref-data/dbNSFP5.3_gene.gz` and online sources are used as fallback |
 | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP` | Queue the first dbNSFP-backed human gene reference sync on startup when GRCh38 genes exist and `gene_info` is still empty; defaults to `true` |
-| `VITE_API_BASE_URL` | Frontend API base URL when not using `http://localhost:8000` |
+| `VITE_API_BASE_URL` | Frontend API base URL; defaults to same-origin `/api`, proxied to the backend |
 
 ## Troubleshooting
 

@@ -1,8 +1,28 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const apiProxyTarget =
+  process.env.VITE_DEV_API_PROXY_TARGET || process.env.BACKEND_URL || 'http://localhost:8000';
+
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: apiProxyTarget,
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('error', (_error, _req, res) => {
+            if (!res || !('writeHead' in res) || res.headersSent) {
+              return;
+            }
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ detail: `Unable to reach backend API at ${apiProxyTarget}.` }));
+          });
+        },
+      },
+    },
+  },
   build: {
     rollupOptions: {
       output: {

@@ -65,7 +65,7 @@ def test_swagger_token_endpoint_issues_a_bearer_token(swagger_token_client) -> N
     client, fake_session = swagger_token_client
 
     response = client.post(
-        "/auth/token",
+        "/api/auth/token",
         data={"username": "viewer@example.com", "password": "secret"},
     )
 
@@ -86,4 +86,4 @@ def test_openapi_password_flow_points_to_auth_token(swagger_token_client) -> Non
         "password"
     ]["tokenUrl"]
 
-    assert token_url == "/auth/token"
+    assert token_url == "/api/auth/token"

@@ -13,7 +13,8 @@ from .core.postgres import get_postgres_session
 from .services.metadata_service import CurrentUser, get_current_user_by_email
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+ADMIN_ROLES = {"admin", "superuser"}
 
 
 def get_password_hash(password: str) -> str:
@@ -76,13 +77,13 @@ async def get_current_user(
         raise credentials_exception
     if not user.is_active:
         raise credentials_exception
-    if local_override and user.role != "admin":
+    if local_override and user.role not in ADMIN_ROLES:
         raise credentials_exception
     request.state.current_user = user
     return user
 
 
 async def get_current_admin_user(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    if user.role != "admin":
+    if user.role not in ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user

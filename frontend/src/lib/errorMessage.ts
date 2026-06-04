@@ -66,6 +66,16 @@ export const getErrorMessage = (
     return detail;
   }
 
+  if (
+    detail &&
+    typeof detail === 'object' &&
+    'message' in detail &&
+    typeof (detail as { message?: unknown }).message === 'string' &&
+    (detail as { message: string }).message.trim()
+  ) {
+    return (detail as { message: string }).message;
+  }
+
   if (Array.isArray(detail)) {
     const formatted = detail
       .map((item) =>

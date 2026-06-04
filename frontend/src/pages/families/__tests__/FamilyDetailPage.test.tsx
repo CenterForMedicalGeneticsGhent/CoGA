@@ -40,6 +40,33 @@ vi.mock('../../../lib/api', () => ({
       if (url === '/families/F1/hpo') {
         return Promise.resolve({ data: mockApiState.hpoAnnotations });
       }
+      if (url === '/families/F1/members/S1') {
+        return Promise.resolve({
+          data: {
+            member: {
+              sample_id: 'S1',
+              role: 'proband',
+              affected: true,
+              sex: 'male',
+              clinical_status: 'affected',
+              carrier_status: 'unknown',
+            },
+            father_id: null,
+            mother_id: null,
+            hpo_annotations: mockApiState.hpoAnnotations,
+            impact: {
+              sample_id: 'S1',
+              pedigree_references: {},
+              data_counts: {},
+              affected_analysis_scopes: [],
+              stale_analysis_scopes: [],
+              warnings: [],
+              destructive: false,
+              requires_manual_recalculation: false,
+            },
+          },
+        });
+      }
       if (url === '/hpo/search') {
         return Promise.resolve({
           data: [{ hpo_id: 'HP:0001250', label: 'Seizure', definition: null, is_obsolete: false }],
@@ -151,6 +178,8 @@ vi.mock('../../../lib/api', () => ({
       return Promise.resolve({ data: [] });
     }),
     put: vi.fn(),
+    post: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -161,6 +190,8 @@ describe('FamilyDetailPage', () => {
     mockApiState.structuralVariantTotal = 1;
     mockApiState.hpoAnnotations = [];
     vi.mocked(api.put).mockReset();
+    vi.mocked(api.post).mockReset();
+    vi.mocked(api.delete).mockReset();
   });
 
   it('shows the current family ROI summary and project links without edit controls', async () => {
@@ -247,13 +278,14 @@ describe('FamilyDetailPage', () => {
     );
   });
 
-  it('shows HPO phenotype annotations on the family detail page', async () => {
+  it('shows HPO phenotype annotations in the family members overview', async () => {
     mockApiState.hpoAnnotations = [
       {
         id: 'hpo1',
         sample_id: 'S1',
         hpo_id: 'HP:0001250',
         label: 'Seizure',
+        definition: 'A seizure phenotype.',
         status: 'present',
         onset: null,
         evidence: null,
@@ -277,12 +309,124 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: /phenotypes/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /phenotypes/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /hpo terms/i })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText('HP:0001250')).toBeInTheDocument();
       expect(screen.getByText('Seizure')).toBeInTheDocument();
-      expect(screen.getAllByText('present').length).toBeGreaterThan(0);
+      expect(screen.getByTitle(/HP:0001250: A seizure phenotype/i)).toBeInTheDocument();
     });
+  });
+
+  it('opens family member details with editable HPO controls for admins', async () => {
+    mockApiState.hpoAnnotations = [
+      {
+        id: 'hpo1',
+        sample_id: 'S1',
+        hpo_id: 'HP:0001250',
+        label: 'Seizure',
+        definition: 'A seizure phenotype.',
+        status: 'present',
+        onset: null,
+        evidence: null,
+        source: 'manual',
+        note: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+    ];
+    localStorage.setItem('role', 'admin');
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+
+    expect(await screen.findByRole('dialog', { name: /family member details/i })).toBeInTheDocument();
+    expect(await screen.findByLabelText(/identifier/i)).toHaveValue('S1');
+    expect(screen.getByLabelText(/phenotype status/i)).toHaveValue('affected');
+    expect(screen.getByRole('heading', { name: /hpo phenotypes/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add phenotype/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /apply to pending/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /remove member/i })).toBeInTheDocument();
+  });
+
+  it('queues member metadata edits and saves them in one batch', async () => {
+    localStorage.setItem('role', 'admin');
+    vi.mocked(api.put).mockResolvedValueOnce({
+      data: {
+        family: {
+          _id: 'fam1',
+          family_id: 'F1',
+          members: [
+            {
+              sample_id: 'S1',
+              role: 'proband',
+              affected: false,
+              sex: 'male',
+              clinical_status: 'unknown',
+              carrier_status: 'carrier',
+            },
+          ],
+          relationships: [],
+          structure_version: { version: 2 },
+          pedigree: null,
+          projects: ['p1'],
+          metadata: {},
+          roi: null,
+        },
+        warnings: ['Phenotype and carrier labels were updated; downstream interpretation views were marked stale without reloading raw datasets.'],
+      },
+    });
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    fireEvent.change(await screen.findByLabelText(/phenotype status/i), {
+      target: { value: 'carrier' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /apply to pending/i }));
+    expect(await screen.findByText(/1 pending/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /save pending updates/i }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith(
+      '/families/F1/members/batch',
+      expect.objectContaining({
+        change_reason: 'family_member_batch_update',
+        updates: [
+          expect.objectContaining({
+            sample_id: 'S1',
+            phenotype_status: 'carrier',
+          }),
+        ],
+      }),
+    ));
+    const batchPayload = vi.mocked(api.put).mock.calls.find(
+      ([url]) => url === '/families/F1/members/batch',
+    )?.[1] as { updates: Array<Record<string, unknown>> };
+    expect(batchPayload.updates[0]).not.toHaveProperty('father_id');
+    expect(batchPayload.updates[0]).not.toHaveProperty('mother_id');
+    expect(batchPayload.updates[0]).not.toHaveProperty('sex');
+    expect(batchPayload.updates[0]).not.toHaveProperty('role');
+    expect(await screen.findByText(/Pending updates saved/i)).toBeInTheDocument();
   });
 
   it('preserves the selected project in variant workspace links', async () => {
