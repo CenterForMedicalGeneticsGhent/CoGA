@@ -307,6 +307,38 @@ class HpoTermDetailOut(HpoTermOut):
     children: List[HpoTermRelationOut] = Field(default_factory=list)
 
 
+class HpoAdminTermOut(HpoTermDetailOut):
+    parent_count: int = 0
+    child_count: int = 0
+
+
+class HpoAdminSummaryOut(BaseModel):
+    total_terms: int
+    active_terms: int
+    obsolete_terms: int
+    release_version: Optional[str] = None
+    release_date: Optional[date] = None
+    last_sync_date: Optional[datetime] = None
+    automatic_update_supported: bool = False
+    ontology_loaded: bool = False
+
+
+class HpoOntologySyncRequest(BaseModel):
+    path: str = Field(min_length=1)
+    release_version: Optional[str] = None
+    release_date: Optional[date] = None
+    preview_only: bool = True
+
+
+class HpoOntologySyncOut(BaseModel):
+    preview_only: bool
+    release_version: Optional[str] = None
+    release_date: Optional[date] = None
+    current: HpoAdminSummaryOut
+    preview: Dict[str, int] = Field(default_factory=dict)
+    imported: Optional["HpoOntologyImportOut"] = None
+
+
 class HpoAnnotationCreate(BaseModel):
     hpo_id: str = Field(min_length=1)
     status: Literal["present", "absent", "unknown"] = "present"
@@ -466,6 +498,40 @@ class FamilyPackageImportCreate(BaseModel):
     dry_run: bool = False
     family_id: Optional[str] = None
     conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
+
+
+class FamilyImportExistingDataOut(BaseModel):
+    data_type: str
+    records: int = 0
+    sample_id: Optional[str] = None
+    source: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyImportDatasetPlanOut(BaseModel):
+    dataset_type: str
+    enabled: bool = True
+    status: str
+    files: List[str] = Field(default_factory=list)
+    samples: List[str] = Field(default_factory=list)
+    existing_data: List[FamilyImportExistingDataOut] = Field(default_factory=list)
+    planned_action: Literal["new", "skip", "replace", "merge", "register", "blocked"]
+    message: Optional[str] = None
+    dependencies: List[str] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyPackageImportPlanOut(BaseModel):
+    valid: bool
+    family_id: Optional[str] = None
+    target_mode: Literal["initial", "incremental"] = "initial"
+    conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
+    existing_family: bool = False
+    existing_samples: List[str] = Field(default_factory=list)
+    confirmation_required: bool = True
+    validation: FamilyPackageValidationOut
+    datasets: List[FamilyImportDatasetPlanOut] = Field(default_factory=list)
+    messages: List[str] = Field(default_factory=list)
 
 
 class FamilyPackageImportJobOut(ApiDocumentModel):

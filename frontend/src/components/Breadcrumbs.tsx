@@ -28,12 +28,16 @@ const Breadcrumbs: React.FC = () => {
   let path = '';
   others.forEach((segment, index) => {
     path += `/${segment}`;
-    const label = (segment.charAt(0).toUpperCase() + segment.slice(1)).toUpperCase();
+    const label = segment
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ')
+      .toUpperCase();
     const isLast = index === others.length - 1;
     let to = path;
 
     if (segment === 'admin') {
-      to = '/dashboard';
+      to = '/admin';
     }
 
     if (segment === 'chromosome' && others[index - 1]) {

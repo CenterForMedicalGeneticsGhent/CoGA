@@ -418,6 +418,7 @@ const FamilySmallVariantsPage: React.FC = () => {
           handleReset={handleReset}
           handleSampleFieldChange={handleSampleFieldChange}
           members={members}
+          relationships={family?.relationships ?? []}
           onSaveCurrentPreset={async (payload) => {
             await savePresetMutation.mutateAsync(payload);
           }}

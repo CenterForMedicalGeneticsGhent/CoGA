@@ -13,7 +13,7 @@ test('preserves variant filters when navigating from chromosome to genome', () =
   expect(link).toHaveAttribute('href', '/families/123/genome?af=0.5');
 });
 
-test('admin breadcrumb links back to dashboard', () => {
+test('admin breadcrumb links back to admin dashboard', () => {
   render(
     <MemoryRouter initialEntries={["/admin/users"]}>
       <Breadcrumbs />
@@ -21,5 +21,5 @@ test('admin breadcrumb links back to dashboard', () => {
   );
 
   const adminLink = screen.getByText('ADMIN').closest('a');
-  expect(adminLink).toHaveAttribute('href', '/dashboard');
+  expect(adminLink).toHaveAttribute('href', '/admin');
 });

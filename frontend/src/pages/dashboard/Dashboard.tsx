@@ -38,6 +38,11 @@ const Dashboard: React.FC = () => {
           <Link to="/family-intake" className="button-secondary hover:no-underline">
             add family & samples
           </Link>
+          {userIsAdmin && (
+            <Link to="/admin" className="button-secondary hover:no-underline">
+              Admin
+            </Link>
+          )}
           <Link to="/docs" className="button-grey hover:no-underline">
             User guide
           </Link>
@@ -61,29 +66,17 @@ const Dashboard: React.FC = () => {
             <span className="badge-chip badge-chip--signature">Admin</span>
           </div>
           <div className="compact-toolbar dashboard-toolbar">
-            <Link to="/reference-data" className="button-secondary hover:no-underline">
-              Organisms & assemblies
+            <Link to="/admin" className="button-secondary hover:no-underline">
+              Open Admin dashboard
             </Link>
-            <Link to="/panels" className="button-secondary hover:no-underline">
-              Gene panels
+            <Link to="/admin/data/upload" className="button-secondary hover:no-underline">
+              Upload family/sample data
             </Link>
-            <Link to="/admin/gene-reference" className="button-secondary hover:no-underline">
-              Gene reference sync
+            <Link to="/admin/data/families" className="button-secondary hover:no-underline">
+              Family & sample data
             </Link>
-            <Link to="/projects" className="button-secondary hover:no-underline">
-              Projects
-            </Link>
-            <Link to="/upload-data" className="button-secondary hover:no-underline">
-              Upload sample data
-            </Link>
-            <Link to="/admin/data" className="button-secondary hover:no-underline">
-              Data Management
-            </Link>
-            <Link to="/admin/data/logs" className="button-secondary hover:no-underline">
+            <Link to="/admin/monitoring/audit-logs" className="button-secondary hover:no-underline">
               Audit logs
-            </Link>
-            <Link to="/admin/users" className="button-secondary hover:no-underline">
-              Users
             </Link>
           </div>
         </section>

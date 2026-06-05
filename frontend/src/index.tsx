@@ -57,6 +57,9 @@ const GenePanelsPage = lazy(() => import('./pages/panels/GenePanelsPage'));
 const GenePanelDetailPage = lazy(
   () => import('./pages/panels/GenePanelDetailPage')
 );
+const AdminDashboardPage = lazy(
+  () => import('./pages/admin/AdminDashboardPage')
+);
 const UserListPage = lazy(() => import('./pages/admin/UserListPage'));
 const DataManagementPage = lazy(
   () => import('./pages/admin/DataManagementPage')
@@ -75,6 +78,9 @@ const AdminAuditLogsPage = lazy(
 );
 const GeneReferenceAdminPage = lazy(
   () => import('./pages/admin/GeneReferenceAdminPage')
+);
+const HpoTerminologyAdminPage = lazy(
+  () => import('./pages/admin/HpoTerminologyAdminPage')
 );
 const ProjectsPage = lazy(() => import('./pages/projects/ProjectsPage'));
 const ReferenceCatalogPage = lazy(
@@ -198,6 +204,70 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               />
               <Route path="/docs" element={routeElement(<UserGuidePage />)} />
               <Route element={<RequireAdmin />}>
+                <Route
+                  path="/admin"
+                  element={routeElement(<AdminDashboardPage />)}
+                />
+                <Route
+                  path="/admin/reference/assemblies"
+                  element={routeElement(<ReferenceCatalogPage />)}
+                />
+                <Route
+                  path="/admin/reference/gene-panels"
+                  element={routeElement(<GenePanelsPage />)}
+                />
+                <Route
+                  path="/admin/reference/gene-reference"
+                  element={routeElement(<GeneReferenceAdminPage />)}
+                />
+                <Route
+                  path="/admin/reference/hpo"
+                  element={routeElement(<HpoTerminologyAdminPage />)}
+                />
+                <Route
+                  path="/admin/hpo"
+                  element={routeElement(<HpoTerminologyAdminPage />)}
+                />
+                <Route
+                  path="/admin/access/users"
+                  element={routeElement(<UserListPage />)}
+                />
+                <Route
+                  path="/admin/access/projects"
+                  element={routeElement(<ProjectsPage />)}
+                />
+                <Route
+                  path="/admin/data/families"
+                  element={routeElement(<DataManagementPage />)}
+                />
+                <Route
+                  path="/admin/data/upload"
+                  element={routeElement(<FamilyIntakePage />)}
+                />
+                <Route
+                  path="/admin/upload"
+                  element={routeElement(<FamilyIntakePage />)}
+                />
+                <Route
+                  path="/admin/variants/tags"
+                  element={routeElement(<AdminVariantTagsPage />)}
+                />
+                <Route
+                  path="/admin/variants/presets"
+                  element={routeElement(<AdminPresetFiltersPage />)}
+                />
+                <Route
+                  path="/admin/operations/clickhouse"
+                  element={routeElement(<AdminClickhouseManagementPage />)}
+                />
+                <Route
+                  path="/admin/operations/variants"
+                  element={routeElement(<AdminClickhouseManagementPage />)}
+                />
+                <Route
+                  path="/admin/monitoring/audit-logs"
+                  element={routeElement(<AdminAuditLogsPage />)}
+                />
                 <Route
                   path="/admin/users"
                   element={routeElement(<UserListPage />)}

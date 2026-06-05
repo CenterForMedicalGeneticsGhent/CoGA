@@ -1,6 +1,6 @@
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -13,6 +13,10 @@ from ..schemas import (
     FamilyInventoryPageOut,
     GeneInfoRefreshJobOut,
     GeneReferenceAdminStatusOut,
+    HpoAdminSummaryOut,
+    HpoAdminTermOut,
+    HpoOntologySyncOut,
+    HpoOntologySyncRequest,
     ProjectsUpdate,
     SmallVariantFilterPresetOut,
     SmallVariantTagDefinitionCreate,
@@ -36,6 +40,11 @@ from ..services.admin_service import (
 from ..services.gene_info_jobs_pg import (
     list_gene_reference_admin_status,
     queue_gene_reference_refresh_job,
+)
+from ..services.hpo_service import (
+    get_hpo_admin_summary,
+    list_hpo_admin_terms,
+    sync_hpo_ontology,
 )
 from ..services.metadata_service import (
     CurrentUser,
@@ -327,6 +336,45 @@ async def list_audit_logs(
         user_email=user_email,
         path_contains=path_contains,
     )
+
+
+@router.get("/hpo/summary", response_model=HpoAdminSummaryOut)
+async def get_hpo_summary(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> HpoAdminSummaryOut:
+    del user
+    return await get_hpo_admin_summary(session)
+
+
+@router.get("/hpo/terms", response_model=List[HpoAdminTermOut])
+async def list_hpo_terms_for_admin(
+    q: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=200),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> List[HpoAdminTermOut]:
+    del user
+    return await list_hpo_admin_terms(session, query=q, limit=limit)
+
+
+@router.post("/hpo/sync", response_model=HpoOntologySyncOut)
+async def sync_hpo_terms(
+    payload: HpoOntologySyncRequest,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> HpoOntologySyncOut:
+    del user
+    try:
+        return await sync_hpo_ontology(
+            session,
+            path=payload.path,
+            release_version=payload.release_version,
+            release_date=payload.release_date,
+            preview_only=payload.preview_only,
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/gene-reference/refresh-all", response_model=GeneInfoRefreshJobOut)

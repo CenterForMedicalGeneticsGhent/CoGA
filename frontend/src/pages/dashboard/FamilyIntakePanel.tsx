@@ -125,7 +125,7 @@ const pedigreeMembersFor = (members: DraftMember[]) =>
     .filter((member) => member.sampleId.trim())
     .map((member) => ({
       sample_id: member.sampleId.trim(),
-      carrier_status: member.carrierStatus ? 'carrier' : 'not_carrier',
+      carrier_status: member.carrierStatus ? ('carrier' as const) : ('not_carrier' as const),
       carrier_type: member.carrierStatus ? member.carrierType : null,
     }));
 

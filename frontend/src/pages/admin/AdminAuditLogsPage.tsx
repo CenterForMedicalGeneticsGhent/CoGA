@@ -157,19 +157,19 @@ const AdminAuditLogsPage: React.FC = () => {
             </p>
           </div>
           <div className="compact-toolbar dashboard-toolbar">
-            <Link to="/admin/data" className="button-secondary hover:no-underline">
+            <Link to="/admin/data/families" className="button-secondary hover:no-underline">
               Family & sample data
             </Link>
             <Link
-              to="/admin/data/clickhouse"
+              to="/admin/operations/clickhouse"
               className="button-secondary hover:no-underline"
             >
               ClickHouse tables
             </Link>
-            <Link to="/admin/data/presets" className="button-secondary hover:no-underline">
+            <Link to="/admin/variants/presets" className="button-secondary hover:no-underline">
               Preset filters
             </Link>
-            <Link to="/admin/data/tags" className="button-secondary hover:no-underline">
+            <Link to="/admin/variants/tags" className="button-secondary hover:no-underline">
               Variant tags
             </Link>
           </div>

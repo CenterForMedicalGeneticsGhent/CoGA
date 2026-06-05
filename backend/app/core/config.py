@@ -115,6 +115,16 @@ class Settings(BaseSettings):
         default=True,
         alias="GENE_REFERENCE_BOOTSTRAP_ON_STARTUP",
     )
+    hpo_bootstrap_on_startup: bool = Field(default=True, alias="HPO_BOOTSTRAP_ON_STARTUP")
+    hpo_ontology_path: str | None = Field(
+        default="/data/ref-data/hpo/hp.obo",
+        alias="HPO_ONTOLOGY_PATH",
+    )
+    hpo_ontology_url: str = Field(
+        default="http://purl.obolibrary.org/obo/hp.obo",
+        alias="HPO_ONTOLOGY_URL",
+    )
+    hpo_download_if_missing: bool = Field(default=True, alias="HPO_DOWNLOAD_IF_MISSING")
     reads_path: str | None = None
     family_import_roots: list[str] = Field(default_factory=list, alias="FAMILY_IMPORT_ROOTS")
     family_import_worker_count: int = Field(default=1, ge=1, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
