@@ -369,14 +369,14 @@ const ApcadChart: React.FC<Props> = ({
 
       ctx.fillStyle = fill;
       ctx.beginPath();
-      ctx.arc(cx, cy, 1.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 0.7, 0, Math.PI * 2);
       ctx.fill();
     });
 
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 2.2;
+    ctx.lineWidth = 1.5;
     ctx.globalAlpha = 0.8;
     segments.forEach((segment) => {
       if (
