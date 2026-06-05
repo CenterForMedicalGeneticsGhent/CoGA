@@ -147,13 +147,13 @@ describe('DataManagementPage', () => {
     expect(screen.getAllByText('Proj1').length).toBeGreaterThan(0);
     expect(
       screen.getByRole('link', { name: /clickhouse tables/i })
-    ).toHaveAttribute('href', '/admin/data/clickhouse');
+    ).toHaveAttribute('href', '/admin/operations/clickhouse');
     expect(
       screen.getByRole('link', { name: /preset filters/i })
-    ).toHaveAttribute('href', '/admin/data/presets');
+    ).toHaveAttribute('href', '/admin/variants/presets');
     expect(screen.getByRole('link', { name: /variant tags/i })).toHaveAttribute(
       'href',
-      '/admin/data/tags'
+      '/admin/variants/tags'
     );
   });
 

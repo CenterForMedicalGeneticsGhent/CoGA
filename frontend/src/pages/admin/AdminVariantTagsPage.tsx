@@ -230,16 +230,16 @@ const AdminVariantTagsPage: React.FC = () => {
             </p>
           </div>
           <div className="compact-toolbar dashboard-toolbar">
-            <Link to="/admin/data" className="button-secondary hover:no-underline">
+            <Link to="/admin/data/families" className="button-secondary hover:no-underline">
               Data inventory
             </Link>
-            <Link to="/admin/data/presets" className="button-secondary hover:no-underline">
+            <Link to="/admin/variants/presets" className="button-secondary hover:no-underline">
               Preset filters
             </Link>
-            <Link to="/admin/data/clickhouse" className="button-secondary hover:no-underline">
+            <Link to="/admin/operations/clickhouse" className="button-secondary hover:no-underline">
               ClickHouse tables
             </Link>
-            <Link to="/admin/data/logs" className="button-secondary hover:no-underline">
+            <Link to="/admin/monitoring/audit-logs" className="button-secondary hover:no-underline">
               Audit logs
             </Link>
           </div>

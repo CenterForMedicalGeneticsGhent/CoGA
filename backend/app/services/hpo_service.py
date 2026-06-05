@@ -1,26 +1,38 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 from dataclasses import asdict, dataclass, field
 from datetime import date
 import io
 import json
+import logging
 from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
+from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..core.sql import is_missing_postgres_schema_error
 
 HPO_ID_PATTERN = re.compile(r"^HP:[0-9]{7}$", re.IGNORECASE)
 HPO_ID_SEARCH_PATTERN = re.compile(r"(?:HP[:_])([0-9]{7})", re.IGNORECASE)
 HPO_URI_PATTERN = re.compile(r"(?:^|[/_])HP[_:]([0-9]{7})$", re.IGNORECASE)
+HPO_RELEASE_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 PRESENT_STATUS_VALUES = {"present", "positive", "observed", "yes", "true", "1"}
 ABSENT_STATUS_VALUES = {"absent", "excluded", "negative", "no", "false", "0"}
 UNKNOWN_STATUS_VALUES = {"unknown", "uncertain", "na", "n/a", "not_applicable"}
 ANNOTATION_STATUSES = {"present", "absent", "unknown"}
+HPO_ADMIN_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge")
+HPO_IMPORT_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge", "hpo_closure")
+DEFAULT_HPO_ONTOLOGY_URL = "http://purl.obolibrary.org/obo/hp.obo"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -45,6 +57,12 @@ class ParsedHpoEdge:
 class ParsedHpoOntology:
     terms: dict[str, ParsedHpoTerm]
     edges: list[ParsedHpoEdge]
+
+
+@dataclass(frozen=True, slots=True)
+class HpoOntologyReleaseMetadata:
+    release_version: str | None = None
+    release_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +104,72 @@ def normalize_hpo_id(value: str | None) -> str | None:
     if search_match:
         return f"HP:{search_match.group(1)}"
     return None
+
+
+def _empty_hpo_admin_summary() -> dict[str, Any]:
+    return {
+        "total_terms": 0,
+        "active_terms": 0,
+        "obsolete_terms": 0,
+        "release_version": None,
+        "release_date": None,
+        "last_sync_date": None,
+        "automatic_update_supported": False,
+        "ontology_loaded": False,
+    }
+
+
+async def _postgres_tables_available(
+    session: AsyncSession,
+    table_names: tuple[str, ...],
+) -> bool:
+    if not table_names:
+        return True
+    select_sql = ", ".join(
+        f"to_regclass('{table_name}') IS NOT NULL AS {table_name}"
+        for table_name in table_names
+    )
+    result = await session.execute(text(f"SELECT {select_sql}"))
+    row = result.mappings().one()
+    return all(bool(row.get(table_name)) for table_name in table_names)
+
+
+def _json_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _text_list(value: Any) -> list[str]:
+    return [str(item) for item in _json_list(value) if item is not None]
+
+
+def _relation_list(value: Any) -> list[dict[str, str]]:
+    relations: list[dict[str, str]] = []
+    for item in _json_list(value):
+        if not isinstance(item, Mapping):
+            continue
+        hpo_id = item.get("hpo_id")
+        label = item.get("label")
+        if hpo_id is None or label is None:
+            continue
+        relations.append(
+            {
+                "hpo_id": str(hpo_id),
+                "label": str(label),
+                "relation": str(item.get("relation") or "is_a"),
+            }
+        )
+    return relations
 
 
 def normalize_annotation_status(value: str | None) -> str | None:
@@ -290,12 +374,221 @@ def parse_hpo_json_text(text_value: str) -> ParsedHpoOntology:
     return ParsedHpoOntology(terms=terms, edges=edges)
 
 
+def _parse_release_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    match = HPO_RELEASE_DATE_PATTERN.search(value)
+    if not match:
+        return None
+    try:
+        return date.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
+def _parse_hpo_obo_release_metadata(text_value: str) -> HpoOntologyReleaseMetadata:
+    data_version: str | None = None
+    version_info: str | None = None
+    for raw_line in text_value.splitlines():
+        line = raw_line.strip()
+        if line in {"[Term]", "[Typedef]"}:
+            break
+        if line.startswith("data-version:"):
+            data_version = line.split(":", 1)[1].strip() or None
+            continue
+        if line.startswith("property_value: owl:versionInfo"):
+            quoted = _quoted_value(line)
+            version_info = quoted or line.rsplit(" ", 1)[-1].strip() or None
+    release_version = data_version or version_info
+    release_date = _parse_release_date(data_version) or _parse_release_date(version_info)
+    return HpoOntologyReleaseMetadata(
+        release_version=release_version,
+        release_date=release_date,
+    )
+
+
+def _json_metadata_candidates(payload: Any) -> list[str]:
+    candidates: list[str] = []
+    if isinstance(payload, dict):
+        meta = payload.get("meta")
+        if isinstance(meta, dict):
+            candidates.extend(str(meta[key]) for key in ("version", "dataVersion") if meta.get(key))
+        for key in ("version", "dataVersion"):
+            if payload.get(key):
+                candidates.append(str(payload[key]))
+        for graph in _json_graphs(payload):
+            graph_meta = graph.get("meta") if isinstance(graph, dict) else None
+            if isinstance(graph_meta, dict):
+                candidates.extend(
+                    str(graph_meta[key])
+                    for key in ("version", "dataVersion")
+                    if graph_meta.get(key)
+                )
+    return candidates
+
+
+def parse_hpo_ontology_release_metadata_text(
+    text_value: str,
+    *,
+    source_format: str = "obo",
+) -> HpoOntologyReleaseMetadata:
+    if source_format.lower() == "json":
+        try:
+            candidates = _json_metadata_candidates(json.loads(text_value))
+        except json.JSONDecodeError:
+            candidates = []
+        release_version = candidates[0] if candidates else None
+        release_date = next(
+            (parsed for parsed in (_parse_release_date(candidate) for candidate in candidates) if parsed),
+            None,
+        )
+        return HpoOntologyReleaseMetadata(
+            release_version=release_version,
+            release_date=release_date,
+        )
+    return _parse_hpo_obo_release_metadata(text_value)
+
+
+def parse_hpo_ontology_release_metadata_path(path: str | Path) -> HpoOntologyReleaseMetadata:
+    resolved = Path(path)
+    text_value = resolved.read_text(encoding="utf-8")
+    source_format = "json" if resolved.suffix.lower() == ".json" else "obo"
+    return parse_hpo_ontology_release_metadata_text(text_value, source_format=source_format)
+
+
 def parse_hpo_ontology_path(path: str | Path) -> ParsedHpoOntology:
     resolved = Path(path)
     text_value = resolved.read_text(encoding="utf-8")
     if resolved.suffix.lower() == ".json":
         return parse_hpo_json_text(text_value)
     return parse_hpo_obo_text(text_value)
+
+
+def hpo_ontology_candidate_paths(ontology_path: str | Path | None = None) -> list[Path]:
+    repo_root = Path(__file__).resolve().parents[3]
+    candidates = [
+        Path(ontology_path).expanduser() if ontology_path else None,
+        Path("/data/ref-data/hpo/hpo.obo"),
+        Path("/data/ref-data/hpo/hp.obo"),
+        repo_root / "data" / "ref-data" / "hpo" / "hpo.obo",
+        repo_root / "data" / "ref-data" / "hpo" / "hp.obo",
+    ]
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(candidate)
+    return resolved
+
+
+def resolve_hpo_ontology_path(ontology_path: str | Path | None = None) -> Path | None:
+    for candidate in hpo_ontology_candidate_paths(ontology_path):
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    return None
+
+
+def _download_hpo_ontology_file(url: str, candidate_paths: list[Path]) -> Path:
+    errors: list[str] = []
+    request = Request(url, headers={"User-Agent": "CoGA-HPO-bootstrap/1.0"})
+    for target in candidate_paths:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with urlopen(request, timeout=60) as response:
+                target.write_bytes(response.read())
+            return target
+        except OSError as exc:
+            errors.append(f"{target}: {exc}")
+        except Exception as exc:
+            errors.append(str(exc))
+            break
+    detail = "; ".join(errors) if errors else "no candidate download target"
+    raise RuntimeError(f"Failed to download HPO ontology from {url}: {detail}")
+
+
+async def _hpo_term_count(session: AsyncSession) -> int:
+    if not await _postgres_tables_available(session, HPO_IMPORT_TABLES):
+        return 0
+    result = await session.execute(text("SELECT COUNT(*)::int FROM hpo_term"))
+    return int(result.scalar_one() or 0)
+
+
+async def ensure_hpo_ontology_on_startup(
+    session: AsyncSession,
+    *,
+    ontology_path: str | Path | None = None,
+    ontology_url: str = DEFAULT_HPO_ONTOLOGY_URL,
+    download_if_missing: bool = True,
+    enabled: bool = True,
+) -> dict[str, Any] | None:
+    if not enabled:
+        return None
+    try:
+        if await _hpo_term_count(session) > 0:
+            return None
+    except DBAPIError as exc:
+        if is_missing_postgres_schema_error(exc):
+            logger.warning("HPO bootstrap skipped because the HPO database schema is not available")
+            return None
+        raise
+
+    candidate_paths = hpo_ontology_candidate_paths(ontology_path)
+    resolved_path = resolve_hpo_ontology_path(ontology_path)
+    if resolved_path is None and download_if_missing:
+        try:
+            resolved_path = await asyncio.to_thread(
+                _download_hpo_ontology_file,
+                ontology_url,
+                candidate_paths,
+            )
+            logger.info("Downloaded HPO ontology to %s", resolved_path)
+        except Exception:
+            logger.exception("Failed to download HPO ontology from %s", ontology_url)
+            try:
+                await session.rollback()
+            except Exception:  # pragma: no cover
+                logger.exception("Failed to roll back after failed HPO ontology download")
+            return None
+    if resolved_path is None:
+        logger.warning(
+            "HPO bootstrap skipped because no ontology file was found. Checked: %s",
+            ", ".join(str(path) for path in candidate_paths),
+        )
+        return None
+
+    metadata = parse_hpo_ontology_release_metadata_path(resolved_path)
+    try:
+        imported = await import_hpo_ontology(
+            session,
+            path=resolved_path,
+            release_version=metadata.release_version,
+            release_date=metadata.release_date,
+        )
+    except Exception:
+        logger.exception("Failed to bootstrap HPO ontology from %s", resolved_path)
+        try:
+            await session.rollback()
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to roll back failed HPO bootstrap")
+        return None
+    logger.info(
+        "Bootstrapped HPO ontology from %s (%s terms, release=%s, release_date=%s)",
+        resolved_path,
+        imported["terms"],
+        metadata.release_version or "unknown",
+        metadata.release_date.isoformat() if metadata.release_date else "unknown",
+    )
+    return {
+        **imported,
+        "path": str(resolved_path),
+        "release_version": metadata.release_version,
+        "release_date": metadata.release_date,
+    }
 
 
 def compute_hpo_closure(
@@ -339,6 +632,9 @@ async def import_hpo_ontology(
     ontology = parse_hpo_ontology_path(path)
     if not ontology.terms:
         raise ValueError("HPO ontology import found no terms")
+    release_metadata = parse_hpo_ontology_release_metadata_path(path)
+    effective_release_version = release_version or release_metadata.release_version
+    effective_release_date = release_date or release_metadata.release_date
 
     term_rows = [
         {
@@ -347,8 +643,8 @@ async def import_hpo_ontology(
             "definition": term.definition,
             "is_obsolete": term.is_obsolete,
             "replaced_by": term.replaced_by,
-            "release_version": release_version,
-            "release_date": release_date,
+            "release_version": effective_release_version,
+            "release_date": effective_release_date,
             "metadata": json.dumps(term.metadata),
         }
         for term in ontology.terms.values()
@@ -938,6 +1234,267 @@ async def get_hpo_term_details(
         "synonyms": [str(row[0]) for row in synonym_result.all()],
         "parents": [dict(row) for row in parent_result.mappings().all()],
         "children": [dict(row) for row in child_result.mappings().all()],
+    }
+
+
+async def get_hpo_admin_summary(session: AsyncSession) -> dict[str, Any]:
+    try:
+        if not await _postgres_tables_available(session, ("hpo_term",)):
+            return _empty_hpo_admin_summary()
+        result = await session.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*)::int AS total_terms,
+                    COUNT(*) FILTER (WHERE is_obsolete = FALSE)::int AS active_terms,
+                    COUNT(*) FILTER (WHERE is_obsolete = TRUE)::int AS obsolete_terms,
+                    MAX(release_date) AS release_date,
+                    MAX(updated_at) AS last_sync_date
+                FROM hpo_term
+                """
+            )
+        )
+        summary = dict(result.mappings().one())
+        release_result = await session.execute(
+            text(
+                """
+                SELECT release_version
+                FROM hpo_term
+                WHERE release_version IS NOT NULL
+                ORDER BY updated_at DESC, release_version DESC
+                LIMIT 1
+                """
+            )
+        )
+    except DBAPIError as exc:
+        if is_missing_postgres_schema_error(exc):
+            return _empty_hpo_admin_summary()
+        raise
+    summary["release_version"] = release_result.scalar_one_or_none()
+    summary["automatic_update_supported"] = False
+    summary["ontology_loaded"] = int(summary.get("total_terms") or 0) > 0
+    return summary
+
+
+async def list_hpo_admin_terms(
+    session: AsyncSession,
+    *,
+    query: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    cleaned = (query or "").strip()
+    bounded_limit = max(1, min(limit, 200))
+    params: dict[str, Any] = {"limit": bounded_limit}
+    where_sql = ""
+    if cleaned:
+        params["like_query"] = f"%{cleaned.lower()}%"
+        params["prefix_query"] = f"{cleaned.lower()}%"
+        params["query"] = cleaned
+        where_sql = """
+        WHERE lower(t.hpo_id) LIKE :like_query
+           OR lower(t.label) LIKE :like_query
+           OR EXISTS (
+               SELECT 1 FROM hpo_synonym s
+               WHERE s.hpo_id = t.hpo_id
+                 AND lower(s.synonym) LIKE :like_query
+           )
+        """
+    try:
+        if not await _postgres_tables_available(session, HPO_ADMIN_TABLES):
+            return []
+        result = await session.execute(
+            text(
+                f"""
+                SELECT
+                    t.hpo_id AS hpo_id,
+                    t.label AS label,
+                    t.definition AS definition,
+                    t.is_obsolete AS is_obsolete,
+                    t.replaced_by AS replaced_by,
+                    t.release_version AS release_version,
+                    t.release_date AS release_date,
+                    COALESCE(s.synonyms, '[]'::jsonb) AS synonyms,
+                    COALESCE(p.parents, '[]'::jsonb) AS parents,
+                    COALESCE(c.children, '[]'::jsonb) AS children,
+                    COALESCE(p.parent_count, 0)::int AS parent_count,
+                    COALESCE(c.child_count, 0)::int AS child_count,
+                    CASE
+                        WHEN :query IS NOT NULL AND lower(t.hpo_id) = lower(:query) THEN 0
+                        WHEN :query IS NOT NULL AND lower(t.hpo_id) LIKE :prefix_query THEN 1
+                        WHEN :query IS NOT NULL AND lower(t.label) LIKE :prefix_query THEN 2
+                        ELSE 3
+                    END AS match_rank
+                FROM hpo_term t
+                LEFT JOIN LATERAL (
+                    SELECT jsonb_agg(to_jsonb(synonym) ORDER BY synonym) AS synonyms
+                    FROM hpo_synonym
+                    WHERE hpo_id = t.hpo_id
+                ) s ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        COUNT(*) AS parent_count,
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'hpo_id', e.parent_id,
+                                'label', parent.label,
+                                'relation', e.relation
+                            )
+                            ORDER BY parent.label
+                        ) AS parents
+                    FROM hpo_edge e
+                    JOIN hpo_term parent ON parent.hpo_id = e.parent_id
+                    WHERE e.child_id = t.hpo_id
+                ) p ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        COUNT(*) AS child_count,
+                        jsonb_agg(
+                            jsonb_build_object(
+                                'hpo_id', e.child_id,
+                                'label', child.label,
+                                'relation', e.relation
+                            )
+                            ORDER BY child.label
+                        ) AS children
+                    FROM hpo_edge e
+                    JOIN hpo_term child ON child.hpo_id = e.child_id
+                    WHERE e.parent_id = t.hpo_id
+                ) c ON TRUE
+                {where_sql}
+                ORDER BY match_rank, t.is_obsolete, t.label
+                LIMIT :limit
+                """
+            ),
+            {
+                "query": cleaned or None,
+                "prefix_query": f"{cleaned.lower()}%" if cleaned else "",
+                **params,
+            },
+        )
+    except DBAPIError as exc:
+        if is_missing_postgres_schema_error(exc):
+            return []
+        raise
+    terms: list[dict[str, Any]] = []
+    for row in result.mappings().all():
+        item = dict(row)
+        item["synonyms"] = _text_list(item.get("synonyms"))
+        item["parents"] = _relation_list(item.get("parents"))
+        item["children"] = _relation_list(item.get("children"))
+        item.pop("match_rank", None)
+        terms.append(item)
+    return terms
+
+
+async def preview_hpo_ontology_sync(
+    session: AsyncSession,
+    *,
+    path: str | Path,
+) -> dict[str, int]:
+    ontology = parse_hpo_ontology_path(path)
+    if not ontology.terms:
+        raise ValueError("HPO ontology import found no terms")
+    existing: dict[str, dict[str, Any]] = {}
+    try:
+        if await _postgres_tables_available(session, ("hpo_term",)):
+            existing_result = await session.execute(
+                text(
+                    """
+                    SELECT hpo_id, label, definition, is_obsolete, replaced_by
+                    FROM hpo_term
+                    """
+                )
+            )
+            existing = {str(row["hpo_id"]): dict(row) for row in existing_result.mappings().all()}
+    except DBAPIError as exc:
+        if not is_missing_postgres_schema_error(exc):
+            raise
+        existing = {}
+    new_terms = 0
+    changed_terms = 0
+    unchanged_terms = 0
+    for term in ontology.terms.values():
+        current = existing.get(term.hpo_id)
+        if current is None:
+            new_terms += 1
+            continue
+        if (
+            current.get("label") != term.label
+            or current.get("definition") != term.definition
+            or bool(current.get("is_obsolete")) != term.is_obsolete
+            or current.get("replaced_by") != term.replaced_by
+        ):
+            changed_terms += 1
+        else:
+            unchanged_terms += 1
+    removed_terms = len(set(existing) - set(ontology.terms))
+    synonym_count = sum(len(term.synonyms) for term in ontology.terms.values())
+    edge_count = len(
+        [
+            edge
+            for edge in ontology.edges
+            if edge.child_id in ontology.terms and edge.parent_id in ontology.terms
+        ]
+    )
+    return {
+        "terms": len(ontology.terms),
+        "active_terms": sum(1 for term in ontology.terms.values() if not term.is_obsolete),
+        "obsolete_terms": sum(1 for term in ontology.terms.values() if term.is_obsolete),
+        "replaced_terms": sum(1 for term in ontology.terms.values() if term.replaced_by),
+        "synonyms": synonym_count,
+        "edges": edge_count,
+        "closure_rows": len(compute_hpo_closure(ontology.terms, ontology.edges)),
+        "new_terms": new_terms,
+        "changed_terms": changed_terms,
+        "unchanged_terms": unchanged_terms,
+        "removed_from_release": removed_terms,
+    }
+
+
+async def sync_hpo_ontology(
+    session: AsyncSession,
+    *,
+    path: str | Path,
+    release_version: str | None = None,
+    release_date: date | None = None,
+    preview_only: bool = True,
+) -> dict[str, Any]:
+    preview = await preview_hpo_ontology_sync(session, path=path)
+    release_metadata = parse_hpo_ontology_release_metadata_path(path)
+    effective_release_version = release_version or release_metadata.release_version
+    effective_release_date = release_date or release_metadata.release_date
+    if preview_only:
+        current = await get_hpo_admin_summary(session)
+        return {
+            "preview_only": True,
+            "release_version": effective_release_version,
+            "release_date": effective_release_date,
+            "current": current,
+            "preview": preview,
+            "imported": None,
+        }
+    if not await _postgres_tables_available(session, HPO_IMPORT_TABLES):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "HPO database schema is not available. Restart the backend or apply "
+                "the latest Postgres schema so the HPO tables are created, then retry synchronization."
+            ),
+        )
+    imported = await import_hpo_ontology(
+        session,
+        path=path,
+        release_version=effective_release_version,
+        release_date=effective_release_date,
+    )
+    current = await get_hpo_admin_summary(session)
+    return {
+        "preview_only": False,
+        "release_version": effective_release_version,
+        "release_date": effective_release_date,
+        "current": current,
+        "preview": preview,
+        "imported": imported,
     }
 
 

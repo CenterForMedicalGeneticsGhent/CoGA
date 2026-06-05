@@ -1,8 +1,10 @@
 from typing import Dict, List
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import is_missing_postgres_schema_error
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import (
@@ -100,6 +102,23 @@ from ..services.variant_upload_service import upload_family_small_variant_file
 router = APIRouter(prefix="/families", tags=["families"])
 
 
+async def _raise_metadata_schema_error_if_needed(
+    session: AsyncSession,
+    exc: DBAPIError,
+) -> None:
+    if not is_missing_postgres_schema_error(exc):
+        return
+    await session.rollback()
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Family metadata database schema is not available. Restart the backend or apply "
+            "the latest Postgres schema so family relationship and structure-version tables "
+            "are created, then retry the metadata update."
+        ),
+    ) from exc
+
+
 def _family_sample_contexts(context: FamilyMetadataContext) -> dict[str, SampleMetadataContext]:
     return {
         row["sample_id"]: SampleMetadataContext(
@@ -195,12 +214,16 @@ async def update_family_structure(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyStructureUpdateOut:
-    return await update_family_structure_for_admin(
-        session,
-        family_id=family_id,
-        update=update,
-        user=user,
-    )
+    try:
+        return await update_family_structure_for_admin(
+            session,
+            family_id=family_id,
+            update=update,
+            user=user,
+        )
+    except DBAPIError as exc:
+        await _raise_metadata_schema_error_if_needed(session, exc)
+        raise
 
 
 @router.put("/{family_id}/members/batch", response_model=FamilyMemberBatchUpdateOut)
@@ -210,12 +233,16 @@ async def update_family_members_batch(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberBatchUpdateOut:
-    return await update_family_members_batch_for_admin(
-        session,
-        family_id=family_id,
-        update=update,
-        user=user,
-    )
+    try:
+        return await update_family_members_batch_for_admin(
+            session,
+            family_id=family_id,
+            update=update,
+            user=user,
+        )
+    except DBAPIError as exc:
+        await _raise_metadata_schema_error_if_needed(session, exc)
+        raise
 
 
 @router.get("/{family_id}/members/{sample_id}", response_model=FamilyMemberDetailOut)
@@ -256,13 +283,17 @@ async def update_family_member(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberUpdateOut:
-    return await update_family_member_for_admin(
-        session,
-        family_id=family_id,
-        sample_id=sample_id,
-        update=update,
-        user=user,
-    )
+    try:
+        return await update_family_member_for_admin(
+            session,
+            family_id=family_id,
+            sample_id=sample_id,
+            update=update,
+            user=user,
+        )
+    except DBAPIError as exc:
+        await _raise_metadata_schema_error_if_needed(session, exc)
+        raise
 
 
 @router.delete("/{family_id}/members/{sample_id}", response_model=FamilyMemberDeleteOut)
@@ -274,14 +305,18 @@ async def delete_family_member(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberDeleteOut:
-    return await delete_family_member_for_admin(
-        session,
-        family_id=family_id,
-        sample_id=sample_id,
-        confirmed=confirm,
-        clear_existing_genomic_data=clear_existing_genomic_data,
-        user=user,
-    )
+    try:
+        return await delete_family_member_for_admin(
+            session,
+            family_id=family_id,
+            sample_id=sample_id,
+            confirmed=confirm,
+            clear_existing_genomic_data=clear_existing_genomic_data,
+            user=user,
+        )
+    except DBAPIError as exc:
+        await _raise_metadata_schema_error_if_needed(session, exc)
+        raise
 
 
 @router.get("/{family_id}/hpo", response_model=List[HpoAnnotationOut])

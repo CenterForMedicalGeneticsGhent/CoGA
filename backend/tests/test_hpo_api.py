@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import DBAPIError
 
 from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
@@ -15,6 +16,14 @@ from backend.app.services.metadata_service import CurrentUser
 class _FakeFamilyContext:
     family_uuid: str = "11111111-1111-1111-1111-111111111111"
     family_id: str = "FAM1"
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.rolled_back = False
+
+    async def rollback(self) -> None:
+        self.rolled_back = True
 
 
 @pytest.fixture()
@@ -31,7 +40,7 @@ def hpo_api_client(monkeypatch: pytest.MonkeyPatch):
     )
 
     async def override_get_postgres_session():
-        yield object()
+        yield _FakeSession()
 
     async def override_get_current_user():
         return user
@@ -276,3 +285,25 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
     assert batch_response.json()["cleared_data_counts"] == {}
     assert delete_response.status_code == 200
     assert delete_response.json()["warnings"] == ["Removed family members are inactive."]
+
+
+def test_family_member_batch_reports_missing_metadata_schema(hpo_api_client) -> None:
+    client, monkeypatch = hpo_api_client
+
+    async def fake_batch_update(*args, **kwargs):
+        del args, kwargs
+        raise DBAPIError(
+            "SELECT",
+            {},
+            Exception('relation "family_structure_versions" does not exist'),
+        )
+
+    monkeypatch.setattr(families_router, "update_family_members_batch_for_admin", fake_batch_update)
+
+    response = client.put(
+        "/api/families/FAM1/members/batch",
+        json={"updates": [{"sample_id": "PROBAND", "phenotype_status": "carrier"}]},
+    )
+
+    assert response.status_code == 503
+    assert "Family metadata database schema is not available" in response.json()["detail"]

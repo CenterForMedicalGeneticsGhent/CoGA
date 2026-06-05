@@ -73,23 +73,24 @@ describe('Dashboard admin section', () => {
     localStorage.clear();
   });
 
-  it('shows data management link for admin users', () => {
+  it('shows admin shortcuts for admin users', () => {
     localStorage.setItem('role', 'admin');
     renderDashboard();
-    const link = screen.getByRole('link', { name: /data management/i });
-    expect(link).toHaveAttribute('href', '/admin/data');
-    expect(screen.getByRole('link', { name: /gene reference sync/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /open admin dashboard/i })).toHaveAttribute(
       'href',
-      '/admin/gene-reference',
+      '/admin',
     );
-    expect(screen.getByRole('link', { name: /organisms & assemblies/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /family & sample data/i })).toHaveAttribute(
       'href',
-      '/reference-data',
+      '/admin/data/families',
     );
-    expect(screen.getByRole('link', { name: /gene panels/i })).toHaveAttribute('href', '/panels');
-    expect(screen.getByRole('link', { name: /upload sample data/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /upload family\/sample data/i })).toHaveAttribute(
       'href',
-      '/upload-data',
+      '/admin/data/upload',
+    );
+    expect(screen.getByRole('link', { name: /audit logs/i })).toHaveAttribute(
+      'href',
+      '/admin/monitoring/audit-logs',
     );
     expect(screen.queryByRole('link', { name: /^tags$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /preset filters/i })).not.toBeInTheDocument();

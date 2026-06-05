@@ -300,43 +300,46 @@ const DataManagementPage: React.FC = () => {
           </p>
         </div>
         <div className="compact-toolbar dashboard-toolbar">
-          <Link to="/projects" className="button-secondary hover:no-underline">
+          <Link to="/admin" className="button-secondary hover:no-underline">
+            Admin dashboard
+          </Link>
+          <Link to="/admin/access/projects" className="button-secondary hover:no-underline">
             Projects & access
           </Link>
           <Link
-            to="/admin/users"
+            to="/admin/access/users"
             className="button-secondary hover:no-underline"
           >
             Users
           </Link>
           <Link
-            to="/admin/data/clickhouse"
+            to="/admin/operations/clickhouse"
             className="button-secondary hover:no-underline"
           >
             ClickHouse tables
           </Link>
           <Link
-            to="/admin/data/presets"
+            to="/admin/variants/presets"
             className="button-secondary hover:no-underline"
           >
             Preset filters
           </Link>
           <Link
-            to="/admin/data/tags"
+            to="/admin/variants/tags"
             className="button-secondary hover:no-underline"
           >
             Variant tags
           </Link>
           <Link
-            to="/admin/data/logs"
+            to="/admin/monitoring/audit-logs"
             className="button-secondary hover:no-underline"
           >
             Audit logs
           </Link>
-          <Link to="/reference-data" className="button-grey hover:no-underline">
+          <Link to="/admin/reference/assemblies" className="button-grey hover:no-underline">
             Organisms & assemblies
           </Link>
-          <Link to="/panels" className="button-grey hover:no-underline">
+          <Link to="/admin/reference/gene-panels" className="button-grey hover:no-underline">
             Gene panels
           </Link>
         </div>

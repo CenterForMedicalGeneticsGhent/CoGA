@@ -91,25 +91,25 @@ const AdminClickhouseManagementPage: React.FC = () => {
           </div>
           <div className="compact-toolbar dashboard-toolbar">
             <Link
-              to="/admin/data"
+              to="/admin/data/families"
               className="button-secondary hover:no-underline"
             >
               Family & sample data
             </Link>
             <Link
-              to="/admin/data/presets"
+              to="/admin/variants/presets"
               className="button-secondary hover:no-underline"
             >
               Preset filters
             </Link>
             <Link
-              to="/admin/data/tags"
+              to="/admin/variants/tags"
               className="button-secondary hover:no-underline"
             >
               Variant tags
             </Link>
             <Link
-              to="/admin/data/logs"
+              to="/admin/monitoring/audit-logs"
               className="button-secondary hover:no-underline"
             >
               Audit logs
