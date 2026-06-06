@@ -512,6 +512,68 @@ def test_qdnaseq_parser_prefers_segmented_column_for_segments() -> None:
     assert parsed["value"] == 0.08
 
 
+@pytest.mark.asyncio
+async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path
+    bins_path = root / "D2417384_bins.csv"
+    bins_path.write_text(
+        "chr,start,end,position,copynumber,segmented\n1,1,500000,250000.5,0.12,0.08\n",
+        encoding="utf-8",
+    )
+    segments_path = root / "D2417384_segments.csv"
+    segments_path.write_text(
+        "chr,start,end,position,copynumber,segmented\n1,1,500000,250000.5,0.08,0.08\n",
+        encoding="utf-8",
+    )
+
+    bundle = package_import.FamilyPackageBundle(
+        root=root,
+        manifest_path=root / "manifest.yaml",
+        manifest=package_import.PackageManifest(schema_version=1, ped="family.ped"),
+        ped_path=root / "family.ped",
+        ped=package_import.ParsedPed(family_ids=[], members=[], sample_ids=[], text=""),
+    )
+    dataset = package_import.ManifestDataset(
+        per_sample={
+            "D2417384": {
+                "bins": bins_path.name,
+                "segments": segments_path.name,
+            }
+        }
+    )
+    summary = package_import.FamilyImportDatasetSummary(
+        dataset_type="qdnaseq",
+        enabled=True,
+        status="valid",
+    )
+    sample_contexts = {"D2417384": _sample_context("D2417384")}
+
+    async def fake_interval_track_count(*args, **kwargs) -> int:
+        return 0
+
+    async def fake_import_copy_number_track(*args, **kwargs) -> dict[str, int]:
+        return {"processed": 1, "inserted": 1, "skipped": 1}
+
+    monkeypatch.setattr(package_import, "_interval_track_count", fake_interval_track_count)
+    monkeypatch.setattr(package_import, "_import_copy_number_track", fake_import_copy_number_track)
+
+    result = await package_import._import_qdnaseq_dataset(
+        session=object(),
+        bundle=bundle,
+        dataset=dataset,
+        summary=summary,
+        sample_contexts=sample_contexts,
+        conflict_mode="overwrite",
+    )
+
+    assert result.message == "Imported QDNAseq bins as coverage and segments as segment interval tracks"
+    assert result.summary["D2417384"]["bins"]["skipped"] == 1
+    assert result.summary["D2417384"]["segments"]["skipped"] == 1
+
+
 def test_apcad_parser_supports_import_tsv_and_vcf_fields() -> None:
     sample_context = _sample_context("EMBRYO1")
     tsv_row = package_import._parse_apcad_interval_row(
