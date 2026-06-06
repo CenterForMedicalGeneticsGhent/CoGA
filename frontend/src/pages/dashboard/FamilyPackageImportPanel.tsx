@@ -68,45 +68,6 @@ type ManifestWriteResult = {
   };
 };
 
-type ExistingDataSummary = {
-  data_type: string;
-  records: number;
-  sample_id?: string | null;
-  source?: string | null;
-  details: Record<string, unknown>;
-};
-
-type DatasetImportPlan = {
-  dataset_type: string;
-  enabled: boolean;
-  status: string;
-  files: string[];
-  samples: string[];
-  existing_data: ExistingDataSummary[];
-  planned_action: 'new' | 'skip' | 'replace' | 'merge' | 'register' | 'blocked';
-  message?: string | null;
-  dependencies: string[];
-  summary: Record<string, unknown>;
-};
-
-type FamilyImportPlan = {
-  valid: boolean;
-  family_id?: string | null;
-  target_mode: 'initial' | 'incremental';
-  conflict_mode: ImportConflictMode;
-  existing_family: boolean;
-  existing_samples: string[];
-  confirmation_required: boolean;
-  validation: {
-    valid: boolean;
-    errors: ValidationIssue[];
-    warnings: ValidationIssue[];
-    datasets: DatasetSummary[];
-  };
-  datasets: DatasetImportPlan[];
-  messages: string[];
-};
-
 type FamilyImportJob = {
   _id: string;
   submitted_path: string;
@@ -135,34 +96,6 @@ const formatTimestamp = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 };
 
-const formatPlanAction = (action: DatasetImportPlan['planned_action']) => {
-  const labels: Record<DatasetImportPlan['planned_action'], string> = {
-    new: 'New import',
-    skip: 'Skip',
-    replace: 'Replace',
-    merge: 'Merge',
-    register: 'Register',
-    blocked: 'Blocked',
-  };
-  return labels[action];
-};
-
-const formatExistingData = (items: ExistingDataSummary[]) => {
-  if (!items.length) return 'None detected';
-  return items
-    .map((item) =>
-      [
-        item.sample_id,
-        item.data_type,
-        item.source,
-        `${item.records.toLocaleString()} records`,
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    )
-    .join('; ');
-};
-
 const issueLabel = (issue: ValidationIssue) =>
   [issue.dataset, issue.sample_id, issue.path].filter(Boolean).join(' · ');
 
@@ -181,8 +114,6 @@ const FamilyPackageImportPanel: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedFamilyId, setSelectedFamilyId] = useState('');
   const [conflictMode, setConflictMode] = useState<ImportConflictMode>('cancel');
-  const [importPlan, setImportPlan] = useState<FamilyImportPlan | null>(null);
-  const [planAccepted, setPlanAccepted] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
@@ -264,10 +195,6 @@ const FamilyPackageImportPanel: React.FC = () => {
   );
   const targetFamilyId = targetMode === 'existing' ? selectedFamilyId : '';
 
-  React.useEffect(() => {
-    setPlanAccepted(false);
-  }, [folderPath, selectedProjectId, targetFamilyId, conflictMode]);
-
   const discoverManifestMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post('/family-imports/manifest/discover', {
@@ -319,33 +246,6 @@ const FamilyPackageImportPanel: React.FC = () => {
     },
   });
 
-  const planImportMutation = useMutation({
-    mutationFn: async () => {
-      const response = await api.post('/family-imports/plan', {
-        folder_path: folderPath.trim(),
-        project_id: selectedProjectId || null,
-        dry_run: true,
-        family_id: targetFamilyId || null,
-        conflict_mode: conflictMode,
-      });
-      return response.data as FamilyImportPlan;
-    },
-    onSuccess: (plan) => {
-      setImportPlan(plan);
-      setPlanAccepted(false);
-      setStatusTone(plan.valid ? 'success' : 'error');
-      setStatusMessage(
-        plan.valid
-          ? `Prepared import plan for ${plan.family_id || 'package'}.`
-          : 'Import plan has validation or conflict issues.'
-      );
-    },
-    onError: (error) => {
-      setStatusTone('error');
-      setStatusMessage(getErrorMessage(error, 'Import plan could not be prepared.'));
-    },
-  });
-
   const startImportMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post('/family-imports', {
@@ -373,18 +273,12 @@ const FamilyPackageImportPanel: React.FC = () => {
   const currentJob = jobQuery.data;
   const recentJobs = recentJobsQuery.data || [];
   const active = currentJob ? activeStatuses.has(currentJob.status) : startImportMutation.isPending;
-  const canPlan =
-    folderPath.trim().length > 0 &&
-    !planImportMutation.isPending &&
-    !active &&
-    (targetMode === 'new' || Boolean(targetFamilyId));
   const canSubmit =
     folderPath.trim().length > 0 &&
     !startImportMutation.isPending &&
     !active &&
     (dryRun || Boolean(selectedProjectId)) &&
-    (targetMode === 'new' || Boolean(targetFamilyId)) &&
-    (dryRun || (Boolean(importPlan?.valid) && planAccepted));
+    (targetMode === 'new' || Boolean(targetFamilyId));
   const canDiscover =
     folderPath.trim().length > 0 &&
     !discoverManifestMutation.isPending &&
@@ -650,112 +544,6 @@ const FamilyPackageImportPanel: React.FC = () => {
         ) : null}
       </div>
 
-      <div className="surface-card-muted space-y-4">
-        <div className="catalog-card-header">
-          <div>
-            <p className="page-kicker">Import Plan</p>
-            <h3 className="section-title">Validation and conflict review</h3>
-          </div>
-          <span className="badge-chip">
-            {importPlan ? `${importPlan.target_mode} · ${importPlan.conflict_mode}` : 'Not reviewed'}
-          </span>
-        </div>
-        <div className="action-row">
-          <button
-            type="button"
-            className="button-secondary"
-            disabled={!canPlan}
-            onClick={() => planImportMutation.mutate()}
-          >
-            {planImportMutation.isPending ? 'Reviewing...' : 'Review import plan'}
-          </button>
-          {!dryRun ? (
-            <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
-              <input
-                type="checkbox"
-                checked={planAccepted}
-                disabled={!importPlan?.valid}
-                onChange={(event) => setPlanAccepted(event.target.checked)}
-              />
-              Confirm planned actions
-            </label>
-          ) : null}
-        </div>
-        {importPlan ? (
-          <>
-            <div className="admin-data-summary">
-              <div className="admin-data-summary-item">
-                <span className="admin-data-summary-label">Family</span>
-                <strong className="admin-data-summary-value">{importPlan.family_id || 'Unknown'}</strong>
-              </div>
-              <div className="admin-data-summary-item">
-                <span className="admin-data-summary-label">Mode</span>
-                <strong className="admin-data-summary-value">{importPlan.target_mode}</strong>
-              </div>
-              <div className="admin-data-summary-item">
-                <span className="admin-data-summary-label">Existing samples</span>
-                <strong className="admin-data-summary-value">{importPlan.existing_samples.length}</strong>
-              </div>
-              <div className="admin-data-summary-item">
-                <span className="admin-data-summary-label">Plan status</span>
-                <strong className="admin-data-summary-value">{importPlan.valid ? 'Ready' : 'Blocked'}</strong>
-              </div>
-            </div>
-            {importPlan.messages.length ? (
-              <ul className="space-y-1 text-sm text-[var(--color-text-muted)]">
-                {importPlan.messages.map((message, index) => (
-                  <li key={`${message}-${index}`}>{message}</li>
-                ))}
-              </ul>
-            ) : null}
-            {importPlan.validation.errors.length ? (
-              <ul className="space-y-2 text-sm text-[var(--color-variant-del)]">
-                {importPlan.validation.errors.map((issue, index) => (
-                  <li key={`${issue.code}-${index}`}>
-                    {issue.message}
-                    {issueLabel(issue) ? ` (${issueLabel(issue)})` : ''}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table table-sticky">
-                <thead>
-                  <tr>
-                    <th>Dataset</th>
-                    <th>Action</th>
-                    <th>Files</th>
-                    <th>Samples</th>
-                    <th>Existing data</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {importPlan.datasets.map((dataset) => (
-                    <tr key={dataset.dataset_type}>
-                      <td>{dataset.dataset_type}</td>
-                      <td>{formatPlanAction(dataset.planned_action)}</td>
-                      <td>{dataset.files.length}</td>
-                      <td>{dataset.samples.length ? dataset.samples.join(', ') : '—'}</td>
-                      <td>{formatExistingData(dataset.existing_data)}</td>
-                      <td>
-                        {[dataset.message, ...dataset.dependencies]
-                          .filter(Boolean)
-                          .join(' ')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : (
-          <p className="table-subtle">
-            Review the import plan before starting a non-dry-run import. Dry runs still validate without changing data.
-          </p>
-        )}
-      </div>
-
       <div className="action-row">
         <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
           <input
@@ -780,11 +568,6 @@ const FamilyPackageImportPanel: React.FC = () => {
       ) : null}
       {!dryRun && !selectedProjectId ? (
         <p className="status-note status-note--error">Choose a project before starting an import.</p>
-      ) : null}
-      {!dryRun && (!importPlan?.valid || !planAccepted) ? (
-        <p className="status-note status-note--error">
-          Review a valid import plan and confirm the planned actions before starting an import.
-        </p>
       ) : null}
       {statusMessage ? (
         <p className={`status-note ${statusTone === 'success' ? 'status-note--success' : 'status-note--error'}`}>

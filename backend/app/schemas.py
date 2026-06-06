@@ -500,40 +500,6 @@ class FamilyPackageImportCreate(BaseModel):
     conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
 
 
-class FamilyImportExistingDataOut(BaseModel):
-    data_type: str
-    records: int = 0
-    sample_id: Optional[str] = None
-    source: Optional[str] = None
-    details: Dict[str, Any] = Field(default_factory=dict)
-
-
-class FamilyImportDatasetPlanOut(BaseModel):
-    dataset_type: str
-    enabled: bool = True
-    status: str
-    files: List[str] = Field(default_factory=list)
-    samples: List[str] = Field(default_factory=list)
-    existing_data: List[FamilyImportExistingDataOut] = Field(default_factory=list)
-    planned_action: Literal["new", "skip", "replace", "merge", "register", "blocked"]
-    message: Optional[str] = None
-    dependencies: List[str] = Field(default_factory=list)
-    summary: Dict[str, Any] = Field(default_factory=dict)
-
-
-class FamilyPackageImportPlanOut(BaseModel):
-    valid: bool
-    family_id: Optional[str] = None
-    target_mode: Literal["initial", "incremental"] = "initial"
-    conflict_mode: Literal["cancel", "update", "overwrite"] = "cancel"
-    existing_family: bool = False
-    existing_samples: List[str] = Field(default_factory=list)
-    confirmation_required: bool = True
-    validation: FamilyPackageValidationOut
-    datasets: List[FamilyImportDatasetPlanOut] = Field(default_factory=list)
-    messages: List[str] = Field(default_factory=list)
-
-
 class FamilyPackageImportJobOut(ApiDocumentModel):
     submitted_path: str
     family_id: Optional[str] = None
