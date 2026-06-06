@@ -17,8 +17,11 @@ const createCanvasContext = (): CanvasRenderingContext2D =>
   }) as unknown as CanvasRenderingContext2D;
 
 describe('CoverageSegmentsChart', () => {
+  let canvasContext: CanvasRenderingContext2D;
+
   beforeEach(() => {
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => createCanvasContext());
+    canvasContext = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => canvasContext);
   });
 
   afterEach(() => {
@@ -72,5 +75,27 @@ describe('CoverageSegmentsChart', () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('renders coverage from raw array BED payloads', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: async () => [{ chr: '1', start: 0, end: 100, value: 0.2 }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <CoverageSegmentsChart
+        coverageUrls={['https://example.test/coverage']}
+        chroms={['1']}
+        width={320}
+        height={120}
+      />,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(canvasContext.arc).toHaveBeenCalled());
   });
 });

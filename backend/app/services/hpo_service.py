@@ -1123,9 +1123,25 @@ async def search_hpo_terms(
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     cleaned = query.strip()
-    if not cleaned:
-        return []
     bounded_limit = max(1, min(limit, 50))
+    if not cleaned:
+        result = await session.execute(
+            text(
+                """
+                SELECT
+                    t.hpo_id AS hpo_id,
+                    t.label AS label,
+                    t.definition AS definition,
+                    t.is_obsolete AS is_obsolete
+                FROM hpo_term t
+                ORDER BY t.is_obsolete, t.label
+                LIMIT :limit
+                """
+            ),
+            {"limit": bounded_limit},
+        )
+        return [dict(row) for row in result.mappings().all()]
+
     like_query = f"%{cleaned.lower()}%"
     prefix_query = f"{cleaned.lower()}%"
     result = await session.execute(

@@ -47,20 +47,22 @@ interface CoverageTrackData {
 }
 
 interface BedRecordPayload<T> {
-  items: T[];
+  items?: T[];
 }
+
+type BedRecordResponse<T> = BedRecordPayload<T> | T[];
 
 const fetchJsonOrNull = async <T,>(
   url: string,
   headers: Record<string, string>,
   signal: AbortSignal,
-): Promise<BedRecordPayload<T> | null> => {
+): Promise<BedRecordResponse<T> | null> => {
   try {
     const response = await fetch(url, { headers, signal });
     if (!response.ok) {
       return null;
     }
-    return (await response.json()) as BedRecordPayload<T>;
+    return (await response.json()) as BedRecordResponse<T>;
   } catch {
     if (signal.aborted) {
       throw new DOMException('Aborted', 'AbortError');
@@ -70,6 +72,16 @@ const fetchJsonOrNull = async <T,>(
 };
 
 const splitKey = (key: string): string[] => (key ? key.split('\n').filter(Boolean) : []);
+
+const payloadItems = <T,>(payload: BedRecordResponse<T> | null): T[] => {
+  if (!payload) {
+    return [];
+  }
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  return Array.isArray(payload.items) ? payload.items : [];
+};
 
 const deriveLayoutFromBins = (
   bins: CoverageBin[],
@@ -192,10 +204,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
         const bins: CoverageBin[] = [];
         coveragePayloads.forEach((payload) => {
-          if (!payload) {
-            return;
-          }
-          payload.items.forEach((item) => {
+          payloadItems(payload).forEach((item) => {
             const chromName = normalizeChrom(item.chr);
             if (!allowedChroms.has(chromName)) {
               return;
@@ -211,10 +220,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
         const segments: Segment[] = [];
         segmentPayloads.forEach((payload) => {
-          if (!payload) {
-            return;
-          }
-          payload.items.forEach((item) => {
+          payloadItems(payload).forEach((item) => {
             const chromName = normalizeChrom(item.chr);
             if (!allowedChroms.has(chromName)) {
               return;

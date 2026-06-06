@@ -6,6 +6,8 @@ import ChromosomeViewWorkspace from '../ChromosomeViewWorkspace';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
+const coverageSegmentsChartMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../../../lib/api', () => ({
   default: {
     get: vi.fn(),
@@ -16,7 +18,10 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 vi.mock('../../../components/visualizations/CoverageSegmentsChart', () => ({
-  default: () => <div data-testid="coverage-chart" />,
+  default: (props: unknown) => {
+    coverageSegmentsChartMock(props);
+    return <div data-testid="coverage-chart" />;
+  },
 }));
 
 vi.mock('../../../components/visualizations/ApcadChart', () => ({
@@ -140,6 +145,94 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
 };
 
 describe('ChromosomeViewWorkspace', () => {
+  it('requests coverage and segments for the active chromosome window', () => {
+    const queryClient = createTestQueryClient();
+    const member = {
+      sample_id: 'S1',
+      role: 'proband',
+      affected: true,
+      sex: 'male',
+    };
+
+    coverageSegmentsChartMock.mockClear();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <ChromosomeViewWorkspace
+            familyId="F1"
+            familyDisplayId="F1"
+            chrom="1"
+            speciesName="Homo sapiens"
+            assemblyName="GRCh38"
+            assemblyVersion="p14"
+            assembly="GRCh38"
+            assemblyId="asm1"
+            projectId="p1"
+            trackAreaRef={{ current: null }}
+            region={{ start: 1_000_000, end: 2_000_000 }}
+            trackWidth={1200}
+            backDest="/families/F1/structural-variants"
+            genomeViewHref="/families/F1/genome"
+            igvHref="/families/F1/igv"
+            chromInfoSize={248_956_422}
+            visibleRoi={null}
+            inheritanceModel={null}
+            chromosomeRoiRange={null}
+            regionRoiRange={null}
+            onChromChange={vi.fn()}
+            onRegionStartChange={vi.fn()}
+            onRegionEndChange={vi.fn()}
+            onResetRange={vi.fn()}
+            onPan={vi.fn()}
+            onZoom={vi.fn()}
+            onRegionSelect={vi.fn()}
+            onRoiZoom={vi.fn()}
+            onJumpToRegion={vi.fn()}
+            familyMembers={[member]}
+            visibleMembers={[member]}
+            membersWithData={[member]}
+            availability={{
+              S1: {
+                coverage: true,
+                apcad: false,
+                apcadPcf: false,
+                variants: false,
+                smallVariants: false,
+                haplotypes: false,
+                repeatExpansions: false,
+              },
+            }}
+            trackVisibility={{
+              coverage: true,
+              apcad: false,
+              variants: false,
+              smallVariants: false,
+              haplotypes: false,
+              repeatExpansions: false,
+            }}
+            variantFilters={{}}
+            sampleFilterMap={{}}
+            detailWindow={5000}
+            binLimit={500}
+            segmentLimit={500}
+            showViewerLoading={false}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const props = coverageSegmentsChartMock.mock.calls[0][0] as {
+      coverageUrls: string[];
+      segmentsUrls?: string[];
+    };
+
+    expect(props.coverageUrls[0]).toContain('start=1000000');
+    expect(props.coverageUrls[0]).toContain('end=2000000');
+    expect(props.segmentsUrls?.[0]).toContain('start=1000000');
+    expect(props.segmentsUrls?.[0]).toContain('end=2000000');
+  });
+
   it('jumps to a resolved gene window', async () => {
     const onJumpToRegion = vi.fn();
     (api.get as unknown as Mock).mockImplementation((url: string) => {
