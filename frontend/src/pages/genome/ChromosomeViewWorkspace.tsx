@@ -466,10 +466,10 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                   >
                     <CoverageSegmentsChart
                       coverageUrls={[
-                        `${api.defaults.baseURL}/bed/${member.sample_id}/coverage?chrom=${chrom}&window=${detailWindow}&limit=${binLimit}&format=json`,
+                        `${api.defaults.baseURL}/bed/${member.sample_id}/coverage?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&format=json`,
                       ]}
                       segmentsUrls={[
-                        `${api.defaults.baseURL}/bed/${member.sample_id}/segments?chrom=${chrom}&limit=${segmentLimit}&format=json`,
+                        `${api.defaults.baseURL}/bed/${member.sample_id}/segments?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&format=json`,
                       ]}
                       width={trackWidth}
                       height={TRACK_HEIGHT}

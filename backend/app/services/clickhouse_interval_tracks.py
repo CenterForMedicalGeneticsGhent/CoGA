@@ -298,7 +298,7 @@ async def get_interval_track_presence_by_sample(
     if chrom_values:
         clauses.append("chrom IN %(chromosomes)s")
         params["chromosomes"] = tuple(chrom_values)
-    if track_type in {"haplotype", "apcad_pcf"} and start is not None and end is not None:
+    if start is not None and end is not None:
         clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
         params["window_start"] = int(start)
         params["window_end"] = int(end)

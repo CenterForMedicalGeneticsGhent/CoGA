@@ -136,6 +136,40 @@ async def test_hpo_admin_terms_normalizes_json_values() -> None:
 
 
 @pytest.mark.asyncio
+async def test_search_hpo_terms_returns_default_order_when_query_blank() -> None:
+    captured: dict[str, object] = {}
+
+    class _CapturingSession:
+        async def execute(self, sql, params=None):
+            captured["sql"] = str(sql)
+            captured["params"] = dict(params or {})
+            return _FakeResult(
+                [
+                    {
+                        "hpo_id": "HP:0000001",
+                        "label": "Abnormality",
+                        "definition": None,
+                        "is_obsolete": False,
+                    }
+                ]
+            )
+
+    result = await hpo_service.search_hpo_terms(_CapturingSession(), query="", limit=10)
+
+    assert result == [
+        {
+            "hpo_id": "HP:0000001",
+            "label": "Abnormality",
+            "definition": None,
+            "is_obsolete": False,
+        }
+    ]
+    assert "CASE" not in captured["sql"]
+    assert "ORDER BY t.is_obsolete, t.label" in captured["sql"]
+    assert captured["params"]["limit"] == 10
+
+
+@pytest.mark.asyncio
 async def test_hpo_startup_bootstrap_imports_empty_database(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
