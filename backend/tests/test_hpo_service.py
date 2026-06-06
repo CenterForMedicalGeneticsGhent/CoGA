@@ -170,6 +170,42 @@ async def test_search_hpo_terms_returns_default_order_when_query_blank() -> None
 
 
 @pytest.mark.asyncio
+async def test_hpo_admin_terms_accepts_null_query_parameter() -> None:
+    captured: dict[str, object] = {}
+
+    class _CapturingSession:
+        def __init__(self):
+            self.call_count = 0
+
+        async def execute(self, sql, params=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return _FakeResult([{"hpo_term": True, "hpo_synonym": True, "hpo_edge": True}])
+
+            captured["sql"] = str(sql)
+            captured["params"] = dict(params or {})
+            return _FakeResult(
+                [
+                    {
+                        "hpo_id": "HP:0000001",
+                        "label": "Abnormality",
+                        "definition": None,
+                        "is_obsolete": False,
+                    }
+                ]
+            )
+
+    result = await list_hpo_admin_terms(_CapturingSession(), query=None, limit=10)
+
+    assert result[0]["hpo_id"] == "HP:0000001"
+    assert result[0]["label"] == "Abnormality"
+    assert result[0]["definition"] is None
+    assert result[0]["is_obsolete"] is False
+    assert "lower(t.hpo_id) = lower(:query)" in captured["sql"]
+    assert "LIMIT :limit" in captured["sql"]
+
+
+@pytest.mark.asyncio
 async def test_hpo_startup_bootstrap_imports_empty_database(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -83,11 +83,21 @@ const previewLabels: Record<string, string> = {
 const HpoTerminologyAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [syncPath, setSyncPath] = useState('/data/ref-data/hpo/hpo.obo');
   const [releaseVersion, setReleaseVersion] = useState('');
   const [releaseDate, setReleaseDate] = useState('');
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<HpoSyncResult | null>(null);
+
+  const handleSearch = () => {
+    const trimmedSearch = search.trim();
+    if (trimmedSearch === appliedSearch) {
+      termsQuery.refetch();
+      return;
+    }
+    setAppliedSearch(trimmedSearch);
+  };
   const [status, setStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
 
   const summaryQuery = useQuery<HpoAdminSummary>({
@@ -100,13 +110,14 @@ const HpoTerminologyAdminPage: React.FC = () => {
   });
 
   const termsQuery = useQuery<HpoAdminTerm[]>({
-    queryKey: ['admin', 'hpo', 'terms', search],
-    queryFn: async () => {
+    queryKey: ['admin', 'hpo', 'terms', appliedSearch],
+    queryFn: async ({ signal }: { signal?: AbortSignal }) => {
       const response = await api.get('/admin/hpo/terms', {
         params: {
-          q: search.trim() || undefined,
+          q: appliedSearch || undefined,
           limit: 100,
         },
+        signal,
       });
       return response.data as HpoAdminTerm[];
     },
@@ -336,12 +347,23 @@ const HpoTerminologyAdminPage: React.FC = () => {
         </div>
         <label className="field-label" htmlFor="hpo-admin-search">
           Search terms
-          <input
-            id="hpo-admin-search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="HP:0001250, seizure, synonym..."
-          />
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              id="hpo-admin-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleSearch();
+                }
+              }}
+              placeholder="HP:0001250, seizure, synonym..."
+            />
+            <button type="button" className="button-secondary" onClick={handleSearch}>
+              Search
+            </button>
+          </div>
         </label>
         {termsQuery.error ? (
           <p className="status-note status-note--error">
