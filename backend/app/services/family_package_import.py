@@ -5384,7 +5384,7 @@ async def _import_wisecondorx_dataset(
         f"{sample_id}:{role}"
         for sample_id, roles in sample_results.items()
         for role, stats in roles.items()
-        if isinstance(stats, dict) and stats.get("skipped")
+        if isinstance(stats, dict) and stats.get("existing") is not None
     ]
     return summary.model_copy(
         update={
@@ -5471,7 +5471,7 @@ async def _import_qdnaseq_dataset(
         f"{sample_id}:{role}"
         for sample_id, roles in sample_results.items()
         for role, stats in roles.items()
-        if isinstance(stats, dict) and stats.get("skipped")
+        if isinstance(stats, dict) and stats.get("existing") is not None
     ]
     return summary.model_copy(
         update={
@@ -5649,7 +5649,7 @@ async def _import_apcad_dataset(
     skipped = [
         sample_id
         for sample_id, stats in sample_results.items()
-        if isinstance(stats, dict) and stats.get("skipped")
+        if isinstance(stats, dict) and stats.get("existing") is not None
     ]
     return summary.model_copy(
         update={
@@ -5716,7 +5716,7 @@ async def _import_pcf_dataset(
     skipped = [
         sample_id
         for sample_id, stats in sample_results.items()
-        if isinstance(stats, dict) and stats.get("skipped")
+        if isinstance(stats, dict) and stats.get("existing") is not None
     ]
     return summary.model_copy(
         update={
@@ -5850,7 +5850,7 @@ async def _import_paraphase_dataset(
     skipped = [
         sample_id
         for sample_id, stats in sample_results.items()
-        if isinstance(stats, dict) and stats.get("skipped")
+        if isinstance(stats, dict) and stats.get("existing") is not None
     ]
     return summary.model_copy(
         update={

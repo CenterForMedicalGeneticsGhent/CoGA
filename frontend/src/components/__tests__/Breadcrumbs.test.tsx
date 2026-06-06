@@ -23,3 +23,25 @@ test('admin breadcrumb links back to admin dashboard', () => {
   const adminLink = screen.getByText('ADMIN').closest('a');
   expect(adminLink).toHaveAttribute('href', '/admin');
 });
+
+test('admin access intermediate breadcrumb points to admin dashboard', () => {
+  render(
+    <MemoryRouter initialEntries={["/admin/access/projects"]}>
+      <Breadcrumbs />
+    </MemoryRouter>
+  );
+
+  const accessLink = screen.getByText('ACCESS').closest('a');
+  expect(accessLink).toHaveAttribute('href', '/admin');
+});
+
+test('admin family structure id breadcrumb links back to families list', () => {
+  render(
+    <MemoryRouter initialEntries={["/admin/data/families/F1/structure"]}>
+      <Breadcrumbs />
+    </MemoryRouter>
+  );
+
+  const familyIdLink = screen.getByText('F1').closest('a');
+  expect(familyIdLink).toHaveAttribute('href', '/admin/data/families');
+});

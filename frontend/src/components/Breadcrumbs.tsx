@@ -25,6 +25,7 @@ const Breadcrumbs: React.FC = () => {
   ];
 
   const others = segments.filter((s) => s !== 'dashboard');
+  const isAdminPath = segments[0] === 'admin';
   let path = '';
   others.forEach((segment, index) => {
     path += `/${segment}`;
@@ -38,6 +39,15 @@ const Breadcrumbs: React.FC = () => {
 
     if (segment === 'admin') {
       to = '/admin';
+    }
+
+    if (isAdminPath) {
+      if (path === '/admin/access' || path === '/admin/reference' || path === '/admin/operations' || path === '/admin/variants' || path === '/admin/monitoring') {
+        to = '/admin';
+      }
+      if (path.startsWith('/admin/data/families/') && segment !== 'structure') {
+        to = '/admin/data/families';
+      }
     }
 
     if (segment === 'chromosome' && others[index - 1]) {
