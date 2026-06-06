@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.types import Integer, String
 
 from ..core.sql import is_missing_postgres_schema_error
 
@@ -1318,6 +1319,14 @@ async def list_hpo_admin_terms(
     try:
         if not await _postgres_tables_available(session, HPO_ADMIN_TABLES):
             return []
+        bind_params = [
+            bindparam("query", cleaned or None, type_=String),
+            bindparam("prefix_query", f"{cleaned.lower()}%" if cleaned else "", type_=String),
+            bindparam("limit", bounded_limit, type_=Integer),
+        ]
+        if cleaned:
+            bind_params.append(bindparam("like_query", f"%{cleaned.lower()}%", type_=String))
+
         result = await session.execute(
             text(
                 f"""
@@ -1380,12 +1389,7 @@ async def list_hpo_admin_terms(
                 ORDER BY match_rank, t.is_obsolete, t.label
                 LIMIT :limit
                 """
-            ),
-            {
-                "query": cleaned or None,
-                "prefix_query": f"{cleaned.lower()}%" if cleaned else "",
-                **params,
-            },
+            ).bindparams(*bind_params)
         )
     except DBAPIError as exc:
         if is_missing_postgres_schema_error(exc):
