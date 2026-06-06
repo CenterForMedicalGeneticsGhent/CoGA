@@ -8,13 +8,11 @@ from ..schemas import (
     FamilyPackageManifestBuildRequest,
     FamilyPackageImportCreate,
     FamilyPackageImportJobOut,
-    FamilyPackageImportPlanOut,
     FamilyPackageManifestWriteOut,
     FamilyPackageManifestWriteRequest,
     FamilyPackageValidationOut,
 )
 from ..services.family_package_import import (
-    build_family_package_import_plan,
     discover_family_package_manifest,
     get_family_import_job,
     list_family_import_jobs,
@@ -86,22 +84,6 @@ async def validate_family_import_package(
 ) -> FamilyPackageValidationOut:
     del user
     return validate_family_package(payload.folder_path)
-
-
-@router.post("/plan", response_model=FamilyPackageImportPlanOut)
-async def plan_family_import_package(
-    payload: FamilyPackageImportCreate,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
-) -> FamilyPackageImportPlanOut:
-    return await build_family_package_import_plan(
-        session,
-        folder_path=payload.folder_path,
-        project_id=payload.project_id,
-        requested_family_id=payload.family_id,
-        conflict_mode=payload.conflict_mode,
-        user=user,
-    )
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)
