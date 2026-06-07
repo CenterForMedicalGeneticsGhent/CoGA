@@ -121,4 +121,3 @@ docker exec coga-backend-1 printenv | egrep '^(POSTGRES_|CLICKHOUSE_|SECRET_KEY|
   - `GET /admin/clickhouse/variants`
   - `POST /admin/clickhouse/variants/{assembly_name}/ensure`
   - `POST /admin/clickhouse/variants/{assembly_name}/optimize`
-- There is no MongoDB service or compatibility path in the development stack.

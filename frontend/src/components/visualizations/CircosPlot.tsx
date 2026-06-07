@@ -44,10 +44,10 @@ interface CircosPlotProps {
   onVariantClick?: (v: Variant) => void;
 }
 
-const BAND_STROKE = 0.7;
+const BAND_STROKE = 0.3;
 const BAND_FINISH = 'glossy';
-const TELOMERE_CORNER_RADIUS = 4.5;
-const CHROMOSOME_GAP = 0.022;
+const TELOMERE_CORNER_RADIUS = 5.5;
+const CHROMOSOME_GAP = 0.01;
 const TELOMERE_END_WHITESPACE = 0.0007;
 
 const toCartesianAngle = (angle: number) => angle - Math.PI / 2;

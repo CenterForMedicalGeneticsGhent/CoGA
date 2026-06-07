@@ -1,6 +1,6 @@
 # Database Schema
 
-This application no longer uses MongoDB. The live schema is split across `Postgres` and `ClickHouse`.
+The live schema is split across `Postgres` and `ClickHouse`.
 
 ## Postgres Tables
 
