@@ -1,3 +1,4 @@
+import inspect
 from datetime import datetime, timezone
 
 import pytest
@@ -117,3 +118,10 @@ async def test_batch_metadata_update_ignores_unchanged_parent_fields(monkeypatch
     assert captured["update"].relationships is None
     assert captured["update"].members[0].sample_id == "CHILD"
     assert captured["update"].members[0].carrier_status == "carrier"
+
+
+def test_family_structure_update_query_reason_parameter_is_typed() -> None:
+    import backend.app.services.family_structure_service as family_structure_service
+
+    source = inspect.getsource(family_structure_service.update_family_structure_for_admin)
+    assert "'reason', CAST(:reason AS text)" in source

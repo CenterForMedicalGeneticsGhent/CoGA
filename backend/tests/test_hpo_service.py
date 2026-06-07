@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,6 +25,9 @@ class _FakeMappings:
 
     def one(self):
         return self._rows[0]
+
+    def first(self):
+        return self._rows[0] if self._rows else None
 
     def all(self):
         return self._rows
@@ -93,6 +97,195 @@ async def test_hpo_admin_summary_reports_not_loaded_when_schema_missing() -> Non
 
     assert summary["total_terms"] == 0
     assert summary["ontology_loaded"] is False
+
+
+@pytest.mark.asyncio
+async def test_create_individual_hpo_annotation_returns_service_unavailable_when_hpo_schema_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession([])
+
+    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
+
+    with pytest.raises(Exception) as exc_info:
+        await hpo_service.create_individual_hpo_annotation(
+            session,
+            family_uuid="11111111-1111-1111-1111-111111111111",
+            sample_id="PROBAND",
+            payload=SimpleNamespace(hpo_id="HP:0001250", status="present", onset=None, evidence=None, source=None, note=None),
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "HPO database schema is not available" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_mark_family_hpo_annotations_stale_uses_typed_json_parameters() -> None:
+    captured: dict[str, object] = {}
+
+    class _CapturingSession:
+        async def execute(self, sql, params=None):
+            captured["sql"] = str(sql)
+            captured["params"] = dict(params or {})
+            return _FakeResult([{}])
+
+    await hpo_service.mark_family_hpo_annotations_stale(
+        _CapturingSession(),
+        family_uuid="11111111-1111-1111-1111-111111111111",
+        sample_id="K2501447",
+        reason="hpo_annotation_created",
+    )
+
+    assert "reason', CAST(:reason AS text)" in captured["sql"]
+    assert "sample_id', CAST(:sample_id AS text)" in captured["sql"]
+    assert captured["params"]["reason"] == "hpo_annotation_created"
+    assert captured["params"]["sample_id"] == "K2501447"
+
+
+@pytest.mark.asyncio
+async def test_annotation_by_id_returns_basic_annotation_when_hpo_term_table_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession(
+        [
+            _FakeResult(
+                [
+                    {
+                        "id": "22222222-2222-2222-2222-222222222222",
+                        "sample_id": "PROBAND",
+                        "hpo_id": "HP:0001250",
+                        "label": "HP:0001250",
+                        "definition": None,
+                        "status": "present",
+                        "onset": None,
+                        "evidence": None,
+                        "source": "manual",
+                        "note": None,
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            )
+        ]
+    )
+
+    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
+
+    annotation = await hpo_service._annotation_by_id(
+        session,
+        family_uuid="11111111-1111-1111-1111-111111111111",
+        annotation_id="22222222-2222-2222-2222-222222222222",
+    )
+
+    assert annotation is not None
+    assert annotation["label"] == "HP:0001250"
+    assert annotation["definition"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_individual_hpo_annotation_returns_service_unavailable_when_hpo_schema_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession([])
+
+    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
+
+    with pytest.raises(Exception) as exc_info:
+        await hpo_service.update_individual_hpo_annotation(
+            session,
+            family_uuid="11111111-1111-1111-1111-111111111111",
+            annotation_id="22222222-2222-2222-2222-222222222222",
+            payload=SimpleNamespace(hpo_id="HP:0001250", status="present", onset=None, evidence=None, source=None, note=None),
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "HPO database schema is not available" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_query_family_hpo_annotations_returns_service_unavailable_when_hpo_schema_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession([])
+
+    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
+
+    with pytest.raises(Exception) as exc_info:
+        await hpo_service.query_family_hpo_annotations(
+            session,
+            family_uuid="11111111-1111-1111-1111-111111111111",
+            hpo_id="HP:0001250",
+        )
+
+    assert exc_info.value.status_code == 503
+    assert "HPO database schema is not available" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_list_family_hpo_annotations_falls_back_when_hpo_term_table_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession(
+        [
+            _FakeResult(
+                [
+                    {
+                        "id": "22222222-2222-2222-2222-222222222222",
+                        "sample_id": "PROBAND",
+                        "hpo_id": "HP:0001250",
+                        "label": "HP:0001250",
+                        "definition": None,
+                        "status": "present",
+                        "onset": None,
+                        "evidence": None,
+                        "source": "manual",
+                        "note": None,
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:00:00Z",
+                    }
+                ]
+            )
+        ]
+    )
+
+    async def fake_tables_available(*_args: object, **_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(hpo_service, "_postgres_tables_available", fake_tables_available)
+
+    annotations = await hpo_service.list_family_hpo_annotations(
+        session,
+        family_uuid="11111111-1111-1111-1111-111111111111",
+    )
+
+    assert annotations == [
+        {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "sample_id": "PROBAND",
+            "hpo_id": "HP:0001250",
+            "label": "HP:0001250",
+            "definition": None,
+            "status": "present",
+            "onset": None,
+            "evidence": None,
+            "source": "manual",
+            "note": None,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -201,8 +394,54 @@ async def test_hpo_admin_terms_accepts_null_query_parameter() -> None:
     assert result[0]["label"] == "Abnormality"
     assert result[0]["definition"] is None
     assert result[0]["is_obsolete"] is False
-    assert "lower(t.hpo_id) = lower(:query)" in captured["sql"]
-    assert "LIMIT :limit" in captured["sql"]
+    assert "CASE" not in captured["sql"]
+    assert "ORDER BY t.is_obsolete, t.label" in captured["sql"]
+    assert captured["params"]["limit"] == 10
+
+
+@pytest.mark.asyncio
+async def test_hpo_admin_terms_search_query_uses_ranked_matching() -> None:
+    captured: dict[str, object] = {}
+
+    class _CapturingSession:
+        def __init__(self):
+            self.call_count = 0
+
+        async def execute(self, sql, params=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                return _FakeResult([{"hpo_term": True, "hpo_synonym": True, "hpo_edge": True}])
+
+            captured["sql"] = str(sql)
+            captured["params"] = dict(params or {})
+            return _FakeResult(
+                [
+                    {
+                        "hpo_id": "HP:0001250",
+                        "label": "Seizure",
+                        "definition": "A seizure phenotype.",
+                        "is_obsolete": False,
+                        "replaced_by": None,
+                        "release_version": "test",
+                        "release_date": None,
+                        "synonyms": '["Epileptic seizure"]',
+                        "parents": '[{"hpo_id":"HP:0000118","label":"Phenotypic abnormality","relation":"is_a"}]',
+                        "children": "[]",
+                        "parent_count": 1,
+                        "child_count": 0,
+                        "match_rank": 0,
+                    }
+                ]
+            )
+
+    terms = await list_hpo_admin_terms(_CapturingSession(), query="seizure", limit=10)
+
+    assert terms[0]["hpo_id"] == "HP:0001250"
+    assert captured["params"]["query"] == "seizure"
+    assert captured["params"]["like_query"] == "%seizure%"
+    assert captured["params"]["prefix_query"] == "seizure%"
+    assert "CASE" in captured["sql"]
+    assert "WHERE lower(t.hpo_id) LIKE :like_query" in captured["sql"]
 
 
 @pytest.mark.asyncio

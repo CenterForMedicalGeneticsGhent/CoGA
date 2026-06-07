@@ -1389,14 +1389,6 @@ const GeneInfoPage: React.FC = () => {
                   </div>
                 ) : null}
 
-                <div className="gene-compact-subsection">
-                  <p className="gene-compact-subtitle-label">Description</p>
-                  <p className="gene-compact-paragraph">
-                    {clingenFacts?.function ||
-                      profile.extra.ensembl_description ||
-                      'No additional functional description is cached.'}
-                  </p>
-                </div>
               </div>
             </div>
           </section>

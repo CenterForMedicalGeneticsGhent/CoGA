@@ -90,6 +90,14 @@ const HpoTerminologyAdminPage: React.FC = () => {
   const [selectedTermId, setSelectedTermId] = useState<string | null>(null);
   const [syncResult, setSyncResult] = useState<HpoSyncResult | null>(null);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAppliedSearch(search.trim());
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const handleSearch = () => {
     const trimmedSearch = search.trim();
     if (trimmedSearch === appliedSearch) {

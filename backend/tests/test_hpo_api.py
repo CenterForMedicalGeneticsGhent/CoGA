@@ -7,6 +7,7 @@ from sqlalchemy.exc import DBAPIError
 
 from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
+from backend.app.routers import admin as admin_router
 from backend.app.routers import families as families_router
 from backend.app.routers import hpo as hpo_router
 from backend.app.services.metadata_service import CurrentUser
@@ -49,6 +50,7 @@ def hpo_api_client(monkeypatch: pytest.MonkeyPatch):
         return user.model_copy(update={"role": "admin"})
 
     app.dependency_overrides[get_postgres_session] = override_get_postgres_session
+    app.dependency_overrides[admin_router.get_current_admin_user] = override_get_current_admin_user
     app.dependency_overrides[hpo_router.get_current_user] = override_get_current_user
     app.dependency_overrides[hpo_router.get_current_admin_user] = override_get_current_admin_user
     app.dependency_overrides[families_router.get_current_user] = override_get_current_user
@@ -97,6 +99,35 @@ def test_hpo_search_and_detail_endpoints(hpo_api_client) -> None:
     assert search_response.json()[0]["hpo_id"] == "HP:0001250"
     assert detail_response.status_code == 200
     assert detail_response.json()["synonyms"] == ["Epileptic seizure"]
+
+
+def test_admin_hpo_terms_endpoint(hpo_api_client) -> None:
+    client, monkeypatch = hpo_api_client
+
+    async def fake_admin_terms(*args, **kwargs):
+        return [
+            {
+                "hpo_id": "HP:0001250",
+                "label": "Seizure",
+                "definition": "A seizure phenotype.",
+                "is_obsolete": False,
+                "replaced_by": None,
+                "release_version": "test",
+                "release_date": None,
+                "synonyms": ["Epileptic seizure"],
+                "parents": [],
+                "children": [],
+                "parent_count": 0,
+                "child_count": 0,
+            }
+        ]
+
+    monkeypatch.setattr(admin_router, "list_hpo_admin_terms", fake_admin_terms)
+
+    response = client.get("/api/admin/hpo/terms?q=seizure")
+
+    assert response.status_code == 200
+    assert response.json()[0]["hpo_id"] == "HP:0001250"
 
 
 def test_family_hpo_annotation_endpoints(hpo_api_client) -> None:
