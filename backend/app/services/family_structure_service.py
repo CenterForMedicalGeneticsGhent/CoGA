@@ -1046,7 +1046,7 @@ async def update_family_structure_for_admin(
                             '{derived_data_status,family_metadata}',
                             jsonb_build_object(
                                 'state', 'stale',
-                                'reason', :reason,
+                                'reason', CAST(:reason AS text),
                                 'scopes', CAST(:stale_scopes AS jsonb),
                                 'raw_datasets_preserved', TRUE,
                                 'updated_at', timezone('utc', now())

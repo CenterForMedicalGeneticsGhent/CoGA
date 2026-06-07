@@ -135,6 +135,17 @@ async def _postgres_tables_available(
     return all(bool(row.get(table_name)) for table_name in table_names)
 
 
+async def _ensure_hpo_schema_available(session: AsyncSession) -> None:
+    if not await _postgres_tables_available(session, ("hpo_term",)):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "HPO database schema is not available. Restart the backend or apply "
+                "the latest Postgres schema so the HPO tables are created, then retry."
+            ),
+        )
+
+
 def _json_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -968,16 +979,21 @@ async def _existing_hpo_terms(session: AsyncSession, hpo_ids: Iterable[str]) -> 
     ids = sorted({hpo_id for hpo_id in hpo_ids if hpo_id})
     if not ids:
         return set()
-    result = await session.execute(
-        text(
-            """
-            SELECT hpo_id
-            FROM hpo_term
-            WHERE hpo_id IN :hpo_ids
-            """
-        ).bindparams(bindparam("hpo_ids", expanding=True)),
-        {"hpo_ids": ids},
-    )
+    try:
+        result = await session.execute(
+            text(
+                """
+                SELECT hpo_id
+                FROM hpo_term
+                WHERE hpo_id IN :hpo_ids
+                """
+            ).bindparams(bindparam("hpo_ids", expanding=True)),
+            {"hpo_ids": ids},
+        )
+    except DBAPIError as exc:
+        if is_missing_postgres_schema_error(exc):
+            return set()
+        raise
     return {str(row[0]) for row in result.all()}
 
 
@@ -1010,31 +1026,57 @@ async def _annotation_by_id(
     family_uuid: str,
     annotation_id: str,
 ) -> dict[str, Any] | None:
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                ih.id::text AS id,
-                s.sample_id AS sample_id,
-                ih.hpo_id AS hpo_id,
-                COALESCE(t.label, ih.hpo_id) AS label,
-                t.definition AS definition,
-                ih.status AS status,
-                ih.onset AS onset,
-                ih.evidence AS evidence,
-                ih.source AS source,
-                ih.note AS note,
-                ih.created_at AS created_at,
-                ih.updated_at AS updated_at
-            FROM individual_hpo ih
-            JOIN samples s ON s.id = ih.sample_id
-            LEFT JOIN hpo_term t ON t.hpo_id = ih.hpo_id
-            WHERE ih.family_id = CAST(:family_uuid AS uuid)
-              AND ih.id = CAST(:annotation_id AS uuid)
-            """
-        ),
-        {"family_uuid": family_uuid, "annotation_id": annotation_id},
-    )
+    if await _postgres_tables_available(session, ("hpo_term",)):
+        result = await session.execute(
+            text(
+                """
+                SELECT
+                    ih.id::text AS id,
+                    s.sample_id AS sample_id,
+                    ih.hpo_id AS hpo_id,
+                    COALESCE(t.label, ih.hpo_id) AS label,
+                    t.definition AS definition,
+                    ih.status AS status,
+                    ih.onset AS onset,
+                    ih.evidence AS evidence,
+                    ih.source AS source,
+                    ih.note AS note,
+                    ih.created_at AS created_at,
+                    ih.updated_at AS updated_at
+                FROM individual_hpo ih
+                JOIN samples s ON s.id = ih.sample_id
+                LEFT JOIN hpo_term t ON t.hpo_id = ih.hpo_id
+                WHERE ih.family_id = CAST(:family_uuid AS uuid)
+                  AND ih.id = CAST(:annotation_id AS uuid)
+                """
+            ),
+            {"family_uuid": family_uuid, "annotation_id": annotation_id},
+        )
+    else:
+        result = await session.execute(
+            text(
+                """
+                SELECT
+                    ih.id::text AS id,
+                    s.sample_id AS sample_id,
+                    ih.hpo_id AS hpo_id,
+                    ih.hpo_id AS label,
+                    NULL::text AS definition,
+                    ih.status AS status,
+                    ih.onset AS onset,
+                    ih.evidence AS evidence,
+                    ih.source AS source,
+                    ih.note AS note,
+                    ih.created_at AS created_at,
+                    ih.updated_at AS updated_at
+                FROM individual_hpo ih
+                JOIN samples s ON s.id = ih.sample_id
+                WHERE ih.family_id = CAST(:family_uuid AS uuid)
+                  AND ih.id = CAST(:annotation_id AS uuid)
+                """
+            ),
+            {"family_uuid": family_uuid, "annotation_id": annotation_id},
+        )
     row = result.mappings().first()
     return dict(row) if row is not None else None
 
@@ -1050,9 +1092,8 @@ async def list_family_hpo_annotations(
     if sample_id:
         sample_clause = "AND s.sample_id = :sample_id"
         params["sample_id"] = sample_id
-    result = await session.execute(
-        text(
-            f"""
+    if await _postgres_tables_available(session, ("hpo_term",)):
+        query = f"""
             SELECT
                 ih.id::text AS id,
                 s.sample_id AS sample_id,
@@ -1073,9 +1114,28 @@ async def list_family_hpo_annotations(
               {sample_clause}
             ORDER BY s.sample_id, ih.status DESC, COALESCE(t.label, ih.hpo_id)
             """
-        ),
-        params,
-    )
+    else:
+        query = f"""
+            SELECT
+                ih.id::text AS id,
+                s.sample_id AS sample_id,
+                ih.hpo_id AS hpo_id,
+                ih.hpo_id AS label,
+                NULL::text AS definition,
+                ih.status AS status,
+                ih.onset AS onset,
+                ih.evidence AS evidence,
+                ih.source AS source,
+                ih.note AS note,
+                ih.created_at AS created_at,
+                ih.updated_at AS updated_at
+            FROM individual_hpo ih
+            JOIN samples s ON s.id = ih.sample_id
+            WHERE ih.family_id = CAST(:family_uuid AS uuid)
+              {sample_clause}
+            ORDER BY s.sample_id, ih.status DESC, ih.hpo_id
+            """
+    result = await session.execute(text(query), params)
     return [dict(row) for row in result.mappings().all()]
 
 
@@ -1096,8 +1156,8 @@ async def mark_family_hpo_annotations_stale(
                     '{derived_data_status,hpo_annotations}',
                     jsonb_build_object(
                         'state', 'stale',
-                        'reason', :reason,
-                        'sample_id', :sample_id,
+                        'reason', CAST(:reason AS text),
+                        'sample_id', CAST(:sample_id AS text),
                         'updated_at', timezone('utc', now())
                     ),
                     TRUE
@@ -1301,96 +1361,148 @@ async def list_hpo_admin_terms(
 ) -> list[dict[str, Any]]:
     cleaned = (query or "").strip()
     bounded_limit = max(1, min(limit, 200))
-    params: dict[str, Any] = {"limit": bounded_limit}
-    where_sql = ""
-    if cleaned:
-        params["like_query"] = f"%{cleaned.lower()}%"
-        params["prefix_query"] = f"{cleaned.lower()}%"
-        params["query"] = cleaned
-        where_sql = """
-        WHERE lower(t.hpo_id) LIKE :like_query
-           OR lower(t.label) LIKE :like_query
-           OR EXISTS (
-               SELECT 1 FROM hpo_synonym s
-               WHERE s.hpo_id = t.hpo_id
-                 AND lower(s.synonym) LIKE :like_query
-           )
-        """
     try:
         if not await _postgres_tables_available(session, HPO_ADMIN_TABLES):
             return []
-        bind_params = [
-            bindparam("query", cleaned or None, type_=String),
-            bindparam("prefix_query", f"{cleaned.lower()}%" if cleaned else "", type_=String),
-            bindparam("limit", bounded_limit, type_=Integer),
-        ]
-        if cleaned:
-            bind_params.append(bindparam("like_query", f"%{cleaned.lower()}%", type_=String))
 
-        result = await session.execute(
-            text(
-                f"""
-                SELECT
-                    t.hpo_id AS hpo_id,
-                    t.label AS label,
-                    t.definition AS definition,
-                    t.is_obsolete AS is_obsolete,
-                    t.replaced_by AS replaced_by,
-                    t.release_version AS release_version,
-                    t.release_date AS release_date,
-                    COALESCE(s.synonyms, '[]'::jsonb) AS synonyms,
-                    COALESCE(p.parents, '[]'::jsonb) AS parents,
-                    COALESCE(c.children, '[]'::jsonb) AS children,
-                    COALESCE(p.parent_count, 0)::int AS parent_count,
-                    COALESCE(c.child_count, 0)::int AS child_count,
-                    CASE
-                        WHEN :query IS NOT NULL AND lower(t.hpo_id) = lower(:query) THEN 0
-                        WHEN :query IS NOT NULL AND lower(t.hpo_id) LIKE :prefix_query THEN 1
-                        WHEN :query IS NOT NULL AND lower(t.label) LIKE :prefix_query THEN 2
-                        ELSE 3
-                    END AS match_rank
-                FROM hpo_term t
-                LEFT JOIN LATERAL (
-                    SELECT jsonb_agg(to_jsonb(synonym) ORDER BY synonym) AS synonyms
-                    FROM hpo_synonym
-                    WHERE hpo_id = t.hpo_id
-                ) s ON TRUE
-                LEFT JOIN LATERAL (
+        if cleaned:
+            like_query = f"%{cleaned.lower()}%"
+            prefix_query = f"{cleaned.lower()}%"
+            result = await session.execute(
+                text(
+                    """
                     SELECT
-                        COUNT(*) AS parent_count,
-                        jsonb_agg(
-                            jsonb_build_object(
-                                'hpo_id', e.parent_id,
-                                'label', parent.label,
-                                'relation', e.relation
-                            )
-                            ORDER BY parent.label
-                        ) AS parents
-                    FROM hpo_edge e
-                    JOIN hpo_term parent ON parent.hpo_id = e.parent_id
-                    WHERE e.child_id = t.hpo_id
-                ) p ON TRUE
-                LEFT JOIN LATERAL (
+                        t.hpo_id AS hpo_id,
+                        t.label AS label,
+                        t.definition AS definition,
+                        t.is_obsolete AS is_obsolete,
+                        t.replaced_by AS replaced_by,
+                        t.release_version AS release_version,
+                        t.release_date AS release_date,
+                        COALESCE(s.synonyms, '[]'::jsonb) AS synonyms,
+                        COALESCE(p.parents, '[]'::jsonb) AS parents,
+                        COALESCE(c.children, '[]'::jsonb) AS children,
+                        COALESCE(p.parent_count, 0)::int AS parent_count,
+                        COALESCE(c.child_count, 0)::int AS child_count,
+                        CASE
+                            WHEN lower(t.hpo_id) = lower(:query) THEN 0
+                            WHEN lower(t.hpo_id) LIKE :prefix_query THEN 1
+                            WHEN lower(t.label) LIKE :prefix_query THEN 2
+                            ELSE 3
+                        END AS match_rank
+                    FROM hpo_term t
+                    LEFT JOIN LATERAL (
+                        SELECT jsonb_agg(to_jsonb(synonym) ORDER BY synonym) AS synonyms
+                        FROM hpo_synonym
+                        WHERE hpo_id = t.hpo_id
+                    ) s ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            COUNT(*) AS parent_count,
+                            jsonb_agg(
+                                jsonb_build_object(
+                                    'hpo_id', e.parent_id,
+                                    'label', parent.label,
+                                    'relation', e.relation
+                                )
+                                ORDER BY parent.label
+                            ) AS parents
+                        FROM hpo_edge e
+                        JOIN hpo_term parent ON parent.hpo_id = e.parent_id
+                        WHERE e.child_id = t.hpo_id
+                    ) p ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            COUNT(*) AS child_count,
+                            jsonb_agg(
+                                jsonb_build_object(
+                                    'hpo_id', e.child_id,
+                                    'label', child.label,
+                                    'relation', e.relation
+                                )
+                                ORDER BY child.label
+                            ) AS children
+                        FROM hpo_edge e
+                        JOIN hpo_term child ON child.hpo_id = e.child_id
+                        WHERE e.parent_id = t.hpo_id
+                    ) c ON TRUE
+                    WHERE lower(t.hpo_id) LIKE :like_query
+                       OR lower(t.label) LIKE :like_query
+                       OR EXISTS (
+                           SELECT 1 FROM hpo_synonym s
+                           WHERE s.hpo_id = t.hpo_id
+                             AND lower(s.synonym) LIKE :like_query
+                       )
+                    ORDER BY match_rank, t.is_obsolete, t.label
+                    LIMIT :limit
+                    """
+                ),
+                {
+                    "query": cleaned,
+                    "prefix_query": prefix_query,
+                    "like_query": like_query,
+                    "limit": bounded_limit,
+                },
+            )
+        else:
+            result = await session.execute(
+                text(
+                    """
                     SELECT
-                        COUNT(*) AS child_count,
-                        jsonb_agg(
-                            jsonb_build_object(
-                                'hpo_id', e.child_id,
-                                'label', child.label,
-                                'relation', e.relation
-                            )
-                            ORDER BY child.label
-                        ) AS children
-                    FROM hpo_edge e
-                    JOIN hpo_term child ON child.hpo_id = e.child_id
-                    WHERE e.parent_id = t.hpo_id
-                ) c ON TRUE
-                {where_sql}
-                ORDER BY match_rank, t.is_obsolete, t.label
-                LIMIT :limit
-                """
-            ).bindparams(*bind_params)
-        )
+                        t.hpo_id AS hpo_id,
+                        t.label AS label,
+                        t.definition AS definition,
+                        t.is_obsolete AS is_obsolete,
+                        t.replaced_by AS replaced_by,
+                        t.release_version AS release_version,
+                        t.release_date AS release_date,
+                        COALESCE(s.synonyms, '[]'::jsonb) AS synonyms,
+                        COALESCE(p.parents, '[]'::jsonb) AS parents,
+                        COALESCE(c.children, '[]'::jsonb) AS children,
+                        COALESCE(p.parent_count, 0)::int AS parent_count,
+                        COALESCE(c.child_count, 0)::int AS child_count
+                    FROM hpo_term t
+                    LEFT JOIN LATERAL (
+                        SELECT jsonb_agg(to_jsonb(synonym) ORDER BY synonym) AS synonyms
+                        FROM hpo_synonym
+                        WHERE hpo_id = t.hpo_id
+                    ) s ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            COUNT(*) AS parent_count,
+                            jsonb_agg(
+                                jsonb_build_object(
+                                    'hpo_id', e.parent_id,
+                                    'label', parent.label,
+                                    'relation', e.relation
+                                )
+                                ORDER BY parent.label
+                            ) AS parents
+                        FROM hpo_edge e
+                        JOIN hpo_term parent ON parent.hpo_id = e.parent_id
+                        WHERE e.child_id = t.hpo_id
+                    ) p ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT
+                            COUNT(*) AS child_count,
+                            jsonb_agg(
+                                jsonb_build_object(
+                                    'hpo_id', e.child_id,
+                                    'label', child.label,
+                                    'relation', e.relation
+                                )
+                                ORDER BY child.label
+                            ) AS children
+                        FROM hpo_edge e
+                        JOIN hpo_term child ON child.hpo_id = e.child_id
+                        WHERE e.parent_id = t.hpo_id
+                    ) c ON TRUE
+                    ORDER BY t.is_obsolete, t.label
+                    LIMIT :limit
+                    """
+                ),
+                {"limit": bounded_limit},
+            )
     except DBAPIError as exc:
         if is_missing_postgres_schema_error(exc):
             return []
@@ -1526,6 +1638,7 @@ async def create_individual_hpo_annotation(
     payload: Any,
     commit: bool = True,
 ) -> dict[str, Any]:
+    await _ensure_hpo_schema_available(session)
     sample_uuid = await _sample_uuid_for(session, family_uuid=family_uuid, sample_id=sample_id)
     hpo_id = normalize_hpo_id(str(getattr(payload, "hpo_id", None) or ""))
     if not hpo_id:
@@ -1585,6 +1698,7 @@ async def update_individual_hpo_annotation(
     payload: Any,
     commit: bool = True,
 ) -> dict[str, Any]:
+    await _ensure_hpo_schema_available(session)
     existing = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="HPO annotation was not found")
@@ -1674,6 +1788,7 @@ async def query_family_hpo_annotations(
     hpo_id: str,
     include_descendants: bool = True,
 ) -> dict[str, Any]:
+    await _ensure_hpo_schema_available(session)
     normalized_id = normalize_hpo_id(hpo_id)
     if not normalized_id:
         raise HTTPException(status_code=400, detail="Invalid HPO identifier")
