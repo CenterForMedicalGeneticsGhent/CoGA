@@ -47,4 +47,3 @@ flowchart LR
 
 - `Postgres` is authoritative for metadata and state.
 - `ClickHouse` is authoritative for variant payloads.
-- No MongoDB collections remain in the application architecture.

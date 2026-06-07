@@ -1279,6 +1279,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
               )}
               <button
                 type="button"
+                className="form-button"
                 onClick={savePendingMemberUpdates}
                 disabled={pendingMembersBusy || pendingMemberCount === 0}
               >
@@ -2146,6 +2147,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                           </label>
                           <button
                             type="button"
+                            className="form-button"
                             onClick={addHpoAnnotation}
                             disabled={hpoBusy || !selectedHpoTerm}
                           >
@@ -2233,7 +2235,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
 
                 {userIsAdmin && (
                   <div className="variant-review-modal-actions compact-toolbar">
-                    <button type="button" onClick={applyMemberDetail} disabled={memberBusy}>
+                    <button type="button" className="form-button"onClick={applyMemberDetail} disabled={memberBusy}>
                       Apply to pending
                     </button>
                     <button

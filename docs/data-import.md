@@ -1,6 +1,6 @@
 # Data Import
 
-Data is loaded through the current FastAPI upload endpoints. The old Mongo import scripts have been removed.
+Data is loaded through the current FastAPI upload endpoints.
 
 ## Reference Data
 

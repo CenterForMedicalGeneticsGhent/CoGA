@@ -291,60 +291,6 @@ const DataManagementPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="surface-card-flat space-y-4">
-        <div className="space-y-2">
-          <h2 className="section-title">Admin management areas</h2>
-          <p className="section-copy">
-            Keep each operational domain separate to reduce noise and make bulk
-            administration workflows easier.
-          </p>
-        </div>
-        <div className="compact-toolbar dashboard-toolbar">
-          <Link to="/admin" className="button-secondary hover:no-underline">
-            Admin dashboard
-          </Link>
-          <Link to="/admin/access/projects" className="button-secondary hover:no-underline">
-            Projects & access
-          </Link>
-          <Link
-            to="/admin/access/users"
-            className="button-secondary hover:no-underline"
-          >
-            Users
-          </Link>
-          <Link
-            to="/admin/operations/clickhouse"
-            className="button-secondary hover:no-underline"
-          >
-            ClickHouse tables
-          </Link>
-          <Link
-            to="/admin/variants/presets"
-            className="button-secondary hover:no-underline"
-          >
-            Preset filters
-          </Link>
-          <Link
-            to="/admin/variants/tags"
-            className="button-secondary hover:no-underline"
-          >
-            Variant tags
-          </Link>
-          <Link
-            to="/admin/monitoring/audit-logs"
-            className="button-secondary hover:no-underline"
-          >
-            Audit logs
-          </Link>
-          <Link to="/admin/reference/assemblies" className="button-grey hover:no-underline">
-            Organisms & assemblies
-          </Link>
-          <Link to="/admin/reference/gene-panels" className="button-grey hover:no-underline">
-            Gene panels
-          </Link>
-        </div>
-      </section>
-
       {status && (
         <div
           className={`status-note ${

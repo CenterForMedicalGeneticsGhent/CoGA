@@ -8,7 +8,7 @@ CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpre
 
 - `frontend/`: React, TypeScript, Vite, Tailwind.
 - `backend/`: FastAPI, SQLAlchemy async, ClickHouse client.
-- `Postgres`: users, projects, families, samples, review state, repeat expansions, gene cache, panels, interval tracks.
+- `Postgres`: users, projects, families, samples, review state, repeat expansions, gene cache, panels, HPO.
 - `ClickHouse`: small variants and structural variants stored per assembly using CoGA tables.
 
 ## Quick Start
