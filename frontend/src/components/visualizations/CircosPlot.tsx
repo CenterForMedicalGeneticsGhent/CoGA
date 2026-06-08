@@ -468,7 +468,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
         .attr('data-chrom', chrom.chr)
         .attr('d', outlinePath)
         .attr('fill', 'none')
-        .attr('stroke', black)
+        .attr('stroke', 'none')
         .attr('stroke-width', BAND_STROKE)
         .attr('stroke-linejoin', 'round');
 

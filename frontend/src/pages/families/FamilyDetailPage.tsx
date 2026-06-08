@@ -269,6 +269,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
   );
   const userIsAdmin = isAdmin();
   const canEditFamilyDetails = editable && userIsAdmin;
+  const canEditRoi = userIsAdmin;
   const queryClient = useQueryClient();
   const [roiInput, setRoiInput] = useState('');
   const [roiBusy, setRoiBusy] = useState(false);
@@ -405,8 +406,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
     queryKey: ['hpo-search', hpoSearchQuery],
     enabled: hpoSearchQuery.length >= 2,
     queryFn: async () => {
-      const res = await api.get('/hpo/search', {
-        params: { q: hpoSearchQuery, limit: 8 },
+      const res = await api.get('/hpo/search', { //
+        params: { q: hpoSearchQuery, limit: 20 },
       });
       return res.data as ApiHpoTerm[];
     },
@@ -1207,7 +1208,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
           {data.roi && (
             <div className="compact-toolbar family-toolbar">
               <Link
-                to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${data.roi.start}&end=${data.roi.end}${
+                to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
+                  0,
+                  data.roi.start - 1_000_000,
+                )}&end=${data.roi.end + 1_000_000}${
                   projectId ? `&project_id=${projectId}` : ''
                 }`}
                 className="button-secondary hover:no-underline"
@@ -1216,10 +1220,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
               </Link>
             </div>
           )}
-          {!data.roi && !canEditFamilyDetails && (
+          {!data.roi && !canEditRoi && (
             <p className="dashboard-link-note">No family region of interest is defined.</p>
           )}
-          {canEditFamilyDetails && (
+          {canEditRoi && (
             <div className="family-roi-admin">
               <label className="field-label family-roi-input">
                 Gene symbol or genomic locus
@@ -1317,8 +1321,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                 {canEditFamilyDetails && <th>Sex</th>}
                 <th>Father</th>
                 <th>Mother</th>
-                <th>Phenotype</th>
-                <th>Carrier</th>
+                <th>Status</th>
                 <th>HPO terms</th>
                 {canEditFamilyDetails && <th>Actions</th>}
               </tr>
@@ -1416,71 +1419,80 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                     <td>{parents.father ?? '-'}</td>
                     <td>{parents.mother ?? '-'}</td>
                     <td>
-                      {canEditFamilyDetails ? (
-                        <select
-                          aria-label={`Phenotype for ${member.sample_id}`}
-                          value={clinicalStatus}
-                          onChange={(event) =>
-                            updateStructureMember(member.sample_id, {
-                              clinical_status: event.target.value as ClinicalStatus,
-                            })
-                          }
-                          disabled={structureBusy}
-                        >
-                          {CLINICAL_STATUS_OPTIONS.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        clinicalStatus
-                      )}
-                    </td>
-                    <td>
-                      {canEditFamilyDetails ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <select
-                            aria-label={`Carrier status for ${member.sample_id}`}
-                            value={carrierStatus}
-                            onChange={(event) =>
-                              updateStructureMember(member.sample_id, {
-                                carrier_status: event.target.value as CarrierStatus,
-                              })
-                            }
-                            disabled={structureBusy}
-                          >
-                            {CARRIER_STATUS_OPTIONS.map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                          {carrierStatus === 'carrier' && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canEditFamilyDetails ? (
+                          <>
                             <select
-                              aria-label={`Carrier type for ${member.sample_id}`}
-                              value={draftMember!.carrier_type}
+                              aria-label={`Phenotype for ${member.sample_id}`}
+                              value={clinicalStatus}
                               onChange={(event) =>
                                 updateStructureMember(member.sample_id, {
-                                  carrier_type: event.target.value as CarrierType,
+                                  clinical_status: event.target.value as ClinicalStatus,
                                 })
                               }
                               disabled={structureBusy}
                             >
-                              <option value="">type</option>
-                              {CARRIER_TYPE_OPTIONS.map((type) => (
-                                <option key={type} value={type}>
-                                  {type}
+                              {CLINICAL_STATUS_OPTIONS.map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
                                 </option>
                               ))}
                             </select>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="table-chip">
-                          {carrierStatus === 'carrier' ? displayMember.carrier_type || 'carrier' : carrierStatus}
-                        </span>
-                      )}
+                            <div className="flex items-center gap-1 border-l pl-2">
+                              <select
+                                aria-label={`Carrier status for ${member.sample_id}`}
+                                value={carrierStatus}
+                                onChange={(event) =>
+                                  updateStructureMember(member.sample_id, {
+                                    carrier_status: event.target.value as CarrierStatus,
+                                  })
+                                }
+                                disabled={structureBusy}
+                              >
+                                {CARRIER_STATUS_OPTIONS.map((status) => (
+                                  <option key={status} value={status}>
+                                    {status}
+                                  </option>
+                                ))}
+                              </select>
+                              {carrierStatus === 'carrier' && (
+                                <select
+                                  aria-label={`Carrier type for ${member.sample_id}`}
+                                  value={draftMember!.carrier_type}
+                                  onChange={(event) =>
+                                    updateStructureMember(member.sample_id, {
+                                      carrier_type: event.target.value as CarrierType,
+                                    })
+                                  }
+                                  disabled={structureBusy}
+                                >
+                                  <option value="">type</option>
+                                  {CARRIER_TYPE_OPTIONS.map((type) => (
+                                    <option key={type} value={type}>
+                                      {type}
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span
+                              className={`table-chip ${
+                                clinicalStatus === 'affected' ? 'table-chip--critical' : ''
+                              }`}
+                            >
+                              {clinicalStatus}
+                            </span>
+                            {carrierStatus === 'carrier' && (
+                              <span className="table-chip table-chip--warning">
+                                {displayMember.carrier_type || 'carrier'}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </td>
                     <td>
                       {annotations.length ? (
@@ -1532,8 +1544,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                     <th>New sample</th>
                     <th>Sex</th>
                     <th>Role</th>
-                    <th>Phenotype</th>
-                    <th>Carrier</th>
+                    <th>Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -1589,64 +1600,64 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                       </select>
                     </td>
                     <td>
-                      <select
-                        aria-label="New member phenotype"
-                        value={newMember.clinical_status}
-                        onChange={(event) =>
-                          setNewMember((member) => ({
-                            ...member,
-                            clinical_status: event.target.value as ClinicalStatus,
-                          }))
-                        }
-                        disabled={structureBusy}
-                      >
-                        {CLINICAL_STATUS_OPTIONS.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
                       <div className="flex flex-wrap items-center gap-2">
                         <select
-                          aria-label="New member carrier status"
-                          value={newMember.carrier_status}
+                          aria-label="New member phenotype"
+                          value={newMember.clinical_status}
                           onChange={(event) =>
                             setNewMember((member) => ({
                               ...member,
-                              carrier_status: event.target.value as CarrierStatus,
-                              carrier_type: event.target.value === 'carrier' ? member.carrier_type : '',
+                              clinical_status: event.target.value as ClinicalStatus,
                             }))
                           }
                           disabled={structureBusy}
                         >
-                          {CARRIER_STATUS_OPTIONS.map((status) => (
+                          {CLINICAL_STATUS_OPTIONS.map((status) => (
                             <option key={status} value={status}>
                               {status}
                             </option>
                           ))}
                         </select>
-                        {newMember.carrier_status === 'carrier' && (
+                        <div className="flex items-center gap-1 border-l pl-2">
                           <select
-                            aria-label="New member carrier type"
-                            value={newMember.carrier_type}
+                            aria-label="New member carrier status"
+                            value={newMember.carrier_status}
                             onChange={(event) =>
                               setNewMember((member) => ({
                                 ...member,
-                                carrier_type: event.target.value as CarrierType,
+                                carrier_status: event.target.value as CarrierStatus,
+                                carrier_type: event.target.value === 'carrier' ? member.carrier_type : '',
                               }))
                             }
                             disabled={structureBusy}
                           >
-                            <option value="">type</option>
-                            {CARRIER_TYPE_OPTIONS.map((type) => (
-                              <option key={type} value={type}>
-                                {type}
+                            {CARRIER_STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
                               </option>
                             ))}
                           </select>
-                        )}
+                          {newMember.carrier_status === 'carrier' && (
+                            <select
+                              aria-label="New member carrier type"
+                              value={newMember.carrier_type}
+                              onChange={(event) =>
+                                setNewMember((member) => ({
+                                  ...member,
+                                  carrier_type: event.target.value as CarrierType,
+                                }))
+                              }
+                              disabled={structureBusy}
+                            >
+                              <option value="">type</option>
+                              {CARRIER_TYPE_OPTIONS.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td>
@@ -2155,38 +2166,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
                           </button>
                         </div>
 
-                        {hpoSearchResults.length > 0 && hpoSearchQuery.length >= 2 && (
-                          <div className="family-hpo-term-results" aria-label="HPO search results">
-                            {hpoSearchResults.map((term) => (
-                              <button
-                                key={term.hpo_id}
-                                type="button"
-                                className={`button-ghost family-hpo-term-button${
-                                  selectedHpoTerm?.hpo_id === term.hpo_id
-                                    ? ' family-hpo-term-button--selected'
-                                    : ''
-                                }`}
-                                onClick={() => selectHpoTerm(term)}
-                              >
-                                <span>{term.hpo_id}</span>
-                                <strong>{term.label}</strong>
-                              </button>
-                            ))}
-                          </div>
-                        )}
+
                       </>
                     )}
                     {hpoStatus && (
-                      <div
-                        className={`status-note ${
-                          hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
-                        }`}
-                      >
+                      <div className={`status-note ${hpoStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'}`}>
                         {hpoStatus.message}
                       </div>
                     )}
                   </div>
-
                   <div className="variant-review-modal-section family-member-modal-section">
                     <div className="family-workspace-card-head">
                       <h3 className="section-title">Impact</h3>

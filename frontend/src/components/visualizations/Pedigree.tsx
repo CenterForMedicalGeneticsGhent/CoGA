@@ -1182,24 +1182,50 @@ const Pedigree: React.FC<Props> = ({
         .attr('data-generation-index', generationIndex)
         .attr('transform', `translate(${position.x}, ${position.y})`);
 
-      const drawCarrierHalfFill = (
-        shape: d3.Selection<any, unknown, null, undefined>
-      ) => {
-        if (!carrier || affected || xLinkedRecessiveFemaleCarrier) return;
-        const clipId = `pedigree-carrier-${row.iid.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
-        svg
-          .append('clipPath')
-          .attr('id', clipId)
-          .append('rect')
-          .attr('x', position.x - NODE_SIZE / 2)
-          .attr('y', position.y - NODE_SIZE / 2)
-          .attr('width', NODE_SIZE / 2)
-          .attr('height', NODE_SIZE);
-        shape
-          .clone(true)
-          .attr('fill', carrierFillFor(member?.carrier_type))
-          .attr('stroke', 'none')
-          .attr('clip-path', `url(#${clipId})`);
+      const appendCarrierFill = () => {
+        if (!carrier || affected) return;
+        const cFill = carrierFillFor(member?.carrier_type);
+
+        if (rowSex === '1') {
+          // Male: draw left half of the square
+          group
+            .append('rect')
+            .attr('x', -NODE_SIZE / 2)
+            .attr('y', -NODE_SIZE / 2)
+            .attr('width', NODE_SIZE / 2)
+            .attr('height', NODE_SIZE)
+            .attr('fill', cFill)
+            .attr('stroke', 'none');
+        } else if (rowSex === '2') {
+          if (xLinkedRecessiveFemaleCarrier && !affected) {
+            // XLR female: special convention is a dot in the middle
+            group
+              .append('circle')
+              .attr('cx', 0)
+              .attr('cy', 0)
+              .attr('r', NODE_SIZE / 4)
+              .attr('fill', cFill)
+              .attr('stroke', 'none');
+          } else {
+            // Autosomal female: draw left semi-circle
+            const r = NODE_SIZE / 2;
+            const semiCirclePath = `M 0,${r} A ${r},${r} 0 0,1 0,${-r} Z`;
+            group
+              .append('path')
+              .attr('d', semiCirclePath)
+              .attr('fill', cFill)
+              .attr('stroke', 'none');
+          }
+        } else {
+          // Sex unknown: draw left half of the diamond
+          const r = NODE_SIZE / 2;
+          const halfDiamondPath = `M 0,${-r} L ${-r},0 L 0,${r} Z`;
+          group
+            .append('path')
+            .attr('d', halfDiamondPath)
+            .attr('fill', cFill)
+            .attr('stroke', 'none');
+        }
       };
 
       if (highlighted) {
@@ -1215,7 +1241,7 @@ const Pedigree: React.FC<Props> = ({
       }
 
       if (rowSex === '1') {
-        const shape = group
+        group
           .append('rect')
           .attr('x', -NODE_SIZE / 2)
           .attr('y', -NODE_SIZE / 2)
@@ -1224,9 +1250,8 @@ const Pedigree: React.FC<Props> = ({
           .attr('fill', fill)
           .attr('stroke', stroke)
           .attr('stroke-width', strokeWidth);
-        drawCarrierHalfFill(shape);
       } else if (rowSex === '2') {
-        const shape = group
+        group
           .append('circle')
           .attr('cx', 0)
           .attr('cy', 0)
@@ -1234,30 +1259,21 @@ const Pedigree: React.FC<Props> = ({
           .attr('fill', fill)
           .attr('stroke', stroke)
           .attr('stroke-width', strokeWidth);
-        drawCarrierHalfFill(shape);
-        if (xLinkedRecessiveFemaleCarrier && !affected) {
-          group
-            .append('circle')
-            .attr('cx', 0)
-            .attr('cy', 0)
-            .attr('r', NODE_SIZE / 4)
-            .attr('fill', carrierFillFor(member?.carrier_type))
-            .attr('stroke', 'none');
-        }
       } else {
         const diamondPath =
           `M0 ${-NODE_SIZE / 2} ` +
           `L${NODE_SIZE / 2} 0 ` +
           `L0 ${NODE_SIZE / 2} ` +
           `L${-NODE_SIZE / 2} 0 Z`;
-        const shape = group
+        group
           .append('path')
           .attr('d', diamondPath)
           .attr('fill', fill)
           .attr('stroke', stroke)
           .attr('stroke-width', strokeWidth);
-        drawCarrierHalfFill(shape);
       }
+
+      appendCarrierFill();
 
       if (hasPhenotypeAnnotation) {
         group
