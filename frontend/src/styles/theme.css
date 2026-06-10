@@ -41,10 +41,10 @@
   --color-variant-inv: #666884;
   --color-variant-bnd: #44625e;
 
-  --color-haplotype-father-dark: #556f87;
-  --color-haplotype-father-light: #d7e0e9;
-  --color-haplotype-mother-dark: #44625e;
-  --color-haplotype-mother-light: #d4dedc;
+  --color-haplotype-father-dark: #2563EB;
+  --color-haplotype-father-light: #4f9fef;
+  --color-haplotype-mother-dark: #10B981;
+  --color-haplotype-mother-light: #014f3f;
   --color-haplotype-dominant: #8f1d1d;
   --color-haplotype-recessive: #d94a68;
   --color-haplotype-recessive-maternal: var(--color-haplotype-recessive);
