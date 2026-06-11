@@ -65,6 +65,7 @@ from .hpo_service import (
 )
 from .metadata_service import CurrentUser, get_current_user_by_email
 from . import ped_service
+from .raw_import_files_pg import record_raw_import_file
 from .repeat_expansion_pg import (
     clear_sample_repeat_expansions,
     decode_repeat_upload_text,
@@ -3224,6 +3225,114 @@ def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]
     return sample_payloads
 
 
+_PROVENANCE_PATH_KEYS = {
+    "bins",
+    "segments",
+    "file",
+    "index",
+    "bcf_index",
+    "json",
+    "bed",
+    "vcf",
+    "family_vcf",
+    "annotation_tsv",
+    "maternal",
+    "paternal",
+    "mat",
+    "pat",
+}
+
+
+def _dataset_top_level_files(dataset: ManifestDataset) -> dict[str, str]:
+    """Top-level (family-scoped) file references on a dataset, excluding per-sample
+    entries. Includes manifest extras so non-standard keys are still captured."""
+    payload: dict[str, Any] = dict(dataset.model_extra or {})
+    payload.update(
+        {
+            "family_vcf": dataset.family_vcf,
+            "annotation_tsv": dataset.annotation_tsv,
+            "index": dataset.index,
+            "bed": dataset.bed,
+            "vcf": dataset.vcf,
+            "file": dataset.file,
+            "json": dataset.json_path,
+        }
+    )
+    return {
+        key: str(value)
+        for key, value in payload.items()
+        if key in _PROVENANCE_PATH_KEYS and isinstance(value, str) and value.strip()
+    }
+
+
+async def _record_package_raw_files(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    family_uuid: str,
+) -> None:
+    """Record provenance rows for every raw file referenced by the package manifest,
+    grouped into family-level and individual-level scope. Files are referenced in
+    place (not copied). Best-effort: never fails the import."""
+    try:
+        result = await session.execute(
+            text(
+                "SELECT id::text AS sample_uuid, sample_id "
+                "FROM samples WHERE family_id = CAST(:family_uuid AS uuid)"
+            ),
+            {"family_uuid": family_uuid},
+        )
+        sample_uuid_by_id = {
+            str(row["sample_id"]): str(row["sample_uuid"]) for row in result.mappings().all()
+        }
+
+        for dataset_type, dataset in bundle.manifest.datasets.items():
+            if not dataset.enabled:
+                continue
+            for value in _dataset_top_level_files(dataset).values():
+                resolved = _resolve_package_path(bundle.root, value)
+                if resolved is None or not resolved.exists() or not resolved.is_file():
+                    continue
+                await record_raw_import_file(
+                    session,
+                    family_uuid=family_uuid,
+                    sample_uuid=None,
+                    scope="family",
+                    dataset=dataset_type,
+                    file_name=resolved.name,
+                    storage_path=str(resolved),
+                    managed=False,
+                    source="family_package",
+                )
+            for sample_id, raw_entry in dataset.per_sample.items():
+                if not isinstance(raw_entry, dict):
+                    continue
+                sample_uuid = sample_uuid_by_id.get(str(sample_id))
+                for key, value in raw_entry.items():
+                    if (
+                        key not in _PROVENANCE_PATH_KEYS
+                        or not isinstance(value, str)
+                        or not value.strip()
+                    ):
+                        continue
+                    resolved = _resolve_package_path(bundle.root, value)
+                    if resolved is None or not resolved.exists() or not resolved.is_file():
+                        continue
+                    await record_raw_import_file(
+                        session,
+                        family_uuid=family_uuid,
+                        sample_uuid=sample_uuid,
+                        scope="individual",
+                        dataset=dataset_type,
+                        file_name=resolved.name,
+                        storage_path=str(resolved),
+                        managed=False,
+                        source="family_package",
+                    )
+    except Exception:  # pragma: no cover - provenance is non-critical
+        logger.warning("Failed to record raw import file provenance", exc_info=True)
+
+
 async def _register_package_provenance(
     session: AsyncSession,
     *,
@@ -3351,6 +3460,7 @@ async def _register_package_provenance(
                     "metadata": json.dumps(metadata),
                 },
             )
+    await _record_package_raw_files(session, bundle=bundle, family_uuid=family_uuid)
     await session.commit()
 
 

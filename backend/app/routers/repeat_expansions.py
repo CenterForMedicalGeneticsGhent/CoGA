@@ -11,6 +11,7 @@ from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import RepeatExpansionUploadResult
 from ..services.family_metadata_context import build_sample_metadata_context
 from ..services.metadata_service import CurrentUser
+from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.repeat_expansion_pg import (
     clear_sample_repeat_expansions,
     decode_repeat_upload_text,
@@ -67,5 +68,14 @@ async def upload_repeat_expansions(
             "filename": file.filename,
             "uploaded_from": "web",
         },
+    )
+    await record_upload_file_obj(
+        session,
+        file=file,
+        family_uuid=sample_context.family_uuid,
+        family_id=sample_context.family_id,
+        sample_uuid=sample_context.sample_uuid,
+        scope="individual",
+        dataset="repeats_trgt",
     )
     return result

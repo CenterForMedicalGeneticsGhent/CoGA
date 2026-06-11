@@ -9,6 +9,7 @@ from ..services.clickhouse_family_variants import (
 )
 from ..services.family_metadata_context import build_family_metadata_context, build_sample_metadata_context
 from ..services.metadata_service import CurrentUser
+from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.variant_upload_service import upload_structural_variant_file
 
 router = APIRouter(prefix="/structural-variants", tags=["structural_variants"])
@@ -33,7 +34,7 @@ async def upload_structural_variants(
         family_identifier=sample_context.family_id,
         user=user,
     )
-    return await upload_structural_variant_file(
+    result = await upload_structural_variant_file(
         session,
         family_context=family_context,
         sample_context=sample_context,
@@ -41,6 +42,16 @@ async def upload_structural_variants(
         overwrite=overwrite,
         format_hint=source_format,  # type: ignore[arg-type]
     )
+    await record_upload_file_obj(
+        session,
+        file=file,
+        family_uuid=sample_context.family_uuid,
+        family_id=sample_context.family_id,
+        sample_uuid=sample_context.sample_uuid,
+        scope="individual",
+        dataset="structural_variants",
+    )
+    return result
 
 
 @router.get("/{sample_id}", response_model=VariantPage)
