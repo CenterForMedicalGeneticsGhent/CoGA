@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  defaultCoverageRange,
   getCoverageLowerThreshold,
   getCoverageRange,
   getCoverageUpperThreshold,
@@ -236,7 +237,9 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
         if (active) {
           setTrackData({ bins, segments });
-          setHasData(bins.length > 0);
+          // Render when either track has data: a missing/empty segments (or
+          // coverage) response must not blank the whole chart.
+          setHasData(bins.length > 0 || segments.length > 0);
         }
       } catch {
         if (controller.signal.aborted) {
@@ -270,7 +273,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
     ctx.clearRect(0, 0, width, height);
 
-    if (!trackData || trackData.bins.length === 0) {
+    if (!trackData || (trackData.bins.length === 0 && trackData.segments.length === 0)) {
       layoutRef.current = { offsets: {}, lengths: {}, total: 0 };
       return;
     }
@@ -315,7 +318,13 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       return;
     }
 
-    const range = getCoverageRange();
+    // Guard against a zero/non-finite range: a 0-width domain makes every point
+    // a non-finite coordinate and silently blanks the chart.
+    const configuredRange = getCoverageRange();
+    const range =
+      Number.isFinite(configuredRange) && configuredRange > 0
+        ? configuredRange
+        : defaultCoverageRange;
     const minVal = -range;
     const maxVal = range;
     const yScale = (value: number) =>
