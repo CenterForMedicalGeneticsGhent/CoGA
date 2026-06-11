@@ -250,7 +250,7 @@ describe('FamilyDetailPage', () => {
     });
   });
 
-  it('keeps variant workspace navigation visible when no variant records are loaded', async () => {
+  it('hides variant workspace buttons and shows a note when no variant data is loaded', async () => {
     mockApiState.smallVariantTotal = 0;
     mockApiState.structuralVariantTotal = 0;
     localStorage.setItem('role', 'viewer');
@@ -267,15 +267,48 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    expect(
-      screen.getByRole('link', { name: /structural variants/i })
-    ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
-    expect(
-      screen.getByRole('link', { name: /small variants/i })
-    ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
     await waitFor(() =>
       expect(screen.getByText(/No family variant data is loaded yet/i)).toBeInTheDocument(),
     );
+    // The data type buttons are gated on actual data being present.
+    expect(screen.queryByRole('link', { name: /structural variants/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /small variants/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /repeat expansions/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /paraphase/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /mtDNA analysis/i })).not.toBeInTheDocument();
+  });
+
+  it('shows only the variant buttons backed by data', async () => {
+    mockApiState.smallVariantTotal = 2;
+    mockApiState.structuralVariantTotal = 0;
+    localStorage.setItem('role', 'viewer');
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /small variants/i })).toBeInTheDocument(),
+    );
+    // Small variants present -> small-variants + variant-summary buttons show.
+    expect(screen.getByRole('link', { name: /small variants/i })).toHaveAttribute(
+      'href',
+      '/families/F1/small-variants?project_id=p1',
+    );
+    expect(screen.getByRole('link', { name: /variant summary/i })).toBeInTheDocument();
+    // No structural / repeat / paraphase / mtDNA data -> those buttons stay hidden.
+    expect(screen.queryByRole('link', { name: /structural variants/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /repeat expansions/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /paraphase/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /mtDNA analysis/i })).not.toBeInTheDocument();
   });
 
   it('shows HPO phenotype annotations in the family members overview', async () => {
