@@ -40,6 +40,7 @@ Primary responsibilities:
 - Assembly-scoped small variant storage
 - Assembly-scoped structural variant storage
 - Family and sample genotypes/calls over flattened CoGA rows
+- Cross-project genotype aggregates (per-project and global allele/carrier counts) used by the Global Small Variant Explorer
 - Assembly-scoped interval-track rows for coverage, WisecondorX segments, APCAD, PCF APCAD segment overlays, and haplotypes
 
 Database bootstrap:
@@ -62,4 +63,4 @@ Runtime table creation:
 ## Operational Notes
 
 - The backend boot process waits for Postgres and ClickHouse, applies schema bootstrap, seeds the repeat catalog, and starts the gene refresh worker.
-- There is no MongoDB compatibility layer in the current application.
+- Variant IDs exposed by the API are storage-agnostic strings; metadata IDs are UUIDs.

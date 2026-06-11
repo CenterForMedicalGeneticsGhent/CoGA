@@ -61,9 +61,10 @@ const guideSections: GuideSection[] = [
       'Use this when you need to orient yourself quickly, whether you are opening an existing case or loading a new one.',
     quickLinks: [
       { label: 'Dashboard', to: '/dashboard', note: 'Start here' },
-      { label: 'Family intake', to: '/family-intake', note: 'Case setup' },
+      { label: 'Family Builder', to: '/family-builder', note: 'Case setup' },
       { label: 'Upload sample data', to: '/upload-data', note: 'Assays' },
       { label: 'Gene explorer', to: '/genes', note: 'Locus-first' },
+      { label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' },
       { label: 'Panel catalog', to: '/panels', note: 'Reusable filters' },
       { label: 'Settings', to: '/settings', note: 'Display' },
     ],
@@ -91,7 +92,7 @@ const guideSections: GuideSection[] = [
         <h3>If you are loading a new case</h3>
         <ol>
           <li>Create or confirm the target project and its assembly.</li>
-          <li>Create the family and sample metadata through family intake or pedigree upload.</li>
+          <li>Create the family and sample metadata through Family Builder or pedigree upload.</li>
           <li>Import the assay layers that belong to that family or sample.</li>
           <li>Check the family pages to verify that the expected tables and tracks appear.</li>
           <li>Only then start interpretation and shared review state.</li>
@@ -219,7 +220,8 @@ const guideSections: GuideSection[] = [
       'This section explains the clean import order, when to use the UI, and what features become available after each assay or reference upload.',
     quickLinks: [
       { label: 'Reference data', to: '/reference-data', note: 'Reference' },
-      { label: 'Family intake', to: '/family-intake', note: 'Metadata' },
+      { label: 'Family Builder', to: '/family-builder', note: 'Metadata' },
+      { label: 'Package Import', to: '/package-import', note: 'Bulk import' },
       { label: 'Upload sample data', to: '/upload-data', note: 'Assays' },
       { label: 'Projects', to: '/projects', note: 'Admin' },
       { label: 'Data management', to: '/admin/data', note: 'Admin' },
@@ -623,6 +625,7 @@ const guideSections: GuideSection[] = [
       'Use these tools when the question is locus-first rather than case-first, or when you need a reusable targeted gene set across many cases.',
     quickLinks: [
       { label: 'Gene explorer', to: '/genes', note: 'Locus' },
+      { label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' },
       { label: 'Panel catalog', to: '/panels', note: 'Reuse' },
     ],
     content: (

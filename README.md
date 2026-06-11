@@ -4,12 +4,34 @@
 
 CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpretation, genome visualization, and clinically oriented genomic review. It combines a FastAPI backend, a React frontend, `Postgres` for metadata and review state, and `ClickHouse` for high-volume variant storage.
 
+## Capabilities
+
+CoGA is organized around three areas: a family workspace, cross-cohort discovery tools, and intake/administration.
+
+### Family workspace (`/families/:familyId`)
+
+- Pedigree-aware family dashboard with variant-review/curation summaries and an editable region of interest (ROI).
+- Per-data-type analysis views, surfaced only when that data is present: small variants (SNV/indel), structural variants, a combined variant summary, repeat expansions (TRGT), Paraphase, and mitochondrial (mtDNA) analysis.
+- Genome visualization: whole-genome overview, per-chromosome view, Circos plot, and an embedded IGV browser.
+- Per-variant review with ACMG classification, tags, and notes. Phenotype (clinical status) and carrier status are tracked as independent axes.
+
+### Discovery and analysis
+
+- Gene Explorer (`/genes`): locus-first gene profile with a transcript overview that badges the clinically relevant transcripts (MANE Select, MANE Plus Clinical, RefSeq Select, Ensembl Canonical), plus constraint metrics, disease/phenotype associations, and external links.
+- Global Small Variant Explorer (`/variant-explorer`): variant-centric search and aggregation of SNVs/indels across every project the user can access, with carrier counts (heterozygous/homozygous/families), tag and classification filters, per-sample genotype filters, and carrier drill-down grouped by family.
+- HPO term browser (`/hpo`) and a reusable gene-panel catalog (`/panels`).
+
+### Intake and administration
+
+- Family Builder (`/family-builder`) for manual pedigree creation, and Package Import (`/package-import`, admin) for folder-based bulk family imports with manifest discovery and dry-run validation.
+- Admin tooling: user and project access, family/sample data management, gene-reference sync, ClickHouse variant maintenance, variant tag/preset configuration, and audit logs.
+
 ## Stack
 
 - `frontend/`: React, TypeScript, Vite, Tailwind.
 - `backend/`: FastAPI, SQLAlchemy async, ClickHouse client.
-- `Postgres`: users, projects, families, samples, review state, repeat expansions, gene cache, panels, HPO.
-- `ClickHouse`: small variants and structural variants stored per assembly using CoGA tables.
+- `Postgres`: users, projects, families, samples, review state, repeat expansions, Paraphase results, gene cache, panels, HPO, audit logs.
+- `ClickHouse`: small variants, structural variants, and interval tracks (coverage/segments/APCAD/haplotypes) per assembly, plus cross-project genotype aggregates used by the variant explorer.
 
 ## Quick Start
 

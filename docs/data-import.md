@@ -143,9 +143,9 @@ Assumptions:
 
 ## Family Folder Packages
 
-Admins can start a backend-driven package import from the Family Intake page or through the API.
-The package path is resolved on the backend host. Use dry-run mode first to validate the package
-without writing family or dataset records.
+Admins can start a backend-driven package import from the Package Import page (`/package-import`,
+also reachable from Admin → data upload) or through the API. The package path is resolved on the
+backend host. Use dry-run mode first to validate the package without writing family or dataset records.
 
 API:
 
@@ -175,7 +175,7 @@ existing family selected in the UI. The `conflict_mode` values are:
 - `update`: attach to the existing family and skip dataset tables that already contain data
 - `overwrite`: attach to the existing family and replace imported dataset rows for enabled datasets
 
-The Family Intake UI exposes this flow for admins:
+The Package Import UI exposes this flow for admins:
 
 1. Enter the backend-visible family folder path.
 2. Choose whether the package creates a new family or imports against an existing family.
@@ -185,7 +185,7 @@ The Family Intake UI exposes this flow for admins:
 6. Add optional phenotype TSV or inline HPO annotations, plus optional notes.
 7. Discover the package to generate a manifest preview and availability table.
 8. Edit the YAML if needed, write `manifest.yaml`, then run dry-run validation or start import.
-9. Re-open the Family Intake page later and use "Recent family imports" to inspect job status.
+9. Re-open the Package Import page later and use "Recent family imports" to inspect job status.
 
 CLI dry run:
 
@@ -507,7 +507,7 @@ OMIM disorder links.
 ## Variant Uploads
 
 The upload endpoints in this section require admin credentials. Non-admin users should use the
-family intake form only for family/sample metadata.
+Family Builder only for family/sample metadata.
 
 Small variants:
 
