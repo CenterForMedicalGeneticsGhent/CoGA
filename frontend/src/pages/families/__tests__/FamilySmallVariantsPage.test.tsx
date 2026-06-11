@@ -262,7 +262,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByRole('tab', { name: 'Auto' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Table' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Cards' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'More tags' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Edit review' }).length).toBeGreaterThan(0);
   });
 
   it('scopes small-variant requests to the linked project when the URL has no project id', async () => {
@@ -544,6 +544,7 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>
     );
 
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await waitFor(() => {
       expect(screen.getByRole('columnheader', { name: /Chr/i })).toBeInTheDocument();
     });
@@ -572,6 +573,7 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>
     );
 
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
 
     const brca2Row = screen
@@ -595,6 +597,7 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>
     );
 
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
 
     const pathogenicRow = screen
@@ -732,6 +735,7 @@ describe('FamilySmallVariantsPage', () => {
         expect.stringContaining('/families/F1/small-variants?page=1&page_size=100&impact=HIGH'),
       );
     });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
     fireEvent.click(screen.getByText('Annotations'));
 
@@ -997,6 +1001,7 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>
     );
 
+    fireEvent.click(await screen.findByRole('tab', { name: 'Table' }));
     await screen.findByRole('columnheader', { name: /Chr/i });
 
     const brca2Row = screen

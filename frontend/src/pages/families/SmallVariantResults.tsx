@@ -75,7 +75,8 @@ export default function SmallVariantResults({
           <div className="space-y-1">
             <h2 className="section-title">Variants</h2>
             <p className="table-subtle">
-              Auto view switches to cards at {CARD_VIEW_THRESHOLD} results. Compound-het matches stay grouped by pair.
+              Auto view shows up to {CARD_VIEW_THRESHOLD} variants as cards and switches to a
+              paginated list beyond that. Compound-het matches stay grouped by pair.
             </p>
           </div>
           <div className="variant-results-toggle" role="tablist" aria-label="Variant display mode">

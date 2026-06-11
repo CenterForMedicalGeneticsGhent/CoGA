@@ -3693,12 +3693,21 @@ tbody tr:hover {
 
 .variant-card {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.55rem;
   border: 1px solid rgba(10, 11, 12, 0.09);
   border-radius: 6px;
   background: linear-gradient(180deg, rgba(252, 252, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
-  padding: 0.85rem 0.95rem 0.9rem;
-  box-shadow: 0 10px 20px rgba(10, 12, 14, 0.025);
+  padding: 0.7rem 0.85rem 0.72rem;
+  box-shadow: 0 6px 14px rgba(10, 12, 14, 0.02);
+}
+
+/* Clinical accent: a left rail keyed to the ClinVar significance. */
+.variant-card--clinvar-pathogenic {
+  border-left: 3px solid var(--color-signature-red);
+}
+
+.variant-card--clinvar-benign {
+  border-left: 3px solid rgba(53, 111, 83, 0.7);
 }
 
 .variant-card--clinvar-pathogenic {
@@ -3913,6 +3922,246 @@ tbody tr:hover {
   border-color: rgba(159, 34, 57, 0.2);
   background: rgba(159, 34, 57, 0.1);
   color: var(--color-signature-red-dark);
+}
+
+/* --- Compact single-variant card layout --- */
+.variant-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.9rem;
+}
+
+.variant-card-headline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.variant-card-gene {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--color-heading);
+  text-decoration: none;
+}
+
+.variant-card-gene:hover {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-change {
+  max-width: 24rem;
+  overflow: hidden;
+  font-size: 0.84rem;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variant-card-headtags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.variant-card-chip-key {
+  margin-right: 0.32rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.variant-card-clinical-row {
+  gap: 0.4rem;
+}
+
+.variant-card-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+}
+
+.variant-card-scores-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.9rem;
+  min-width: 0;
+}
+
+.variant-card-score {
+  font-size: 0.76rem;
+  color: var(--color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-card-score-key {
+  margin-right: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-card-scores-inline .variant-transcript-trigger {
+  width: auto;
+  min-height: 1.6rem;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.variant-card-resources {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+}
+
+.variant-card-resource {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.variant-card-resource:hover {
+  text-decoration: underline;
+}
+
+.variant-card-resource--clinical {
+  color: var(--color-signature-red-dark);
+}
+
+/* Compact family genotype chips. */
+.variant-card-gt-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.variant-card-gt {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.16rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.9);
+  font-size: 0.74rem;
+}
+
+.variant-card-gt-sample {
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+.variant-card-gt-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-card-gt--het {
+  border-color: rgba(180, 125, 45, 0.28);
+  background: rgba(180, 125, 45, 0.08);
+}
+
+.variant-card-gt--het .variant-card-gt-value {
+  color: #8d6020;
+}
+
+.variant-card-gt--hom {
+  border-color: rgba(173, 31, 45, 0.28);
+  background: rgba(173, 31, 45, 0.08);
+}
+
+.variant-card-gt--hom .variant-card-gt-value {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-gt--ref,
+.variant-card-gt--ref .variant-card-gt-value {
+  color: var(--color-text-muted);
+}
+
+.variant-card-gt--na {
+  opacity: 0.7;
+}
+
+.variant-card-gt.is-proband {
+  box-shadow: inset 0 0 0 1px var(--color-signature-red);
+}
+
+.variant-card-gt.is-affected .variant-card-gt-sample {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.variant-card-quick {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.variant-card-nav {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.variant-card-nav .variant-card-inline-link {
+  min-height: 1.6rem;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.variant-card-more {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.variant-card-more > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  list-style: none;
+}
+
+.variant-card-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.variant-card-more > summary::before {
+  content: '▸ ';
+}
+
+.variant-card-more[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.variant-card-more[open] > summary::before {
+  content: '▾ ';
+}
+
+.variant-card-more-grid {
+  display: grid;
+  gap: 0.8rem 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 0.8rem;
 }
 
 .variant-card-link-row {
