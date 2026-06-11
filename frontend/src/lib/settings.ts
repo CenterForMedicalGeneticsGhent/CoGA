@@ -11,14 +11,39 @@ const COV_UPPER_KEY = 'coverageUpperThreshold';
 const COV_LOWER_KEY = 'coverageLowerThreshold';
 const COV_RANGE_KEY = 'coverageRange';
 
+/**
+ * Read a numeric setting from storage, falling back to `fallback` when the key
+ * is unset or invalid.
+ *
+ * IMPORTANT: `Number(storage.getItem(key))` is `Number(null) === 0` when the key
+ * is absent, and `0` passes `Number.isFinite`. Callers that treated "finite" as
+ * "present" therefore silently used `0` for unset settings — which, for the
+ * coverage range, collapses the chart's y-scale to a zero-width domain and makes
+ * every coverage/segment point render at a non-finite coordinate (i.e. blank).
+ * Guard on the raw value first, and require positivity where `0` is meaningless.
+ */
+function readNumericSetting(
+  key: string,
+  fallback: number,
+  { positive = false }: { positive?: boolean } = {},
+): number {
+  const raw = storage.getItem(key);
+  if (raw === null || raw === '') {
+    return fallback;
+  }
+  const val = Number(raw);
+  if (!Number.isFinite(val) || (positive && val <= 0)) {
+    return fallback;
+  }
+  return val;
+}
+
 export function getGenomeWindow(): number {
-  const val = Number(storage.getItem(GENOME_KEY));
-  return Number.isFinite(val) && val > 0 ? val : defaultGenomeWindow;
+  return readNumericSetting(GENOME_KEY, defaultGenomeWindow, { positive: true });
 }
 
 export function getChromosomeWindow(): number {
-  const val = Number(storage.getItem(CHROM_KEY));
-  return Number.isFinite(val) && val > 0 ? val : defaultChromosomeWindow;
+  return readNumericSetting(CHROM_KEY, defaultChromosomeWindow, { positive: true });
 }
 
 export function setGenomeWindow(val: number): void {
@@ -30,13 +55,12 @@ export function setChromosomeWindow(val: number): void {
 }
 
 export function getCoverageUpperThreshold(): number {
-  const val = Number(storage.getItem(COV_UPPER_KEY));
-  return Number.isFinite(val) ? val : defaultCoverageUpperThreshold;
+  // 0 is a legitimate threshold, so only fall back when the key is truly unset.
+  return readNumericSetting(COV_UPPER_KEY, defaultCoverageUpperThreshold);
 }
 
 export function getCoverageLowerThreshold(): number {
-  const val = Number(storage.getItem(COV_LOWER_KEY));
-  return Number.isFinite(val) ? val : defaultCoverageLowerThreshold;
+  return readNumericSetting(COV_LOWER_KEY, defaultCoverageLowerThreshold);
 }
 
 export function setCoverageUpperThreshold(val: number): void {
@@ -48,8 +72,9 @@ export function setCoverageLowerThreshold(val: number): void {
 }
 
 export function getCoverageRange(): number {
-  const val = Number(storage.getItem(COV_RANGE_KEY));
-  return Number.isFinite(val) ? val : defaultCoverageRange;
+  // A range of 0 collapses the coverage y-scale and blanks the chart, so an
+  // unset/invalid/non-positive value must fall back to the default.
+  return readNumericSetting(COV_RANGE_KEY, defaultCoverageRange, { positive: true });
 }
 
 export function setCoverageRange(val: number): void {
