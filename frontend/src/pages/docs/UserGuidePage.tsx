@@ -658,57 +658,31 @@ const WorkspaceLinkRow: React.FC<{ links: GuideLink[] }> = ({ links }) => (
 
 const UserGuidePage: React.FC = () => (
   <div className="page-shell content-shell user-guide-page">
-    <section className="surface-card page-top-card">
-      <div className="space-y-4">
-        <div className="space-y-3">
-          <p className="page-kicker">Documentation</p>
-          <h1 className="catalog-card-title">CoGA user guide</h1>
-          <p className="catalog-card-copy">
-            An in-app manual for analysts and administrators. It follows the clinical-genomics
-            workflow — orient, capture phenotype, prioritise, interpret, put in cohort context, and
-            visualise — and maps each step to the page that does the job.
-          </p>
-        </div>
-        <div className="user-guide-summary-row">
-          <span className="badge-chip">Phenotype-driven</span>
-          <span className="badge-chip">Family-based review</span>
-          <span className="badge-chip">Evidence + ACMG</span>
-          <span className="badge-chip">Cohort context</span>
-        </div>
-      </div>
-    </section>
+    <header className="user-guide-hero">
+      <p className="page-kicker">Documentation</p>
+      <h1 className="user-guide-title">CoGA user guide</h1>
+      <p className="user-guide-lede">
+        An in-app manual for analysts and administrators. It follows the clinical-genomics workflow
+        — orient, capture phenotype, prioritise, interpret, put in cohort context, and visualise —
+        and maps each step to the page that does the job.
+      </p>
+    </header>
 
-    <section className="surface-card">
-      <div className="space-y-4">
-        <div>
-          <p className="page-kicker">Capabilities</p>
-          <h2 className="section-title">What you can do in CoGA</h2>
-          <p className="section-copy">
-            CoGA is strongest as one integrated review environment rather than a set of isolated
-            tables.
-          </p>
-        </div>
-        <div className="user-guide-highlight-grid">
-          {guideHighlights.map((highlight) => (
-            <article key={highlight.title} className="user-guide-highlight-card">
-              <p className="user-guide-highlight-title">{highlight.title}</p>
-              <p className="user-guide-highlight-copy">{highlight.description}</p>
-            </article>
-          ))}
-        </div>
+    <section className="user-guide-highlights" aria-label="Capabilities">
+      <p className="user-guide-eyebrow">What you can do in CoGA</p>
+      <div className="user-guide-highlight-grid">
+        {guideHighlights.map((highlight) => (
+          <div key={highlight.title} className="user-guide-highlight">
+            <p className="user-guide-highlight-title">{highlight.title}</p>
+            <p className="user-guide-highlight-copy">{highlight.description}</p>
+          </div>
+        ))}
       </div>
     </section>
 
     <div className="user-guide-layout">
-      <aside id="user-guide-contents" className="surface-card user-guide-toc-card">
-        <div className="space-y-3">
-          <p className="page-kicker">Contents</p>
-          <h2 className="section-title">Jump by workflow</h2>
-          <p className="section-copy">
-            Jump to orientation, setup, phenotype, prioritisation, interpretation, cohort context,
-            viewers, or administration.
-          </p>
-        </div>
+      <aside id="user-guide-contents" className="user-guide-toc">
+        <p className="user-guide-eyebrow">On this page</p>
         <nav aria-label="User guide contents">
           <ol className="user-guide-toc-list">
             {guideSections.map((section, index) => (
@@ -716,7 +690,6 @@ const UserGuidePage: React.FC = () => (
                 <a href={`#${section.id}`} className="user-guide-toc-link">
                   <span className="user-guide-toc-index">{formatSectionIndex(index)}</span>
                   <span className="user-guide-toc-title">{section.title}</span>
-                  <span className="user-guide-toc-summary">{section.summary}</span>
                 </a>
               </li>
             ))}
@@ -726,18 +699,16 @@ const UserGuidePage: React.FC = () => (
 
       <div className="user-guide-content">
         {guideSections.map((section, index) => (
-          <section key={section.id} id={section.id} className="surface-card user-guide-section-card">
+          <section key={section.id} id={section.id} className="user-guide-section">
             <div className="user-guide-section-header">
-              <div className="user-guide-section-lead">
-                <span className="user-guide-section-index">{formatSectionIndex(index)}</span>
-                <h2 className="section-title">{section.title}</h2>
-                <p className="user-guide-section-summary">{section.summary}</p>
-              </div>
+              <span className="user-guide-section-index">{formatSectionIndex(index)}</span>
+              <h2 className="user-guide-section-title">{section.title}</h2>
+              <p className="user-guide-section-summary">{section.summary}</p>
             </div>
             {section.quickLinks?.length ? <WorkspaceLinkRow links={section.quickLinks} /> : null}
             <div className="content-prose user-guide-section-prose">{section.content}</div>
             <a href="#user-guide-contents" className="subtle-link user-guide-backlink">
-              Back to contents
+              Back to top
             </a>
           </section>
         ))}
