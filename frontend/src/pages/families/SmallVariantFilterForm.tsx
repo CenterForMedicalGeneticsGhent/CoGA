@@ -46,6 +46,12 @@ type SmallVariantFilterFormProps = Pick<
     tone: 'error' | 'success';
     message: string;
   } | null;
+  /**
+   * When false, family/sample-specific controls (inheritance, per-sample
+   * genotype/QC, pedigree-derived presets) are hidden. Used by the family-
+   * agnostic Global Small Variant Explorer. Defaults to true.
+   */
+  familyAware?: boolean;
 };
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
@@ -162,6 +168,7 @@ const SmallVariantFilterForm = ({
   onSaveCurrentPreset,
   savingPreset = false,
   feedback = null,
+  familyAware = true,
 }: SmallVariantFilterFormProps) => {
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
@@ -756,44 +763,48 @@ const SmallVariantFilterForm = ({
       <div className="variant-search-header">
         <div className="variant-search-meta">
           <div className="variant-search-toolbar">
-            <select
-              aria-label="Preset or saved search"
-              value={selectedQuickPreset}
-              onChange={(event) => setSelectedQuickPreset(event.target.value)}
-            >
-              <option value="">Preset or saved search</option>
-              <optgroup label="Built-in presets">
-                {availableBuiltInPresets.map((preset) => (
-                  <option key={preset.value} value={`built-in:${preset.value}`}>
-                    {preset.label}
-                  </option>
-                ))}
-              </optgroup>
-              {presets.length ? (
-                <optgroup label="Saved searches">
-                  {presets.map((preset) => (
-                    <option key={preset._id} value={`saved:${preset._id}`}>
-                      {preset.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-            </select>
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={!selectedQuickPreset}
-              onClick={applySelectedQuickPreset}
-            >
-              Apply selection
-            </button>
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => setSaveOpen((current) => !current)}
-            >
-              {saveOpen ? 'Close save' : 'Save current'}
-            </button>
+            {familyAware ? (
+              <>
+                <select
+                  aria-label="Preset or saved search"
+                  value={selectedQuickPreset}
+                  onChange={(event) => setSelectedQuickPreset(event.target.value)}
+                >
+                  <option value="">Preset or saved search</option>
+                  <optgroup label="Built-in presets">
+                    {availableBuiltInPresets.map((preset) => (
+                      <option key={preset.value} value={`built-in:${preset.value}`}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {presets.length ? (
+                    <optgroup label="Saved searches">
+                      {presets.map((preset) => (
+                        <option key={preset._id} value={`saved:${preset._id}`}>
+                          {preset.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  disabled={!selectedQuickPreset}
+                  onClick={applySelectedQuickPreset}
+                >
+                  Apply selection
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => setSaveOpen((current) => !current)}
+                >
+                  {saveOpen ? 'Close save' : 'Save current'}
+                </button>
+              </>
+            ) : null}
             <button type="button" className="button-secondary" onClick={handleReset}>
               Clear all filters
             </button>
@@ -872,6 +883,7 @@ const SmallVariantFilterForm = ({
 
       <section className="variant-search-section">
         <div className="variant-filter-dropdown-grid">
+          {familyAware ? (
           <details
             className="variant-filter-dropdown"
             open={openSections.inheritance}
@@ -1060,6 +1072,7 @@ const SmallVariantFilterForm = ({
               </div>
             </div>
           </details>
+          ) : null}
 
           <details
             className="variant-filter-dropdown"
