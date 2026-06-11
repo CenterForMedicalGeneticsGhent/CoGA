@@ -19,7 +19,7 @@
 ## Backend Guidelines
 - Postgres and ClickHouse connection utilities live under `backend/app/core/`.
 - The backend uses SQLAlchemy async sessions for Postgres metadata and direct ClickHouse clients for variant storage.
-- Routers exist for auth, families, variants, pedigree (`ped`), BED, repeat expansions, and reference data; new endpoints should follow this pattern and use the appropriate storage dependency.
+- Routers exist for auth, families (small/structural variants, variant summary, repeat expansions, Paraphase, mtDNA), the cross-project variant explorer (`variant_explorer`), genes/HPO/panels, pedigree (`ped`), BED, family package imports, projects/assemblies/species, admin, and reference data; new endpoints should follow this pattern and use the appropriate storage dependency.
 - Mount routers in `main.py`, configure CORS, and include security utilities (password hashing, JWT verification, `get_current_user`).
 
 ## Database Schema

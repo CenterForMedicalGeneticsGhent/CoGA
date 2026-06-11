@@ -20,6 +20,8 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
 
 ## Also Useful
 
+- [Family Member Management](family-member-management.md)
+  - How phenotype/carrier/structure edits propagate, what is preserved versus marked stale, and the batch-update flow.
 - [Demo Quartet Walkthrough](../demo/quartet_family/README.md)
   - File inventory and usage notes for the bundled synthetic family dataset.
 
