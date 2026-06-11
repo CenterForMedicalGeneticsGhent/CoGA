@@ -7,7 +7,7 @@ import api from '../../../lib/api';
 import { AUTH_STORAGE_KEYS } from '../../../lib/auth';
 import { storage } from '../../../lib/storage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import FamilyIntakePage from '../FamilyIntakePage';
+import PackageImportPage from '../PackageImportPage';
 
 vi.mock('../../../lib/api', () => ({
   default: {
@@ -57,169 +57,37 @@ vi.mock('../../../lib/api', () => ({
   },
 }));
 
-const renderFamilyIntakePage = () => {
+const renderPage = () => {
   const queryClient = createTestQueryClient();
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <FamilyIntakePage />
+        <PackageImportPage />
       </MemoryRouter>
     </QueryClientProvider>
   );
 };
 
-describe('FamilyIntakePage', () => {
+describe('PackageImportPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (api.post as any).mockReset();
     storage.clear();
+    storage.setItem(AUTH_STORAGE_KEYS.role, 'admin');
   });
 
-  it('renders the dedicated intake workspace with a dashboard back link', () => {
-    renderFamilyIntakePage();
+  it('renders the package import workspace with a dashboard back link', () => {
+    renderPage();
 
-    expect(screen.getByRole('heading', { name: /family intake/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Package Import', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /folder package/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /back to dashboard/i })).toHaveAttribute(
       'href',
       '/dashboard'
     );
   });
 
-  it('submits the manual family builder and renders the pedigree sketch', async () => {
-    (api.post as any).mockResolvedValue({
-      data: {
-        families: [{ family_id: 'FAM-100', samples: ['PROB-1'] }],
-      },
-    });
-
-    renderFamilyIntakePage();
-
-    await waitFor(() =>
-      expect(screen.getAllByLabelText(/^project$/i)[0]).toHaveValue(
-        '11111111-1111-1111-1111-111111111111'
-      )
-    );
-
-    fireEvent.change(screen.getByLabelText(/family id/i), {
-      target: { value: 'FAM-100' },
-    });
-    fireEvent.change(screen.getByLabelText(/sample id/i), {
-      target: { value: 'PROB-1' },
-    });
-    fireEvent.click(screen.getByLabelText(/^affected$/i));
-    fireEvent.click(screen.getByLabelText(/^carrier$/i));
-    fireEvent.change(screen.getByLabelText(/carrier type/i), {
-      target: { value: 'obligate' },
-    });
-
-    await waitFor(() => {
-      const sketch = screen.getByTestId('pedigree-sketch');
-      expect(sketch.querySelector('svg')).not.toBeNull();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: /create family/i }));
-
-    await waitFor(() =>
-      expect(api.post).toHaveBeenCalledWith('/ped/manual', {
-        family_id: 'FAM-100',
-        project_id: '11111111-1111-1111-1111-111111111111',
-        members: [
-          {
-            sample_id: 'PROB-1',
-            father_id: null,
-            mother_id: null,
-            sex: 'und',
-            clinical_status: 'unaffected',
-            affected: false,
-            is_proband: true,
-            carrier_status: 'carrier',
-            carrier_type: 'obligate',
-          },
-        ],
-        couples: [],
-      })
-    );
-
-    expect(
-      screen.getByText(/created fam-100 with 1 sample.*accessible project/i)
-    ).toBeInTheDocument();
-  });
-
-  it('submits explicit partner relationships from the manual builder', async () => {
-    (api.post as any).mockResolvedValue({
-      data: {
-        families: [{ family_id: 'FAM-COUPLE', samples: ['PARTNER-F', 'PARTNER-M'] }],
-      },
-    });
-
-    renderFamilyIntakePage();
-
-    await waitFor(() =>
-      expect(screen.getAllByLabelText(/^project$/i)[0]).toHaveValue(
-        '11111111-1111-1111-1111-111111111111'
-      )
-    );
-
-    fireEvent.change(screen.getByLabelText(/family id/i), {
-      target: { value: 'FAM-COUPLE' },
-    });
-    fireEvent.change(screen.getByLabelText(/sample id/i), {
-      target: { value: 'PARTNER-F' },
-    });
-    fireEvent.change(screen.getByLabelText(/^sex$/i), {
-      target: { value: 'female' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /add father/i }));
-    fireEvent.change(screen.getAllByLabelText(/sample id/i)[1], {
-      target: { value: 'PARTNER-M' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /add couple/i }));
-    fireEvent.change(screen.getByLabelText(/^context$/i), {
-      target: { value: 'ECS' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /create family/i }));
-
-    await waitFor(() =>
-      expect(api.post).toHaveBeenCalledWith('/ped/manual', {
-        family_id: 'FAM-COUPLE',
-        project_id: '11111111-1111-1111-1111-111111111111',
-        members: [
-          {
-            sample_id: 'PARTNER-F',
-            father_id: null,
-            mother_id: null,
-            sex: 'female',
-            clinical_status: 'affected',
-            affected: true,
-            is_proband: true,
-            carrier_status: 'not_carrier',
-            carrier_type: null,
-          },
-          {
-            sample_id: 'PARTNER-M',
-            father_id: null,
-            mother_id: null,
-            sex: 'male',
-            clinical_status: 'unaffected',
-            affected: false,
-            is_proband: false,
-            carrier_status: 'not_carrier',
-            carrier_type: null,
-          },
-        ],
-        couples: [
-          {
-            partners: ['PARTNER-M', 'PARTNER-F'],
-            context: 'ECS',
-            metadata: {},
-          },
-        ],
-      })
-    );
-  });
-
   it('starts an admin package dry run from a folder path', async () => {
-    storage.setItem(AUTH_STORAGE_KEYS.role, 'admin');
     (api.post as any).mockResolvedValue({
       data: {
         _id: 'job-1',
@@ -236,9 +104,8 @@ describe('FamilyIntakePage', () => {
       },
     });
 
-    renderFamilyIntakePage();
+    renderPage();
 
-    expect(screen.getByRole('heading', { name: /folder package/i })).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getAllByLabelText(/^project$/i)[0]).toHaveValue(
         '11111111-1111-1111-1111-111111111111'
@@ -263,7 +130,6 @@ describe('FamilyIntakePage', () => {
   });
 
   it('discovers and writes a manifest draft for admins', async () => {
-    storage.setItem(AUTH_STORAGE_KEYS.role, 'admin');
     (api.post as any).mockImplementation((url: string, payload: any) => {
       if (url === '/family-imports/manifest/discover') {
         return Promise.resolve({
@@ -312,7 +178,7 @@ describe('FamilyIntakePage', () => {
       return Promise.resolve({ data: payload });
     });
 
-    renderFamilyIntakePage();
+    renderPage();
 
     fireEvent.change(screen.getByLabelText(/family folder path/i), {
       target: { value: '/data/FAM-100' },
