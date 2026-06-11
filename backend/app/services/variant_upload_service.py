@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import gzip
@@ -55,6 +56,8 @@ SmallVariantFormat = Literal["auto", "clair3", "glimpse2"]
 StructuralVariantFormat = Literal["auto", "manual", "sniffles", "spectre"]
 SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS = 50
 SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN = 500_000
+SMALL_VARIANT_UPLOAD_BATCH_SIZE = 1_000
+SMALL_VARIANT_PROGRESS_INTERVAL = 10_000
 
 
 @dataclass(slots=True)
@@ -200,7 +203,7 @@ def _append_annotation(
 def _sqlite_annotation_lookup() -> VepAnnotationLookup:
     temp_file = tempfile.NamedTemporaryFile(prefix="coga-vep-", suffix=".sqlite3", delete=False)
     temp_file.close()
-    conn = sqlite3.connect(temp_file.name)
+    conn = sqlite3.connect(temp_file.name, check_same_thread=False)
     conn.execute(
         "CREATE TABLE annotations (key_type TEXT NOT NULL, key_value TEXT NOT NULL, annotation_json TEXT NOT NULL)"
     )
@@ -945,7 +948,10 @@ async def upload_family_small_variant_file(
 
     vep_annotations: VepAnnotationLookup | None = None
     if annotation_file is not None:
-        vep_annotations = _parse_vep_tsv_annotation_upload(annotation_file)
+        vep_annotations = await asyncio.to_thread(
+            _parse_vep_tsv_annotation_upload,
+            annotation_file,
+        )
     annotation_version = "vep_tsv" if vep_annotations is not None else "vcf_info"
     try:
         resolved_format = _detect_small_variant_format_from_upload(file, format_hint)
@@ -1013,7 +1019,7 @@ async def upload_family_small_variant_file(
                 annotation_version=annotation_version,
             )
             variant_batch.clear()
-            if progress is not None and inserted - last_reported >= 50000:
+            if progress is not None and inserted - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
                 last_reported = inserted
                 await progress(
                     {
@@ -1244,7 +1250,7 @@ async def upload_family_small_variant_file(
                 )
             )
             inserted += 1
-            if len(variant_batch) >= 5000:
+            if len(variant_batch) >= SMALL_VARIANT_UPLOAD_BATCH_SIZE:
                 await flush_variant_batch()
 
         if inserted == 0:
@@ -1294,7 +1300,7 @@ async def upload_family_small_variant_file(
             "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
             "annotation_source": "vep_tsv" if vep_annotations else None,
             "annotation_version": annotation_version,
-            "insert_batch_size": 5000,
+            "insert_batch_size": SMALL_VARIANT_UPLOAD_BATCH_SIZE,
         }
         if progress is not None:
             await progress(result)

@@ -33,6 +33,11 @@ _VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
 _DEFAULT_SMALL_ANNOTATION_VERSION = "current"
 _SMALL_GT_REF = {"0/0", "0|0"}
 _SMALL_GT_MISSING = {"./.", ".|.", "", "."}
+_SMALL_VARIANT_DETAIL_INSERT_ROWS = 1_000
+_SMALL_VARIANT_ENTRY_INSERT_ROWS = 2_000
+_SMALL_VARIANT_ANNOTATION_INSERT_ROWS = 5_000
+_SMALL_VARIANT_INDEX_INSERT_ROWS = 2_000
+_SMALL_VARIANT_GENE_INDEX_INSERT_ROWS = 10_000
 _ensured_variant_table_assemblies: set[str] = set()
 _ensure_variant_tables_lock = asyncio.Lock()
 
@@ -663,6 +668,23 @@ async def _execute(query: str, params: dict[str, Any] | None = None, data: Seque
     return await execute_clickhouse(query, params or {})
 
 
+def _row_chunks(rows: Sequence[tuple[Any, ...]], size: int) -> Iterable[Sequence[tuple[Any, ...]]]:
+    if size <= 0:
+        raise ValueError("ClickHouse insert chunk size must be positive")
+    for offset in range(0, len(rows), size):
+        yield rows[offset : offset + size]
+
+
+async def _execute_insert_chunks(
+    query: str,
+    rows: Sequence[tuple[Any, ...]],
+    *,
+    chunk_size: int,
+) -> None:
+    for chunk in _row_chunks(rows, chunk_size):
+        await _execute(query, data=chunk)
+
+
 async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
     dataset = _require_clickhouse_identifier(assembly_name)
     if dataset in _ensured_variant_table_assemblies:
@@ -1074,7 +1096,7 @@ async def insert_small_variant_records(
         annotation_version=annotation_version,
     )
     if detail_rows:
-        await _execute(
+        await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'variants/details')} (
                 key,
@@ -1091,10 +1113,11 @@ async def insert_small_variant_records(
                 liftedOverPos
             ) VALUES
             """,
-            data=detail_rows,
+            detail_rows,
+            chunk_size=_SMALL_VARIANT_DETAIL_INSERT_ROWS,
         )
     if entry_rows:
-        await _execute(
+        await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'entries')} (
                 key,
@@ -1126,10 +1149,11 @@ async def insert_small_variant_records(
                 sign
             ) VALUES
             """,
-            data=entry_rows,
+            entry_rows,
+            chunk_size=_SMALL_VARIANT_ENTRY_INSERT_ROWS,
         )
     if annotation_rows:
-        await _execute(
+        await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'variants/annotations')} (
                 key,
@@ -1168,10 +1192,11 @@ async def insert_small_variant_records(
                 polyphen
             ) VALUES
             """,
-            data=annotation_rows,
+            annotation_rows,
+            chunk_size=_SMALL_VARIANT_ANNOTATION_INSERT_ROWS,
         )
     if annotation_index_rows:
-        await _execute(
+        await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'variants/annotation_index')} (
                 key,
@@ -1210,10 +1235,11 @@ async def insert_small_variant_records(
                 polyphen_terms
             ) VALUES
             """,
-            data=annotation_index_rows,
+            annotation_index_rows,
+            chunk_size=_SMALL_VARIANT_INDEX_INSERT_ROWS,
         )
     if annotation_gene_index_rows:
-        await _execute(
+        await _execute_insert_chunks(
             f"""
             INSERT INTO {_small_table_name(assembly_name, 'variants/gene_index')} (
                 key,
@@ -1227,7 +1253,8 @@ async def insert_small_variant_records(
                 alt
             ) VALUES
             """,
-            data=annotation_gene_index_rows,
+            annotation_gene_index_rows,
+            chunk_size=_SMALL_VARIANT_GENE_INDEX_INSERT_ROWS,
         )
 
 

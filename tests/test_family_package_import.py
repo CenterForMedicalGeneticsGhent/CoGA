@@ -9,7 +9,7 @@ import yaml
 
 from backend.app.services import clickhouse_family_variants as family_variants
 from backend.app.services import family_package_import as package_import
-from backend.app.schemas import FamilyPackageManifestBuildRequest
+from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.metadata_service import CurrentUser
@@ -932,3 +932,72 @@ async def test_successful_minimal_import_registers_family(monkeypatch: pytest.Mo
     assert result.completed is True
     assert result.family_id == "FAM001"
     assert calls == [("FAM001", "project-uuid")]
+
+
+@pytest.mark.asyncio
+async def test_package_import_continues_after_dataset_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+
+    async def fake_ensure_family_from_ped(session, *, bundle, project_id, user, validation, conflict_mode="cancel"):
+        return FamilyMetadataContext(
+            family_uuid="family-uuid",
+            family_id=validation.family_id or "",
+            project_ids=[project_id or "project-uuid"],
+            sample_rows=[
+                {
+                    "sample_uuid": "sample-1",
+                    "sample_id": "S1",
+                    "sex": "male",
+                    "role": "proband",
+                    "affected": True,
+                }
+            ],
+            sample_uuid_to_name={"sample-1": "S1"},
+            sample_name_to_uuid={"S1": "sample-1"},
+            affected_sample_names=["S1"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+
+    snv_summary = FamilyImportDatasetSummary(dataset_type="snv", status="valid")
+    repeats_summary = FamilyImportDatasetSummary(dataset_type="repeats_trgt", status="valid")
+    imported: list[str] = []
+
+    def fake_enabled_dataset_summaries(_validation):
+        return [snv_summary, repeats_summary]
+
+    async def fake_import_dataset(session, *, summary, **_kwargs):
+        imported.append(summary.dataset_type)
+        if summary.dataset_type == "snv":
+            raise RuntimeError("ClickHouse insert failed")
+        return summary.model_copy(update={"status": "imported", "message": "ok"})
+
+    class FakeSession:
+        rollbacks = 0
+
+        async def rollback(self) -> None:
+            self.rollbacks += 1
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
+    monkeypatch.setattr(package_import, "_enabled_dataset_summaries", fake_enabled_dataset_summaries)
+    monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
+
+    result = await package_import.execute_family_package_import(
+        FakeSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=_current_admin(),
+    )
+
+    statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
+    assert result.completed is True
+    assert result.error is None
+    assert imported == ["snv", "repeats_trgt"]
+    assert statuses["snv"] == "failed"
+    assert statuses["repeats_trgt"] == "imported"
+    assert "completed with failed dataset(s): snv" in result.logs[-1]

@@ -75,4 +75,7 @@ def test_small_variant_presence_filters_default_to_non_reference_genotypes() -> 
 
 
 def test_small_variant_presence_filters_preserve_explicit_sample_filter() -> None:
-    assert _small_variant_presence_filters("son", ["mother:0/1", "son:1/1"]) == ["son:1/1"]
+    assert _small_variant_presence_filters("son", ["mother:0/1", "son:1/1"]) == [
+        "mother:0/1",
+        "son:1/1",
+    ]

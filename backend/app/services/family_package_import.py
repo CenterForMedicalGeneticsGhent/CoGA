@@ -47,6 +47,7 @@ from .clickhouse_variant_storage import (
     build_structural_variant_id,
     count_family_small_variants,
     count_family_structural_variants,
+    delete_family_small_variants,
     replace_family_structural_variants,
 )
 from .data_scope import normalize_chromosome
@@ -426,6 +427,32 @@ ProgressCallback = Callable[
     Awaitable[None],
 ]
 DatasetProgressCallback = Callable[[FamilyImportDatasetSummary], Awaitable[None]]
+
+
+async def _run_with_periodic_progress(
+    work: Awaitable[Any],
+    *,
+    report: Callable[[dict[str, Any]], Awaitable[None]] | None,
+    stats: dict[str, Any],
+    interval_seconds: float = 60.0,
+) -> Any:
+    if report is None:
+        return await work
+    task = asyncio.create_task(work)
+    try:
+        while True:
+            done, _pending = await asyncio.wait({task}, timeout=interval_seconds)
+            if task in done:
+                return await task
+            try:
+                await report({**stats, "stage": "running"})
+            except Exception:  # pragma: no cover
+                logger.exception("Family package import heartbeat progress update failed")
+    finally:
+        if not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 def _issue(
@@ -5180,19 +5207,21 @@ async def _import_snv_dataset(
             )
     source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
     annotation_path = _resolve_package_path(bundle.root, dataset.annotation_tsv)
+    progress_lock = asyncio.Lock()
 
     async def report_snv_progress(stats: dict[str, Any]) -> None:
         if progress is None:
             return
-        await progress(
-            summary.model_copy(
-                update={
-                    "status": "running",
-                    "message": "Importing SNV VCF and VEP annotations",
-                    "summary": stats,
-                }
+        async with progress_lock:
+            await progress(
+                summary.model_copy(
+                    update={
+                        "status": "running",
+                        "message": "Importing SNV VCF and VEP annotations",
+                        "summary": stats,
+                    }
+                )
             )
-        )
 
     if progress is not None:
         await report_snv_progress(
@@ -5203,22 +5232,22 @@ async def _import_snv_dataset(
             }
         )
 
-    if annotation_path is not None:
+    async def run_upload() -> dict[str, Any]:
+        if annotation_path is not None:
+            async with _local_upload(vcf_path) as upload:
+                async with _local_upload(annotation_path) as annotation_upload:
+                    return await upload_family_small_variant_file(
+                        session,
+                        context=family_context,
+                        sample_contexts=sample_contexts,
+                        file=upload,
+                        annotation_file=annotation_upload,
+                        overwrite=True,
+                        format_hint=source_format,  # type: ignore[arg-type]
+                        progress=report_snv_progress,
+                    )
         async with _local_upload(vcf_path) as upload:
-            async with _local_upload(annotation_path) as annotation_upload:
-                result = await upload_family_small_variant_file(
-                    session,
-                    context=family_context,
-                    sample_contexts=sample_contexts,
-                    file=upload,
-                    annotation_file=annotation_upload,
-                    overwrite=True,
-                    format_hint=source_format,  # type: ignore[arg-type]
-                    progress=report_snv_progress,
-                )
-    else:
-        async with _local_upload(vcf_path) as upload:
-            result = await upload_family_small_variant_file(
+            return await upload_family_small_variant_file(
                 session,
                 context=family_context,
                 sample_contexts=sample_contexts,
@@ -5227,6 +5256,35 @@ async def _import_snv_dataset(
                 format_hint=source_format,  # type: ignore[arg-type]
                 progress=report_snv_progress,
             )
+
+    try:
+        result = await _run_with_periodic_progress(
+            run_upload(),
+            report=report_snv_progress if progress is not None else None,
+            stats={
+                "family_vcf": _display_path(bundle.root, vcf_path),
+                "annotation_tsv": _display_path(bundle.root, annotation_path) if annotation_path else None,
+            },
+        )
+    except Exception:
+        with suppress(Exception):
+            await delete_family_small_variants(
+                family_context.assembly_name,
+                family_context.family_uuid,
+            )
+        with suppress(Exception):
+            await delete_interval_tracks(
+                family_context.assembly_name,
+                family_uuid=family_context.family_uuid,
+                track_type="haplotype",
+            )
+        with suppress(Exception):
+            await delete_interval_track_sources(
+                session,
+                family_uuid=family_context.family_uuid,
+                track_type="haplotype",
+            )
+        raise
     return summary.model_copy(
         update={
             "status": "imported",
@@ -5281,30 +5339,60 @@ async def _import_haplotypes_dataset(
                 }
             )
 
+    progress_lock = asyncio.Lock()
+
     async def report_haplotype_progress(stats: dict[str, Any]) -> None:
         if progress is None:
             return
-        await progress(
-            summary.model_copy(
-                update={
-                    "status": "running",
-                    "message": "Importing GLIMPSE2 VCF and haplotype blocks",
-                    "summary": stats,
-                }
+        async with progress_lock:
+            await progress(
+                summary.model_copy(
+                    update={
+                        "status": "running",
+                        "message": "Importing GLIMPSE2 VCF and haplotype blocks",
+                        "summary": stats,
+                    }
+                )
             )
-        )
 
-    async with _local_upload(vcf_path) as upload:
-        result = await upload_family_small_variant_file(
-            session,
-            context=family_context,
-            sample_contexts=sample_contexts,
-            file=upload,
-            annotation_file=None,
-            overwrite=True,
-            format_hint="glimpse2",
-            progress=report_haplotype_progress,
+    async def run_upload() -> dict[str, Any]:
+        async with _local_upload(vcf_path) as upload:
+            return await upload_family_small_variant_file(
+                session,
+                context=family_context,
+                sample_contexts=sample_contexts,
+                file=upload,
+                annotation_file=None,
+                overwrite=True,
+                format_hint="glimpse2",
+                progress=report_haplotype_progress,
+            )
+
+    try:
+        result = await _run_with_periodic_progress(
+            run_upload(),
+            report=report_haplotype_progress if progress is not None else None,
+            stats={"family_vcf": _display_path(bundle.root, vcf_path)},
         )
+    except Exception:
+        with suppress(Exception):
+            await delete_family_small_variants(
+                family_context.assembly_name,
+                family_context.family_uuid,
+            )
+        with suppress(Exception):
+            await delete_interval_tracks(
+                family_context.assembly_name,
+                family_uuid=family_context.family_uuid,
+                track_type="haplotype",
+            )
+        with suppress(Exception):
+            await delete_interval_track_sources(
+                session,
+                family_uuid=family_context.family_uuid,
+                track_type="haplotype",
+            )
+        raise
     return summary.model_copy(
         update={
             "status": "imported",
@@ -5946,6 +6034,7 @@ async def _import_dataset(
             family_context=family_context,
             sample_contexts=sample_contexts,
             conflict_mode=conflict_mode,
+            progress=progress,
         )
     if summary.dataset_type == "wisecondorx":
         return await _import_wisecondorx_dataset(
@@ -6161,11 +6250,19 @@ async def execute_family_package_import(
             logs.append(f"Dataset {summary.dataset_type} failed: {exc}")
             if progress is not None:
                 await progress(validation, datasets, logs, family_context.family_id)
-            raise
+            continue
         if progress is not None:
             await progress(validation, datasets, logs, family_context.family_id)
 
-    logs.append("Family package import completed.")
+    failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
+    if failed_datasets:
+        logs.append(
+            "Family package import completed with failed dataset(s): "
+            + ", ".join(failed_datasets)
+            + "."
+        )
+    else:
+        logs.append("Family package import completed.")
     return PackageExecutionResult(
         validation=validation,
         datasets=datasets,
@@ -6217,16 +6314,20 @@ async def run_family_import_job(
                 and not bool(job_row["dry_run"])
                 else None
             )
-            await _update_job_progress(
-                session,
-                job_id=job_id,
-                worker_id=worker_id,
-                status=next_status,
-                family_id=family_id,
-                validation=validation,
-                datasets=datasets,
-                logs=logs,
-            )
+            try:
+                async with session_factory() as progress_session:
+                    await _update_job_progress(
+                        progress_session,
+                        job_id=job_id,
+                        worker_id=worker_id,
+                        status=next_status,
+                        family_id=family_id,
+                        validation=validation,
+                        datasets=datasets,
+                        logs=logs,
+                    )
+            except Exception:  # pragma: no cover
+                logger.exception("Family package import progress update failed")
 
         try:
             user = await get_current_user_by_email(session, str(job_row["requested_by"]))
