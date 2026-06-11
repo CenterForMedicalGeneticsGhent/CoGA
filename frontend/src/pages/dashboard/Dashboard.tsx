@@ -32,6 +32,9 @@ const Dashboard: React.FC = () => {
           <Link to="/genes" className="button-secondary hover:no-underline">
             Gene explorer
           </Link>
+          <Link to="/variant-explorer" className="button-secondary hover:no-underline">
+            Variant explorer
+          </Link>
           <Link to="/panels" className="button-secondary hover:no-underline">
             Panel catalog
           </Link>

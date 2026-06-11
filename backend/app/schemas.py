@@ -1264,6 +1264,93 @@ class VariantPage(BaseModel):
     small_variant_summary: Optional[SmallVariantSummaryOut] = None
 
 
+# --- Global Small Variant Explorer (variant-centric, cross-project aggregation) ---
+
+
+class VariantExplorerAssemblyOut(BaseModel):
+    """An assembly available to the user in the Global Small Variant Explorer."""
+
+    assembly_id: str
+    assembly_name: str
+    version: Optional[str] = None
+    species_name: Optional[str] = None
+    project_count: int = 0
+
+
+class GlobalVariantRowOut(BaseModel):
+    """One unique variant aggregated across every project the user can access.
+
+    ``key`` is the ClickHouse UInt64 variant key serialised as a string to avoid
+    JavaScript precision loss on the frontend.
+    """
+
+    key: str
+    variant_id: str
+    chr: str
+    pos: int
+    ref: Optional[str] = None
+    alt: Optional[str] = None
+    rsid: Optional[str] = None
+    type: str = "SNV"
+    gene: Optional[str] = None
+    gene_symbols: List[str] = Field(default_factory=list)
+    impact: Optional[str] = None
+    consequence: Optional[str] = None
+    effects: List[str] = Field(default_factory=list)
+    hgvsc: Optional[str] = None
+    hgvsp: Optional[str] = None
+    clinvar: Optional[str] = None
+    classification: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    total_samples: int = 0
+    het_samples: int = 0
+    hom_samples: int = 0
+    total_families: int = 0
+    last_seen: Optional[datetime] = None
+
+
+class GlobalVariantPageOut(BaseModel):
+    total: int
+    total_is_estimated: bool = False
+    page: int = 1
+    page_size: int = 50
+    assembly_id: Optional[str] = None
+    assembly_name: Optional[str] = None
+    variants: List[GlobalVariantRowOut] = Field(default_factory=list)
+
+
+class VariantCarrierSampleOut(BaseModel):
+    sample_id: str
+    individual_name: Optional[str] = None
+    role: Optional[str] = None
+    genotype: str
+    zygosity: str
+    family_id: str
+    family_uuid: str
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    phenotype_summary: Optional[str] = None
+
+
+class VariantCarrierFamilyGroupOut(BaseModel):
+    family_id: str
+    family_uuid: str
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    carrier_count: int = 0
+    samples: List[VariantCarrierSampleOut] = Field(default_factory=list)
+
+
+class VariantCarriersOut(BaseModel):
+    key: str
+    variant_id: Optional[str] = None
+    total_families: int = 0
+    total_samples: int = 0
+    het_samples: int = 0
+    hom_samples: int = 0
+    families: List[VariantCarrierFamilyGroupOut] = Field(default_factory=list)
+
+
 class VariantLengthOut(BaseModel):
     """Length of a variant with optional type and source annotations."""
 

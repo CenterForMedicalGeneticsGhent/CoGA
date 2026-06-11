@@ -22,6 +22,7 @@ from . import (
     family_imports,
     product,
     hpo,
+    variant_explorer,
 )
 
 all_routers = [
@@ -46,6 +47,7 @@ all_routers = [
     family_imports.router,
     product.router,
     hpo.router,
+    variant_explorer.router,
 ]
 
 __all__ = ["all_routers"]

@@ -52,6 +52,9 @@ const FamilyMitoDNAAnalysisPage = lazy(
   () => import('./pages/families/FamilyMitoDNAAnalysisPage')
 );
 const GeneInfoPage = lazy(() => import('./pages/genes/GeneInfoPage'));
+const GlobalSmallVariantExplorerPage = lazy(
+  () => import('./pages/variant-explorer/GlobalSmallVariantExplorerPage'),
+);
 const HpoTermsPage = lazy(() => import('./pages/phenotypes/HpoTermsPage'));
 const GenePanelsPage = lazy(() => import('./pages/panels/GenePanelsPage'));
 const GenePanelDetailPage = lazy(
@@ -177,6 +180,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 element={routeElement(<FamilyIgvPage />)}
               />
               <Route path="/genes" element={routeElement(<GeneInfoPage />)} />
+              <Route
+                path="/variant-explorer"
+                element={routeElement(<GlobalSmallVariantExplorerPage />)}
+              />
               <Route path="/hpo" element={routeElement(<HpoTermsPage />)} />
               <Route
                 path="/settings"

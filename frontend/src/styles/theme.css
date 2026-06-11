@@ -8502,3 +8502,207 @@ a.button-danger:hover {
 .modal-actions {
   justify-content: flex-end;
 }
+
+/* --- Global Small Variant Explorer --- */
+.variant-explorer-assembly-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-explorer-assembly-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+/* Wider but subtle, low-weight assembly selector in the header card. */
+.variant-explorer-assembly-row select {
+  min-width: 24rem;
+  font-size: 0.78rem;
+  min-height: auto;
+  height: auto;
+  padding: 0.18rem 0.45rem;
+  border-color: var(--color-border, rgba(0, 0, 0, 0.12));
+  color: var(--color-secondary);
+}
+
+.variant-explorer-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.variant-explorer-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.variant-explorer-tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.variant-explorer-count-button {
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-explorer-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.variant-carrier-modal {
+  max-width: 640px;
+  width: 100%;
+}
+
+.variant-carrier-family-list,
+.variant-carrier-sample-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.variant-carrier-family {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+}
+
+.variant-carrier-family-header {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.variant-carrier-sample-list {
+  padding-left: 1rem;
+}
+
+.variant-carrier-sample {
+  padding: 0.15rem 0;
+}
+
+.variant-explorer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.5rem;
+  margin-top: 1rem;
+}
+
+.variant-explorer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--color-secondary);
+}
+
+.variant-explorer-genotype-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.7rem 0.95rem;
+}
+
+.variant-explorer-genotype-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.variant-explorer-genotype-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.variant-explorer-genotype-imputed {
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.variant-explorer-genotype-card select,
+.variant-explorer-genotype-card input[type='text'] {
+  font-size: 0.76rem;
+  min-height: auto;
+  height: auto;
+  padding: 0.12rem 0.35rem;
+}
+
+.variant-explorer-genotype-card input[type='text'] {
+  width: 11rem;
+  min-width: 11rem;
+}
+
+.variant-explorer-genotype-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.variant-explorer-genotype-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-explorer-genotype-row select {
+  width: auto;
+  min-width: 0;
+}
+
+.variant-explorer-genotype-sample {
+  min-width: 14rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-explorer-genotype-remove {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-secondary);
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+  min-height: auto;
+}
+
+.variant-explorer-genotype-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-explorer-genotype-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.button-secondary.variant-explorer-mini-button {
+  font-size: 0.74rem;
+  min-height: auto;
+  padding: 0.16rem 0.55rem;
+  border-radius: 6px;
+}

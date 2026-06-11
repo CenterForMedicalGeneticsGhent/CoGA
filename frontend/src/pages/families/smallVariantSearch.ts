@@ -451,7 +451,7 @@ const SINGLE_SAMPLE_FILTER_KEYS: Array<keyof SmallVariantSampleFilter> = [
   'ad_alt',
 ];
 
-const MULTI_VALUE_FILTER_KEYS = new Set<
+export const MULTI_VALUE_FILTER_KEYS = new Set<
   keyof SmallFilterState
 >([
   'impact',
@@ -463,13 +463,13 @@ const MULTI_VALUE_FILTER_KEYS = new Set<
   'review_tags',
 ]);
 
-const parseCommaSeparatedValues = (value: string) =>
+export const parseCommaSeparatedValues = (value: string) =>
   value
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
 
-const joinFilterValues = (values: Iterable<string>) =>
+export const joinFilterValues = (values: Iterable<string>) =>
   Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean))).join(', ');
 
 const cloneSingleSampleFilter = (
@@ -947,7 +947,7 @@ export const buildSmallVariantQueryParams = (
   return params;
 };
 
-const buildActiveFilterChips = (
+export const buildActiveFilterChips = (
   filters: SmallFilterState,
   members: FamilyMember[],
   sampleFilters: Record<string, SmallVariantSampleFilter>,
