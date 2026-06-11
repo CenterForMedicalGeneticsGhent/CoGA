@@ -354,10 +354,69 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
+  const buildVariantDataParams = () => {
+    const params = new URLSearchParams();
+    if (projectId) {
+      params.set('project_id', projectId);
+    }
+    const suffix = params.toString();
+    return suffix ? `?${suffix}` : '';
+  };
+
+  const { data: repeatTable } = useQuery<{ loci?: unknown[] }>({
+    queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
+    enabled: variantCountsReady,
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/repeat-expansions${buildVariantDataParams()}`);
+      return res.data as { loci?: unknown[] };
+    },
+  });
+
+  const { data: paraphaseTable } = useQuery<{ genes?: unknown[] }>({
+    queryKey: ['family', familyId, 'paraphase', 'has-data', projectId || null],
+    enabled: variantCountsReady,
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/paraphase${buildVariantDataParams()}`);
+      return res.data as { genes?: unknown[] };
+    },
+  });
+
+  const { data: mitoTable } = useQuery<{
+    variants?: unknown[];
+    samples?: Array<{ coverage?: { mean_depth?: number | null; source?: string | null } }>;
+  }>({
+    queryKey: ['family', familyId, 'mitochondrial-dna', 'has-data', projectId || null],
+    enabled: variantCountsReady,
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/mitochondrial-dna${buildVariantDataParams()}`);
+      return res.data as {
+        variants?: unknown[];
+        samples?: Array<{ coverage?: { mean_depth?: number | null; source?: string | null } }>;
+      };
+    },
+  });
+
   const hasVariants = (variantPage?.total ?? 0) > 0;
   const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0;
+  const hasRepeatExpansions = (repeatTable?.loci?.length ?? 0) > 0;
+  const hasParaphase = (paraphaseTable?.genes?.length ?? 0) > 0;
+  // mtDNA data is present when there are chrM variants or any sample carries
+  // mtDNA coverage (coverage-only families still have something to show).
+  const hasMitoDna =
+    (mitoTable?.variants?.length ?? 0) > 0 ||
+    (mitoTable?.samples ?? []).some(
+      (sample) => sample?.coverage?.source != null || sample?.coverage?.mean_depth != null,
+    );
+  const hasVariantSummary = hasVariants || hasSmallVariants;
+  const hasAnyVariantData =
+    hasVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;
   const variantCountsLoaded =
-    variantCountsReady && variantPage !== undefined && familyVariantPage !== undefined;
+    variantCountsReady &&
+    variantPage !== undefined &&
+    familyVariantPage !== undefined &&
+    repeatTable !== undefined &&
+    paraphaseTable !== undefined &&
+    mitoTable !== undefined;
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion },
@@ -1139,45 +1198,62 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           <div className="family-workspace-card-head">
             <h2 className="section-title">Variants</h2>
           </div>
-          <div className="compact-toolbar family-toolbar">
-            <Link
-              to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
-              className="button-secondary hover:no-underline"
-            >
-              Structural variants
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
-              className="button-secondary hover:no-underline"
-            >
-              Small variants
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/variant-summary`}
-              className="button-secondary hover:no-underline"
-            >
-              Variant summary
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/repeat-expansions`}
-              className="button-secondary hover:no-underline"
-            >
-              Repeat expansions
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/paraphase`}
-              className="button-secondary hover:no-underline"
-            >
-              Paraphase
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
-              className="button-secondary hover:no-underline"
-            >
-              mtDNA analysis
-            </Link>
-          </div>
-          {variantCountsLoaded && !hasVariants && !hasSmallVariants && (
+          {hasAnyVariantData && (
+            <div className="compact-toolbar family-toolbar">
+              {hasVariants && (
+                <Link
+                  to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
+                  className="button-secondary hover:no-underline"
+                >
+                  Structural variants
+                </Link>
+              )}
+              {hasSmallVariants && (
+                <Link
+                  to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
+                  className="button-secondary hover:no-underline"
+                >
+                  Small variants
+                </Link>
+              )}
+              {hasVariantSummary && (
+                <Link
+                  to={`/families/${data.family_id}/variant-summary`}
+                  className="button-secondary hover:no-underline"
+                >
+                  Variant summary
+                </Link>
+              )}
+              {hasRepeatExpansions && (
+                <Link
+                  to={`/families/${data.family_id}/repeat-expansions`}
+                  className="button-secondary hover:no-underline"
+                >
+                  Repeat expansions
+                </Link>
+              )}
+              {hasParaphase && (
+                <Link
+                  to={`/families/${data.family_id}/paraphase`}
+                  className="button-secondary hover:no-underline"
+                >
+                  Paraphase
+                </Link>
+              )}
+              {hasMitoDna && (
+                <Link
+                  to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
+                  className="button-secondary hover:no-underline"
+                >
+                  mtDNA analysis
+                </Link>
+              )}
+            </div>
+          )}
+          {!variantCountsLoaded && (
+            <p className="dashboard-link-note">Checking available family data…</p>
+          )}
+          {variantCountsLoaded && !hasAnyVariantData && (
             <p className="dashboard-link-note">No family variant data is loaded yet.</p>
           )}
         </article>
