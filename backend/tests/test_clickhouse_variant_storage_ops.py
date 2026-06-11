@@ -231,6 +231,72 @@ async def test_insert_small_variant_records_uses_compact_annotations_and_gene_in
 
 
 @pytest.mark.asyncio
+async def test_insert_small_variant_records_chunks_large_table_payloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, int]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(
+        query: str,
+        params: dict[str, object] | None = None,
+        data=None,
+    ):
+        assert data is not None
+        executed.append((query, len(data)))
+        return []
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage,
+        "ensure_clickhouse_variant_tables",
+        fake_ensure,
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+    monkeypatch.setattr(clickhouse_variant_storage, "_SMALL_VARIANT_DETAIL_INSERT_ROWS", 2)
+    monkeypatch.setattr(clickhouse_variant_storage, "_SMALL_VARIANT_ENTRY_INSERT_ROWS", 2)
+    monkeypatch.setattr(clickhouse_variant_storage, "_SMALL_VARIANT_ANNOTATION_INSERT_ROWS", 2)
+    monkeypatch.setattr(clickhouse_variant_storage, "_SMALL_VARIANT_INDEX_INSERT_ROWS", 2)
+    monkeypatch.setattr(clickhouse_variant_storage, "_SMALL_VARIANT_GENE_INDEX_INSERT_ROWS", 2)
+
+    records = [
+        SmallVariantRecord(
+            variant_key=None,
+            variant_id=f"1-{100 + index}-A-G",
+            chr="1",
+            start=100 + index,
+            end=100 + index,
+            ref="A",
+            alt="G",
+            source="glimpse2",
+            rsid=None,
+            filters=[],
+            gene_symbols=[f"GENE{index}"],
+            annotations=[],
+            calls=[SmallVariantCall(sample="sample-1", gt="0/1", gq=None, dp=None, af=[], ad=[], ps=None)],
+        )
+        for index in range(3)
+    ]
+
+    await clickhouse_variant_storage.insert_small_variant_records(
+        "GRCh38",
+        "family-1",
+        ["project-1"],
+        records,
+    )
+
+    def sizes_for(table_fragment: str) -> list[int]:
+        return [size for query, size in executed if table_fragment in query]
+
+    assert sizes_for("variants/details") == [2, 1]
+    assert sizes_for("SNV_INDEL/entries") == [2, 1]
+    assert sizes_for("variants/annotations") == [2, 1]
+    assert sizes_for("variants/annotation_index") == [2, 1]
+    assert sizes_for("variants/gene_index") == [2, 1]
+
+
+@pytest.mark.asyncio
 async def test_rebuild_small_variant_gene_index_is_explicit_batched_maintenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -613,6 +613,36 @@ class FamilyInventoryPageOut(BaseModel):
     items: List[FamilyInventorySummaryOut] = Field(default_factory=list)
 
 
+class RawImportFileOut(BaseModel):
+    id: str
+    scope: str
+    dataset: str = ""
+    file_name: str
+    file_type: str = ""
+    sample_id: Optional[str] = None
+    storage_path: str
+    file_size: Optional[int] = None
+    sha256: Optional[str] = None
+    source: str = ""
+    created_at: Optional[str] = None
+    exists: bool = False
+    download_available: bool = False
+
+
+class FamilyRawFilesOut(BaseModel):
+    family_id: str
+    family_files: List[RawImportFileOut] = Field(default_factory=list)
+    individual_files: List[RawImportFileOut] = Field(default_factory=list)
+
+
+class RawImportFileVerifyOut(BaseModel):
+    file_id: str
+    status: str  # verified | mismatch | missing | unverifiable
+    expected_sha256: Optional[str] = None
+    computed_sha256: Optional[str] = None
+    message: str = ""
+
+
 class ClickHouseVariantTableStatusOut(BaseModel):
     name: str
     variant_type: str

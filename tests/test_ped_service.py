@@ -14,6 +14,17 @@ class _FakeMappingResult:
         assert len(self._rows) == 1
         return self._rows[0]
 
+    def all(self):
+        return self._rows
+
+
+class _FakeScalarResult:
+    def __init__(self, value):
+        self._value = value
+
+    def scalar_one(self):
+        return self._value
+
 
 class _RecordingSession:
     def __init__(self) -> None:
@@ -41,6 +52,37 @@ class _RecordingSession:
         if "INSERT INTO family_projects" in sql:
             return _FakeMappingResult([{}])
         if "INSERT INTO sample_projects" in sql:
+            return _FakeMappingResult([{}])
+        if "FROM family_members" in sql:
+            return _FakeMappingResult(
+                [
+                    {
+                        "sample_id": "father",
+                        "sex": "male",
+                        "role": "father",
+                        "clinical_status": "unknown",
+                        "carrier_status": "unknown",
+                        "carrier_type": None,
+                        "carrier_evidence": {},
+                        "active": True,
+                    },
+                    {
+                        "sample_id": "proband",
+                        "sex": "female",
+                        "role": "proband",
+                        "clinical_status": "affected",
+                        "carrier_status": "unknown",
+                        "carrier_type": None,
+                        "carrier_evidence": {},
+                        "active": True,
+                    },
+                ]
+            )
+        if "FROM family_relationships" in sql:
+            return _FakeMappingResult([])
+        if "FROM family_structure_versions" in sql:
+            return _FakeScalarResult(1)
+        if "INSERT INTO family_structure_versions" in sql:
             return _FakeMappingResult([{}])
         raise AssertionError(f"Unexpected SQL: {sql}")
 
@@ -77,12 +119,20 @@ async def test_create_family_inserts_samples_one_by_one_for_returning_ids() -> N
             "family_uuid": "family-uuid",
             "sample_uuid": "sample-1",
             "role": "father",
+            "clinical_status": "unknown",
+            "carrier_status": "unknown",
+            "carrier_type": None,
+            "carrier_evidence": "{}",
             "affected": False,
         },
         {
             "family_uuid": "family-uuid",
             "sample_uuid": "sample-2",
             "role": "proband",
+            "clinical_status": "affected",
+            "carrier_status": "unknown",
+            "carrier_type": None,
+            "carrier_evidence": "{}",
             "affected": True,
         },
     ]
@@ -116,18 +166,22 @@ def test_ped_phenotype_conventions_follow_requested_mapping() -> None:
     assert ped_service._pedigree_status_from_phenotype("-9") == "unknown"
 
 
-def test_manual_member_metadata_preserves_carrier_status_separately() -> None:
-    member = ped_service.ManualPedMemberCreate(
-        sample_id="parent",
-        affected=False,
-        carrier_status=True,
-        carrier_type="obligate",
+def test_manual_member_validation_preserves_carrier_status_separately() -> None:
+    family = ped_service.ManualPedFamilyCreate(
+        family_id="demo_family",
+        members=[
+            ped_service.ManualPedMemberCreate(
+                sample_id="parent",
+                affected=False,
+                carrier_status="carrier",
+                carrier_type="obligate",
+            )
+        ],
     )
 
-    assert ped_service._manual_member_metadata(member) == {
-        "pedigree": {
-            "pedigree_status": "unaffected",
-            "carrier_status": True,
-            "carrier_type": "obligate",
-        }
-    }
+    member = ped_service._validate_manual_family(family)[0]
+
+    assert member.clinical_status == "unknown"
+    assert member.affected is False
+    assert member.carrier_status == "carrier"
+    assert member.carrier_type == "obligate"

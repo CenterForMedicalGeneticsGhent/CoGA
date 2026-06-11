@@ -108,6 +108,47 @@ async def test_execute_clickhouse_routes_insert_to_insert_api(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
+async def test_execute_clickhouse_retries_insert_after_request_body_write_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailingInsertClient(_RecordingAsyncClient):
+        async def insert(self, *, table: str, database: str | None, data, column_names: list[str]):
+            self.inserts.append((table, database, list(data), column_names))
+            raise RuntimeError("Network Error: [Errno None] Can not write request body")
+
+    created: list[_RecordingAsyncClient] = []
+
+    async def fake_create_clickhouse_client():
+        if not created:
+            client = _FailingInsertClient("client-1")
+        else:
+            client = _RecordingAsyncClient(f"client-{len(created) + 1}")
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(clickhouse, "_async_client", None)
+    monkeypatch.setattr(clickhouse, "_client_lock", None)
+    monkeypatch.setattr(clickhouse, "_create_clickhouse_client", fake_create_clickhouse_client)
+
+    result = await clickhouse.execute_clickhouse(
+        "INSERT INTO coga.`GRCh38/SNV_INDEL/entries` (key, variantId, `calls.sampleId`) VALUES",
+        [(1, "v1", ["S1"])],
+    )
+
+    assert result == {"inserted": 1}
+    assert len(created) == 2
+    assert created[0].closed is True
+    assert created[1].inserts == [
+        (
+            "GRCh38/SNV_INDEL/entries",
+            "coga",
+            [(1, "v1", ["S1"])],
+            ["key", "variantId", "calls.sampleId"],
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_close_clickhouse_client_closes_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _RecordingAsyncClient()
 

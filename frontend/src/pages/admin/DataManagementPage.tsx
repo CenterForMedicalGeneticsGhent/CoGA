@@ -1,27 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import ProjectCatalogWorkspace from '../../components/ProjectCatalogWorkspace';
 import { withEntityId } from '../../lib/entity';
 import DataInventoryDetail from './DataInventoryDetail';
-import DataInventorySidebar from './DataInventorySidebar';
+import DeleteFamilyDialog from './DeleteFamilyDialog';
 import {
-  DEFAULT_PAGE_SIZE,
   EMPTY_PROJECTS,
-  EMPTY_SUMMARY_ITEMS,
-  formatCount,
   type FamilyData,
-  type FamilyInventoryPage,
   type ProjectOption,
 } from './dataManagementTypes';
 
 type StatusTone = 'success' | 'error';
 
 const normalizeProjectIds = (projectIds: string[]) =>
-  Array.from(new Set(projectIds)).sort((left, right) =>
-    left.localeCompare(right)
-  );
+  Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right));
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
   if (typeof error !== 'object' || error === null) {
@@ -41,37 +35,12 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 const DataManagementPage: React.FC = () => {
   const queryClient = useQueryClient();
 
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
+  const [catalogSearch, setCatalogSearch] = useState('');
   const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
-  const [familyProjectDrafts, setFamilyProjectDrafts] = useState<
-    Record<string, string[]>
-  >({});
+  const [familyProjectDrafts, setFamilyProjectDrafts] = useState<Record<string, string[]>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [status, setStatus] = useState<{
-    tone: StatusTone;
-    message: string;
-  } | null>(null);
-
-  const {
-    data: inventoryPage,
-    isLoading: inventoryLoading,
-    isFetching: inventoryFetching,
-    error: inventoryError,
-  } = useQuery<FamilyInventoryPage>({
-    queryKey: ['admin', 'data-inventory', page, search],
-    queryFn: async () => {
-      const response = await api.get('/admin/data', {
-        params: {
-          page,
-          page_size: DEFAULT_PAGE_SIZE,
-          search: search.trim() || undefined,
-        },
-      });
-      return response.data as FamilyInventoryPage;
-    },
-    retry: false,
-  });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [status, setStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
 
   const {
     data: selectedFamily,
@@ -80,9 +49,7 @@ const DataManagementPage: React.FC = () => {
   } = useQuery<FamilyData>({
     queryKey: ['admin', 'data-inventory', 'family', selectedFamilyId],
     queryFn: async () => {
-      const response = await api.get(
-        `/admin/data/families/${selectedFamilyId}`
-      );
+      const response = await api.get(`/admin/data/families/${selectedFamilyId}`);
       return response.data as FamilyData;
     },
     enabled: Boolean(selectedFamilyId),
@@ -97,80 +64,28 @@ const DataManagementPage: React.FC = () => {
     queryKey: ['projects'],
     queryFn: async () => {
       const response = await api.get('/projects');
-      return (response.data as any[]).map((entry) =>
-        withEntityId(entry)
-      ) as ProjectOption[];
+      return (response.data as any[]).map((entry) => withEntityId(entry)) as ProjectOption[];
     },
     retry: false,
   });
 
-  const summaries = inventoryPage?.items ?? EMPTY_SUMMARY_ITEMS;
   const projects = projectsData ?? EMPTY_PROJECTS;
 
   useEffect(() => {
     if (!selectedFamily) return;
-
     setFamilyProjectDrafts((current) => ({
       ...current,
       [selectedFamily.family_id]: [...selectedFamily.projects],
     }));
   }, [selectedFamily]);
 
-  useEffect(() => {
-    if (summaries.length === 0) {
-      setSelectedFamilyId(null);
-      return;
-    }
-
-    if (
-      !selectedFamilyId ||
-      !summaries.some((family) => family.family_id === selectedFamilyId)
-    ) {
-      setSelectedFamilyId(summaries[0].family_id);
-    }
-  }, [selectedFamilyId, summaries]);
-
-  useEffect(() => {
-    const total = inventoryPage?.total ?? 0;
-    const lastPage = Math.max(Math.ceil(total / DEFAULT_PAGE_SIZE), 1);
-    if (page > lastPage) {
-      setPage(lastPage);
-    }
-  }, [inventoryPage?.total, page]);
-
-  const selectedFamilySummary = useMemo(
-    () =>
-      summaries.find((family) => family.family_id === selectedFamilyId) ?? null,
-    [selectedFamilyId, summaries]
-  );
-
-  const totals = useMemo(() => {
-    const familyCount = inventoryPage?.total ?? 0;
-    const visibleCount = summaries.length;
-    const selectedSampleCount = selectedFamily?.sample_count ?? 0;
-    const selectedTrackRecordCount = selectedFamily?.total_records ?? 0;
-    return {
-      familyCount,
-      visibleCount,
-      selectedSampleCount,
-      selectedTrackRecordCount,
-    };
-  }, [inventoryPage?.total, selectedFamily, summaries.length]);
-
   const refreshInventory = async (affectedFamilyId?: string | null) => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['admin', 'data-inventory'] }),
-      selectedFamilyId
-        ? queryClient.invalidateQueries({
-            queryKey: ['admin', 'data-inventory', 'family', selectedFamilyId],
-          })
-        : Promise.resolve(),
       queryClient.invalidateQueries({ queryKey: ['projects'] }),
       queryClient.invalidateQueries({ queryKey: ['families'] }),
       affectedFamilyId
-        ? queryClient.invalidateQueries({
-            queryKey: ['family', affectedFamilyId],
-          })
+        ? queryClient.invalidateQueries({ queryKey: ['family', affectedFamilyId] })
         : Promise.resolve(),
     ]);
   };
@@ -179,7 +94,7 @@ const DataManagementPage: React.FC = () => {
     key: string,
     confirmation: string,
     action: () => Promise<unknown>,
-    successMessage: string
+    successMessage: string,
   ) => {
     if (!window.confirm(confirmation)) return;
 
@@ -194,6 +109,30 @@ const DataManagementPage: React.FC = () => {
       setStatus({
         tone: 'error',
         message: getErrorMessage(error, 'The requested data operation failed.'),
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const deleteSelectedFamily = async () => {
+    if (!selectedFamilyId) return;
+    setBusyKey(`family:${selectedFamilyId}`);
+    setStatus(null);
+    try {
+      await api.delete(`/admin/families/${selectedFamilyId}`, { params: { confirm: true } });
+      const deletedId = selectedFamilyId;
+      setDeleteDialogOpen(false);
+      setSelectedFamilyId(null);
+      await refreshInventory(deletedId);
+      setStatus({
+        tone: 'success',
+        message: `Deleted family ${deletedId} and all linked data.`,
+      });
+    } catch (error) {
+      setStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'The family could not be deleted.'),
       });
     } finally {
       setBusyKey(null);
@@ -216,10 +155,7 @@ const DataManagementPage: React.FC = () => {
     } catch (error) {
       setStatus({
         tone: 'error',
-        message: getErrorMessage(
-          error,
-          'Could not update family project assignments.'
-        ),
+        message: getErrorMessage(error, 'Could not update family project assignments.'),
       });
     } finally {
       setBusyKey(null);
@@ -240,36 +176,37 @@ const DataManagementPage: React.FC = () => {
 
   const resetFamilyProjects = (familyId: string) => {
     const sourceProjects =
-      selectedFamily?.family_id === familyId
-        ? selectedFamily.projects
-        : (summaries.find((family) => family.family_id === familyId)
-            ?.projects ?? []);
-
+      selectedFamily?.family_id === familyId ? selectedFamily.projects : [];
     setFamilyProjectDrafts((current) => ({
       ...current,
       [familyId]: normalizeProjectIds(sourceProjects),
     }));
   };
 
-  if (inventoryLoading || projectsLoading) {
+  const selectedFamilyErrorMessage = useMemo(
+    () =>
+      selectedFamilyError
+        ? getErrorMessage(selectedFamilyError, 'The selected family detail could not be loaded.')
+        : null,
+    [selectedFamilyError],
+  );
+
+  if (projectsLoading) {
     return (
       <PageState
         kicker="Administration"
         title="Loading data management"
-        message="Preparing family, sample, and track inventory."
+        message="Preparing the family catalog and project inventory."
       />
     );
   }
 
-  if (inventoryError || projectsError) {
+  if (projectsError) {
     return (
       <PageState
         kicker="Administration"
         title="Could not load data management"
-        message={getErrorMessage(
-          inventoryError ?? projectsError,
-          'The administrative inventory could not be loaded.'
-        )}
+        message={getErrorMessage(projectsError, 'The administrative inventory could not be loaded.')}
       />
     );
   }
@@ -280,12 +217,10 @@ const DataManagementPage: React.FC = () => {
         <div className="page-header">
           <div className="space-y-2">
             <p className="page-kicker">Administration</p>
-            <h1 className="catalog-card-title">
-              Family and sample data management
-            </h1>
+            <h1 className="catalog-card-title">Family and sample data management</h1>
             <p className="catalog-card-copy">
-              Remove tracks from a sample, remove a sample from a family, or
-              delete an entire family and all linked assay data.
+              Select a family to manage its members, samples, project access, assay data, and the
+              raw source files used to import it.
             </p>
           </div>
         </div>
@@ -294,75 +229,37 @@ const DataManagementPage: React.FC = () => {
       {status && (
         <div
           className={`status-note ${
-            status.tone === 'error'
-              ? 'status-note--error'
-              : 'status-note--success'
+            status.tone === 'error' ? 'status-note--error' : 'status-note--success'
           }`}
         >
           {status.message}
         </div>
       )}
 
-      <section
-        className="surface-card-muted admin-data-summary"
-        aria-label="Inventory overview"
-      >
-        <div className="admin-data-summary-item">
-          <span className="admin-data-summary-label">Matched families</span>
-          <strong className="admin-data-summary-value">
-            {formatCount(totals.familyCount)}
-          </strong>
+      {/* Family selection — same grouped, collapsible UX as the dashboard. */}
+      <section className="surface-card admin-family-select-card space-y-4">
+        <div className="space-y-2">
+          <p className="page-kicker">Families</p>
+          <h2 className="section-title">Select a family</h2>
+          <p className="catalog-card-copy">
+            Families are grouped by project. Expand a project and choose a family to load its full
+            details below.
+          </p>
         </div>
-        <div className="admin-data-summary-item">
-          <span className="admin-data-summary-label">Visible on page</span>
-          <strong className="admin-data-summary-value">
-            {formatCount(totals.visibleCount)}
-          </strong>
-        </div>
-        <div className="admin-data-summary-item">
-          <span className="admin-data-summary-label">
-            Selected family records
-          </span>
-          <strong className="admin-data-summary-value">
-            {formatCount(totals.selectedTrackRecordCount)}
-          </strong>
-        </div>
-        <div className="admin-data-summary-item">
-          <span className="admin-data-summary-label">Selected samples</span>
-          <strong className="admin-data-summary-value">
-            {formatCount(totals.selectedSampleCount)}
-          </strong>
-        </div>
+        <ProjectCatalogWorkspace
+          searchTerm={catalogSearch}
+          onSearchTermChange={setCatalogSearch}
+          onSelectFamily={setSelectedFamilyId}
+          selectedFamilyId={selectedFamilyId}
+        />
       </section>
 
-      <div className="admin-data-layout">
-        <DataInventorySidebar
-          search={search}
-          page={page}
-          inventoryPage={inventoryPage}
-          inventoryFetching={inventoryFetching}
-          selectedFamilyId={selectedFamilyId}
-          summaries={summaries}
-          onSearchChange={(value) => {
-            setSearch(value);
-            setPage(1);
-          }}
-          onPageChange={setPage}
-          onSelectFamily={setSelectedFamilyId}
-        />
+      {selectedFamilyId ? (
         <DataInventoryDetail
           selectedFamilyId={selectedFamilyId}
-          selectedFamilySummary={selectedFamilySummary}
           selectedFamily={selectedFamily}
           selectedFamilyLoading={selectedFamilyLoading}
-          selectedFamilyErrorMessage={
-            selectedFamilyError
-              ? getErrorMessage(
-                  selectedFamilyError,
-                  'The selected family detail could not be loaded.'
-                )
-              : null
-          }
+          selectedFamilyErrorMessage={selectedFamilyErrorMessage}
           projects={projects}
           familyProjectDrafts={familyProjectDrafts}
           busyKey={busyKey}
@@ -370,8 +267,31 @@ const DataManagementPage: React.FC = () => {
           onResetFamilyProjects={resetFamilyProjects}
           onSaveFamilyProjects={saveFamilyProjects}
           onToggleFamilyProject={toggleFamilyProject}
+          onRequestDeleteFamily={() => setDeleteDialogOpen(true)}
         />
-      </div>
+      ) : (
+        <section className="surface-card admin-data-detail">
+          <div className="page-state">
+            <div className="space-y-2">
+              <p className="page-kicker">Administration</p>
+              <h2 className="page-state-title">No family selected</h2>
+              <p className="page-state-copy">
+                Choose a family from the catalog above to inspect members, samples, tracks, and raw
+                import files, or to delete the entire family.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {deleteDialogOpen && selectedFamilyId && (
+        <DeleteFamilyDialog
+          familyId={selectedFamilyId}
+          busy={busyKey === `family:${selectedFamilyId}`}
+          onCancel={() => setDeleteDialogOpen(false)}
+          onConfirm={deleteSelectedFamily}
+        />
+      )}
     </div>
   );
 };

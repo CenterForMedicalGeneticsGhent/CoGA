@@ -15,6 +15,7 @@ from ..services.bed_service import (
 )
 from ..services.family_metadata_context import build_sample_metadata_context
 from ..services.metadata_service import CurrentUser
+from ..services.raw_import_files_pg import record_upload_file_obj
 
 router = APIRouter(prefix="/bed", tags=["bed"])
 
@@ -33,13 +34,23 @@ async def upload_bed(
         sample_identifier=sample_id,
         user=user,
     )
-    return await upload_bed_data(
+    result = await upload_bed_data(
         session,
         sample_context=sample_context,
         bed_type=bed_type,
         file=file,
         overwrite=overwrite,
     )
+    await record_upload_file_obj(
+        session,
+        file=file,
+        family_uuid=sample_context.family_uuid,
+        family_id=sample_context.family_id,
+        sample_uuid=sample_context.sample_uuid,
+        scope="individual",
+        dataset=bed_type,
+    )
+    return result
 
 
 @router.get(

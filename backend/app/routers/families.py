@@ -74,6 +74,7 @@ from ..services.hpo_service import (
 )
 from ..services.metadata_service import CurrentUser
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
+from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.paraphase_pg import get_family_paraphase_table_response
 from ..services.repeat_expansion_pg import (
     get_family_repeat_expansion_table_response,
@@ -435,7 +436,7 @@ async def upload_family_small_variants(
         family_identifier=family_id,
         user=user,
     )
-    return await upload_family_small_variant_file(
+    result = await upload_family_small_variant_file(
         session,
         context=context,
         sample_contexts=_family_sample_contexts(context),
@@ -443,6 +444,16 @@ async def upload_family_small_variants(
         overwrite=overwrite,
         format_hint=source_format,  # type: ignore[arg-type]
     )
+    await record_upload_file_obj(
+        session,
+        file=file,
+        family_uuid=context.family_uuid,
+        family_id=context.family_id,
+        sample_uuid=None,
+        scope="family",
+        dataset="small_variants",
+    )
+    return result
 
 
 @router.get("/{family_id}/structural-variants", response_model=VariantPage)

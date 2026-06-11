@@ -15,7 +15,10 @@ from ..schemas import (
     FamilyInventoryDetailOut,
     FamilyInventoryPageOut,
     FamilyInventorySummaryOut,
+    FamilyRawFilesOut,
     ProjectsUpdate,
+    RawImportFileOut,
+    RawImportFileVerifyOut,
     SampleInventoryOut,
 )
 from .clickhouse_family_variants import _fetch_small_variant_rows, _fetch_structural_variant_rows
@@ -41,6 +44,12 @@ from .clickhouse_variant_storage import (
 )
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
+from .raw_import_files_pg import (
+    get_raw_import_file,
+    list_raw_import_files,
+    purge_family_managed_files,
+    verify_raw_import_file as _verify_raw_import_file,
+)
 
 BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype")
 SAMPLE_TRACK_TYPES = (*BED_TRACK_TYPES, "structural_variants", "repeat_expansions")
@@ -563,6 +572,72 @@ async def get_family_data_inventory_detail(
     )
 
 
+async def _resolve_family_uuid(session: AsyncSession, family_id: str) -> str:
+    result = await session.execute(
+        text("SELECT id::text FROM families WHERE family_id = :family_id"),
+        {"family_id": family_id},
+    )
+    family_uuid = result.scalar_one_or_none()
+    if family_uuid is None:
+        raise HTTPException(status_code=404, detail="Family not found")
+    return family_uuid
+
+
+def _raw_import_file_out(record: dict[str, Any]) -> RawImportFileOut:
+    return RawImportFileOut(
+        id=record["id"],
+        scope=record["scope"],
+        dataset=record.get("dataset") or "",
+        file_name=record["file_name"],
+        file_type=record.get("file_type") or "",
+        sample_id=record.get("sample_identifier"),
+        storage_path=record.get("storage_path") or "",
+        file_size=record.get("file_size"),
+        sha256=record.get("sha256"),
+        source=record.get("source") or "",
+        created_at=record.get("created_at"),
+        exists=bool(record.get("exists")),
+        download_available=bool(record.get("download_available")),
+    )
+
+
+async def get_family_raw_files(
+    session: AsyncSession,
+    *,
+    family_id: str,
+) -> FamilyRawFilesOut:
+    family_uuid = await _resolve_family_uuid(session, family_id)
+    records = await list_raw_import_files(session, family_uuid)
+    family_files = [_raw_import_file_out(row) for row in records if row["scope"] == "family"]
+    individual_files = [_raw_import_file_out(row) for row in records if row["scope"] != "family"]
+    return FamilyRawFilesOut(
+        family_id=family_id,
+        family_files=family_files,
+        individual_files=individual_files,
+    )
+
+
+async def get_raw_import_file_record(
+    session: AsyncSession,
+    *,
+    file_id: str,
+) -> dict[str, Any]:
+    record = await get_raw_import_file(session, file_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return record
+
+
+async def verify_raw_import_file_by_id(
+    session: AsyncSession,
+    *,
+    file_id: str,
+) -> RawImportFileVerifyOut:
+    record = await get_raw_import_file_record(session, file_id=file_id)
+    result = await _verify_raw_import_file(record)
+    return RawImportFileVerifyOut(**result)
+
+
 async def update_sample_projects_data(
     session: AsyncSession,
     sample_id: str,
@@ -960,6 +1035,7 @@ async def delete_family_with_data(
         session,
         family_uuid=family_uuid,
     )
+    raw_files_removed = await purge_family_managed_files(session, family_uuid)
     repeat_result = await session.execute(
         text(
             """
@@ -993,5 +1069,6 @@ async def delete_family_with_data(
             "structural_variants": structural_deleted,
             "small_variants": small_deleted,
             "repeat_expansions": len(repeat_result.fetchall()),
+            "raw_files": raw_files_removed,
         }
     }

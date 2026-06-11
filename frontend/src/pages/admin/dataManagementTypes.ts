@@ -73,6 +73,42 @@ export interface ProjectOption {
   name: string;
 }
 
+export interface RawImportFile {
+  id: string;
+  scope: 'family' | 'individual';
+  dataset: string;
+  file_name: string;
+  file_type: string;
+  sample_id: string | null;
+  storage_path: string;
+  file_size: number | null;
+  sha256: string | null;
+  source: string;
+  created_at: string | null;
+  exists: boolean;
+  download_available: boolean;
+}
+
+export interface FamilyRawFiles {
+  family_id: string;
+  family_files: RawImportFile[];
+  individual_files: RawImportFile[];
+}
+
+export type RawFileVerifyStatus =
+  | 'verified'
+  | 'mismatch'
+  | 'missing'
+  | 'unverifiable';
+
+export interface RawFileVerifyResult {
+  file_id: string;
+  status: RawFileVerifyStatus;
+  expected_sha256: string | null;
+  computed_sha256: string | null;
+  message: string;
+}
+
 export type StatusTone = 'success' | 'error';
 
 export const EMPTY_SUMMARY_ITEMS: FamilySummaryData[] = [];

@@ -260,10 +260,22 @@ const getReviewSummaryTags = (
 
 interface FamilyDetailPageProps {
   editable?: boolean;
+  /**
+   * When provided, render this family instead of reading the id from the route.
+   * Used to embed the workspace inside the admin Families page.
+   */
+  familyId?: string;
+  /** Drop the standalone page-shell chrome so the workspace nests inside a card. */
+  embedded?: boolean;
 }
 
-const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false }) => {
-  const { familyId } = useParams<{ familyId: string }>();
+const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
+  editable = false,
+  familyId: familyIdProp,
+  embedded = false,
+}) => {
+  const { familyId: familyIdParam } = useParams<{ familyId: string }>();
+  const familyId = familyIdProp ?? familyIdParam;
   const location = useLocation();
   const preferredProjectId = useMemo(
     () => new URLSearchParams(location.search).get('project_id') || undefined,
@@ -1016,7 +1028,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({ editable = false })
   };
 
   return (
-    <div className="page-shell family-detail-page space-y-6">
+    <div
+      className={`family-detail-page space-y-6${embedded ? '' : ' page-shell'}`}
+    >
       <section className="surface-card page-top-card">
         <div className={`page-top-card-grid${pedRows.length ? ' page-top-card-grid--with-visual' : ''}`}>
           <div className="page-top-card-copy family-workspace-copy">

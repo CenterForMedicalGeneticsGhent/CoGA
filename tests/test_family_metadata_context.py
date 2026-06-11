@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from uuid import UUID
 
 import pytest
 
@@ -21,12 +20,13 @@ class _FakeMappingResult:
 
 class _RecordingSession:
     def __init__(self) -> None:
-        self.sql: str | None = None
-        self.params = None
+        self.calls: list[tuple[str, object]] = []
 
     async def execute(self, statement, params=None):
-        self.sql = str(statement)
-        self.params = params
+        sql = str(statement)
+        self.calls.append((sql, params))
+        if "FROM family_relationships" in sql:
+            return _FakeMappingResult([])
         return _FakeMappingResult(
             [
                 {
@@ -82,10 +82,11 @@ async def test_build_family_metadata_context_orders_distinct_sample_query_by_sel
         project_id="project-uuid",
     )
 
-    assert session.sql is not None
-    assert "SELECT DISTINCT" in session.sql
-    assert "ORDER BY s.sample_id" in session.sql
-    assert "ORDER BY lower(s.sample_id)" not in session.sql
+    sample_sql = session.calls[0][0]
+    assert "SELECT DISTINCT" not in sample_sql
+    assert "FROM family_members" in sample_sql
+    assert "sample_projects" not in sample_sql
+    assert "ORDER BY lower(s.sample_id)" in sample_sql
     assert context.sample_rows == [
         {
             "sample_uuid": "sample-1",
@@ -140,9 +141,8 @@ async def test_build_family_metadata_context_uses_uuid_project_filter_for_visibl
         user=user,
     )
 
-    assert session.sql is not None
-    assert "sp.project_id IN (" in session.sql
-    assert "POSTCOMPILE_project_ids" in session.sql
-    assert "sp.project_id::text IN :project_ids" not in session.sql
-    assert session.params is not None
-    assert session.params["project_ids"] == [UUID(project_uuid)]
+    sample_sql, sample_params = session.calls[0]
+    assert "FROM family_members" in sample_sql
+    assert "sample_projects" not in sample_sql
+    assert "sp.project_id" not in sample_sql
+    assert sample_params == {"family_uuid": "family-uuid"}

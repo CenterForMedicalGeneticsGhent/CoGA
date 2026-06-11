@@ -1,6 +1,8 @@
+from pathlib import Path
 from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -11,6 +13,7 @@ from ..schemas import (
     ClickHouseVariantAssemblyStatusOut,
     FamilyInventoryDetailOut,
     FamilyInventoryPageOut,
+    FamilyRawFilesOut,
     GeneInfoRefreshJobOut,
     GeneReferenceAdminStatusOut,
     HpoAdminSummaryOut,
@@ -18,6 +21,7 @@ from ..schemas import (
     HpoOntologySyncOut,
     HpoOntologySyncRequest,
     ProjectsUpdate,
+    RawImportFileVerifyOut,
     SmallVariantFilterPresetOut,
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
@@ -31,11 +35,14 @@ from ..services.admin_service import (
     delete_sample_with_data,
     ensure_clickhouse_variant_status,
     get_family_data_inventory_detail,
+    get_family_raw_files,
+    get_raw_import_file_record,
     list_data_inventory_page,
     list_clickhouse_variant_status,
     optimize_clickhouse_variant_status,
     rebuild_clickhouse_small_variant_gene_index_status,
     update_sample_projects_data,
+    verify_raw_import_file_by_id,
 )
 from ..services.gene_info_jobs_pg import (
     list_gene_reference_admin_status,
@@ -158,6 +165,44 @@ async def get_family_data(
         session,
         family_id=family_id,
     )
+
+
+@router.get("/data/families/{family_id}/files", response_model=FamilyRawFilesOut)
+async def list_family_raw_files(
+    family_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FamilyRawFilesOut:
+    return await get_family_raw_files(session, family_id=family_id)
+
+
+@router.get("/data/files/{file_id}/download")
+async def download_raw_import_file(
+    file_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FileResponse:
+    record = await get_raw_import_file_record(session, file_id=file_id)
+    storage_path = record.get("storage_path") or ""
+    if not storage_path or not Path(storage_path).is_file():
+        raise HTTPException(
+            status_code=410,
+            detail="The source file is no longer available at its storage path.",
+        )
+    return FileResponse(
+        path=storage_path,
+        filename=record["file_name"],
+        media_type="application/octet-stream",
+    )
+
+
+@router.post("/data/files/{file_id}/verify", response_model=RawImportFileVerifyOut)
+async def verify_raw_import_file(
+    file_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> RawImportFileVerifyOut:
+    return await verify_raw_import_file_by_id(session, file_id=file_id)
 
 
 @router.get(

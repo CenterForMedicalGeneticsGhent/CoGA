@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from pathlib import Path
 import re
 from typing import Any
 
 import clickhouse_connect
+from clickhouse_connect.driver.exceptions import ClickHouseError, StreamClosedError, StreamFailureError
 
 from .config import settings
 
@@ -19,6 +21,15 @@ _INSERT_QUERY_PATTERN = re.compile(
 )
 _QUALIFIED_TABLE_PATTERN = re.compile(
     r"^(?P<database>[A-Za-z_][A-Za-z0-9_]*)\.`(?P<table>[^`]+)`$",
+)
+_INSERT_RETRY_ERROR_MARKERS = (
+    "can not write request body",
+    "cannot write request body",
+    "broken pipe",
+    "connection aborted",
+    "connection reset",
+    "remote end closed",
+    "server disconnected",
 )
 
 
@@ -79,14 +90,45 @@ async def insert_clickhouse(
 ) -> Any:
     if not data:
         return None
-    client = await get_clickhouse_client()
     table, database, columns = _parse_insert_query(query)
-    return await client.insert(
-        table=table,
-        database=database,
-        data=data,
-        column_names=columns,
-    )
+    for attempt in range(2):
+        client = await get_clickhouse_client()
+        try:
+            return await client.insert(
+                table=table,
+                database=database,
+                data=data,
+                column_names=columns,
+            )
+        except Exception as exc:
+            if attempt == 0 and _is_retryable_insert_error(exc):
+                await reset_clickhouse_client(client)
+                await asyncio.sleep(0.25)
+                continue
+            raise
+    return None
+
+
+def _is_retryable_insert_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if isinstance(exc, (StreamClosedError, StreamFailureError)):
+        return True
+    if isinstance(exc, ClickHouseError):
+        return any(marker in message for marker in _INSERT_RETRY_ERROR_MARKERS)
+    return any(marker in message for marker in _INSERT_RETRY_ERROR_MARKERS)
+
+
+async def reset_clickhouse_client(client: Any | None = None) -> None:
+    global _async_client
+    async with _get_client_lock():
+        target = _async_client
+        if client is None or target is client:
+            _async_client = None
+        else:
+            target = client
+    if target is not None:
+        with suppress(Exception):
+            await target.close()
 
 
 async def execute_clickhouse(query: str, parameters: Any = None) -> Any:

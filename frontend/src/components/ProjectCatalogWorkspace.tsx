@@ -10,12 +10,22 @@ interface ProjectCatalogWorkspaceProps {
   embedded?: boolean;
   searchTerm?: string;
   onSearchTermChange?: (value: string) => void;
+  /**
+   * When provided, family names become selection buttons (calling this callback)
+   * instead of navigation links. Used by the admin Families page to drive an
+   * in-page family workspace while keeping the dashboard grouping/UX.
+   */
+  onSelectFamily?: (familyId: string) => void;
+  /** Highlights the currently selected family when in selection mode. */
+  selectedFamilyId?: string | null;
 }
 
 const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
   embedded = false,
   searchTerm,
   onSearchTermChange,
+  onSelectFamily,
+  selectedFamilyId,
 }) => {
   const {
     data = [],
@@ -44,6 +54,29 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
 
   const toggleProject = (id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const renderFamilyName = (familyId: string) => {
+    if (onSelectFamily) {
+      const active = familyId === selectedFamilyId;
+      return (
+        <button
+          type="button"
+          className={`table-link family-select-link${
+            active ? ' family-select-link--active' : ''
+          }`}
+          onClick={() => onSelectFamily(familyId)}
+          aria-pressed={active}
+        >
+          {familyId}
+        </button>
+      );
+    }
+    return (
+      <Link to={`/families/${familyId}`} className="table-link">
+        {familyId}
+      </Link>
+    );
   };
 
   const familyMatchesSearch = useCallback(
@@ -250,9 +283,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
                                   {project.visibleFamilies.map((family) => (
                                     <tr key={family.family_id}>
                                       <td className="family-catalog-family-cell">
-                                        <Link to={`/families/${family.family_id}`} className="table-link">
-                                          {family.family_id}
-                                        </Link>
+                                        {renderFamilyName(family.family_id)}
                                       </td>
                                       <td className="family-catalog-members-cell">
                                         {family.members.map((member) => member.sample_id).join(', ')}
@@ -286,11 +317,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
               <tbody>
                 {unassignedFamilies.map((family) => (
                   <tr key={family.family_id}>
-                    <td className="whitespace-nowrap">
-                      <Link to={`/families/${family.family_id}`} className="table-link">
-                        {family.family_id}
-                      </Link>
-                    </td>
+                    <td className="whitespace-nowrap">{renderFamilyName(family.family_id)}</td>
                     <td>{family.members.map((member) => member.sample_id).join(', ')}</td>
                   </tr>
                 ))}
