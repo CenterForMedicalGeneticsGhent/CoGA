@@ -22,775 +22,622 @@ type GuideSection = {
 
 const guideHighlights: GuideHighlight[] = [
   {
-    title: 'Family-first review',
+    title: 'Phenotype-driven, family-based review',
     description:
-      'Keep pedigree, family membership, sample tracks, and case-level review state together instead of reviewing isolated files.',
+      'Start from the pedigree and the patient phenotype (HPO), then prioritise variants in the context of the whole family rather than isolated files.',
   },
   {
-    title: 'Inheritance-aware variant filtering',
+    title: 'Inheritance-aware prioritisation',
     description:
-      'Work through dominant, recessive, compound-heterozygous, carrier-screening, and genotype-driven small-variant searches.',
+      'Apply de novo / dominant, recessive (homozygous and compound heterozygous), X-linked, and carrier-screening logic to small-variant searches.',
   },
   {
-    title: 'Cross-linked tables and viewers',
+    title: 'Evidence-rich interpretation',
     description:
-      'Move from candidate tables into genome overview, chromosome view, circos, CNV detail, gene context, and IGV follow-up.',
+      'See ClinVar, gnomAD frequencies, CADD / REVEL / SpliceAI, and MANE / canonical transcript context next to each candidate, then record an ACMG class, tags, and notes.',
   },
   {
-    title: 'Multiple assay layers',
+    title: 'Cohort and internal-frequency context',
     description:
-      'Review small variants, structural variants, repeat expansions, coverage, APCAD, segments, and haplotype evidence in one system.',
+      'Use the Global Small Variant Explorer to ask how often a variant or gene is seen across every project you can access, and which families carry it.',
   },
   {
-    title: 'Reusable interpretation state',
+    title: 'Multi-assay genomic review',
     description:
-      'Save classifications, notes, tags, and presets so review work survives beyond one session or one analyst.',
+      'Bring small variants, structural variants, repeat expansions (TRGT), Paraphase, mitochondrial DNA, coverage, and IGV together for one family.',
   },
   {
-    title: 'Operational administration',
+    title: 'Reusable, auditable review state',
     description:
-      'Manage projects, users, reference layers, uploads, gene-reference refresh, and ClickHouse storage maintenance from the app.',
+      'Classifications, tags, notes, and filter presets persist across sessions and analysts, and administrative actions are captured in audit logs.',
   },
 ];
 
 const guideSections: GuideSection[] = [
   {
-    id: 'quick-start',
-    title: 'Quick start and common entry points',
+    id: 'orientation',
+    title: 'How CoGA is organised',
     summary:
-      'Use this when you need to orient yourself quickly, whether you are opening an existing case or loading a new one.',
+      'Understand the scoped data model — projects, families, samples, assemblies, and review state — before you start interpreting.',
     quickLinks: [
       { label: 'Dashboard', to: '/dashboard', note: 'Start here' },
-      { label: 'Family Builder', to: '/family-builder', note: 'Case setup' },
-      { label: 'Upload sample data', to: '/upload-data', note: 'Assays' },
+      { label: 'Families', to: '/families', note: 'Case catalog' },
+    ],
+    content: (
+      <>
+        <p>
+          CoGA is an integrated review environment for clinical genomics. Like other family-based
+          platforms, it keeps the pedigree, the assay layers, and your interpretation together so a
+          case is reviewed as a whole rather than as a pile of files. Almost everything you do is
+          scoped: getting the scope right is what makes the rest of the system behave predictably.
+        </p>
+        <div className="user-guide-callout">
+          <strong>Mental model:</strong> a <em>project</em> controls access and assembly, a
+          <em> family</em> is the case, <em>samples</em> carry the assay data, and
+          <em> review state</em> (classifications, tags, notes) is the interpretation layer on top.
+        </div>
+
+        <h3>The objects you work with</h3>
+        <ul>
+          <li>
+            <strong>Projects</strong> define who can see the data and which reference assembly
+            applies. Your access — and every cohort count you see — is scoped to the projects you
+            belong to (administrators see everything).
+          </li>
+          <li>
+            <strong>Families</strong> are the unit of case review. They group related samples and
+            carry pedigree meaning (relationships, roles, affected status).
+          </li>
+          <li>
+            <strong>Samples</strong> hold per-sample assay layers: genotypes, coverage, segments,
+            repeat expansions, Paraphase, and more.
+          </li>
+          <li>
+            <strong>Reference data</strong> (genes, transcripts, cytobands, ClinVar, gnomAD,
+            blacklist, clinical CNVs) is assembly-scoped and shared across projects on that assembly.
+          </li>
+          <li>
+            <strong>Review state</strong> — ACMG classifications, tags, notes, and saved filter
+            presets — is layered on top of the raw data and is what survives between sessions.
+          </li>
+        </ul>
+
+        <h3>The analyst journey</h3>
+        <ol>
+          <li>Confirm the project, assembly, and family.</li>
+          <li>Capture or review the phenotype (HPO terms) and the pedigree.</li>
+          <li>Prioritise candidates with inheritance-aware, evidence-rich filtering.</li>
+          <li>Interpret each candidate and record an ACMG class, tags, and notes.</li>
+          <li>Put findings in cohort context and follow up visually (genome views, IGV).</li>
+        </ol>
+      </>
+    ),
+  },
+  {
+    id: 'quick-start',
+    title: 'Quick start',
+    summary: 'Two common entry points: open an existing case, or set up a new one.',
+    quickLinks: [
+      { label: 'Dashboard', to: '/dashboard', note: 'Search' },
+      { label: 'Family Builder', to: '/family-builder', note: 'New case' },
+      { label: 'Package Import', to: '/package-import', note: 'Bulk import' },
       { label: 'Gene explorer', to: '/genes', note: 'Locus-first' },
       { label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' },
-      { label: 'Panel catalog', to: '/panels', note: 'Reusable filters' },
-      { label: 'Settings', to: '/settings', note: 'Display' },
     ],
     content: (
       <>
-        <p>
-          Most usage patterns in CoGA start in one of two ways: either you already have a
-          case loaded and need to review it, or you are creating a new case and need to make the
-          data visible in the correct project and assembly context.
-        </p>
+        <h3>Reviewing an existing case</h3>
+        <ol>
+          <li>From the dashboard, search by project, family ID, or sample ID.</li>
+          <li>Open the family to land on its workspace.</li>
+          <li>
+            Pick the analysis that matches the question — small variants, structural variants,
+            repeats, and so on. Buttons appear only for data types the family actually has.
+          </li>
+          <li>Build a candidate shortlist in the variant table before opening dense viewers.</li>
+          <li>Record interpretation as you go with classifications, tags, and notes.</li>
+        </ol>
+
+        <h3>Setting up a new case</h3>
+        <ol>
+          <li>Confirm (or create) the target project and its assembly.</li>
+          <li>
+            Build the family and samples in <strong>Family Builder</strong>, or bulk-import a
+            prepared folder package via <strong>Package Import</strong> (admin).
+          </li>
+          <li>Import or attach the assay layers for the family.</li>
+          <li>Open the family workspace to confirm the expected tables and tracks appear.</li>
+        </ol>
+
         <div className="user-guide-callout">
-          <strong>Rule of thumb:</strong> confirm the project and assembly first, then confirm the
-          family, then decide whether your next question is table-driven or viewer-driven.
-        </div>
-
-        <h3>If you are reviewing an existing case</h3>
-        <ol>
-          <li>Open the dashboard and search by project name, family ID, or sample ID.</li>
-          <li>Expand the matching project to confirm the family belongs to the expected assembly.</li>
-          <li>Open the family and choose the review surface that matches the event type.</li>
-          <li>Use variant tables to form a candidate shortlist before opening dense viewers.</li>
-          <li>Record interpretation state with notes, tags, classifications, or saved presets.</li>
-        </ol>
-
-        <h3>If you are loading a new case</h3>
-        <ol>
-          <li>Create or confirm the target project and its assembly.</li>
-          <li>Create the family and sample metadata through Family Builder or pedigree upload.</li>
-          <li>Import the assay layers that belong to that family or sample.</li>
-          <li>Check the family pages to verify that the expected tables and tracks appear.</li>
-          <li>Only then start interpretation and shared review state.</li>
-        </ol>
-
-        <h3>What a good starting state looks like</h3>
-        <div className="user-guide-mini-grid">
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Project context is correct</p>
-            <p className="user-guide-mini-card-copy">
-              The family is linked to the intended project and the project points to the right
-              species and assembly.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Family membership is clean</p>
-            <p className="user-guide-mini-card-copy">
-              Sample IDs, pedigree roles, and affected status reflect the case you intend to review.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Reference layers are loaded</p>
-            <p className="user-guide-mini-card-copy">
-              Genes and cytobands are present for the assembly so viewers and gene lookups can
-              resolve coordinates.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Track expectations are realistic</p>
-            <p className="user-guide-mini-card-copy">
-              Coverage, APCAD, repeats, or haplotypes only appear when they were actually imported
-              for the relevant samples.
-            </p>
-          </div>
+          <strong>Not finding a variant you expect?</strong> The most common causes are the wrong
+          project/assembly, a frequency or quality filter that is too strict, or imputed calls being
+          hidden. Clear filters and re-check scope before assuming the data is missing.
         </div>
       </>
     ),
   },
   {
-    id: 'core-concepts',
-    title: 'Core concepts: projects, families, samples, and review state',
+    id: 'case-setup',
+    title: 'Case setup and data import',
     summary:
-      'The system becomes much easier to use once you understand which data are project-scoped, family-scoped, sample-scoped, or assembly-scoped.',
-    content: (
-      <>
-        <p>
-          CoGA is not just a collection of pages. It is a scoped review model. The same
-          family can only be interpreted correctly if the project, assembly, samples, and reference
-          layers are aligned.
-        </p>
-
-        <h3>The main objects in the system</h3>
-        <ul>
-          <li>
-            <strong>Projects</strong> define access and assembly context. They are the boundary for
-            who can see the data and which reference layers apply.
-          </li>
-          <li>
-            <strong>Families</strong> define the case context. They group related samples and carry
-            pedigree meaning.
-          </li>
-          <li>
-            <strong>Samples</strong> hold sample-level assay layers such as coverage, APCAD,
-            segments, and repeat expansions.
-          </li>
-          <li>
-            <strong>Small variants</strong> and <strong>structural variants</strong> are reviewed in
-            family context even when imported from family or sample files.
-          </li>
-          <li>
-            <strong>Reference data</strong> such as genes, chromosomes, blacklist intervals, and
-            clinical CNVs is assembly-scoped.
-          </li>
-          <li>
-            <strong>Review state</strong> is the interpretation layer on top of raw data: tags,
-            notes, classifications, pair review, and saved presets.
-          </li>
-        </ul>
-
-        <h3>Why project context matters so much</h3>
-        <p>
-          The same family data can look incomplete or wrong if you review it under the wrong
-          project. Assembly context controls gene coordinates, chromosome annotations, viewer
-          navigation, and whether imported assay tracks line up with the reference.
-        </p>
-
-        <h3>What is family-scoped versus sample-scoped</h3>
-        <div className="user-guide-mini-grid">
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Family-scoped</p>
-            <p className="user-guide-mini-card-copy">
-              Small-variant review, structural-variant review, pedigree context, variant summary,
-              and case-level interpretation logic.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Sample-scoped</p>
-            <p className="user-guide-mini-card-copy">
-              Coverage, APCAD, segments, repeat expansions, and other track layers that may differ
-              from one family member to another.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Assembly-scoped</p>
-            <p className="user-guide-mini-card-copy">
-              Genes, cytobands, blacklist intervals, and other annotation layers reused across many
-              cases on the same reference.
-            </p>
-          </div>
-        </div>
-
-        <h3>Review state does not replace assay truth</h3>
-        <p>
-          Notes, tags, classifications, and presets are there to help teams reason about candidate
-          events. They do not alter the imported assay evidence. If a call or track looks wrong,
-          verify the underlying import instead of assuming the review layer changed the raw data.
-        </p>
-      </>
-    ),
-  },
-  {
-    id: 'setup-and-ingestion',
-    title: 'Case setup, imports, and what each data type unlocks',
-    summary:
-      'This section explains the clean import order, when to use the UI, and what features become available after each assay or reference upload.',
+      'Create families and samples, import data packages, and understand what each assay layer unlocks.',
     quickLinks: [
-      { label: 'Reference data', to: '/reference-data', note: 'Reference' },
-      { label: 'Family Builder', to: '/family-builder', note: 'Metadata' },
-      { label: 'Package Import', to: '/package-import', note: 'Bulk import' },
+      { label: 'Family Builder', to: '/family-builder', note: 'Manual pedigree' },
+      { label: 'Package Import', to: '/package-import', note: 'Folder packages' },
       { label: 'Upload sample data', to: '/upload-data', note: 'Assays' },
-      { label: 'Projects', to: '/projects', note: 'Admin' },
-      { label: 'Data management', to: '/admin/data', note: 'Admin' },
+      { label: 'Reference data', to: '/reference-data', note: 'Assembly layers' },
     ],
     content: (
       <>
         <p>
-          The cleanest environments are built in layers. Reference and metadata should exist before
-          you load case-level assays, because later imports resolve their scope against what already
-          exists.
+          Intake is split into two focused pages. Use whichever matches how your data arrives.
         </p>
+        <div className="user-guide-mini-grid">
+          <div className="user-guide-mini-card">
+            <p className="user-guide-mini-card-title">Family Builder</p>
+            <p className="user-guide-mini-card-copy">
+              Build a pedigree by hand or from a PED file: add samples, set sex and roles, assign
+              parents and couples, and set phenotype and carrier status. Available to all users.
+            </p>
+          </div>
+          <div className="user-guide-mini-card">
+            <p className="user-guide-mini-card-title">Package Import</p>
+            <p className="user-guide-mini-card-copy">
+              Admins point at a backend-visible folder, discover a manifest, run a dry-run
+              validation, then import the family and all of its assay layers in one job.
+            </p>
+          </div>
+        </div>
 
-        <h3>Recommended import order</h3>
-        <ol>
-          <li>Create or confirm the species and assembly records.</li>
-          <li>Load cytobands and genes for that assembly.</li>
-          <li>Optionally load blacklist regions and clinical CNVs.</li>
-          <li>Create the project and confirm it points to the expected assembly.</li>
-          <li>Create the family and sample metadata.</li>
-          <li>Import family small variants.</li>
-          <li>Import structural variants, repeat expansions, and sample BED tracks.</li>
-          <li>Open the family pages and verify that tables and viewers now expose the new data.</li>
-        </ol>
-
-        <h3>What each import type enables</h3>
+        <h3>What each data type unlocks</h3>
         <ul>
-          <li>
-            <strong>Genes and cytobands</strong> unlock useful gene lookups, chromosome labeling,
-            and viewer context.
-          </li>
-          <li>
-            <strong>Family small variants</strong> unlock family SNV and indel review, inheritance
-            filtering, and gene-linked candidate browsing.
-          </li>
-          <li>
-            <strong>Structural variants</strong> unlock SV tables, genome overview overlays,
-            chromosome inspection, and circos context.
-          </li>
-          <li>
-            <strong>Repeat expansions</strong> unlock the repeat-expansion review table and repeat
-            tracks where available.
-          </li>
-          <li>
-            <strong>Coverage, APCAD, and segments</strong> unlock copy-number and inheritance-aware
-            visual interpretation layers.
-          </li>
-          <li>
-            <strong>GLIMPSE2-style phased imports</strong> can also unlock haplotype track context.
-          </li>
+          <li><strong>Small variants (SNV/indel)</strong> enable the small-variant workbench and review.</li>
+          <li><strong>Structural variants</strong> enable the SV table, review, and CNV detail.</li>
+          <li><strong>Repeat expansions (TRGT)</strong> enable the repeat-expansion view.</li>
+          <li><strong>Paraphase</strong> enables segmental-duplication / paralogue resolution.</li>
+          <li><strong>Mitochondrial calls</strong> enable the mtDNA heteroplasmy analysis.</li>
+          <li><strong>Coverage, segments, APCAD, haplotypes</strong> populate the genome and chromosome track viewers.</li>
         </ul>
 
-        <h3>When to use the UI versus scripted setup</h3>
-        <p>
-          Use the application for routine admin work, smaller imports, and day-to-day case
-          operations. Use scripted setup or reproducible environment bootstrap when you need larger
-          migrations, demo resets, automated loading, or CI-friendly workflows.
-        </p>
-
         <div className="user-guide-callout">
-          <strong>Common failure mode:</strong> if a table loads but the corresponding viewer looks
-          sparse or empty, the missing layer is often reference or track data rather than a UI
-          problem.
+          <strong>Assembly and reference first.</strong> Genes, cytobands, ClinVar, and gnomAD are
+          loaded per assembly. If a viewer cannot resolve coordinates or a gene lookup is empty, check
+          that the reference layers for that assembly are present.
         </div>
       </>
     ),
   },
   {
-    id: 'dashboard-and-catalog',
-    title: 'Using the dashboard and project catalog efficiently',
+    id: 'phenotypes-and-panels',
+    title: 'Phenotypes and gene panels',
     summary:
-      'The dashboard is the inventory and orientation workspace. It is where you verify project context before opening any specific case page.',
+      'Anchor interpretation in the patient phenotype with HPO, and constrain searches with reusable gene panels.',
     quickLinks: [
-      { label: 'Dashboard', to: '/dashboard', note: 'Workspace' },
-      { label: 'Families', to: '/families', note: 'Catalog' },
+      { label: 'HPO browser', to: '/hpo', note: 'Phenotype terms' },
+      { label: 'Panel catalog', to: '/panels', note: 'Gene sets' },
     ],
     content: (
       <>
         <p>
-          The dashboard is more than a landing page. It is the quickest place to verify which
-          projects exist, which families are linked to them, and whether your current search term is
-          matching a project, a family, or just a sample ID.
+          Phenotype-led analysis is central to modern interpretation. Capture the patient&apos;s
+          clinical features as HPO terms and curate gene sets so the same prioritisation can be
+          reused across cases.
         </p>
 
-        <h3>What the project catalog is good at</h3>
+        <h3>HPO phenotypes</h3>
         <ul>
-          <li>Searching across projects, families, and sample IDs from one input.</li>
-          <li>Showing which families live under which project.</li>
-          <li>Surfacing unassigned families that exist but are not yet linked to a project.</li>
-          <li>Confirming the reference assembly linked to each project before you review a case.</li>
-        </ul>
-
-        <h3>Practical search habits</h3>
-        <ul>
-          <li>Search by project name when you know the case cohort but not the exact family ID.</li>
-          <li>Search by family ID when you need to re-open a specific case quickly.</li>
-          <li>Search by sample ID when analysts refer to individuals more often than family names.</li>
+          <li>Browse and search the HPO ontology from the HPO page.</li>
           <li>
-            Expand the project row even after search narrows the results so you confirm the family
-            appears in the expected project, not merely somewhere in the system.
+            Annotate individuals with HPO terms in the family workspace; phenotype annotations are
+            stored per individual and travel with the family.
           </li>
+          <li>Use the phenotype to decide which genes and inheritance models to prioritise.</li>
         </ul>
 
-        <h3>When to leave the dashboard</h3>
-        <p>
-          Once you have confirmed project and family context, move into the family pages for
-          interpretation. Stay on the dashboard when the question is operational: where is the case,
-          is it linked correctly, is it unassigned, or which project should I open next?
-        </p>
+        <h3>Gene panels</h3>
+        <ul>
+          <li>The panel catalog holds reusable gene lists for recurring indications.</li>
+          <li>
+            Apply a panel directly in the small-variant filter to restrict a search to a curated set
+            of genes — a fast way to focus a broad genome on the clinically relevant loci.
+          </li>
+          <li>Panels are managed centrally so a team shares the same definitions.</li>
+        </ul>
       </>
     ),
   },
   {
     id: 'family-workspace',
-    title: 'How to use the family workspace as the center of interpretation',
+    title: 'The family workspace',
     summary:
-      'Family pages connect pedigree, case metadata, review tables, variant summary, repeat review, and links into visual follow-up pages.',
+      'The case dashboard: pedigree, review summaries, an editable region of interest, and one entry point per analysis.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Open a family' }],
     content: (
       <>
         <p>
-          The family workspace is the main interpretation hub. It is where family membership and
-          review surfaces stay close enough together that you can keep inheritance context in mind
-          while filtering or visually inspecting the case.
+          The family page is the hub of interpretation. It shows the pedigree, curation summaries,
+          and a set of analysis buttons that link out to each review surface.
         </p>
 
-        <h3>The main family-level pages</h3>
+        <h3>What you will find there</h3>
+        <ul>
+          <li>
+            <strong>Analysis buttons that reflect the data.</strong> Small variants, structural
+            variants, variant summary, repeat expansions, Paraphase, and mtDNA only appear when that
+            data type is actually loaded for the family — so an empty button never sends you to an
+            empty page.
+          </li>
+          <li>
+            <strong>Visualisation buttons</strong> for the genome overview, chromosome view, Circos
+            plot, and IGV.
+          </li>
+          <li>
+            <strong>Review summaries</strong> for small and structural variants: how many are
+            reviewed, noted, and tagged.
+          </li>
+          <li>
+            <strong>Region of interest (ROI).</strong> Admins can set a gene or locus of interest
+            directly from the family dashboard and open it in the chromosome view.
+          </li>
+        </ul>
+
+        <h3>Pedigree and member management</h3>
+        <p>
+          Sex, role, parentage, phenotype, and carrier status are edited per member. Phenotype
+          (clinical status: unknown / unaffected / affected) and carrier status (unknown / carrier /
+          non-carrier) are <strong>independent axes</strong> — an individual can be both affected and
+          a carrier — and are set with separate controls. These edits are metadata-only: they update
+          the pedigree and mark phenotype-dependent views as needing recomputation, but they never
+          delete or reimport raw data.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: 'small-variant-filtering',
+    title: 'Small-variant prioritisation',
+    summary:
+      'The filter workbench: location, inheritance, consequence, ClinVar, frequency, in-silico scores, transcripts, and tags — with reusable presets.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Per-family search' }],
+    content: (
+      <>
+        <p>
+          The small-variant page is where most candidate-finding happens. Filters are grouped so you
+          can move from a broad genome to a short candidate list quickly, then save the recipe as a
+          preset.
+        </p>
+
+        <h3>Filter dimensions</h3>
+        <ul>
+          <li><strong>Location</strong> — gene symbols, genomic regions/intervals, or a gene panel.</li>
+          <li>
+            <strong>Inheritance</strong> — de novo / dominant, recessive (homozygous), compound
+            heterozygous, and X-linked models, plus expanded carrier screening for couples.
+          </li>
+          <li><strong>Variant type</strong> — SNV, indel, or MNV.</li>
+          <li>
+            <strong>Consequence and impact</strong> — HIGH / MODERATE / LOW / MODIFIER and specific
+            effects (missense, frameshift, stop gained, splice, and so on).
+          </li>
+          <li>
+            <strong>ClinVar and classification</strong> — pathogenic through benign, conflicting
+            interpretations, and your own ACMG classifications.
+          </li>
+          <li>
+            <strong>Population frequency</strong> — gnomAD exomes/genomes/popmax and TOPMed
+            allele frequencies, allele counts, and homozygote/hemizygote caps.
+          </li>
+          <li>
+            <strong>In-silico evidence</strong> — CADD, REVEL, SpliceAI, SIFT, and PolyPhen
+            thresholds.
+          </li>
+          <li>
+            <strong>Transcript scope</strong> — restrict to canonical, MANE, or loss-of-function
+            transcripts.
+          </li>
+          <li><strong>Tags and notes</strong> — include or exclude review tags, or require notes.</li>
+        </ul>
+
+        <h3>Compound heterozygotes and per-sample genotypes</h3>
+        <p>
+          Compound-heterozygous candidates are grouped as pairs so you can assess both hits in a gene
+          together. Per-sample genotype and quality thresholds (genotype, QUAL, DP, AF, AD) let you
+          encode segregation expectations across the family directly in the search.
+        </p>
+
+        <div className="user-guide-callout">
+          <strong>Presets save the recipe, not the result.</strong> Built-in presets cover common
+          patterns (dominant, recessive, compound het, carrier screening, ClinVar review); save your
+          own to standardise how your team searches.
+        </div>
+      </>
+    ),
+  },
+  {
+    id: 'interpretation-and-review',
+    title: 'Interpretation and review state',
+    summary:
+      'Record an ACMG classification, tags, and notes per variant, and keep that review state consistent across the team.',
+    content: (
+      <>
+        <p>
+          Once a candidate is in focus, open its review dialog to record an interpretation. Review
+          state is stored per family and is what makes a case auditable and resumable.
+        </p>
+
+        <h3>What you can record</h3>
+        <ul>
+          <li>
+            <strong>ACMG classification</strong> — benign, likely benign, VUS, likely pathogenic, or
+            pathogenic (classes 1–5).
+          </li>
+          <li>
+            <strong>Tags</strong> — collaboration tags (e.g. for review, send for validation,
+            validated, excluded), classification tags, and project- or globally-defined custom tags.
+            Tags are how you flag reported, candidate, research, or solved variants.
+          </li>
+          <li><strong>Notes</strong> — free-text rationale that stays attached to the variant.</li>
+        </ul>
+
+        <h3>Evidence at hand</h3>
+        <p>
+          Each variant row surfaces the context you need to classify: gene and consequence, the most
+          relevant transcript, ClinVar status, population frequency, and in-silico scores. Use the
+          Gene Explorer for deeper gene-level context and the Variant Explorer for cohort context.
+        </p>
+
+        <h3>Structural-variant review</h3>
+        <p>
+          Structural variants have their own review surface with the same idea: classify, tag, and
+          note, with a dedicated tag for segmentation review. SV and small-variant review state are
+          tracked separately and summarised on the family page.
+        </p>
+
+        <div className="user-guide-callout">
+          <strong>Review state is scoped to the family</strong> and preserved through metadata edits.
+          The same variant interpreted in two families carries two independent review records — which
+          is exactly what the cohort views aggregate.
+        </div>
+      </>
+    ),
+  },
+  {
+    id: 'specialised-analyses',
+    title: 'Structural variants, repeats, Paraphase, and mtDNA',
+    summary:
+      'Specialised review surfaces for events that small-variant tables do not capture.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Open a family' }],
+    content: (
+      <>
         <div className="user-guide-mini-grid">
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Family detail</p>
-            <p className="user-guide-mini-card-copy">
-              Use this page to verify pedigree, sample roles, affected status, linked projects, and
-              case-level metadata before detailed interpretation.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Small variants</p>
-            <p className="user-guide-mini-card-copy">
-              Use this for SNV and indel triage, inheritance filtering, review notes, and saved
-              filter reuse.
-            </p>
-          </div>
           <div className="user-guide-mini-card">
             <p className="user-guide-mini-card-title">Structural variants</p>
             <p className="user-guide-mini-card-copy">
-              Use this when the candidate event is larger, interval-based, or best understood in
-              chromosome-scale context.
+              Review CNVs and other SVs with genotype context, classification, and tagging; jump to
+              CNV detail and the genome/Circos views for breakpoint context.
             </p>
           </div>
           <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Repeat expansions</p>
+            <p className="user-guide-mini-card-title">Repeat expansions (TRGT)</p>
             <p className="user-guide-mini-card-copy">
-              Use this for family-wide review of tandem-repeat calls, especially when only selected
-              samples carry repeat assay data.
+              Inspect per-sample repeat-locus calls against the catalog to assess expansions in the
+              family.
             </p>
           </div>
           <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Variant summary</p>
+            <p className="user-guide-mini-card-title">Paraphase</p>
             <p className="user-guide-mini-card-copy">
-              Use this when you want a higher-level case snapshot before diving into one event type.
+              Resolve paralogous / segmental-duplication regions where standard short-read calling is
+              unreliable.
             </p>
           </div>
           <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">IGV view</p>
+            <p className="user-guide-mini-card-title">Mitochondrial DNA</p>
             <p className="user-guide-mini-card-copy">
-              Use this after you already have a candidate locus and need read-level follow-up rather
-              than broad case browsing.
+              Review mtDNA variants with heteroplasmy and homoplasmy thresholds and per-sample
+              coverage.
             </p>
           </div>
         </div>
-
-        <h3>A reliable case-review rhythm</h3>
-        <ol>
-          <li>Confirm pedigree and affected status on the family detail page.</li>
-          <li>Choose the event type that most likely explains the phenotype.</li>
-          <li>Build a shortlist in the corresponding family table.</li>
-          <li>Use gene links, viewer links, and IGV follow-up to validate supporting context.</li>
-          <li>Write down what you learned in the review layer before leaving the case.</li>
-        </ol>
-
-        <h3>When multiple projects touch the same family</h3>
         <p>
-          Review the family in the project that carries the intended assembly and access context.
-          If a family is linked to more than one project, treat the project choice as part of the
-          interpretation state, not as an incidental UI detail.
+          A combined <strong>variant summary</strong> view rolls up small and structural variant
+          counts for the family when you want a single overview before diving into a specific table.
         </p>
       </>
     ),
   },
   {
-    id: 'small-variant-review',
-    title: 'Small variant review and interpretation',
+    id: 'visualization',
+    title: 'Genome visualisation and follow-up',
     summary:
-      'This is the most configurable review surface in the application, combining genotype filters, annotation filters, inheritance logic, pair review, and saved presets.',
+      'Move from a candidate row into whole-genome, per-chromosome, Circos, and IGV views.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Viewers live per family' }],
     content: (
       <>
         <p>
-          The small-variant page is where you triage SNVs and indels using a combination of family
-          inheritance logic, annotation filters, sample-level genotype rules, and review state.
-          This page is designed for iterative interpretation, not just one-off searches.
+          Tables are for finding candidates; viewers are for confirming them. Each viewer reads the
+          tracks that were imported for the family.
         </p>
-
-        <h3>The main filter families</h3>
         <ul>
+          <li><strong>Genome overview</strong> — whole-genome context for variants and tracks.</li>
           <li>
-            <strong>Region and locus filters</strong> narrow by chromosome window, gene, transcript,
-            or panel-linked intervals.
+            <strong>Chromosome view</strong> — a single chromosome with coverage, segments, and
+            variant tracks; the ROI opens here with flanking context.
           </li>
+          <li><strong>Circos plot</strong> — genome-wide structural relationships at a glance.</li>
           <li>
-            <strong>Annotation filters</strong> narrow by impact, effect, ClinVar status, HGVS,
-            population frequency, and in silico scores.
+            <strong>IGV</strong> — read-level confirmation against the reference for a specific
+            locus.
           </li>
-          <li>
-            <strong>Sample filters</strong> narrow by genotype, genotype quality, depth, allele
-            fraction, and other sample-specific thresholds.
-          </li>
-          <li>
-            <strong>Review filters</strong> let you revisit already tagged, classified, or
-            note-bearing variants without rebuilding the original query from memory.
-          </li>
-          <li>
-            <strong>Presets</strong> let you reuse built-in and saved search configurations across
-            cases or review sessions.
-          </li>
+          <li><strong>CNV detail</strong> — focused inspection of a structural event.</li>
         </ul>
-
-        <h3>Inheritance modes and what they mean in practice</h3>
-        <ul>
-          <li>
-            <strong>Dominant-style searches</strong> are useful for quick shortlist creation when a
-            single candidate hit may explain the case.
-          </li>
-          <li>
-            <strong>Compound heterozygous mode</strong> now returns pair-level grouped results, so
-            the search result itself reflects the two-hit interpretation unit instead of a loose
-            same-gene list.
-          </li>
-          <li>
-            <strong>Recessive mode</strong> can combine pair-level compound-het hits with
-            homozygous-recessive singletons in one result set.
-          </li>
-          <li>
-            <strong>Expanded carrier screening mode</strong> is useful when you are intentionally
-            looking for partner-carrier patterns rather than standard case-first prioritization.
-          </li>
-        </ul>
-
-        <h3>How to read and use the results</h3>
-        <ul>
-          <li>Use the table when you need sorting, scanning, and quick comparison across many hits.</li>
-          <li>Use card views when the candidate count is already small and per-hit context matters.</li>
-          <li>
-            Open the review dialog when you want to store interpretation state, not just inspect one
-            transient result.
-          </li>
-          <li>
-            Follow gene links when the locus deserves deeper biological context and panel
-            cross-references.
-          </li>
-          <li>
-            Use the viewer or IGV links when the question shifts from “does this variant match my
-            filters?” to “does the locus-level evidence support this call?”
-          </li>
-        </ul>
-
         <div className="user-guide-callout">
-          <strong>Best use case:</strong> treat the small-variant table as the candidate-generation
-          surface and the viewers as candidate-validation surfaces. They answer different questions.
+          <strong>Viewers only show what was imported.</strong> Coverage, segment, APCAD, and
+          haplotype tracks appear when the corresponding sample data exists; an empty track usually
+          means that layer was not loaded, not that the viewer failed.
         </div>
       </>
     ),
   },
   {
-    id: 'structural-and-repeat-review',
-    title: 'Structural variant review and repeat expansion review',
+    id: 'gene-explorer',
+    title: 'Gene Explorer',
     summary:
-      'These pages focus on interval-scale or assay-specific events that are often best interpreted together with viewers rather than by table logic alone.',
+      'A locus-first gene profile: transcript overview with clinical badges, constraint metrics, and disease associations.',
+    quickLinks: [{ label: 'Gene explorer', to: '/genes', note: 'Search a gene' }],
     content: (
       <>
         <p>
-          Structural variants and repeat expansions each have their own review surfaces because they
-          pose different interpretation questions than standard small variants. They are still
-          family-centered, but the evidence is often broader and more context dependent.
+          When the question is about a gene rather than a single case, the Gene Explorer gives a
+          consolidated profile, similar to the gene pages in dedicated interpretation platforms.
         </p>
-
-        <h3>Structural variant review</h3>
-        <ul>
-          <li>
-            Use the SV page to filter by event type, length, interval, gene overlap, and
-            sample-aware evidence.
-          </li>
-          <li>
-            Large events should be interpreted with overlap semantics in mind: the relevant event
-            may cross the visible region even if its full span extends beyond the current window.
-          </li>
-          <li>
-            SV review is especially effective when followed by chromosome view, genome overview, or
-            circos rather than staying only inside the table.
-          </li>
-        </ul>
-
-        <h3>Repeat expansion review</h3>
-        <ul>
-          <li>
-            Use the repeat-expansion page to compare TRGT calls across family members in one place.
-          </li>
-          <li>
-            This is useful when only some samples carry repeat data and you need to see inheritance
-            or abnormal-status patterns across the family.
-          </li>
-          <li>
-            Repeat results are best read as a family comparison surface first and a per-sample track
-            surface second.
-          </li>
-        </ul>
-
-        <h3>When to switch to visual follow-up</h3>
+        <h3>Transcript overview</h3>
         <p>
-          Switch out of the table when you need to answer questions about event span, neighboring
-          features, track agreement, copy-number patterning, or whether multiple lines of evidence
-          support the same locus.
+          The transcript table badges the clinically relevant transcripts so you can pick the right
+          one at a glance:
         </p>
+        <ul>
+          <li><strong>MANE Select</strong> — the agreed default clinical transcript.</li>
+          <li><strong>MANE Plus Clinical</strong> — additional transcripts needed for clinical reporting.</li>
+          <li><strong>RefSeq Select</strong> — the representative RefSeq transcript.</li>
+          <li><strong>Ensembl Canonical</strong> — the Ensembl canonical transcript.</li>
+        </ul>
+        <h3>Gene-level context</h3>
+        <ul>
+          <li>Constraint metrics (e.g. pLI, LOEUF, missense constraint) for dosage sensitivity.</li>
+          <li>Disease and phenotype associations, ClinGen / GenCC evidence, and OMIM links.</li>
+          <li>External links out to the major knowledge resources for the gene.</li>
+        </ul>
       </>
     ),
   },
   {
-    id: 'genome-and-locus-viewers',
-    title: 'Genome overview, chromosome view, circos, CNV detail, and IGV',
+    id: 'variant-explorer',
+    title: 'Global Small Variant Explorer',
     summary:
-      'Use the viewer stack to validate and contextualize candidate loci, not to replace the candidate-generation logic of the tables.',
+      'A variant-centric, cross-project view: how often a variant occurs, in which families, and with what review state.',
+    quickLinks: [{ label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' }],
     content: (
       <>
         <p>
-          CoGA ships several visualization layers because one scale is never enough. Some
-          questions are chromosome-wide, some are interval-specific, and some only make sense once
-          you inspect individual reads.
+          The variant explorer answers cohort-level questions that a single family cannot:
+          <em> in how many samples does this pathogenic variant occur? which families carry a variant
+          in this gene? which reported variants exist across the database?</em> Each row is a unique
+          variant aggregated across every project you can access.
         </p>
-
-        <h3>Which viewer answers which question</h3>
-        <div className="user-guide-mini-grid">
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Genome overview</p>
-            <p className="user-guide-mini-card-copy">
-              Use this for broad per-chromosome pattern review and to find where larger signals
-              cluster before zooming in.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Chromosome view</p>
-            <p className="user-guide-mini-card-copy">
-              Use this for denser chromosome-level inspection when one chromosome clearly matters.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Circos</p>
-            <p className="user-guide-mini-card-copy">
-              Use this for long-range structural relationships and inter-chromosomal context, not
-              detailed genotype inspection.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">CNV detail</p>
-            <p className="user-guide-mini-card-copy">
-              Use this when a copy-number interval needs focused evidence review rather than
-              whole-chromosome navigation.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">IGV</p>
-            <p className="user-guide-mini-card-copy">
-              Use this at the end of the chain when you already know the locus and need read-level
-              confirmation.
-            </p>
-          </div>
+        <h3>What each row shows</h3>
+        <ul>
+          <li>Gene, variant, consequence, most-severe classification, and aggregated tags.</li>
+          <li>
+            Total carrier samples with a heterozygous / homozygous split, and the number of distinct
+            families.
+          </li>
+        </ul>
+        <h3>How you use it</h3>
+        <ul>
+          <li>
+            Filter with the same dimensions as the family search — gene, consequence, ClinVar,
+            frequency, in-silico — plus tags and ACMG classification to surface, for example, every
+            variant tagged <em>Reported</em>.
+          </li>
+          <li>
+            Click a heterozygous, homozygous, or family count to drill into the carriers, grouped by
+            family, and link straight to the family workspace.
+          </li>
+          <li>Optionally add a per-sample genotype filter to find variants a specific sample carries.</li>
+          <li>Switch the assembly, and choose whether imputed calls are included.</li>
+        </ul>
+        <div className="user-guide-callout">
+          <strong>Counts are relative to your access.</strong> Aggregations only span the projects
+          you can see, so internal-frequency context reflects your accessible cohort.
         </div>
-
-        <h3>Track availability and realistic expectations</h3>
-        <ul>
-          <li>Coverage may exist for one sample and not another.</li>
-          <li>APCAD is often more selective than coverage in real datasets.</li>
-          <li>Repeat tracks only appear when repeat calls were imported for that sample.</li>
-          <li>Haplotype blocks usually require phased family imports.</li>
-          <li>
-            Missing genes or ideogram structure often indicate incomplete assembly reference data,
-            not a broken viewer.
-          </li>
-        </ul>
-
-        <h3>How to combine tables and viewers effectively</h3>
-        <p>
-          Build a focused candidate set in the family tables, then move into viewers to understand
-          locus behavior, interval overlap, supporting tracks, and signal consistency. Starting in a
-          dense viewer without a candidate question usually slows interpretation rather than helping
-          it.
-        </p>
       </>
     ),
   },
   {
-    id: 'gene-explorer-and-panels',
-    title: 'Gene explorer, gene metadata, and panel-driven review',
+    id: 'administration',
+    title: 'Administration',
     summary:
-      'Use these tools when the question is locus-first rather than case-first, or when you need a reusable targeted gene set across many cases.',
+      'Projects and access, data management, reference sync, storage maintenance, tag/preset configuration, and audit logs.',
     quickLinks: [
-      { label: 'Gene explorer', to: '/genes', note: 'Locus' },
-      { label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' },
-      { label: 'Panel catalog', to: '/panels', note: 'Reuse' },
+      { label: 'Data management', to: '/admin/data', note: 'Families & uploads' },
+      { label: 'Projects', to: '/projects', note: 'Access' },
+      { label: 'Users', to: '/admin/users', note: 'Accounts' },
+      { label: 'Gene reference sync', to: '/admin/gene-reference', note: 'Reference' },
+      { label: 'Audit logs', to: '/admin/monitoring/audit-logs', note: 'Activity' },
     ],
     content: (
       <>
         <p>
-          The gene explorer is the locus-centric side of the application. It combines imported gene
-          models with external metadata caches, panel membership, and family-linked context when you
-          enter from a case workflow.
+          Administrative tooling lives behind admin access and keeps the platform healthy and
+          governed.
         </p>
-
-        <h3>What the gene explorer is good for</h3>
-        <ul>
-          <li>Understanding a gene before or after opening one candidate variant.</li>
-          <li>Reviewing panel membership and broader gene context in one place.</li>
-          <li>
-            Moving from gene-level reasoning back into family-level variant pages and genome views.
-          </li>
-          <li>Checking locus context even when the initial question did not start from one family.</li>
-        </ul>
-
-        <h3>How panels work in practice</h3>
         <ul>
           <li>
-            Panels are not just label collections. The system resolves them to genomic intervals and
-            uses overlap-aware filtering.
+            <strong>Projects and access</strong> — define projects, their assembly, and which users
+            can see them. Access here is what scopes every query and cohort count.
           </li>
           <li>
-            That makes panels useful across small-variant searches, structural-variant review, and
-            viewer navigation where interval context matters.
+            <strong>Data management</strong> — inventory families and samples, run imports, and
+            handle deletion workflows.
           </li>
           <li>
-            Build panels when your team repeatedly reviews the same disease area, phenotype program,
-            or clinical shortlist.
+            <strong>Reference and gene sync</strong> — manage assemblies and reference layers and
+            queue gene-reference refreshes.
+          </li>
+          <li>
+            <strong>Storage maintenance</strong> — inspect and repair the per-assembly ClickHouse
+            variant tables (ensure / optimise).
+          </li>
+          <li>
+            <strong>Tags and presets</strong> — define the variant tags and shared filter presets
+            your team relies on.
+          </li>
+          <li>
+            <strong>Audit logs</strong> — review who changed what, when.
           </li>
         </ul>
-
-        <h3>Good times to start from a gene instead of a family</h3>
-        <ol>
-          <li>You already have a strong candidate gene from external evidence.</li>
-          <li>You are building or refining a panel before case review begins.</li>
-          <li>You want to compare how a locus behaves across multiple families later on.</li>
-        </ol>
-      </>
-    ),
-  },
-  {
-    id: 'settings-and-admin',
-    title: 'Settings, administration, and operational maintenance',
-    summary:
-      'These pages control display behavior, user and project access, reference maintenance, data inventory, and backend health checks.',
-    quickLinks: [
-      { label: 'Settings', to: '/settings', note: 'Display' },
-      { label: 'Reference data', to: '/reference-data', note: 'Reference' },
-      { label: 'Projects', to: '/projects', note: 'Admin' },
-      { label: 'Admin users', to: '/admin/users', note: 'Admin' },
-      { label: 'Data management', to: '/admin/data', note: 'Admin' },
-      { label: 'Gene reference sync', to: '/admin/gene-reference', note: 'Admin' },
-    ],
-    content: (
-      <>
         <p>
-          Some pages exist for interpretation, others for environment stewardship. This section is
-          about the latter: the settings and admin surfaces that keep the system usable and the data
-          organized.
-        </p>
-
-        <h3>Settings</h3>
-        <ul>
-          <li>Change display density and viewport behavior for genome and chromosome review.</li>
-          <li>Adjust how much track detail is visible at different scales.</li>
-          <li>Use settings to improve readability, not to change the underlying assay evidence.</li>
-        </ul>
-
-        <h3>The main admin workspaces</h3>
-        <div className="user-guide-mini-grid">
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Projects</p>
-            <p className="user-guide-mini-card-copy">
-              Manage case-to-assembly relationships and access boundaries.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Users</p>
-            <p className="user-guide-mini-card-copy">
-              Control who can access the system and which role each person has.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Reference data</p>
-            <p className="user-guide-mini-card-copy">
-              Maintain species, assemblies, genes, cytobands, blacklist intervals, and clinical
-              CNVs.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Gene reference sync</p>
-            <p className="user-guide-mini-card-copy">
-              Refresh external gene metadata and monitor gene-reference ingestion health.
-            </p>
-          </div>
-          <div className="user-guide-mini-card">
-            <p className="user-guide-mini-card-title">Data management</p>
-            <p className="user-guide-mini-card-copy">
-              Inspect family inventory, link projects, manage track presence, and run ClickHouse
-              maintenance operations.
-            </p>
-          </div>
-        </div>
-
-        <h3>Who should use what</h3>
-        <p>
-          Analysts usually spend most of their time in family pages, viewers, genes, and panels.
-          Admins additionally own project setup, reference integrity, upload operations, user
-          access, and storage maintenance. If you are doing both roles, keep those mental modes
-          separate: one is interpretation, the other is system stewardship.
+          Display preferences live on the <Link to="/settings">Settings</Link> page; release notes
+          are on the <Link to="/new-features">New features</Link> page.
         </p>
       </>
     ),
   },
   {
-    id: 'troubleshooting-and-best-practices',
-    title: 'Troubleshooting patterns and best-practice review habits',
-    summary:
-      'Use this section when pages look empty, tracks seem inconsistent, or you want a reliable broad-to-narrow review workflow.',
+    id: 'glossary',
+    title: 'Glossary',
+    summary: 'Quick definitions for the terms used throughout CoGA.',
     content: (
       <>
-        <p>
-          Most practical issues fall into a few repeatable categories: missing reference data,
-          metadata mismatches, data imported into the wrong scope, or expectations that exceed what
-          was actually loaded for the family.
-        </p>
-
-        <h3>Common reasons results look empty</h3>
         <ul>
-          <li>The family is being viewed under the wrong project or assembly context.</li>
-          <li>The relevant assay type was never imported for that family or sample.</li>
-          <li>The page is filtered by a panel, region, or review state you forgot was active.</li>
-          <li>Genes or cytobands are missing for the current assembly.</li>
-          <li>The sample exists, but the expected track availability differs between family members.</li>
+          <li><strong>Assembly</strong> — the reference genome build (e.g. GRCh38) a project uses.</li>
+          <li><strong>ROI</strong> — region of interest: a gene or locus pinned to a family.</li>
+          <li>
+            <strong>ACMG class</strong> — five-tier variant classification: benign, likely benign,
+            VUS, likely pathogenic, pathogenic.
+          </li>
+          <li><strong>ClinVar</strong> — public archive of variant–condition interpretations.</li>
+          <li><strong>gnomAD / TOPMed</strong> — population allele-frequency references.</li>
+          <li>
+            <strong>CADD / REVEL / SpliceAI / SIFT / PolyPhen</strong> — in-silico predictors of
+            deleteriousness or splicing impact.
+          </li>
+          <li>
+            <strong>MANE Select / MANE Plus Clinical</strong> — agreed reference transcripts for
+            clinical reporting; <strong>RefSeq Select</strong> and <strong>Ensembl Canonical</strong>
+            {' '}are the representative transcripts from each database.
+          </li>
+          <li><strong>Compound heterozygous</strong> — two different variants in one gene, one per allele.</li>
+          <li><strong>TRGT</strong> — tandem-repeat genotyping used for repeat-expansion calls.</li>
+          <li><strong>Paraphase</strong> — caller for paralogous / segmental-duplication regions.</li>
+          <li><strong>Heteroplasmy</strong> — the fraction of mitochondrial genomes carrying a variant.</li>
+          <li>
+            <strong>Carrier vs phenotype</strong> — carrier status describes genotype; phenotype
+            (clinical status) describes the individual. They are tracked independently.
+          </li>
         </ul>
-
-        <h3>How to diagnose inconsistencies quickly</h3>
-        <ol>
-          <li>Check the project and family identity first.</li>
-          <li>Check whether the same region is being viewed across pages.</li>
-          <li>Check active filters, panels, and visible-track settings.</li>
-          <li>Check whether the underlying assay was imported for the sample you expect.</li>
-          <li>Only then assume there is a software or data-quality problem.</li>
-        </ol>
-
-        <h3>A disciplined broad-to-narrow workflow</h3>
-        <ol>
-          <li>Verify project and pedigree context.</li>
-          <li>Use the relevant family table to generate a candidate set.</li>
-          <li>Open gene or panel context when biology, phenotype, or target scope matters.</li>
-          <li>Move into viewers for evidence validation and structural context.</li>
-          <li>Finish in IGV only when a candidate locus warrants read-level follow-up.</li>
-          <li>Store notes, tags, classifications, or presets before leaving the case.</li>
-        </ol>
-
-        <div className="user-guide-callout">
-          <strong>Best overall strategy:</strong> use the system as one connected environment.
-          Projects define the assembly, families define the case, tables define the candidate set,
-          and viewers explain what those candidates mean in genomic context.
-        </div>
       </>
     ),
   },
@@ -817,16 +664,16 @@ const UserGuidePage: React.FC = () => (
           <p className="page-kicker">Documentation</p>
           <h1 className="catalog-card-title">CoGA user guide</h1>
           <p className="catalog-card-copy">
-            A fuller in-app manual for analysts and administrators: how to navigate the system,
-            which workspace to use for each task, how the data model affects what you see, and how
-            to move from case setup to interpretation to visual follow-up.
+            An in-app manual for analysts and administrators. It follows the clinical-genomics
+            workflow — orient, capture phenotype, prioritise, interpret, put in cohort context, and
+            visualise — and maps each step to the page that does the job.
           </p>
         </div>
         <div className="user-guide-summary-row">
+          <span className="badge-chip">Phenotype-driven</span>
           <span className="badge-chip">Family-based review</span>
-          <span className="badge-chip">Tables + viewers</span>
-          <span className="badge-chip">Panels + genes</span>
-          <span className="badge-chip">Admin + analyst workflows</span>
+          <span className="badge-chip">Evidence + ACMG</span>
+          <span className="badge-chip">Cohort context</span>
         </div>
       </div>
     </section>
@@ -835,10 +682,10 @@ const UserGuidePage: React.FC = () => (
       <div className="space-y-4">
         <div>
           <p className="page-kicker">Capabilities</p>
-          <h2 className="section-title">What you can do in this system</h2>
+          <h2 className="section-title">What you can do in CoGA</h2>
           <p className="section-copy">
-            CoGA is strongest when used as an integrated review environment rather than a
-            set of isolated tables.
+            CoGA is strongest as one integrated review environment rather than a set of isolated
+            tables.
           </p>
         </div>
         <div className="user-guide-highlight-grid">
@@ -858,8 +705,8 @@ const UserGuidePage: React.FC = () => (
           <p className="page-kicker">Contents</p>
           <h2 className="section-title">Jump by workflow</h2>
           <p className="section-copy">
-            Use the links below to jump directly to setup, case review, viewers, gene context, or
-            admin operations.
+            Jump to orientation, setup, phenotype, prioritisation, interpretation, cohort context,
+            viewers, or administration.
           </p>
         </div>
         <nav aria-label="User guide contents">

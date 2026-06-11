@@ -16,7 +16,7 @@ describe('UserGuidePage', () => {
     expect(screen.getByRole('navigation', { name: /user guide contents/i })).toBeInTheDocument();
 
     const contentsNav = screen.getByRole('navigation', { name: /user guide contents/i });
-    const tocLink = within(contentsNav).getByText('Quick start and common entry points').closest('a');
+    const tocLink = within(contentsNav).getByText('Quick start').closest('a');
     expect(tocLink).not.toBeNull();
     expect(tocLink).toHaveAttribute('href', '#quick-start');
 
@@ -25,10 +25,13 @@ describe('UserGuidePage', () => {
       '/dashboard'
     );
     expect(
-      screen.getByRole('heading', { name: /small variant review and interpretation/i })
+      screen.getByRole('heading', { name: /small-variant prioritisation/i })
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('heading', { name: /settings, administration, and operational maintenance/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^administration$/i })).toBeInTheDocument();
+    const variantExplorerLinks = screen.getAllByRole('link', {
+      name: /variant explorer cross-cohort/i,
+    });
+    expect(variantExplorerLinks.length).toBeGreaterThan(0);
+    expect(variantExplorerLinks[0]).toHaveAttribute('href', '/variant-explorer');
   });
 });
