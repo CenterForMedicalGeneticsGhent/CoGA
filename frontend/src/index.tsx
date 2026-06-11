@@ -1,6 +1,6 @@
 import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
 import RequireAuth from './components/RequireAuth';
@@ -16,8 +16,11 @@ const queryClient = createAppQueryClient();
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
 const SignupPage = lazy(() => import('./pages/auth/SignupPage'));
 const Dashboard = lazy(() => import('./pages/dashboard/Dashboard'));
-const FamilyIntakePage = lazy(
-  () => import('./pages/dashboard/FamilyIntakePage')
+const FamilyBuilderPage = lazy(
+  () => import('./pages/dashboard/FamilyBuilderPage')
+);
+const PackageImportPage = lazy(
+  () => import('./pages/dashboard/PackageImportPage')
 );
 const FamiliesPage = lazy(() => import('./pages/families/FamiliesPage'));
 const FamilyDetailPage = lazy(
@@ -128,8 +131,12 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
             <Route element={<RequireAuth />}>
               <Route path="/dashboard" element={routeElement(<Dashboard />)} />
               <Route
+                path="/family-builder"
+                element={routeElement(<FamilyBuilderPage />)}
+              />
+              <Route
                 path="/family-intake"
-                element={routeElement(<FamilyIntakePage />)}
+                element={<Navigate to="/family-builder" replace />}
               />
               <Route
                 path="/families"
@@ -248,12 +255,16 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   element={routeElement(<DataManagementPage />)}
                 />
                 <Route
+                  path="/package-import"
+                  element={routeElement(<PackageImportPage />)}
+                />
+                <Route
                   path="/admin/data/upload"
-                  element={routeElement(<FamilyIntakePage />)}
+                  element={routeElement(<PackageImportPage />)}
                 />
                 <Route
                   path="/admin/upload"
-                  element={routeElement(<FamilyIntakePage />)}
+                  element={routeElement(<PackageImportPage />)}
                 />
                 <Route
                   path="/admin/variants/tags"

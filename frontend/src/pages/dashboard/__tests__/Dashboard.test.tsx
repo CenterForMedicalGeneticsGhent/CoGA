@@ -84,7 +84,7 @@ describe('Dashboard admin section', () => {
       'href',
       '/admin/data/families',
     );
-    expect(screen.getByRole('link', { name: /upload family\/sample data/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /package import/i })).toHaveAttribute(
       'href',
       '/admin/data/upload',
     );
