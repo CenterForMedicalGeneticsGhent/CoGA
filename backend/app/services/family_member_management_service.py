@@ -437,6 +437,21 @@ def _relationship_payload_for_member_update(
     return FamilyStructureRelationshipsUpdate(parent_child=parent_child, couples=couples)
 
 
+def _apply_status_fields(values: dict[str, Any], update: Any) -> None:
+    """Copy the independent phenotype/carrier status fields when set.
+
+    clinical_status (phenotype) and carrier_status (genotype) are stored
+    separately; carrier_type only applies to carriers.
+    """
+
+    if _payload_has_field(update, "clinical_status"):
+        values["clinical_status"] = update.clinical_status
+    if _payload_has_field(update, "carrier_status"):
+        values["carrier_status"] = update.carrier_status
+    if _payload_has_field(update, "carrier_type"):
+        values["carrier_type"] = update.carrier_type
+
+
 def _member_update_payload(
     *,
     sample_id: str,
@@ -447,23 +462,7 @@ def _member_update_payload(
         values["sex"] = update.sex
     if _payload_has_field(update, "role"):
         values["role"] = update.role
-    if _payload_has_field(update, "phenotype_status"):
-        if update.phenotype_status == "carrier":
-            values["clinical_status"] = "unknown"
-            values["carrier_status"] = "carrier"
-            values["carrier_type"] = None
-        elif update.phenotype_status == "affected":
-            values["clinical_status"] = "affected"
-            values["carrier_status"] = "unknown"
-            values["carrier_type"] = None
-        elif update.phenotype_status == "unaffected":
-            values["clinical_status"] = "unaffected"
-            values["carrier_status"] = "not_carrier"
-            values["carrier_type"] = None
-        else:
-            values["clinical_status"] = "unknown"
-            values["carrier_status"] = "unknown"
-            values["carrier_type"] = None
+    _apply_status_fields(values, update)
     return FamilyStructureMemberUpdate(**values)
 
 
@@ -477,13 +476,7 @@ def _batch_member_update_payload(
         values["sex"] = update.sex
     if _payload_has_field(update, "role"):
         values["role"] = update.role
-    if _payload_has_field(update, "phenotype_status"):
-        values.update(
-            _member_update_payload(
-                sample_id=sample_id,
-                update=FamilyMemberUpdate(phenotype_status=update.phenotype_status),
-            ).model_dump(exclude_unset=True, exclude={"sample_id"})
-        )
+    _apply_status_fields(values, update)
     return FamilyStructureMemberUpdate(**values)
 
 

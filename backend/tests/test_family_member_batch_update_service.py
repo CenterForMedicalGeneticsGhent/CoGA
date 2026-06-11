@@ -105,7 +105,7 @@ async def test_batch_metadata_update_ignores_unchanged_parent_fields(monkeypatch
             updates=[
                 FamilyMemberBatchUpdateItem(
                     sample_id="CHILD",
-                    phenotype_status="carrier",
+                    carrier_status="carrier",
                     father_id="FATHER",
                     mother_id="MOTHER",
                 )

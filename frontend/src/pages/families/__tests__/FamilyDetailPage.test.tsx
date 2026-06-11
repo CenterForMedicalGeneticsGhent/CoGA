@@ -352,7 +352,8 @@ describe('FamilyDetailPage', () => {
 
     expect(await screen.findByRole('dialog', { name: /family member details/i })).toBeInTheDocument();
     expect(await screen.findByLabelText(/identifier/i)).toHaveValue('S1');
-    expect(screen.getByLabelText(/phenotype status/i)).toHaveValue('affected');
+    expect(screen.getByLabelText('Phenotype')).toHaveValue('affected');
+    expect(screen.getByLabelText('Carrier status')).toHaveValue('unknown');
     expect(screen.getByRole('heading', { name: /hpo phenotypes/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /add phenotype/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /apply to pending/i })).toBeInTheDocument();
@@ -400,7 +401,7 @@ describe('FamilyDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'S1' }));
-    fireEvent.change(await screen.findByLabelText(/phenotype status/i), {
+    fireEvent.change(await screen.findByLabelText('Carrier status'), {
       target: { value: 'carrier' },
     });
     fireEvent.click(screen.getByRole('button', { name: /apply to pending/i }));
@@ -414,7 +415,7 @@ describe('FamilyDetailPage', () => {
         updates: [
           expect.objectContaining({
             sample_id: 'S1',
-            phenotype_status: 'carrier',
+            carrier_status: 'carrier',
           }),
         ],
       }),
