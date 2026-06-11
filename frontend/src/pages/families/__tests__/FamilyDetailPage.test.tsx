@@ -194,7 +194,7 @@ describe('FamilyDetailPage', () => {
     vi.mocked(api.delete).mockReset();
   });
 
-  it('shows the current family ROI summary and project links without edit controls', async () => {
+  it('lets admins edit the ROI from the family dashboard without structure edit controls', async () => {
     localStorage.setItem('role', 'admin');
     const queryClient = createTestQueryClient();
 
@@ -218,10 +218,12 @@ describe('FamilyDetailPage', () => {
     expect(
       screen.getByRole('link', { name: /small variants/i })
     ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
+    // ROI is editable from the family dashboard for admins.
     expect(
-      screen.queryByPlaceholderText(/BRCA1 or chr17:43044295-43125482/i),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /save roi/i })).not.toBeInTheDocument();
+      screen.getByPlaceholderText(/BRCA1 or chr17:43044295-43125482/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save roi/i })).toBeInTheDocument();
+    // Structure editing stays gated on the editable structure view only.
     expect(screen.queryByLabelText('Carrier status for S1')).not.toBeInTheDocument();
     expect(screen.getByLabelText(/variant curation summary/i)).toBeInTheDocument();
     const smallVariantCuration = screen.getByLabelText(/small variant review summary/i);
@@ -248,6 +250,29 @@ describe('FamilyDetailPage', () => {
         screen.getByText((_, element) => element?.textContent?.trim() === 'Needs segmentation review 1'),
       ).toBeInTheDocument();
     });
+  });
+
+  it('does not expose ROI edit controls to non-admin viewers', async () => {
+    localStorage.setItem('role', 'viewer');
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    // ROI summary is visible, but the edit controls are admin-only.
+    expect(screen.getByText(/chr17:43,044,295-43,125,482/i)).toBeInTheDocument();
+    expect(
+      screen.queryByPlaceholderText(/BRCA1 or chr17:43044295-43125482/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save roi/i })).not.toBeInTheDocument();
   });
 
   it('hides variant workspace buttons and shows a note when no variant data is loaded', async () => {
