@@ -80,7 +80,7 @@ describe('GeneInfoPage', () => {
                   source: 'ensembl',
                 },
                 {
-                  transcript_id: 'TX1',
+                  transcript_id: 'NM_007294.4',
                   start: 43044295,
                   end: 43125482,
                   exon_count: 24,
@@ -402,7 +402,10 @@ describe('GeneInfoPage', () => {
     );
     expect(within(transcriptTable).getByText('ENST00000357654.9')).toBeInTheDocument();
     expect(within(transcriptTable).getByText('MANE Select')).toBeInTheDocument();
-    expect(within(transcriptTable).getByText('Canonical')).toBeInTheDocument();
+    expect(within(transcriptTable).getByText('Ensembl Canonical')).toBeInTheDocument();
+    // RefSeq Select is derived from the HGNC refseq accessions.
+    expect(within(transcriptTable).getByText('NM_007294.4')).toBeInTheDocument();
+    expect(within(transcriptTable).getByText('RefSeq Select')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Protein Atlas' })).toHaveAttribute(
       'href',
       'https://www.proteinatlas.org/ENSG00000012048-BRCA1',

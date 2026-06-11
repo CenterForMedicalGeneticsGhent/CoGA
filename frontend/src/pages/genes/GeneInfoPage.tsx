@@ -84,6 +84,7 @@ interface GeneClingenFacts {
   acmg_secondary_finding?: boolean | null;
   cytoband?: string | null;
   mane_select_transcript?: string | null;
+  mane_plus_clinical_transcript?: string | null;
   function?: string | null;
   genomic_coordinates?: Record<string, string>;
 }
@@ -281,11 +282,19 @@ interface NamedStringGroup {
   items: string[];
 }
 
-type TranscriptBadgeTone = 'success' | 'warning';
+type TranscriptBadgeTone = 'success' | 'warning' | 'accent' | 'strong';
 
 interface TranscriptBadge {
   label: string;
   tone: TranscriptBadgeTone;
+}
+
+interface TranscriptAnnotationContext {
+  maneSelect?: string | null;
+  manePlusClinical?: string | null;
+  ensemblCanonical?: string | null;
+  // HGNC-curated RefSeq accessions (the representative / RefSeq Select set).
+  refseqSelect?: string[];
 }
 
 const formatLocus = (profile: Pick<GeneProfile, 'chr' | 'start' | 'end'>) => {
@@ -357,17 +366,25 @@ const classifyTranscript = (transcriptId: string) => {
   return 'Imported';
 };
 
+const matchesAnyTranscript = (transcriptId: string, references?: string[] | null) =>
+  Boolean(references?.some((reference) => isSameTranscript(transcriptId, reference)));
+
 const transcriptBadgesFor = (
   transcriptId: string,
-  canonicalTranscript?: string | null,
-  maneTranscript?: string | null,
+  context: TranscriptAnnotationContext,
 ): TranscriptBadge[] =>
   [
-    isSameTranscript(transcriptId, maneTranscript)
+    isSameTranscript(transcriptId, context.maneSelect)
       ? { label: 'MANE Select', tone: 'success' as const }
       : null,
-    isSameTranscript(transcriptId, canonicalTranscript)
-      ? { label: 'Canonical', tone: 'warning' as const }
+    isSameTranscript(transcriptId, context.manePlusClinical)
+      ? { label: 'MANE Plus Clinical', tone: 'accent' as const }
+      : null,
+    matchesAnyTranscript(transcriptId, context.refseqSelect)
+      ? { label: 'RefSeq Select', tone: 'strong' as const }
+      : null,
+    isSameTranscript(transcriptId, context.ensemblCanonical)
+      ? { label: 'Ensembl Canonical', tone: 'warning' as const }
       : null,
   ].filter((badge): badge is TranscriptBadge => Boolean(badge));
 
@@ -972,28 +989,46 @@ const GeneInfoPage: React.FC = () => {
     [clingenHaploIndex, constraintMetrics, gnomadLoeuf, gnomadPli, profile],
   );
 
+  const transcriptBadgeContext = useMemo<TranscriptAnnotationContext>(
+    () => ({
+      maneSelect: clingenFacts?.mane_select_transcript,
+      manePlusClinical: clingenFacts?.mane_plus_clinical_transcript,
+      ensemblCanonical: profile?.extra.ensembl_canonical_transcript,
+      refseqSelect: profile?.extra.refseq_accessions,
+    }),
+    [
+      clingenFacts?.mane_select_transcript,
+      clingenFacts?.mane_plus_clinical_transcript,
+      profile?.extra.ensembl_canonical_transcript,
+      profile?.extra.refseq_accessions,
+    ],
+  );
+
   const orderedTranscripts = useMemo(() => {
     if (!profile) return [];
-    const canonicalTranscript = profile.extra.ensembl_canonical_transcript;
-    const maneTranscript = clingenFacts?.mane_select_transcript;
 
     return [...profile.transcripts].sort((left, right) => {
       const score = (transcript: GeneTranscript) => {
-        const canonical = isSameTranscript(transcript.transcript_id, canonicalTranscript) ? 0 : 1;
-        const mane = isSameTranscript(transcript.transcript_id, maneTranscript) ? 0 : 1;
+        // Surface clinically annotated transcripts first (MANE Select, MANE
+        // Plus Clinical, RefSeq Select, Ensembl Canonical), then by source.
+        const annotated =
+          transcriptBadgesFor(transcript.transcript_id, transcriptBadgeContext).length > 0 ? 0 : 1;
+        const mane = isSameTranscript(transcript.transcript_id, transcriptBadgeContext.maneSelect)
+          ? 0
+          : 1;
         const sourceRank = /^ENS/i.test(transcript.transcript_id)
           ? 0
           : /^(NM_|NR_|XM_|XR_)/i.test(transcript.transcript_id)
             ? 1
             : 2;
-        return [canonical, mane, sourceRank, transcript.transcript_id];
+        return [annotated, mane, sourceRank, transcript.transcript_id];
       };
 
       const leftScore = score(left);
       const rightScore = score(right);
       return leftScore < rightScore ? -1 : leftScore > rightScore ? 1 : 0;
     });
-  }, [clingenFacts?.mane_select_transcript, profile]);
+  }, [profile, transcriptBadgeContext]);
 
   if (isLoading) {
     return (
@@ -1569,8 +1604,7 @@ const GeneInfoPage: React.FC = () => {
                       orderedTranscripts.map((transcript) => {
                         const badges = transcriptBadgesFor(
                           transcript.transcript_id,
-                          profile.extra.ensembl_canonical_transcript,
-                          clingenFacts?.mane_select_transcript,
+                          transcriptBadgeContext,
                         );
 
                         return (
