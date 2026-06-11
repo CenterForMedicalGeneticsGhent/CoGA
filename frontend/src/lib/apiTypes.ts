@@ -59,7 +59,9 @@ export interface ApiFamilyMemberBatchUpdateItem {
   new_sample_id?: string | null;
   sex?: 'male' | 'female' | 'und' | null;
   role?: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'relative' | null;
-  phenotype_status?: 'unknown' | 'unaffected' | 'affected' | 'carrier' | null;
+  clinical_status?: 'unknown' | 'unaffected' | 'affected' | null;
+  carrier_status?: 'unknown' | 'not_carrier' | 'carrier' | null;
+  carrier_type?: 'obligate' | 'proven' | 'reported' | 'inferred' | null;
   father_id?: string | null;
   mother_id?: string | null;
 }

@@ -44,7 +44,6 @@ type ClinicalStatus = 'unknown' | 'unaffected' | 'affected';
 type CarrierStatus = 'unknown' | 'not_carrier' | 'carrier';
 type CarrierType = 'obligate' | 'proven' | 'reported' | 'inferred';
 type HpoAnnotationStatus = 'present' | 'absent' | 'unknown';
-type PhenotypeStatus = ClinicalStatus | 'carrier';
 
 interface StructureMemberDraft {
   sample_id: string;
@@ -75,7 +74,9 @@ interface MemberDetailDraft {
   sample_id: string;
   sex: StructureMemberDraft['sex'];
   role: StructureMemberDraft['role'];
-  phenotype_status: PhenotypeStatus;
+  clinical_status: ClinicalStatus;
+  carrier_status: CarrierStatus;
+  carrier_type: CarrierType | '';
   father_id: string;
   mother_id: string;
 }
@@ -94,7 +95,6 @@ const CARRIER_STATUS_OPTIONS: CarrierStatus[] = ['unknown', 'not_carrier', 'carr
 const CARRIER_TYPE_OPTIONS: CarrierType[] = ['proven', 'obligate', 'reported', 'inferred'];
 const PARENT_ROLE_OPTIONS: ParentChildDraft['parent_role'][] = ['father', 'mother', 'parent'];
 const HPO_STATUS_OPTIONS: HpoAnnotationStatus[] = ['present', 'absent', 'unknown'];
-const PHENOTYPE_STATUS_OPTIONS: PhenotypeStatus[] = ['unknown', 'unaffected', 'affected', 'carrier'];
 
 const defaultNewMember: StructureMemberDraft = {
   sample_id: '',
@@ -139,33 +139,6 @@ const carrierStatusForMember = (member: {
   if (member.carrier_status === 'not_carrier') return 'not_carrier';
   if (member.carrier_status === true) return 'carrier';
   return 'unknown';
-};
-
-const phenotypeStatusForMember = (member: {
-  clinical_status?: string | null;
-  carrier_status?: string | boolean | null;
-  affected?: boolean;
-}): PhenotypeStatus => {
-  if (carrierStatusForMember(member) === 'carrier') return 'carrier';
-  return clinicalStatusForMember(member);
-};
-
-// Expand a unified phenotype status into the underlying member fields, mirroring
-// the backend mapping in family_member_management_service so optimistic previews
-// match what will be persisted.
-const memberFieldsFromPhenotypeStatus = (
-  status: PhenotypeStatus,
-): { clinical_status: ClinicalStatus; carrier_status: CarrierStatus; affected: boolean } => {
-  switch (status) {
-    case 'carrier':
-      return { clinical_status: 'unknown', carrier_status: 'carrier', affected: false };
-    case 'affected':
-      return { clinical_status: 'affected', carrier_status: 'unknown', affected: true };
-    case 'unaffected':
-      return { clinical_status: 'unaffected', carrier_status: 'not_carrier', affected: false };
-    default:
-      return { clinical_status: 'unknown', carrier_status: 'unknown', affected: false };
-  }
 };
 
 const hpoTooltip = (annotation: ApiHpoAnnotation): string => {
@@ -494,16 +467,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   ): ApiFamilyRecord['members'][number] => {
     const pending = pendingMemberUpdates[member.sample_id];
     if (!pending) return member;
-    const phenotypeFields = memberFieldsFromPhenotypeStatus(pending.phenotype_status);
     return {
       ...member,
       sample_id: pending.sample_id || member.sample_id,
       sex: pending.sex,
       role: pending.role,
-      affected: phenotypeFields.affected,
-      clinical_status: phenotypeFields.clinical_status,
-      carrier_status: phenotypeFields.carrier_status,
-      carrier_type: phenotypeFields.carrier_status === 'carrier' ? member.carrier_type ?? null : null,
+      affected: pending.clinical_status === 'affected',
+      clinical_status: pending.clinical_status,
+      carrier_status: pending.carrier_status,
+      carrier_type: pending.carrier_status === 'carrier' ? pending.carrier_type || null : null,
     };
   };
   const phenotypeSampleIds = useMemo(
@@ -553,7 +525,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       role: ROLE_OPTIONS.includes(selectedMemberDetail.member.role as StructureMemberDraft['role'])
         ? (selectedMemberDetail.member.role as StructureMemberDraft['role'])
         : 'relative',
-      phenotype_status: phenotypeStatusForMember(selectedMemberDetail.member),
+      clinical_status: clinicalStatusForMember(selectedMemberDetail.member),
+      carrier_status: carrierStatusForMember(selectedMemberDetail.member),
+      carrier_type: selectedMemberDetail.member.carrier_type ?? '',
       father_id: selectedMemberDetail.father_id ?? '',
       mother_id: selectedMemberDetail.mother_id ?? '',
     });
@@ -890,8 +864,19 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           if (currentMember && draft.role !== currentMember.role) {
             item.role = draft.role;
           }
-          if (currentMember && draft.phenotype_status !== phenotypeStatusForMember(currentMember)) {
-            item.phenotype_status = draft.phenotype_status;
+          if (currentMember && draft.clinical_status !== clinicalStatusForMember(currentMember)) {
+            item.clinical_status = draft.clinical_status;
+          }
+          if (currentMember && draft.carrier_status !== carrierStatusForMember(currentMember)) {
+            item.carrier_status = draft.carrier_status;
+            item.carrier_type =
+              draft.carrier_status === 'carrier' ? draft.carrier_type || null : null;
+          } else if (
+            currentMember &&
+            draft.carrier_status === 'carrier' &&
+            draft.carrier_type !== (currentMember.carrier_type ?? '')
+          ) {
+            item.carrier_type = draft.carrier_type || null;
           }
           if (sampleKey(draft.father_id) !== sampleKey(currentParents.father_id)) {
             item.father_id = draft.father_id.trim() || null;
@@ -2041,25 +2026,68 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     </select>
                   </label>
                   <label className="field-label">
-                    Phenotype status
+                    Phenotype
                     <select
-                      value={memberDraft.phenotype_status}
+                      value={memberDraft.clinical_status}
                       onChange={(event) =>
                         setMemberDraft((draft) =>
                           draft
-                            ? { ...draft, phenotype_status: event.target.value as PhenotypeStatus }
+                            ? { ...draft, clinical_status: event.target.value as ClinicalStatus }
                             : draft,
                         )
                       }
                       disabled={!userIsAdmin || memberBusy}
                     >
-                      {PHENOTYPE_STATUS_OPTIONS.map((status) => (
+                      {CLINICAL_STATUS_OPTIONS.map((status) => (
                         <option key={status} value={status}>
                           {status}
                         </option>
                       ))}
                     </select>
                   </label>
+                  <label className="field-label">
+                    Carrier status
+                    <select
+                      value={memberDraft.carrier_status}
+                      onChange={(event) =>
+                        setMemberDraft((draft) =>
+                          draft
+                            ? { ...draft, carrier_status: event.target.value as CarrierStatus }
+                            : draft,
+                        )
+                      }
+                      disabled={!userIsAdmin || memberBusy}
+                    >
+                      {CARRIER_STATUS_OPTIONS.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {memberDraft.carrier_status === 'carrier' && (
+                    <label className="field-label">
+                      Carrier type
+                      <select
+                        value={memberDraft.carrier_type}
+                        onChange={(event) =>
+                          setMemberDraft((draft) =>
+                            draft
+                              ? { ...draft, carrier_type: event.target.value as CarrierType }
+                              : draft,
+                          )
+                        }
+                        disabled={!userIsAdmin || memberBusy}
+                      >
+                        <option value="">type</option>
+                        {CARRIER_TYPE_OPTIONS.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <label className="field-label">
                     Father
                     <select

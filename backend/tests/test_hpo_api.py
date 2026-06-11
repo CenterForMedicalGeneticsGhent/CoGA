@@ -289,7 +289,7 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
     impact_response = client.get("/api/families/FAM1/members/PROBAND/impact")
     update_response = client.put(
         "/api/families/FAM1/members/PROBAND",
-        json={"phenotype_status": "carrier", "father_id": "FATHER", "mother_id": "MOTHER"},
+        json={"carrier_status": "carrier", "father_id": "FATHER", "mother_id": "MOTHER"},
     )
     batch_response = client.put(
         "/api/families/FAM1/members/batch",
@@ -297,7 +297,7 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
             "updates": [
                 {
                     "sample_id": "PROBAND",
-                    "phenotype_status": "carrier",
+                    "carrier_status": "carrier",
                     "father_id": "FATHER",
                     "mother_id": "MOTHER",
                 }
@@ -333,7 +333,7 @@ def test_family_member_batch_reports_missing_metadata_schema(hpo_api_client) -> 
 
     response = client.put(
         "/api/families/FAM1/members/batch",
-        json={"updates": [{"sample_id": "PROBAND", "phenotype_status": "carrier"}]},
+        json={"updates": [{"sample_id": "PROBAND", "carrier_status": "carrier"}]},
     )
 
     assert response.status_code == 503

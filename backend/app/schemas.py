@@ -232,7 +232,11 @@ class FamilyMemberUpdate(BaseModel):
     sample_id: Optional[str] = None
     sex: Optional[Literal["male", "female", "und"]] = None
     role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
-    phenotype_status: Optional[Literal["unknown", "unaffected", "affected", "carrier"]] = None
+    # Phenotype and carrier status are independent axes and are stored
+    # separately (clinical_status = phenotype, carrier_status = genotype).
+    clinical_status: Optional[Literal["unknown", "unaffected", "affected"]] = None
+    carrier_status: Optional[Literal["unknown", "not_carrier", "carrier"]] = None
+    carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
     father_id: Optional[str] = None
     mother_id: Optional[str] = None
     expected_structure_version: Optional[int] = None
@@ -245,7 +249,9 @@ class FamilyMemberBatchUpdateItem(BaseModel):
     new_sample_id: Optional[str] = None
     sex: Optional[Literal["male", "female", "und"]] = None
     role: Optional[Literal["proband", "father", "mother", "sibling", "embryo", "relative"]] = None
-    phenotype_status: Optional[Literal["unknown", "unaffected", "affected", "carrier"]] = None
+    clinical_status: Optional[Literal["unknown", "unaffected", "affected"]] = None
+    carrier_status: Optional[Literal["unknown", "not_carrier", "carrier"]] = None
+    carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
     father_id: Optional[str] = None
     mother_id: Optional[str] = None
 
