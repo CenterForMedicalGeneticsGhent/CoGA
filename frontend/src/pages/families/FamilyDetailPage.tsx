@@ -272,10 +272,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   );
   const userIsAdmin = isAdmin();
   const canEditFamilyDetails = editable && userIsAdmin;
-  // ROI editing is a family-structure edit, so gate it on the same editable
-  // admin context as the rest of the structure controls — not on admin alone.
-  // The read-only family workspace shows the ROI summary without edit controls.
-  const canEditRoi = canEditFamilyDetails;
+  // ROI editing is a standalone admin action (PUT /families/{id}/roi is
+  // admin-only) and is independent of the family-structure editor, so it stays
+  // available from the family dashboard for admins regardless of `editable`.
+  const canEditRoi = userIsAdmin;
   const queryClient = useQueryClient();
   const [roiInput, setRoiInput] = useState('');
   const [roiBusy, setRoiBusy] = useState(false);
