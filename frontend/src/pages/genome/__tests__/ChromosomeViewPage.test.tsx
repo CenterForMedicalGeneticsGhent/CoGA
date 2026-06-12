@@ -326,7 +326,7 @@ describe('ChromosomeViewPage', () => {
     expect(decodeURIComponent(lastWorkspaceProps.igvHref)).toContain('locus=chrM:3200-3300');
   });
 
-  it('skips small-variant availability on broad unfiltered chromosome views', async () => {
+  it('checks small-variant availability at any zoom (no span gate)', async () => {
     (api.get as unknown as Mock).mockImplementation((url: string) => {
       if (url === '/families/F1') {
         return Promise.resolve({
@@ -351,7 +351,7 @@ describe('ChromosomeViewPage', () => {
                 coverage: true,
                 apcad: false,
                 variants: false,
-                small_variants: false,
+                small_variants: true,
                 haplotypes: false,
               },
             },
@@ -379,7 +379,7 @@ describe('ChromosomeViewPage', () => {
       const availabilityCall = (api.get as unknown as Mock).mock.calls
         .map(([url]) => String(url))
         .find((url) => url.startsWith('/families/F1/track-availability?'));
-      expect(availabilityCall).toContain('include_small_variants=false');
+      expect(availabilityCall).toContain('include_small_variants=true');
     });
     const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
     expect(lastWorkspaceProps.availability.PROBAND.smallVariants).toBe(true);

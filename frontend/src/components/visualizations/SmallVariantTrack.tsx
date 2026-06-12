@@ -260,15 +260,16 @@ const SmallVariantTrack: React.FC<Props> = ({
     }
 
     const g = svg.append('g');
+    const radius = Math.max(2, Math.min(3.5, height / 2 - 1));
+    const cy = height / 2;
     withPos.forEach((v) => {
       g
-        .append('line')
-        .attr('x1', v.x)
-        .attr('x2', v.x)
-        .attr('y1', 0)
-        .attr('y2', height)
-        .attr('stroke', getVariantColor(v));
-      // Wider transparent hitbox so the 1px marker is easy to hover.
+        .append('circle')
+        .attr('cx', v.x)
+        .attr('cy', cy)
+        .attr('r', radius)
+        .attr('fill', getVariantColor(v));
+      // Wider transparent hitbox so the dot is easy to hover.
       g
         .append('rect')
         .attr('x', v.x - 4)

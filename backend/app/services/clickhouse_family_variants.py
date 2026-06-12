@@ -62,8 +62,8 @@ _PAIR_BASED_SMALL_INHERITANCE = {
 _SMALL_INHERITANCE_MIN_CANDIDATE_ROWS = 1000
 _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS = 5000
 _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER = 25
-_SMALL_COUNT_LIMIT = 1001
-_SMALL_TRACK_RESULT_LIMIT = 1000
+_SMALL_COUNT_LIMIT = 10001
+_SMALL_TRACK_RESULT_LIMIT = 10000
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
     "recessive_hom": _RECESSIVE_HOMOZYGOUS_INHERITANCE,
@@ -3606,6 +3606,46 @@ async def _fetch_small_variant_rows(
             )
         )
     return records
+
+
+async def fetch_imputed_phased_genotypes(
+    context: FamilyMetadataContext,
+    *,
+    chrom: str,
+    start: int,
+    end: int,
+    limit: int,
+) -> list[tuple[int, list[str], list[str]]]:
+    """Lean, family-scoped fetch of imputed (GLIMPSE2) variant positions and the
+    per-sample phased genotype strings in a region — no annotation hydration, so
+    it stays cheap even for tens of thousands of sites. Used by the phased-marker
+    parent-of-origin computation."""
+    if not context.assembly_name:
+        return []
+    filters = SmallVariantQueryFilters(
+        page=1,
+        page_size=1,
+        chromosome=chrom,
+        start=start,
+        end=end,
+        source="glimpse2",
+        overlap=True,
+    )
+    where_clauses, params, _ = _small_query_filter_parts(context, filters)
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    query = f"""
+        SELECT e.pos AS pos, e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts
+        FROM {entries_table} AS e
+        WHERE {' AND '.join(where_clauses)}
+        ORDER BY e.pos
+        LIMIT %(phased_limit)s
+    """
+    params["phased_limit"] = int(limit)
+    rows = await _execute_clickhouse(query, params)
+    return [
+        (int(row[0]), [str(s) for s in row[1]], [str(g) for g in row[2]])
+        for row in rows
+    ]
 
 
 async def _fetch_structural_variant_rows(

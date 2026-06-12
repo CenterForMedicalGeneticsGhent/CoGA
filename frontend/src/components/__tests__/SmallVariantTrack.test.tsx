@@ -56,8 +56,15 @@ test('renders loader while small variants are loading', () => {
   expect(screen.getByText(/loading small variants/i)).toBeInTheDocument();
 });
 
-test('does not request broad unfiltered chromosome small variants', () => {
-  useQueryMock.mockReturnValue({ data: undefined, isLoading: false });
+test('requests broad regions and shows too many when over the cap (no span gate)', () => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : {
+          data: { total: 10000, total_is_estimated: true, count_limit: 10000, variants: [] },
+          isLoading: false,
+        },
+  );
 
   render(
     <SmallVariantTrack
@@ -71,8 +78,8 @@ test('does not request broad unfiltered chromosome small variants', () => {
     />
   );
 
-  expect(useQueryMock.mock.calls[0][0].enabled).toBe(false);
-  expect(useQueryMock.mock.calls[1][0].enabled).toBe(false);
+  // The span no longer gates the request — it fires and the variant cap governs.
+  expect(useQueryMock.mock.calls[0][0].enabled).toBe(true);
   expect(screen.getByText(/too many variants to display/i)).toBeInTheDocument();
 });
 
@@ -82,9 +89,9 @@ test('renders too many message when bounded track count reaches the limit', () =
       ? { data: [], isLoading: false }
       : {
           data: {
-            total: 1000,
+            total: 10000,
             total_is_estimated: true,
-            count_limit: 1000,
+            count_limit: 10000,
             variants: [],
           },
           isLoading: false,
@@ -129,8 +136,8 @@ test('requests small variants carried by the displayed sample before pagination'
     expect.objectContaining({
       params: expect.objectContaining({
         sample_filter: 'S1:0/1|1/0|0|1|1|0|1/1|1|1',
-        page_size: 999,
-        track_result_limit: 1000,
+        page_size: 9999,
+        track_result_limit: 10000,
       }),
     }),
   );
@@ -161,8 +168,8 @@ test('preserves an explicit small-variant sample filter', async () => {
       params: expect.objectContaining({
         sample_filter: 'S1:1/1',
         source: 'glimpse2',
-        page_size: 999,
-        track_result_limit: 1000,
+        page_size: 9999,
+        track_result_limit: 10000,
       }),
     }),
   );
@@ -212,10 +219,10 @@ test('colors variants by review tag before ClinVar annotation', async () => {
     />,
   );
 
-  await waitFor(() => expect(container.querySelectorAll('line')).toHaveLength(2));
-  const [tagged, pathogenic] = Array.from(container.querySelectorAll('line'));
-  expect(tagged).toHaveAttribute('stroke', '#123456');
-  expect(pathogenic).toHaveAttribute('stroke', '#b42318');
+  await waitFor(() => expect(container.querySelectorAll('circle')).toHaveLength(2));
+  const [tagged, pathogenic] = Array.from(container.querySelectorAll('circle'));
+  expect(tagged).toHaveAttribute('fill', '#123456');
+  expect(pathogenic).toHaveAttribute('fill', '#b42318');
 });
 
 test('colors ClinVar annotations by pathogenicity category', async () => {
@@ -268,13 +275,13 @@ test('colors ClinVar annotations by pathogenicity category', async () => {
     />,
   );
 
-  await waitFor(() => expect(container.querySelectorAll('line')).toHaveLength(3));
+  await waitFor(() => expect(container.querySelectorAll('circle')).toHaveLength(3));
   const [likelyPathogenic, likelyBenign, conflicting] = Array.from(
-    container.querySelectorAll('line'),
+    container.querySelectorAll('circle'),
   );
-  expect(likelyPathogenic).toHaveAttribute('stroke', '#ea580c');
-  expect(likelyBenign).toHaveAttribute('stroke', '#2f855a');
-  expect(conflicting).toHaveAttribute('stroke', '#ca8a04');
+  expect(likelyPathogenic).toHaveAttribute('fill', '#ea580c');
+  expect(likelyBenign).toHaveAttribute('fill', '#2f855a');
+  expect(conflicting).toHaveAttribute('fill', '#ca8a04');
 });
 
 test('shows a hover tooltip with the gene and variant', async () => {

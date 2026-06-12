@@ -380,7 +380,7 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
     async def fake_execute_clickhouse(query: str, _params: dict[str, object]):
         queries.append(query)
         if "SELECT count()" in query:
-            return [(1001,)]
+            return [(10001,)]
         if "variants/details" in query:
             return [_small_detail_row(), _small_detail_row(key=3, gene="GENE3")]
         return [
@@ -421,7 +421,7 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
         page_size=1,
     )
 
-    assert page.total == 1001
+    assert page.total == 10001
     assert page.total_is_estimated is True
     assert page.unfiltered_total == 1001
     assert page.unfiltered_total_is_estimated is False
@@ -465,10 +465,10 @@ async def test_get_family_small_variants_track_mode_stops_before_heavy_fetch(
         track_result_limit=5000,
     )
 
-    assert count_limits == [1000]
+    assert count_limits == [5000]
     assert page.total == 1000
     assert page.total_is_estimated is True
-    assert page.count_limit == 1000
+    assert page.count_limit == 5000
     assert page.variants == []
 
 
