@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -13,6 +13,7 @@ from ..schemas import (
     AssemblyOut,
     ReferenceAutoImportRequest,
     ReferenceAutoImportResult,
+    ReferenceImportActivityOut,
     ReferenceImportSourceAssemblyOut,
     ReferenceImportSourceOrganismOut,
     AssemblyReferenceStatusOut,
@@ -24,6 +25,7 @@ from ..services.metadata_service import (
     list_assembly_records,
 )
 from ..services.reference_metadata_service import (
+    list_recent_reference_imports,
     list_reference_statuses,
     upload_reference_dataset,
 )
@@ -87,6 +89,19 @@ async def import_reference_data(
         overwrite=request.overwrite,
         performed_by=user.email,
     )
+
+
+@router.get(
+    "/reference-import/recent",
+    response_model=List[ReferenceImportActivityOut],
+)
+async def list_recent_reference_activity(
+    limit: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> List[ReferenceImportActivityOut]:
+    del user
+    return await list_recent_reference_imports(session, limit=limit)
 
 
 @router.get("/{species_id}", response_model=List[AssemblyOut])

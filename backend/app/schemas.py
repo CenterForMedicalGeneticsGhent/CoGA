@@ -713,6 +713,21 @@ class ReferenceDatasetImportOut(BaseModel):
     performed_at: datetime
 
 
+class ReferenceImportActivityOut(BaseModel):
+    """One chronological entry for the "Recent reference activity" feed: which
+    dataset was loaded for which assembly, how many rows, from where, by whom."""
+
+    assembly_id: str
+    assembly_name: str
+    species_name: str
+    dataset_type: str
+    inserted: int = 0
+    replaced: bool = False
+    source: Optional[str] = None
+    performed_by: Optional[str] = None
+    performed_at: datetime
+
+
 class AssemblyReferenceStatusOut(BaseModel):
     assembly_id: str
     assembly_name: str
@@ -768,6 +783,10 @@ class ReferenceAutoImportResult(BaseModel):
     cytoband_source_url: str
     gene_source_url: str
     gene_source: str
+    # Set when the assembly was imported but its gene table could not be
+    # retrieved from UCSC (e.g. T2T/hs1). The assembly + cytobands are still
+    # created; genes can be uploaded manually afterwards.
+    gene_warning: Optional[str] = None
 
 
 class ReferenceUploadResult(BaseModel):

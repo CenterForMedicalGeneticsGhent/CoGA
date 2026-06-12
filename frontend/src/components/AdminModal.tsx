@@ -4,16 +4,25 @@ interface AdminModalProps {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  /**
+   * When another modal is stacked on top of this one, mark it inactive: the
+   * dialog drops `aria-modal`, is hidden from assistive tech, and becomes
+   * inert (non-focusable / non-interactive) so only the topmost dialog is
+   * modal and keyboard focus can't reach the obscured content underneath.
+   */
+  inactive?: boolean;
 }
 
 /** Lightweight admin dialog: backdrop + centered card with a title and close. */
-const AdminModal: React.FC<AdminModalProps> = ({ title, onClose, children }) => (
+const AdminModal: React.FC<AdminModalProps> = ({ title, onClose, children, inactive = false }) => (
   <div
     className="modal-backdrop"
     role="dialog"
-    aria-modal="true"
+    aria-modal={inactive ? undefined : 'true'}
+    aria-hidden={inactive || undefined}
     aria-label={title}
-    onClick={onClose}
+    inert={inactive}
+    onClick={inactive ? undefined : onClose}
   >
     <div
       className="modal-surface surface-card admin-modal"

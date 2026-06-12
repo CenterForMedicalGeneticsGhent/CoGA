@@ -76,12 +76,16 @@ interface GeneMetadataStatus {
   last_completed_at?: string | null;
 }
 
-interface ReferenceAuditEvent {
-  created_at: string;
-  user_email?: string | null;
-  method: string;
-  route_path?: string | null;
-  status_code: number;
+interface ReferenceImportActivity {
+  assembly_id: string;
+  assembly_name: string;
+  species_name: string;
+  dataset_type: string;
+  inserted: number;
+  replaced: boolean;
+  source?: string | null;
+  performed_by?: string | null;
+  performed_at: string;
 }
 
 interface ReferenceImportSourceAssembly {
@@ -115,6 +119,7 @@ interface ReferenceAutoImportResult {
   cytoband_source_url: string;
   gene_source_url: string;
   gene_source: string;
+  gene_warning?: string | null;
 }
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
@@ -157,12 +162,19 @@ const ReferenceCatalogPage: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [autoImportError, setAutoImportError] = useState<string | null>(null);
   const [autoImportSuccess, setAutoImportSuccess] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
-  const [cnvKbAssembly, setCnvKbAssembly] = useState('');
-  const [cnvKbSkipClinvar, setCnvKbSkipClinvar] = useState(false);
-  const [cnvKbError, setCnvKbError] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<'add' | 'manual' | 'upload' | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    tone?: 'default' | 'danger';
+    run: () => Promise<void>;
+    onCancel?: () => void;
+  } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const { data: species = [] } = useQuery<Species[]>({
     queryKey: ['species'],
@@ -206,14 +218,14 @@ const ReferenceCatalogPage: React.FC = () => {
     retry: false,
   });
 
-  const { data: referenceAudit } = useQuery<ReferenceAuditEvent[]>({
-    queryKey: ['admin', 'audit-logs', 'reference'],
+  const { data: referenceActivity } = useQuery<ReferenceImportActivity[]>({
+    queryKey: ['assemblies', 'reference-import', 'recent'],
     enabled: userIsAdmin,
     queryFn: async () => {
-      const res = await api.get('/admin/audit-logs', {
-        params: { path_contains: 'reference', page_size: 8 },
+      const res = await api.get('/assemblies/reference-import/recent', {
+        params: { limit: 12 },
       });
-      return (res.data?.items ?? []) as ReferenceAuditEvent[];
+      return res.data as ReferenceImportActivity[];
     },
   });
 
@@ -383,22 +395,26 @@ const ReferenceCatalogPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
     } catch (err: unknown) {
       if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        const overwrite = window.confirm(
-          'Reference data of this type already exist for the selected assembly. Overwrite them?'
-        );
-        if (overwrite) {
-          try {
-            const { data } = await runUpload(true);
-            setUploadSuccess(
-              `Replaced ${data.dataset_type.replace('_', ' ')} for ${data.assembly_name} with ${data.inserted} records.`
-            );
-            await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
-          } catch (overwriteError: unknown) {
-            setUploadError(getErrorMessage(overwriteError, 'Reference upload failed.'));
-          }
-        } else {
-          setUploadError('Reference upload cancelled.');
-        }
+        const datasetLabel = datasetCopy[referenceUpload.dataset_type]?.title ?? 'reference data';
+        setConfirmAction({
+          title: 'Overwrite existing reference data',
+          message: `${datasetLabel} already exist for the selected assembly. Replace them with the uploaded file? This cannot be undone.`,
+          confirmLabel: 'Overwrite',
+          tone: 'danger',
+          run: async () => {
+            try {
+              const { data } = await runUpload(true);
+              setUploadSuccess(
+                `Replaced ${data.dataset_type.replace('_', ' ')} for ${data.assembly_name} with ${data.inserted} records.`
+              );
+              setReferenceFile(null);
+              await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
+            } catch (overwriteError: unknown) {
+              setUploadError(getErrorMessage(overwriteError, 'Reference upload failed.'));
+            }
+          },
+          onCancel: () => setUploadError('Reference upload cancelled.'),
+        });
       } else {
         setUploadError(getErrorMessage(err, 'Reference upload failed.'));
       }
@@ -415,6 +431,7 @@ const ReferenceCatalogPage: React.FC = () => {
 
     setAutoImportError(null);
     setAutoImportSuccess(null);
+    setImporting(true);
 
     try {
       const { data } = await api.post<ReferenceAutoImportResult>('/assemblies/reference-import', {
@@ -422,9 +439,14 @@ const ReferenceCatalogPage: React.FC = () => {
         ucsc_genome: autoImportForm.ucsc_genome,
         overwrite: autoImportForm.overwrite,
       });
-      setAutoImportSuccess(
-        `Imported ${data.assembly_name} ${data.assembly_version}: ${data.cytobands_inserted} cytobands and ${data.genes_inserted} genes loaded.`
-      );
+      const genesPart = data.gene_warning
+        ? ''
+        : ` and ${data.genes_inserted} genes`;
+      let message = `Imported ${data.assembly_name} ${data.assembly_version}: ${data.cytobands_inserted} cytobands${genesPart} loaded.`;
+      if (data.gene_warning) {
+        message += ` No gene table was available from UCSC (${data.gene_warning}) — you can upload genes manually for this assembly.`;
+      }
+      setAutoImportSuccess(message);
       setAutoImportForm((current) => ({
         ...current,
         ucsc_genome: '',
@@ -432,35 +454,142 @@ const ReferenceCatalogPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['species'] });
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'all'] });
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
+      await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-import', 'recent'] });
     } catch (err: unknown) {
       setAutoImportError(getErrorMessage(err, 'Automatic reference import failed.'));
+    } finally {
+      setImporting(false);
     }
   };
 
-  const handleCnvKbRebuild = async () => {
-    if (!cnvKbAssembly) {
-      setCnvKbError('Choose an assembly first.');
-      return;
-    }
-    setCnvKbError(null);
+  const performCnvRebuild = async (assemblyName: string) => {
+    setError(null);
+    setSuccess(null);
     try {
       await api.post('/admin/clinical-cnv-kb/rebuild', {
-        assembly: cnvKbAssembly,
-        skip_clinvar: cnvKbSkipClinvar,
+        assembly: assemblyName,
+        skip_clinvar: false,
       });
+      setSuccess(`Started clinical CNV knowledgebase rebuild for ${assemblyName}.`);
       await queryClient.invalidateQueries({ queryKey: ['admin', 'clinical-cnv-kb', 'status'] });
     } catch (err: unknown) {
-      setCnvKbError(getErrorMessage(err, 'Could not start the clinical CNV knowledgebase rebuild.'));
+      setError(getErrorMessage(err, 'Could not start the clinical CNV knowledgebase rebuild.'));
     }
   };
 
-  const handleRefreshGeneMetadata = async () => {
+  const performRefreshGeneMetadata = async () => {
+    setError(null);
+    setSuccess(null);
     try {
       await api.post('/admin/gene-reference/refresh-all');
+      setSuccess('Started gene metadata refresh.');
       await queryClient.invalidateQueries({ queryKey: ['admin', 'gene-reference-status'] });
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Could not start the gene metadata refresh.'));
     }
+  };
+
+  const requestCnvRebuild = (assemblyName: string) => {
+    setConfirmAction({
+      title: 'Rebuild clinical CNV knowledgebase',
+      message: `Rebuild the clinical CNV knowledgebase for ${assemblyName}? This pulls from ClinGen, UCSC, and ClinVar / OMIM / Orphanet, runs in the background, and may take several minutes.`,
+      confirmLabel: 'Rebuild',
+      run: () => performCnvRebuild(assemblyName),
+    });
+  };
+
+  const requestRefreshGeneMetadata = () => {
+    setConfirmAction({
+      title: 'Refresh gene metadata',
+      message:
+        'Refresh cached human gene metadata (HGNC / Ensembl / ClinGen)? This runs in the background and may take a while.',
+      confirmLabel: 'Refresh',
+      run: performRefreshGeneMetadata,
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) {
+      return;
+    }
+    setConfirmBusy(true);
+    try {
+      await confirmAction.run();
+    } finally {
+      setConfirmBusy(false);
+      setConfirmAction(null);
+    }
+  };
+
+  const dismissConfirm = () => {
+    if (confirmBusy) {
+      return;
+    }
+    confirmAction?.onCancel?.();
+    setConfirmAction(null);
+  };
+
+  const openUploadFor = (assemblyId: string, datasetType: string) => {
+    setReferenceUpload({ assembly_id: assemblyId, dataset_type: datasetType });
+    setReferenceFile(null);
+    setUploadError(null);
+    setUploadSuccess(null);
+    setActiveModal('upload');
+  };
+
+  /**
+   * The action affordance shown beside a per-assembly count: a refresh icon where
+   * a source re-sync exists (human gene metadata, human clinical CNV rebuild),
+   * otherwise an upload icon that opens the upload modal pre-targeted at this
+   * assembly + dataset so admins can supply their own reference file.
+   */
+  const renderCountAction = (assembly: Assembly, taxId: number, datasetType: string) => {
+    if (!userIsAdmin) {
+      return null;
+    }
+
+    if (datasetType === 'genes' && taxId === 9606) {
+      return (
+        <button
+          type="button"
+          className="reference-refresh-icon"
+          title="Refresh cached human gene metadata"
+          aria-label="Refresh gene metadata"
+          disabled={Boolean(geneMetaStatus?.active_job)}
+          onClick={requestRefreshGeneMetadata}
+        >
+          ↻
+        </button>
+      );
+    }
+
+    if (datasetType === 'clinical_cnvs' && taxId === 9606 && cnvKbStatus?.available !== false) {
+      return (
+        <button
+          type="button"
+          className="reference-refresh-icon"
+          title={`Rebuild clinical CNV knowledgebase for ${assembly.assembly_name}`}
+          aria-label="Rebuild clinical CNV knowledgebase"
+          disabled={Boolean(cnvKbStatus?.active_job)}
+          onClick={() => requestCnvRebuild(assembly.assembly_name)}
+        >
+          ↻
+        </button>
+      );
+    }
+
+    const datasetLabel = datasetCopy[datasetType]?.title ?? datasetType.replace('_', ' ');
+    return (
+      <button
+        type="button"
+        className="reference-refresh-icon reference-refresh-icon--upload"
+        title={`Upload ${datasetLabel} for ${assembly.assembly_name}`}
+        aria-label={`Upload ${datasetLabel}`}
+        onClick={() => openUploadFor(assembly.id, datasetType)}
+      >
+        ↥
+      </button>
+    );
   };
 
   return (
@@ -527,9 +656,20 @@ const ReferenceCatalogPage: React.FC = () => {
         </section>
       )}
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,0.95fr)]">
+      <section className="space-y-5">
         <section className="surface-card space-y-4">
-          <h2 className="section-title">Configured species and assemblies</h2>
+          <div className="analysis-toolbar items-center">
+            <h2 className="section-title">Configured species and assemblies</h2>
+            {userIsAdmin ? (
+              <Link
+                to="/admin/reference/gene-reference"
+                className="subtle-link"
+                style={{ marginLeft: 'auto' }}
+              >
+                Advanced gene sync →
+              </Link>
+            ) : null}
+          </div>
           {species.length === 0 ? (
             <p className="section-copy">
               No species are configured yet. Add one first, then attach one or more assemblies to
@@ -658,19 +798,34 @@ const ReferenceCatalogPage: React.FC = () => {
                                               {assembly.release_date || '—'}
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.chromosomes)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.chromosomes)}
+                                                {renderCountAction(assembly, entry.tax_id, 'cytobands')}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.genes)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.genes)}
+                                                {renderCountAction(assembly, entry.tax_id, 'genes')}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.blacklist_regions)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.blacklist_regions)}
+                                                {renderCountAction(assembly, entry.tax_id, 'blacklist')}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.clinical_cnvs)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.clinical_cnvs)}
+                                                {renderCountAction(assembly, entry.tax_id, 'clinical_cnvs')}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.segmental_duplications)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.segmental_duplications)}
+                                                {renderCountAction(assembly, entry.tax_id, 'segmental_duplications')}
+                                              </span>
                                             </td>
                                             <td className="table-mono" title={lastUpdatedTooltip || undefined}>
                                               {latestImport ? (
@@ -710,7 +865,11 @@ const ReferenceCatalogPage: React.FC = () => {
           {activeModal === 'add' && (
           <AdminModal
             title="Add organism / assembly (from UCSC)"
-            onClose={() => setActiveModal(null)}
+            onClose={() => {
+              if (!importing) {
+                setActiveModal(null);
+              }
+            }}
           >
             {autoImportError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
@@ -735,6 +894,7 @@ const ReferenceCatalogPage: React.FC = () => {
                         overwrite: autoImportForm.overwrite,
                       })
                     }
+                    disabled={importing}
                   >
                     <option value="">Select organism</option>
                     {sourceOrganisms.map((entry) => (
@@ -755,7 +915,7 @@ const ReferenceCatalogPage: React.FC = () => {
                         ucsc_genome: e.target.value,
                       }))
                     }
-                    disabled={!autoImportForm.tax_id}
+                    disabled={!autoImportForm.tax_id || importing}
                   >
                     <option value="">Select assembly</option>
                     {sourceAssemblies.map((entry) => (
@@ -776,11 +936,26 @@ const ReferenceCatalogPage: React.FC = () => {
                         overwrite: e.target.checked,
                       }))
                     }
+                    disabled={importing}
                   />
                 </label>
-                <button type="submit" className="form-button w-full justify-center">
-                  Download cytobands and genes
+                <button
+                  type="submit"
+                  className="form-button w-full justify-center"
+                  disabled={importing || !autoImportForm.ucsc_genome}
+                >
+                  {importing ? 'Downloading from UCSC…' : 'Download cytobands and genes'}
                 </button>
+                {importing && (
+                  <div className="reference-import-progress" aria-live="polite">
+                    <div className="reference-import-progress-shell">
+                      <div className="reference-import-progress-bar" />
+                    </div>
+                    <p className="dashboard-link-note">
+                      Fetching cytobands and gene tables from UCSC — this can take up to a minute.
+                    </p>
+                  </div>
+                )}
               </form>
             ) : (
               <p className="section-copy">
@@ -807,7 +982,11 @@ const ReferenceCatalogPage: React.FC = () => {
           )}
 
           {activeModal === 'upload' && (
-          <AdminModal title="Upload reference data" onClose={() => setActiveModal(null)}>
+          <AdminModal
+            title="Upload reference data"
+            onClose={() => setActiveModal(null)}
+            inactive={Boolean(confirmAction)}
+          >
             {uploadError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
                 {uploadError}
@@ -890,117 +1069,6 @@ const ReferenceCatalogPage: React.FC = () => {
             </div>
           </AdminModal>
           )}
-
-          <section className="surface-card space-y-3">
-            <h2 className="section-title">Rebuild clinical CNV knowledgebase</h2>
-            <p className="section-copy">
-              Builds from ClinGen, UCSC, and ClinVar/OMIM/Orphanet, then replaces the clinical CNV
-              set for the assembly. Runs in the background.
-            </p>
-            {cnvKbStatus && !cnvKbStatus.available ? (
-              <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
-                {cnvKbStatus.detail || 'The build script is not available on the server.'}
-              </p>
-            ) : null}
-            {cnvKbError && (
-              <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
-                {cnvKbError}
-              </p>
-            )}
-            {userIsAdmin ? (
-              <div className="field-grid">
-                <label className="field-label">
-                  Target assembly
-                  <select
-                    value={cnvKbAssembly}
-                    onChange={(e) => setCnvKbAssembly(e.target.value)}
-                  >
-                    <option value="">Select assembly</option>
-                    {assemblies.map((assembly) => (
-                      <option key={assembly.id} value={assembly.assembly_name}>
-                        {assembly.assembly_name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Skip ClinVar support counts (faster)
-                  <input
-                    type="checkbox"
-                    checked={cnvKbSkipClinvar}
-                    onChange={(e) => setCnvKbSkipClinvar(e.target.checked)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="form-button w-full justify-center"
-                  onClick={handleCnvKbRebuild}
-                  disabled={
-                    Boolean(cnvKbStatus?.active_job) || cnvKbStatus?.available === false
-                  }
-                >
-                  {cnvKbStatus?.active_job
-                    ? `Rebuild ${cnvKbStatus.active_job.status}…`
-                    : 'Rebuild knowledgebase'}
-                </button>
-              </div>
-            ) : (
-              <p className="section-copy">
-                Admin access is required to rebuild the clinical CNV knowledgebase.
-              </p>
-            )}
-            {cnvKbStatus?.recent_jobs?.length ? (
-              <div className="dashboard-link-stack">
-                {cnvKbStatus.recent_jobs.slice(0, 5).map((job) => (
-                  <p key={job._id} className="dashboard-link-note">
-                    <strong>{job.assembly_name}</strong> — {job.status}
-                    {job.status === 'completed'
-                      ? ` (${job.inserted.toLocaleString()} CNVs)`
-                      : ''}
-                    {job.error ? `: ${job.error}` : ''}
-                  </p>
-                ))}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="surface-card space-y-3">
-            <div className="analysis-toolbar items-center">
-              <h2 className="section-title">Gene metadata (human)</h2>
-              <Link
-                to="/admin/reference/gene-reference"
-                className="subtle-link"
-                style={{ marginLeft: 'auto' }}
-              >
-                Full sync view →
-              </Link>
-            </div>
-            <p className="section-copy">
-              Cached HGNC / Ensembl / ClinGen gene context. Global human cache, shared across human
-              assemblies.
-            </p>
-            <div className="dashboard-link-stack">
-              <p className="dashboard-link-note">
-                {formatCatalogCount(geneMetaStatus?.human_gene_symbols)} genes ·{' '}
-                {formatCatalogCount(geneMetaStatus?.total_cached_records)} records · last sync{' '}
-                {geneMetaStatus?.last_completed_at
-                  ? formatDateTime(geneMetaStatus.last_completed_at)
-                  : '—'}
-              </p>
-            </div>
-            {userIsAdmin ? (
-              <button
-                type="button"
-                className="form-button w-full justify-center"
-                onClick={handleRefreshGeneMetadata}
-                disabled={Boolean(geneMetaStatus?.active_job)}
-              >
-                {geneMetaStatus?.active_job
-                  ? `Refresh ${geneMetaStatus.active_job.status}…`
-                  : 'Refresh all gene metadata'}
-              </button>
-            ) : null}
-          </section>
 
           {activeModal === 'manual' && (
           <AdminModal title="Manual entry — species & assembly" onClose={() => setActiveModal(null)}>
@@ -1128,7 +1196,34 @@ const ReferenceCatalogPage: React.FC = () => {
         </section>
       </section>
 
-      {userIsAdmin && referenceAudit && referenceAudit.length > 0 ? (
+      {confirmAction && (
+        <AdminModal title={confirmAction.title} onClose={dismissConfirm}>
+          <div className="space-y-4">
+            <p className="section-copy">{confirmAction.message}</p>
+            <div className="analysis-toolbar items-center" style={{ justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={dismissConfirm}
+                disabled={confirmBusy}
+                autoFocus
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={confirmAction.tone === 'danger' ? 'button-danger' : 'form-button'}
+                onClick={handleConfirmAction}
+                disabled={confirmBusy}
+              >
+                {confirmBusy ? 'Working…' : confirmAction.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </AdminModal>
+      )}
+
+      {userIsAdmin && referenceActivity && referenceActivity.length > 0 ? (
         <section className="surface-card space-y-3">
           <h2 className="section-title">Recent reference activity</h2>
           <div className="data-table-shell overflow-x-auto">
@@ -1137,30 +1232,30 @@ const ReferenceCatalogPage: React.FC = () => {
                 <tr>
                   <th>When</th>
                   <th>By</th>
-                  <th>Action</th>
-                  <th>Status</th>
+                  <th>Assembly</th>
+                  <th>Dataset</th>
+                  <th>Rows</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
-                {referenceAudit.map((event, index) => (
-                  <tr key={`${event.created_at}-${index}`}>
-                    <td className="table-mono">{formatDateTime(event.created_at)}</td>
-                    <td>{event.user_email || 'system'}</td>
-                    <td className="table-mono">
-                      {event.method} {event.route_path || ''}
-                    </td>
+                {referenceActivity.map((event, index) => (
+                  <tr key={`${event.performed_at}-${event.assembly_id}-${event.dataset_type}-${index}`}>
+                    <td className="table-mono">{formatDateTime(event.performed_at)}</td>
+                    <td>{event.performed_by || 'system'}</td>
                     <td>
-                      <span
-                        style={{
-                          color:
-                            event.status_code >= 400
-                              ? 'var(--color-signature-red-dark)'
-                              : 'var(--color-secondary)',
-                        }}
-                      >
-                        {event.status_code}
+                      <strong>{event.assembly_name}</strong>
+                      <span className="dashboard-link-note"> · {event.species_name}</span>
+                    </td>
+                    <td>{datasetCopy[event.dataset_type]?.title ?? event.dataset_type}</td>
+                    <td className="table-mono">
+                      {event.inserted.toLocaleString()}
+                      <span className="dashboard-link-note">
+                        {' '}
+                        {event.replaced ? 'replaced' : 'added'}
                       </span>
                     </td>
+                    <td className="table-mono">{event.source || '—'}</td>
                   </tr>
                 ))}
               </tbody>
