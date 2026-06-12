@@ -704,6 +704,15 @@ class AssemblyOut(ApiDocumentModel):
     release_date: date
 
 
+class ReferenceDatasetImportOut(BaseModel):
+    dataset_type: str
+    inserted: int = 0
+    replaced: bool = False
+    source: Optional[str] = None
+    performed_by: Optional[str] = None
+    performed_at: datetime
+
+
 class AssemblyReferenceStatusOut(BaseModel):
     assembly_id: str
     assembly_name: str
@@ -712,6 +721,7 @@ class AssemblyReferenceStatusOut(BaseModel):
     blacklist_regions: int
     clinical_cnvs: int
     segmental_duplications: int
+    last_imports: List[ReferenceDatasetImportOut] = Field(default_factory=list)
 
 
 class ReferenceImportSourceOrganismOut(BaseModel):

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
@@ -20,6 +21,15 @@ interface Assembly {
   release_date: string;
 }
 
+interface ReferenceDatasetImport {
+  dataset_type: string;
+  inserted: number;
+  replaced: boolean;
+  source?: string | null;
+  performed_by?: string | null;
+  performed_at: string;
+}
+
 interface AssemblyReferenceStatus {
   assembly_id: string;
   assembly_name: string;
@@ -28,6 +38,7 @@ interface AssemblyReferenceStatus {
   blacklist_regions: number;
   clinical_cnvs: number;
   segmental_duplications: number;
+  last_imports?: ReferenceDatasetImport[];
 }
 
 interface ReferenceImportSourceOrganism {
@@ -55,6 +66,21 @@ interface ClinicalCnvKbStatus {
   recent_jobs: ClinicalCnvKbJob[];
   available: boolean;
   detail?: string | null;
+}
+
+interface GeneMetadataStatus {
+  active_job?: { status: string } | null;
+  human_gene_symbols: number;
+  total_cached_records: number;
+  last_completed_at?: string | null;
+}
+
+interface ReferenceAuditEvent {
+  created_at: string;
+  user_email?: string | null;
+  method: string;
+  route_path?: string | null;
+  status_code: number;
 }
 
 interface ReferenceImportSourceAssembly {
@@ -91,6 +117,16 @@ interface ReferenceAutoImportResult {
 }
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
+
+const formatDate = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+};
+
+const formatDateTime = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+};
 
 const ReferenceCatalogPage: React.FC = () => {
   const userIsAdmin = isAdmin();
@@ -155,6 +191,28 @@ const ReferenceCatalogPage: React.FC = () => {
     enabled: userIsAdmin,
     queryFn: async () => (await api.get('/admin/clinical-cnv-kb/status')).data as ClinicalCnvKbStatus,
     refetchInterval: (query) => (query.state.data?.active_job ? 3000 : false),
+  });
+
+  const { data: geneMetaStatus } = useQuery<GeneMetadataStatus>({
+    queryKey: ['admin', 'gene-reference-status'],
+    enabled: userIsAdmin,
+    queryFn: async () => (await api.get('/admin/gene-reference/status')).data as GeneMetadataStatus,
+    refetchInterval: (query) => {
+      const active = query.state.data?.active_job;
+      return active && (active.status === 'queued' || active.status === 'running') ? 3000 : false;
+    },
+    retry: false,
+  });
+
+  const { data: referenceAudit } = useQuery<ReferenceAuditEvent[]>({
+    queryKey: ['admin', 'audit-logs', 'reference'],
+    enabled: userIsAdmin,
+    queryFn: async () => {
+      const res = await api.get('/admin/audit-logs', {
+        params: { path_contains: 'reference', page_size: 8 },
+      });
+      return (res.data?.items ?? []) as ReferenceAuditEvent[];
+    },
   });
 
   const { data: sourceOrganisms = [] } = useQuery<ReferenceImportSourceOrganism[]>({
@@ -394,18 +452,23 @@ const ReferenceCatalogPage: React.FC = () => {
     }
   };
 
+  const handleRefreshGeneMetadata = async () => {
+    try {
+      await api.post('/admin/gene-reference/refresh-all');
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'gene-reference-status'] });
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Could not start the gene metadata refresh.'));
+    }
+  };
+
   return (
-    <div className="page-shell space-y-8">
+    <div className="page-shell admin-compact space-y-5">
       <section className="surface-card dashboard-hero dashboard-hero-compact">
         <div className="dashboard-hero-shell">
           <div className="page-header">
-            <div className="space-y-2">
+            <div className="space-y-1">
               <p className="page-kicker">Reference catalog</p>
               <h1 className="catalog-card-title">Organisms and assemblies</h1>
-              <p className="catalog-card-copy">
-                Review which organisms and assemblies are already available in the database, and
-                add new entries when the platform needs to support another reference context.
-              </p>
             </div>
             <div className="reference-summary-grid">
               <div className="surface-card-muted reference-summary-card">
@@ -426,18 +489,13 @@ const ReferenceCatalogPage: React.FC = () => {
             <p className="page-kicker">Catalog status</p>
             <div className="dashboard-link-stack">
               <p className="dashboard-link-note">
-                Use this page to confirm which reference contexts already exist before creating a
-                project or starting an import.
-              </p>
-              <p className="dashboard-link-note">
                 Latest dated assembly:{' '}
                 <strong>{latestAssembly ? `${latestAssembly.assembly_name} ${latestAssembly.version}` : 'None yet'}</strong>
                 {latestAssembly?.release_date ? ` (${latestAssembly.release_date})` : ''}
               </p>
               {!userIsAdmin && (
                 <p className="dashboard-link-note">
-                  You can inspect the catalog here, but only admins can register new species,
-                  assemblies, or reference uploads.
+                  Read-only: only admins can register species, assemblies, or uploads.
                 </p>
               )}
             </div>
@@ -453,16 +511,9 @@ const ReferenceCatalogPage: React.FC = () => {
         </section>
       )}
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,0.95fr)]">
-        <section className="surface-card space-y-6">
-          <div>
-            <p className="page-kicker">Catalog</p>
-            <h2 className="section-title">Configured species and assemblies</h2>
-            <p className="section-copy">
-              Each organism row expands to show the assemblies already registered for that species,
-              together with the imported reference layers available on each assembly.
-            </p>
-          </div>
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,0.95fr)]">
+        <section className="surface-card space-y-4">
+          <h2 className="section-title">Configured species and assemblies</h2>
           {species.length === 0 ? (
             <p className="section-copy">
               No species are configured yet. Add one first, then attach one or more assemblies to
@@ -552,11 +603,29 @@ const ReferenceCatalogPage: React.FC = () => {
                                         <th>Blacklist</th>
                                         <th>Clin CNVs</th>
                                         <th>SegDup/LCR</th>
+                                        <th>Last updated</th>
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {speciesAssemblies.map((assembly) => {
                                         const status = statusByAssembly.get(assembly.id);
+                                        const lastImports = status?.last_imports ?? [];
+                                        const latestImport = lastImports.reduce<
+                                          ReferenceDatasetImport | null
+                                        >(
+                                          (latest, entry) =>
+                                            !latest || entry.performed_at > latest.performed_at
+                                              ? entry
+                                              : latest,
+                                          null,
+                                        );
+                                        const lastUpdatedTooltip = lastImports
+                                          .map(
+                                            (entry) =>
+                                              `${entry.dataset_type}: ${formatDateTime(entry.performed_at)}` +
+                                              (entry.performed_by ? ` by ${entry.performed_by}` : ''),
+                                          )
+                                          .join('\n');
                                         return (
                                           <tr key={assembly.id}>
                                             <td>
@@ -587,6 +656,21 @@ const ReferenceCatalogPage: React.FC = () => {
                                             <td className="table-mono">
                                               {formatCatalogCount(status?.segmental_duplications)}
                                             </td>
+                                            <td className="table-mono" title={lastUpdatedTooltip || undefined}>
+                                              {latestImport ? (
+                                                <span>
+                                                  {formatDate(latestImport.performed_at)}
+                                                  {latestImport.performed_by ? (
+                                                    <span className="dashboard-link-note">
+                                                      {' '}
+                                                      by {latestImport.performed_by}
+                                                    </span>
+                                                  ) : null}
+                                                </span>
+                                              ) : (
+                                                <span className="table-empty">—</span>
+                                              )}
+                                            </td>
                                           </tr>
                                         );
                                       })}
@@ -606,38 +690,9 @@ const ReferenceCatalogPage: React.FC = () => {
           )}
         </section>
 
-        <section className="space-y-6">
-          <section className="surface-card space-y-4">
-            <div>
-              <p className="page-kicker">How it is used</p>
-              <h2 className="section-title">Reference context in the platform</h2>
-            </div>
-            <div className="dashboard-link-stack">
-              <p className="dashboard-link-note">
-                Species define the organism-level container. Assemblies define the coordinate system
-                that projects, genes, chromosomes, and imported variant data are tied to.
-              </p>
-              <p className="dashboard-link-note">
-                Add the species first, then add one or more assemblies, then create or update
-                projects so new datasets can use that reference context.
-              </p>
-              <p className="dashboard-link-note">
-                Admins can bootstrap UCSC-backed organisms and assemblies here, then fall back to
-                manual file uploads for custom reference layers that are not available upstream.
-              </p>
-            </div>
-          </section>
-
-          <section className="surface-card space-y-4">
-            <div>
-              <p className="page-kicker">Automatic setup</p>
-              <h2 className="section-title">Import organism, assembly, cytobands, and genes</h2>
-            </div>
-            <p className="section-copy">
-              Select a UCSC-backed organism and assembly and the platform will create the local
-              species and assembly records when needed, then download cytobands and gene
-              annotations automatically.
-            </p>
+        <section className="space-y-4">
+          <section className="surface-card space-y-3">
+            <h2 className="section-title">Import from UCSC</h2>
             {autoImportError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
                 {autoImportError}
@@ -731,16 +786,8 @@ const ReferenceCatalogPage: React.FC = () => {
             )}
           </section>
 
-          <section className="surface-card space-y-4">
-            <div>
-              <p className="page-kicker">Reference files</p>
-              <h2 className="section-title">Upload assembly reference data</h2>
-            </div>
-            <p className="section-copy">
-              Use this form for custom assemblies or extra reference layers that are not available
-              through the automatic UCSC import flow. Uploads are admin-only and replace existing
-              data only when you explicitly confirm overwrite.
-            </p>
+          <section className="surface-card space-y-3">
+            <h2 className="section-title">Upload reference files</h2>
             {uploadError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
                 {uploadError}
@@ -823,16 +870,11 @@ const ReferenceCatalogPage: React.FC = () => {
             </div>
           </section>
 
-          <section className="surface-card space-y-4">
-            <div>
-              <p className="page-kicker">Clinical CNVs</p>
-              <h2 className="section-title">Rebuild clinical CNV knowledgebase</h2>
-            </div>
+          <section className="surface-card space-y-3">
+            <h2 className="section-title">Rebuild clinical CNV knowledgebase</h2>
             <p className="section-copy">
-              Runs the knowledgebase build script (ClinGen dosage regions, UCSC cytobands, and
-              optional ClinVar / OMIM / DECIPHER enrichment), then replaces the clinical CNV
-              reference set for the chosen assembly. The build runs in the background and can take
-              several minutes.
+              Builds from ClinGen, UCSC, and ClinVar/OMIM/Orphanet, then replaces the clinical CNV
+              set for the assembly. Runs in the background.
             </p>
             {cnvKbStatus && !cnvKbStatus.available ? (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
@@ -901,15 +943,49 @@ const ReferenceCatalogPage: React.FC = () => {
             ) : null}
           </section>
 
-          <section className="surface-card space-y-4">
-            <div>
-              <p className="page-kicker">Species</p>
-              <h2 className="section-title">Add organism</h2>
+          <section className="surface-card space-y-3">
+            <div className="analysis-toolbar items-center">
+              <h2 className="section-title">Gene metadata (human)</h2>
+              <Link
+                to="/admin/reference/gene-reference"
+                className="subtle-link"
+                style={{ marginLeft: 'auto' }}
+              >
+                Full sync view →
+              </Link>
             </div>
             <p className="section-copy">
-              Use manual species creation only for organisms that are not available through the
-              automatic import flow above.
+              Cached HGNC / Ensembl / ClinGen gene context. Global human cache, shared across human
+              assemblies.
             </p>
+            <div className="dashboard-link-stack">
+              <p className="dashboard-link-note">
+                {formatCatalogCount(geneMetaStatus?.human_gene_symbols)} genes ·{' '}
+                {formatCatalogCount(geneMetaStatus?.total_cached_records)} records · last sync{' '}
+                {geneMetaStatus?.last_completed_at
+                  ? formatDateTime(geneMetaStatus.last_completed_at)
+                  : '—'}
+              </p>
+            </div>
+            {userIsAdmin ? (
+              <button
+                type="button"
+                className="form-button w-full justify-center"
+                onClick={handleRefreshGeneMetadata}
+                disabled={Boolean(geneMetaStatus?.active_job)}
+              >
+                {geneMetaStatus?.active_job
+                  ? `Refresh ${geneMetaStatus.active_job.status}…`
+                  : 'Refresh all gene metadata'}
+              </button>
+            ) : null}
+          </section>
+
+          <details className="surface-card admin-collapse space-y-3">
+            <summary className="admin-collapse-summary">Manual entry — species &amp; assembly</summary>
+            <div className="admin-collapse-body space-y-4">
+            <div className="space-y-3">
+            <h3 className="section-title">Add organism manually</h3>
             {userIsAdmin ? (
               <form onSubmit={handleSpeciesSubmit} className="field-grid">
                 <label className="field-label">
@@ -951,17 +1027,10 @@ const ReferenceCatalogPage: React.FC = () => {
                 Admin access is required to add a new species entry.
               </p>
             )}
-          </section>
-
-          <section className="surface-card space-y-4">
-            <div>
-              <p className="page-kicker">Assemblies</p>
-              <h2 className="section-title">Add assembly</h2>
             </div>
-            <p className="section-copy">
-              Manual assembly creation remains available for references that do not have a matching
-              UCSC source or need custom naming.
-            </p>
+
+            <div className="space-y-3">
+            <h3 className="section-title">Add assembly manually</h3>
             {userIsAdmin ? (
               <form onSubmit={handleAssemblySubmit} className="field-grid">
                 <label className="field-label">
@@ -1031,9 +1100,52 @@ const ReferenceCatalogPage: React.FC = () => {
                 Admin access is required to attach a new assembly to the catalog.
               </p>
             )}
-          </section>
+            </div>
+            </div>
+          </details>
         </section>
       </section>
+
+      {userIsAdmin && referenceAudit && referenceAudit.length > 0 ? (
+        <section className="surface-card space-y-3">
+          <h2 className="section-title">Recent reference activity</h2>
+          <div className="data-table-shell overflow-x-auto">
+            <table className="analysis-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>By</th>
+                  <th>Action</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {referenceAudit.map((event, index) => (
+                  <tr key={`${event.created_at}-${index}`}>
+                    <td className="table-mono">{formatDateTime(event.created_at)}</td>
+                    <td>{event.user_email || 'system'}</td>
+                    <td className="table-mono">
+                      {event.method} {event.route_path || ''}
+                    </td>
+                    <td>
+                      <span
+                        style={{
+                          color:
+                            event.status_code >= 400
+                              ? 'var(--color-signature-red-dark)'
+                              : 'var(--color-secondary)',
+                        }}
+                      >
+                        {event.status_code}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 };

@@ -72,6 +72,7 @@ const GenePanelsPage: React.FC = () => {
   const [genes, setGenes] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('');
+  const [panelSearch, setPanelSearch] = useState('');
   const [panelAppQuery, setPanelAppQuery] = useState('');
   const [panelAppResults, setPanelAppResults] = useState<PanelAppPanelSummary[]>([]);
   const [panelAppLoading, setPanelAppLoading] = useState(false);
@@ -200,22 +201,22 @@ const GenePanelsPage: React.FC = () => {
   };
 
   return (
-    <div className="page-shell space-y-6">
+    <div className="page-shell admin-compact space-y-5">
       <section className="surface-card page-top-card">
         <div className="page-header">
-          <div className="space-y-2">
+          <div className="space-y-1">
             <p className="page-kicker">Panels</p>
             <h2 className="catalog-card-title">Gene panels</h2>
             <p className="catalog-card-copy">
-              Review curated panel content and genomic footprint. Creating or deleting panels is an
-              administrative task.
+              Curated panel content and genomic footprint. Create or delete panels (admin).
             </p>
           </div>
         </div>
       </section>
       {userIsAdmin && (
         <>
-          <form onSubmit={handleSubmit} className="surface-card field-grid max-w-2xl">
+          <div className="grid gap-4 xl:grid-cols-2 items-start">
+          <form onSubmit={handleSubmit} className="surface-card field-grid">
             <label className="field-label">
               <span>Panel name</span>
               <input
@@ -242,12 +243,8 @@ const GenePanelsPage: React.FC = () => {
               Create Panel
             </button>
           </form>
-          {status && <p className="form-status max-w-2xl">{status}</p>}
-          <section className="surface-card field-grid max-w-4xl">
-            <div>
-              <p className="page-kicker">PanelApp</p>
-              <h3 className="section-title">Import PanelApp panel</h3>
-            </div>
+          <section className="surface-card field-grid">
+            <h3 className="section-title">Import PanelApp panel</h3>
             <form onSubmit={searchPanelApp} className="analysis-toolbar items-end">
               <label className="field-label">
                 <span>PanelApp search</span>
@@ -347,6 +344,8 @@ const GenePanelsPage: React.FC = () => {
               </div>
             )}
           </section>
+          </div>
+          {status && <p className="form-status">{status}</p>}
         </>
       )}
       {!userIsAdmin && (
@@ -358,7 +357,17 @@ const GenePanelsPage: React.FC = () => {
         </section>
       )}
       <section className="surface-card space-y-4">
-        <h3 className="section-title">Existing Panels</h3>
+        <div className="analysis-toolbar items-end">
+          <h3 className="section-title">Existing Panels</h3>
+          <input
+            type="search"
+            value={panelSearch}
+            onChange={(e) => setPanelSearch(e.target.value)}
+            placeholder="Filter by name, source, or description"
+            aria-label="Filter panels"
+            className="panel-search-input"
+          />
+        </div>
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table">
             <thead>
@@ -375,7 +384,14 @@ const GenePanelsPage: React.FC = () => {
           </tr>
         </thead>
         <tbody>
-          {panels?.map((p) => {
+          {panels
+            ?.filter((p) => {
+              const q = panelSearch.trim().toLowerCase();
+              if (!q) return true;
+              return [p.name, formatSource(p), p.description || '', p.external_version || '']
+                .some((value) => String(value).toLowerCase().includes(q));
+            })
+            .map((p) => {
             const geneCount = p.gene_count ?? p.genes.length;
             return (
               <tr key={p._id}>
