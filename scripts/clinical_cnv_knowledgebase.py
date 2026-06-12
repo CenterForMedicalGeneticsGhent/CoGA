@@ -174,7 +174,13 @@ def discover_clingen_tsv_urls(assembly: str) -> List[str]:
         if not any(k in text.lower() for k in ["region", "recurrent", "cnv", "dosage"]):
             continue
 
-        if href.startswith("/"):
+        if href.startswith("ftp://"):
+            # ClinGen links to its FTP host, which also serves over HTTPS.
+            # `requests` can't fetch ftp:// URLs, so rewrite to https://.
+            href = "https://" + href[len("ftp://"):]
+        elif href.startswith("//"):
+            href = "https:" + href
+        elif href.startswith("/"):
             href = "https://search.clinicalgenome.org" + href
         elif href.startswith("http"):
             pass
@@ -192,8 +198,26 @@ def load_table_from_url(url: str) -> pd.DataFrame:
         content = gzip.decompress(content)
 
     text = content.decode("utf-8", errors="replace")
-    sep = "\t" if "\t" in text[:5000] else ","
+    lines = text.splitlines()
 
+    # Some sources (e.g. ClinGen region curation lists) prefix BOTH the metadata
+    # block AND the real column header with '#'. Detect the column header as the
+    # last leading-'#' line that is tab-delimited, strip its '#', and parse from
+    # there so the header is not silently dropped as a comment.
+    header_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith("#"):
+            if "\t" in line:
+                header_idx = i
+        else:
+            break
+
+    if header_idx is not None:
+        body_lines = lines[header_idx:]
+        body_lines[0] = body_lines[0].lstrip("#")
+        return pd.read_csv(io.StringIO("\n".join(body_lines)), sep="\t", dtype=str)
+
+    sep = "\t" if "\t" in text[:5000] else ","
     return pd.read_csv(io.StringIO(text), sep=sep, dtype=str, comment="#")
 
 
