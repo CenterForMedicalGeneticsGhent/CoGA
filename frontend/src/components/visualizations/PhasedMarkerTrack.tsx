@@ -2,16 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
-import type { ApiVariantPage } from '../../lib/apiTypes';
-import {
-  SMALL_VARIANT_TRACK_RESULT_LIMIT,
-  shouldShowSmallVariantDetails,
-} from '../../lib/trackSampling';
-import {
-  computeFamilyPhasedMarkers,
-  type MarkerVariantLike,
-  type PhasedMarker,
-} from '../../lib/phasedMarkers';
+import { shouldShowSmallVariantDetails } from '../../lib/trackSampling';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
@@ -43,6 +34,16 @@ interface HaplotypeResponse {
   samples: HaplotypeSampleLike[];
 }
 
+interface PhasedMarker {
+  pos: number;
+  paternal: number | null;
+  maternal: number | null;
+}
+
+interface PhasedMarkerResponse {
+  samples: { sample: string; markers: PhasedMarker[] }[];
+}
+
 const PhasedMarkerTrack: React.FC<Props> = ({
   familyId,
   sampleId,
@@ -65,25 +66,16 @@ const PhasedMarkerTrack: React.FC<Props> = ({
   const detailVisible =
     regionEnd > regionStart && shouldShowSmallVariantDetails(regionEnd - regionStart);
 
-  // Imputed variants for the whole family (shared cache key across child tracks)
-  // — each carries every sample's phased GT, which is what the trio computation
-  // needs. Only GLIMPSE2-imputed sites are requested.
-  const { data: variantPage } = useQuery<ApiVariantPage<MarkerVariantLike>>({
+  // Per-marker parent-of-origin is computed server-side (it needs every sample's
+  // phased GT across the dense imputed sites) and returned per child, density-
+  // binned/denoised and bounded. Shared cache key across the family's children.
+  const { data: phasedData } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/small-variants`, {
-        params: {
-          chr: chrom,
-          start: regionStart,
-          end: regionEnd,
-          overlap: true,
-          track_mode: true,
-          track_result_limit: SMALL_VARIANT_TRACK_RESULT_LIMIT,
-          source: 'glimpse2',
-          page_size: SMALL_VARIANT_TRACK_RESULT_LIMIT - 1,
-        },
+      const res = await api.get(`/families/${familyId}/phased-markers`, {
+        params: { chr: chrom, start: regionStart, end: regionEnd },
       });
-      return res.data as ApiVariantPage<MarkerVariantLike>;
+      return res.data as PhasedMarkerResponse;
     },
     enabled: detailVisible,
   });
@@ -102,11 +94,10 @@ const PhasedMarkerTrack: React.FC<Props> = ({
     staleTime: Infinity,
   });
 
-  const markers: PhasedMarker[] = React.useMemo(() => {
-    const variants = variantPage?.variants ?? [];
-    if (variants.length === 0) return [];
-    return computeFamilyPhasedMarkers(variants, familyMembers).get(sampleId) ?? [];
-  }, [variantPage?.variants, familyMembers, sampleId]);
+  const markers: PhasedMarker[] = React.useMemo(
+    () => phasedData?.samples.find((entry) => entry.sample === sampleId)?.markers ?? [],
+    [phasedData?.samples, sampleId],
+  );
 
   const diseaseModel = React.useMemo(
     () =>

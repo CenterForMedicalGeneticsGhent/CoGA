@@ -24,6 +24,7 @@ from ..schemas import (
     FamilyStructureUpdateOut,
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
+    PhasedMarkerResponse,
     HpoAnnotationCreate,
     HpoAnnotationOut,
     HpoAnnotationUpdate,
@@ -51,6 +52,7 @@ from ..services.family_service import (
     get_family_for_user,
     get_family_haplotypes_batch_for_user,
     get_family_haplotypes_for_user,
+    get_family_phased_markers_for_user,
     get_family_structural_variant_lengths_for_user,
     get_family_track_availability_for_user,
     get_shared_family_structural_variant_counts_for_user,
@@ -1070,6 +1072,25 @@ async def get_family_haplotypes(
     user: CurrentUser = Depends(get_current_user),
 ) -> HaplotypeResponse:
     return await get_family_haplotypes_for_user(
+        session,
+        family_id=family_id,
+        user=user,
+        chr=chr,
+        start=start,
+        end=end,
+    )
+
+
+@router.get("/{family_id}/phased-markers", response_model=PhasedMarkerResponse)
+async def get_family_phased_markers(
+    family_id: str,
+    chr: str,
+    start: int | None = None,
+    end: int | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> PhasedMarkerResponse:
+    return await get_family_phased_markers_for_user(
         session,
         family_id=family_id,
         user=user,

@@ -14,21 +14,13 @@ const members = [
   { sample_id: 'CHILD', role: 'proband', affected: true },
 ];
 
-// A paternal recombination (mother homozygous -> maternal side uninformative):
-// paternal homologs [0, 0, 1, 1].
-const variants = [
-  { start: 100, source: 'glimpse2', genotypes: [
-    { sample: 'FATHER', gt: '0|1' }, { sample: 'MOTHER', gt: '0|0' }, { sample: 'CHILD', gt: '0|0' },
-  ] },
-  { start: 200, source: 'glimpse2', genotypes: [
-    { sample: 'FATHER', gt: '0|1' }, { sample: 'MOTHER', gt: '0|0' }, { sample: 'CHILD', gt: '0|0' },
-  ] },
-  { start: 300, source: 'glimpse2', genotypes: [
-    { sample: 'FATHER', gt: '0|1' }, { sample: 'MOTHER', gt: '0|0' }, { sample: 'CHILD', gt: '0|1' },
-  ] },
-  { start: 400, source: 'glimpse2', genotypes: [
-    { sample: 'FATHER', gt: '0|1' }, { sample: 'MOTHER', gt: '0|0' }, { sample: 'CHILD', gt: '0|1' },
-  ] },
+// The genetics is server-side now; the endpoint returns oriented markers per
+// child. A paternal recombination, maternal side uninformative.
+const markers = [
+  { pos: 100, paternal: 0, maternal: null },
+  { pos: 200, paternal: 0, maternal: null },
+  { pos: 300, paternal: 1, maternal: null },
+  { pos: 400, paternal: 1, maternal: null },
 ];
 
 const renderTrack = (regionEnd: number) =>
@@ -52,7 +44,7 @@ beforeEach(() => {
   useQueryMock.mockReset();
   useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
     if (queryKey[0] === 'phased-markers') {
-      return { data: { variants, total: variants.length, total_is_estimated: false } };
+      return { data: { samples: [{ sample: 'CHILD', markers }] } };
     }
     if (queryKey[0] === 'haplotypes') {
       return { data: { samples: [] } };

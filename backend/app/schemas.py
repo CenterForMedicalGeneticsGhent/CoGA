@@ -1460,6 +1460,27 @@ class HaplotypeResponse(BaseModel):
     samples: List[HaplotypeSample] = Field(default_factory=list)
 
 
+class PhasedMarker(BaseModel):
+    """One position bin: the parental homolog (0/1) the child inherited on each
+    side, oriented to match the stored haplotype blocks. null = uninformative."""
+
+    pos: int
+    paternal: Optional[int] = None
+    maternal: Optional[int] = None
+
+
+class PhasedMarkerSample(BaseModel):
+    sample: str
+    markers: List[PhasedMarker] = Field(default_factory=list)
+
+
+class PhasedMarkerResponse(BaseModel):
+    chr: str
+    start: Optional[int] = None
+    end: Optional[int] = None
+    samples: List[PhasedMarkerSample] = Field(default_factory=list)
+
+
 class TrackAvailabilityOut(BaseModel):
     coverage: bool = False
     segments: bool = False

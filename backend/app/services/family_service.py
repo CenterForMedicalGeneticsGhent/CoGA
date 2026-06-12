@@ -15,6 +15,7 @@ from ..schemas import (
     FamilyRegionOfInterestUpdate,
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
+    PhasedMarkerResponse,
     TrackAvailabilityOut,
     VariantLengthOut,
 )
@@ -32,6 +33,7 @@ from .clickhouse_family_variants import (
 )
 from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
+from .phased_marker_service import get_family_phased_markers_response
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .metadata_service import (
     CurrentUser,
@@ -299,6 +301,28 @@ async def get_family_haplotypes_for_user(
     return await get_family_haplotypes_response(
         session,
         context=context,
+        chr=chr,
+        start=start,
+        end=end,
+    )
+
+
+async def get_family_phased_markers_for_user(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    chr: str,
+    start: int | None = None,
+    end: int | None = None,
+) -> PhasedMarkerResponse:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    return await get_family_phased_markers_response(
+        context,
         chr=chr,
         start=start,
         end=end,
