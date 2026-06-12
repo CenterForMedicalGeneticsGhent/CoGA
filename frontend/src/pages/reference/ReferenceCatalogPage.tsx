@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import AdminModal from '../../components/AdminModal';
 import { isAdmin } from '../../lib/auth';
 import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
@@ -161,6 +162,7 @@ const ReferenceCatalogPage: React.FC = () => {
   const [cnvKbAssembly, setCnvKbAssembly] = useState('');
   const [cnvKbSkipClinvar, setCnvKbSkipClinvar] = useState(false);
   const [cnvKbError, setCnvKbError] = useState<string | null>(null);
+  const [activeModal, setActiveModal] = useState<'add' | 'manual' | 'upload' | null>(null);
 
   const { data: species = [] } = useQuery<Species[]>({
     queryKey: ['species'],
@@ -503,6 +505,20 @@ const ReferenceCatalogPage: React.FC = () => {
         </div>
       </section>
 
+      {userIsAdmin && (
+        <div className="compact-toolbar reference-data-toolbar">
+          <button type="button" className="form-button" onClick={() => setActiveModal('add')}>
+            Add organism / assembly
+          </button>
+          <button type="button" className="button-secondary" onClick={() => setActiveModal('upload')}>
+            Upload reference data
+          </button>
+          <button type="button" className="button-secondary" onClick={() => setActiveModal('manual')}>
+            Manual entry
+          </button>
+        </div>
+      )}
+
       {(error || success) && (
         <section className="surface-card">
           <p className="section-copy" style={{ color: error ? 'var(--color-signature-red-dark)' : 'var(--color-secondary)' }}>
@@ -691,8 +707,11 @@ const ReferenceCatalogPage: React.FC = () => {
         </section>
 
         <section className="space-y-4">
-          <section className="surface-card space-y-3">
-            <h2 className="section-title">Import from UCSC</h2>
+          {activeModal === 'add' && (
+          <AdminModal
+            title="Add organism / assembly (from UCSC)"
+            onClose={() => setActiveModal(null)}
+          >
             {autoImportError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
                 {autoImportError}
@@ -784,10 +803,11 @@ const ReferenceCatalogPage: React.FC = () => {
                 <p className="dashboard-link-note">{selectedSourceAssembly.description}</p>
               </div>
             )}
-          </section>
+          </AdminModal>
+          )}
 
-          <section className="surface-card space-y-3">
-            <h2 className="section-title">Upload reference files</h2>
+          {activeModal === 'upload' && (
+          <AdminModal title="Upload reference data" onClose={() => setActiveModal(null)}>
             {uploadError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
                 {uploadError}
@@ -846,7 +866,7 @@ const ReferenceCatalogPage: React.FC = () => {
                   />
                 </label>
                 <button type="submit" className="form-button w-full justify-center">
-                  Upload reference data
+                  Upload file
                 </button>
               </form>
             ) : (
@@ -868,7 +888,8 @@ const ReferenceCatalogPage: React.FC = () => {
                 </p>
               )}
             </div>
-          </section>
+          </AdminModal>
+          )}
 
           <section className="surface-card space-y-3">
             <h2 className="section-title">Rebuild clinical CNV knowledgebase</h2>
@@ -981,9 +1002,9 @@ const ReferenceCatalogPage: React.FC = () => {
             ) : null}
           </section>
 
-          <details className="surface-card admin-collapse space-y-3">
-            <summary className="admin-collapse-summary">Manual entry — species &amp; assembly</summary>
-            <div className="admin-collapse-body space-y-4">
+          {activeModal === 'manual' && (
+          <AdminModal title="Manual entry — species & assembly" onClose={() => setActiveModal(null)}>
+            <div className="space-y-4">
             <div className="space-y-3">
             <h3 className="section-title">Add organism manually</h3>
             {userIsAdmin ? (
@@ -1102,7 +1123,8 @@ const ReferenceCatalogPage: React.FC = () => {
             )}
             </div>
             </div>
-          </details>
+          </AdminModal>
+          )}
         </section>
       </section>
 
