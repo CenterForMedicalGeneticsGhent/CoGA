@@ -150,6 +150,8 @@ describe('ReferenceCatalogPage', () => {
 
     await screen.findByRole('heading', { name: 'Homo sapiens' });
 
+    fireEvent.click(screen.getByRole('button', { name: /add organism \/ assembly/i }));
+
     fireEvent.change(screen.getByLabelText(/source organism/i), {
       target: { value: '9606' },
     });
@@ -194,6 +196,8 @@ describe('ReferenceCatalogPage', () => {
 
     await screen.findByRole('heading', { name: 'Homo sapiens' });
 
+    fireEvent.click(screen.getByRole('button', { name: /upload reference data/i }));
+
     fireEvent.change(screen.getByLabelText(/^assembly$/i), {
       target: { value: 'assembly-1' },
     });
@@ -205,7 +209,7 @@ describe('ReferenceCatalogPage', () => {
         files: [new File(['chr1\t100\t200\tGENE1\t0\t+\tCCDS1\tTX1\t1\t100-200\t0\t\n'], 'refGene.txt')],
       },
     });
-    fireEvent.click(screen.getByRole('button', { name: /upload reference data/i }));
+    fireEvent.click(screen.getByRole('button', { name: /upload file/i }));
 
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith(

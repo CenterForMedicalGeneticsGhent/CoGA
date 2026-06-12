@@ -1191,6 +1191,18 @@ tbody tr:hover {
   margin-left: auto;
 }
 
+.admin-modal {
+  width: min(100%, 44rem);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.admin-modal-body {
+  overflow-y: auto;
+}
+
 /* Collapsible admin sub-section (disclosure) */
 .admin-collapse > summary {
   cursor: pointer;
