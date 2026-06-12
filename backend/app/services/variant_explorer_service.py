@@ -152,6 +152,7 @@ class GlobalVariantFilters:
     end: int | None = None
     variant_type: str | None = None
     gene: str | None = None
+    panel_genes: list[str] = field(default_factory=list)
     impacts: list[str] = field(default_factory=list)
     effects: list[str] = field(default_factory=list)
     clinvar: list[str] = field(default_factory=list)
@@ -450,6 +451,13 @@ def _annotation_index_clauses(
         clauses.append(
             "(arrayExists(g -> lowerUTF8(g) IN %(ann_genes)s, ai.gene_symbols)"
             " OR arrayExists(g -> lowerUTF8(g) IN %(ann_genes)s, ai.gene_ids))"
+        )
+
+    panel_genes = [str(term).lower() for term in filters.panel_genes if str(term).strip()]
+    if panel_genes:
+        params["ann_panel_genes"] = panel_genes
+        clauses.append(
+            "arrayExists(g -> lowerUTF8(g) IN %(ann_panel_genes)s, ai.gene_symbols)"
         )
 
     impacts = [value.upper() for value in filters.impacts if str(value).strip()]

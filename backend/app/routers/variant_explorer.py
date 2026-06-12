@@ -18,6 +18,7 @@ from ..schemas import (
     VariantExplorerAssemblyOut,
 )
 from ..services.metadata_service import CurrentUser, _is_admin_user
+from ..services.panel_metadata_service import _fetch_panel_genes
 from ..services.small_variant_review_pg import list_small_variant_tag_definitions
 from ..services.variant_explorer_service import (
     GlobalVariantFilters,
@@ -97,6 +98,7 @@ async def list_global_small_variants(
     end: int | None = None,
     type: str | None = None,
     gene: str | None = None,
+    panel_id: str | None = None,
     impact: List[str] = Query(default_factory=list),
     effect: List[str] = Query(default_factory=list),
     clinvar: List[str] = Query(default_factory=list),
@@ -127,12 +129,20 @@ async def list_global_small_variants(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> GlobalVariantPageOut:
+    panel_genes: list[str] = []
+    if panel_id:
+        try:
+            panel_genes = (await _fetch_panel_genes(session, [panel_id])).get(panel_id, [])
+        except ValueError:
+            panel_genes = []
+
     filters = GlobalVariantFilters(
         chromosome=chr,
         start=start,
         end=end,
         variant_type=type,
         gene=gene,
+        panel_genes=panel_genes,
         impacts=impact,
         effects=effect,
         clinvar=clinvar,
