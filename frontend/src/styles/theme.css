@@ -68,6 +68,7 @@
   --color-coverage-border: #7c909d;
 
   --color-cnv-default: #6a7e8f;
+  --color-cnv-clinical: #c2772e;
   --color-gene-fill: #556f87;
   --color-gene-stroke: #556f87;
   --color-blacklist: #9ca3af;
@@ -7438,6 +7439,68 @@ button.table-link:hover {
   line-height: 1.55;
   color: var(--color-text);
   pointer-events: none;
+}
+
+/* Floating variant: portalled to <body> and pinned to the viewport so the
+   tooltip escapes the track frame's `overflow: hidden` clip and always renders
+   above the track below. Sits above track content and app chrome, below modals. */
+.viz-tooltip--floating {
+  position: fixed;
+  z-index: 45;
+}
+
+/* --- Clinical CNV details page --- */
+.cnv-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem 1.5rem;
+  margin: 0;
+}
+
+.cnv-detail-grid > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.cnv-detail-grid dt {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cnv-detail-grid dd {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--color-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+.cnv-detail-section-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.cnv-detail-text {
+  margin: 0;
+  color: var(--color-secondary);
+  line-height: 1.6;
+}
+
+.cnv-explorer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.cnv-explorer-search {
+  flex: 1 1 18rem;
 }
 
 .viz-swatch {

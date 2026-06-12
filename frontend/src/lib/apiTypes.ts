@@ -205,6 +205,33 @@ export interface ApiAssemblyRecord {
   version: string;
 }
 
+export interface ApiClinicalCnv {
+  _id: string;
+  chr: string;
+  start: number;
+  end: number;
+  type?: string | null;
+  label: string;
+  details_html?: string | null;
+  assembly?: string | null;
+  omim_id?: string | null;
+  decipher_id?: string | null;
+  description?: string | null;
+}
+
+export interface ApiChromosomeBand {
+  name: string;
+  start: number;
+  end: number;
+  stain: string;
+}
+
+export interface ApiChromosome {
+  chr: string;
+  size: number;
+  bands: ApiChromosomeBand[];
+}
+
 export type ApiTrackAvailabilityResponse<TTrackAvailability> = {
   samples: Record<string, TTrackAvailability>;
 };

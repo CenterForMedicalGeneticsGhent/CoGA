@@ -6,7 +6,7 @@ import io
 import json
 import logging
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Any, Iterable, Literal, Mapping
 from uuid import UUID
 
 from fastapi import HTTPException, UploadFile
@@ -29,6 +29,41 @@ from .data_scope import chromosome_aliases, normalize_chromosome
 ReferenceDatasetType = Literal["cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications"]
 _TRUE_TEXT_VALUES = {"1", "true", "yes", "y", "mane", "mane_select", "select", "canonical"}
 logger = logging.getLogger(__name__)
+
+# Named-column aliases for header-aware clinical CNV ingestion. Lets the loader
+# accept the knowledgebase builder's TSV (chromosome/syndrome_name/clinical_description/…)
+# directly, in addition to the positional bedDetail/simplified formats.
+_CLINICAL_CNV_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "chr": ("chr", "chrom", "chromosome"),
+    "start": ("start", "begin"),
+    "end": ("end", "stop"),
+    "label": ("label", "name", "syndrome_name", "region_name", "syndrome"),
+    "type": ("type", "cnv_type", "variant_type"),
+    "omim_id": ("omim_id", "omim"),
+    "decipher_id": ("decipher_id", "decipher"),
+    "description": ("description", "clinical_description"),
+    "details_html": ("details_html", "details"),
+    "source": ("source",),
+    "source_detail": ("source_url", "source_id", "clingen_url", "source_detail"),
+}
+
+
+def _clinical_cnv_header_index(row: list[str]) -> dict[str, int] | None:
+    """Return field->column index if `row` looks like a named CNV header, else None."""
+    normalized: dict[str, int] = {}
+    for idx, cell in enumerate(row):
+        key = str(cell or "").strip().lstrip("#").strip().lower()
+        if key and key not in normalized:
+            normalized[key] = idx
+    field_index: dict[str, int] = {}
+    for field, aliases in _CLINICAL_CNV_FIELD_ALIASES.items():
+        for alias in aliases:
+            if alias in normalized:
+                field_index[field] = normalized[alias]
+                break
+    if all(field in field_index for field in ("chr", "start", "end")):
+        return field_index
+    return None
 
 REPO_CLINICAL_CNVS_PATH = Path(__file__).resolve().parents[3] / "data" / "ref-data" / "clinical_cnv_syndromes_hg38_combined.tsv"
 REPO_SEGMENTAL_DUPLICATIONS_PATH = (
@@ -646,34 +681,74 @@ async def apply_reference_dataset_text(
         inserted = len(rows)
 
     elif dataset_type == "clinical_cnvs":
+        def _cell(cells: list[str], idx: int | None) -> str | None:
+            if idx is None or len(cells) <= idx or cells[idx] is None:
+                return None
+            value = str(cells[idx]).strip()
+            return value or None
+
+        usable_rows = [
+            row
+            for row in _reader_from_text(text_value)
+            if row and not row[0].startswith("#") and not row[0].startswith("track")
+        ]
+        header_index = _clinical_cnv_header_index(usable_rows[0]) if usable_rows else None
+        body_rows = usable_rows[1:] if header_index else usable_rows
+
         rows = []
-        for row in _reader_from_text(text_value):
-            if not row or row[0].startswith("#") or row[0].startswith("track") or _is_interval_header_row(row):
-                continue
-
-            if len(row) < 4:
-                continue
-
-            chrom, start, end, name = row[:4]
-            try:
-                start_i = int(start)
-                end_i = int(end)
-            except ValueError:
-                continue
-
-            # Support both bedDetail-like CNV inputs (11 cols) and simplified
-            # tabular CNV inputs (9 cols) used in local reference bundles.
-            if len(row) >= 11:
-                cnv_type = name or None
-                label = row[9] or name
-                html = row[10] or None
+        for row in body_rows:
+            if header_index is not None:
+                # Named-column format (e.g. the knowledgebase builder output).
+                chrom = _cell(row, header_index.get("chr"))
+                start = _cell(row, header_index.get("start"))
+                end = _cell(row, header_index.get("end"))
+                if chrom is None or start is None or end is None:
+                    continue
+                try:
+                    start_i = int(str(start).replace(",", ""))
+                    end_i = int(str(end).replace(",", ""))
+                except ValueError:
+                    continue
+                label = _cell(row, header_index.get("label")) or chrom
+                cnv_type = _cell(row, header_index.get("type"))
+                omim_id = _cell(row, header_index.get("omim_id"))
+                decipher_id = _cell(row, header_index.get("decipher_id"))
+                description = _cell(row, header_index.get("description"))
+                html = _cell(row, header_index.get("details_html"))
+                if html is None:
+                    parts = [
+                        _cell(row, header_index.get("source")),
+                        _cell(row, header_index.get("source_detail")),
+                    ]
+                    html_parts = [part for part in parts if part]
+                    html = "<br/>".join(html_parts) if html_parts else None
             else:
-                source = row[4] if len(row) > 4 else None
-                source_detail = row[5] if len(row) > 5 else None
-                cnv_type = source or None
-                label = name
-                html_parts = [part for part in [source, source_detail] if part]
-                html = "<br/>".join(html_parts) if html_parts else None
+                # Positional bedDetail-like (11 cols) or simplified tabular (9 cols)
+                # formats. Optional OMIM/DECIPHER/description columns may follow.
+                if _is_interval_header_row(row) or len(row) < 4:
+                    continue
+                chrom, start, end, name = row[:4]
+                try:
+                    start_i = int(start)
+                    end_i = int(end)
+                except ValueError:
+                    continue
+                if len(row) >= 11:
+                    cnv_type = name or None
+                    label = row[9] or name
+                    html = row[10] or None
+                    detail_base = 11
+                else:
+                    source = row[4] if len(row) > 4 else None
+                    source_detail = row[5] if len(row) > 5 else None
+                    cnv_type = source or None
+                    label = name
+                    html_parts = [part for part in [source, source_detail] if part]
+                    html = "<br/>".join(html_parts) if html_parts else None
+                    detail_base = 9
+                omim_id = _cell(row, detail_base)
+                decipher_id = _cell(row, detail_base + 1)
+                description = _cell(row, detail_base + 2)
 
             rows.append(
                 {
@@ -684,6 +759,9 @@ async def apply_reference_dataset_text(
                     "type": cnv_type,
                     "label": label,
                     "details_html": html,
+                    "omim_id": omim_id,
+                    "decipher_id": decipher_id,
+                    "description": description,
                 }
             )
         if not rows:
@@ -691,7 +769,10 @@ async def apply_reference_dataset_text(
         await session.execute(
             text(
                 """
-                INSERT INTO clinical_cnvs (assembly_id, chr, start, "end", type, label, details_html)
+                INSERT INTO clinical_cnvs (
+                    assembly_id, chr, start, "end", type, label, details_html,
+                    omim_id, decipher_id, description
+                )
                 VALUES (
                     CAST(:assembly_id AS uuid),
                     :chr,
@@ -699,7 +780,10 @@ async def apply_reference_dataset_text(
                     :end,
                     :type,
                     :label,
-                    :details_html
+                    :details_html,
+                    :omim_id,
+                    :decipher_id,
+                    :description
                 )
                 """
             ),
@@ -916,6 +1000,28 @@ async def get_segmental_duplications_data(
     ]
 
 
+_CLINICAL_CNV_COLUMNS = (
+    'id::text AS id, chr, start, "end", type, label, details_html, '
+    "omim_id, decipher_id, description"
+)
+
+
+def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> ClinicalCnvOut:
+    return ClinicalCnvOut(
+        _id=row["id"],
+        chr=row["chr"],
+        start=int(row["start"]),
+        end=int(row["end"]),
+        type=row.get("type"),
+        label=row["label"],
+        details_html=row.get("details_html"),
+        assembly=assembly,
+        omim_id=row.get("omim_id"),
+        decipher_id=row.get("decipher_id"),
+        description=row.get("description"),
+    )
+
+
 async def get_clinical_cnvs_data(
     session: AsyncSession,
     *,
@@ -926,8 +1032,8 @@ async def get_clinical_cnvs_data(
 ) -> list[ClinicalCnvOut]:
     assembly_row = await _get_assembly_by_name(session, assembly)
     stmt = text(
-        """
-        SELECT id::text AS id, chr, start, "end", type, label, details_html
+        f"""
+        SELECT {_CLINICAL_CNV_COLUMNS}
         FROM clinical_cnvs
         WHERE assembly_id = CAST(:assembly_id AS uuid)
           AND chr IN :chromosomes
@@ -946,17 +1052,67 @@ async def get_clinical_cnvs_data(
         },
     )
     return [
-        ClinicalCnvOut(
-            _id=row["id"],
-            chr=row["chr"],
-            start=int(row["start"]),
-            end=int(row["end"]),
-            type=row.get("type"),
-            label=row["label"],
-            details_html=row.get("details_html"),
-        )
+        _clinical_cnv_out(row, assembly=assembly_row["assembly_name"])
         for row in result.mappings().all()
     ]
+
+
+async def list_clinical_cnvs_catalog_data(
+    session: AsyncSession,
+    *,
+    assembly: str,
+    search: str | None = None,
+    limit: int = 500,
+) -> list[ClinicalCnvOut]:
+    """Region-independent clinical CNV catalog for the explorer view."""
+    assembly_row = await _get_assembly_by_name(session, assembly)
+    params: dict[str, Any] = {"assembly_id": assembly_row["id"]}
+    where = ["assembly_id = CAST(:assembly_id AS uuid)"]
+    cleaned = (search or "").strip()
+    if cleaned:
+        params["search"] = f"%{cleaned.lower()}%"
+        where.append(
+            "(lower(label) LIKE :search OR lower(chr) LIKE :search "
+            "OR lower(COALESCE(type, '')) LIKE :search)"
+        )
+    params["limit"] = max(1, min(limit, 2000))
+    stmt = text(
+        f"""
+        SELECT {_CLINICAL_CNV_COLUMNS}
+        FROM clinical_cnvs
+        WHERE {' AND '.join(where)}
+        ORDER BY chr, start, "end", label
+        LIMIT :limit
+        """
+    )
+    result = await session.execute(stmt, params)
+    return [
+        _clinical_cnv_out(row, assembly=assembly_row["assembly_name"])
+        for row in result.mappings().all()
+    ]
+
+
+async def get_clinical_cnv_by_id_data(
+    session: AsyncSession,
+    *,
+    cnv_id: str,
+) -> ClinicalCnvOut:
+    _require_uuid(cnv_id, "Invalid clinical CNV id")
+    result = await session.execute(
+        text(
+            f"""
+            SELECT {_CLINICAL_CNV_COLUMNS}, assembly_id::text AS assembly_id
+            FROM clinical_cnvs
+            WHERE id = CAST(:cnv_id AS uuid)
+            """
+        ),
+        {"cnv_id": cnv_id},
+    )
+    row = result.mappings().first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Clinical CNV not found")
+    assembly_row = await _get_assembly_by_id(session, row["assembly_id"])
+    return _clinical_cnv_out(row, assembly=assembly_row["assembly_name"])
 
 
 async def list_chromosome_sizes_data(

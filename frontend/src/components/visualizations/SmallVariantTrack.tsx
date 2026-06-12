@@ -10,6 +10,7 @@ import {
   shouldShowSmallVariantDetails,
 } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizTooltip from './VizTooltip';
 
 interface Genotype {
   sample: string;
@@ -27,6 +28,10 @@ interface Variant {
   type: string;
   ref?: string;
   alt?: string;
+  gene?: string | null;
+  gene_id?: string | null;
+  hgvsc?: string | null;
+  hgvsp?: string | null;
   clinvar?: string | null;
   genotypes?: Genotype[];
   review?: SmallVariantReview | null;
@@ -231,6 +236,9 @@ const SmallVariantTrack: React.FC<Props> = ({
     : 'no small variants for this region / sample';
 
   const svgRef = React.useRef<SVGSVGElement | null>(null);
+  const [tooltip, setTooltip] = React.useState<{ x: number; y: number; variant: Variant } | null>(
+    null,
+  );
 
   React.useEffect(() => {
     if (isLoading) {
@@ -260,6 +268,20 @@ const SmallVariantTrack: React.FC<Props> = ({
         .attr('y1', 0)
         .attr('y2', height)
         .attr('stroke', getVariantColor(v));
+      // Wider transparent hitbox so the 1px marker is easy to hover.
+      g
+        .append('rect')
+        .attr('x', v.x - 4)
+        .attr('y', 0)
+        .attr('width', 8)
+        .attr('height', height)
+        .attr('fill', 'transparent')
+        .attr('pointer-events', 'all')
+        .style('cursor', 'pointer')
+        .on('mousemove', (event: MouseEvent) =>
+          setTooltip({ x: event.clientX, y: event.clientY, variant: v }),
+        )
+        .on('mouseout', () => setTooltip(null));
     });
   }, [withPos, height, getVariantColor, emptyMessage, isLoading]);
 
@@ -267,6 +289,20 @@ const SmallVariantTrack: React.FC<Props> = ({
     <div className="relative" style={{ width, height }}>
       <svg ref={svgRef} width={width} height={height} />
       {isLoading && <VizLoadingOverlay message="Loading small variants" />}
+      {tooltip && (
+        <VizTooltip x={tooltip.x} y={tooltip.y}>
+          <div>{tooltip.variant.gene || tooltip.variant.gene_id || 'Intergenic variant'}</div>
+          <div>
+            {tooltip.variant.chr}:{tooltip.variant.start}
+            {tooltip.variant.ref || tooltip.variant.alt
+              ? ` ${tooltip.variant.ref ?? ''}>${tooltip.variant.alt ?? ''}`
+              : ''}{' '}
+            {tooltip.variant.type}
+          </div>
+          {tooltip.variant.hgvsc ? <div>{tooltip.variant.hgvsc}</div> : null}
+          {tooltip.variant.hgvsp ? <div>{tooltip.variant.hgvsp}</div> : null}
+        </VizTooltip>
+      )}
     </div>
   );
 };

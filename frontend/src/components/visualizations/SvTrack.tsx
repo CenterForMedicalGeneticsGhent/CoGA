@@ -3,6 +3,7 @@ import { formatGt } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizTooltip from './VizTooltip';
 
 interface Genotype {
   sample: string;
@@ -228,7 +229,7 @@ const SvTrack: React.FC<Props> = ({
       setTooltip(undefined);
       return;
     }
-    setTooltip({ x, y, variant: hovered });
+    setTooltip({ x: event.clientX, y: event.clientY, variant: hovered });
   };
 
   return (
@@ -247,17 +248,14 @@ const SvTrack: React.FC<Props> = ({
         </div>
       )}
       {tooltip && (
-        <div
-          className="viz-tooltip"
-          style={{ left: tooltip.x + 8, top: tooltip.y + 8 }}
-        >
+        <VizTooltip x={tooltip.x} y={tooltip.y}>
           <div>{`${tooltip.variant.chr}:${tooltip.variant.start}-${tooltip.variant.end} ${tooltip.variant.type}${
             tooltip.variant.source ? ` [${tooltip.variant.source}]` : ''
           }`}</div>
           {tooltip.variant.genotypes?.map((g) => (
             <div key={g.sample}>{`${g.sample}: ${formatGt(g.gt)}`}</div>
           ))}
-        </div>
+        </VizTooltip>
       )}
     </div>
   );

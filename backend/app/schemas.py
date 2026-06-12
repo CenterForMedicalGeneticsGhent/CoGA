@@ -957,6 +957,31 @@ class GeneReferenceAdminStatusOut(BaseModel):
     last_completed_at: Optional[datetime] = None
 
 
+class ClinicalCnvKbJobOut(ApiDocumentModel):
+    assembly_id: str
+    assembly_name: str
+    status: Literal["queued", "running", "completed", "failed"]
+    skip_clinvar: bool = False
+    requested_by: Optional[str] = None
+    requested_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    inserted: int = 0
+    error: Optional[str] = None
+
+
+class ClinicalCnvKbStatusOut(BaseModel):
+    active_job: Optional[ClinicalCnvKbJobOut] = None
+    recent_jobs: List[ClinicalCnvKbJobOut] = Field(default_factory=list)
+    available: bool = True
+    detail: Optional[str] = None
+
+
+class ClinicalCnvKbRebuildRequest(BaseModel):
+    assembly: str = Field(min_length=1)
+    skip_clinvar: bool = False
+
+
 class BlacklistRegionOut(ApiDocumentModel):
     chr: str
     start: int
@@ -971,6 +996,10 @@ class ClinicalCnvOut(ApiDocumentModel):
     type: Optional[str] = None
     label: str
     details_html: Optional[str] = None
+    assembly: Optional[str] = None
+    omim_id: Optional[str] = None
+    decipher_id: Optional[str] = None
+    description: Optional[str] = None
 
 
 class SegmentalDuplicationOut(ApiDocumentModel):

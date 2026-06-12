@@ -148,6 +148,10 @@ class Settings(BaseSettings):
         default="/data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed",
         alias="REFERENCE_SEGMENTAL_DUPLICATIONS_PATH",
     )
+    clinical_cnv_kb_script_path: str | None = Field(
+        default="/app/scripts/clinical_cnv_knowledgebase.py",
+        alias="CLINICAL_CNV_KB_SCRIPT_PATH",
+    )
     paraphase_medical_regions_path: str | None = Field(
         default="/data/ref-data/paraphase-medical-regions.json",
         alias="PARAPHASE_MEDICAL_REGIONS_PATH",

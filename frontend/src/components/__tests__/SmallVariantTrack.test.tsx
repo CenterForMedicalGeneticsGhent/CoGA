@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 
 const { apiGetMock, useQueryMock } = vi.hoisted(() => ({
@@ -275,4 +275,55 @@ test('colors ClinVar annotations by pathogenicity category', async () => {
   expect(likelyPathogenic).toHaveAttribute('stroke', '#ea580c');
   expect(likelyBenign).toHaveAttribute('stroke', '#2f855a');
   expect(conflicting).toHaveAttribute('stroke', '#ca8a04');
+});
+
+test('shows a hover tooltip with the gene and variant', async () => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : {
+          data: {
+            total: 1,
+            variants: [
+              {
+                chr: '13',
+                start: 32316461,
+                end: 32316461,
+                type: 'SNV',
+                ref: 'G',
+                alt: 'A',
+                gene: 'BRCA2',
+                hgvsc: 'c.7007G>A',
+                hgvsp: 'p.Arg2336His',
+                genotypes: [{ sample: 'S1', gt: '0/1' }],
+              },
+            ],
+          },
+          isLoading: false,
+        },
+  );
+
+  const { container } = render(
+    <SmallVariantTrack
+      familyId="F1"
+      sampleId="S1"
+      chrom="13"
+      regionStart={32316000}
+      regionEnd={32317000}
+      width={100}
+      height={20}
+    />,
+  );
+
+  // Each marker gets a transparent hover hitbox rect.
+  await waitFor(() => expect(container.querySelectorAll('rect').length).toBeGreaterThan(0));
+  fireEvent.mouseMove(container.querySelector('rect') as Element, { clientX: 40, clientY: 12 });
+
+  const tooltip = document.body.querySelector('.viz-tooltip');
+  expect(tooltip).not.toBeNull();
+  expect(tooltip).toHaveClass('viz-tooltip--floating');
+  expect(tooltip?.textContent).toContain('BRCA2');
+  expect(tooltip?.textContent).toContain('13:32316461');
+  expect(tooltip?.textContent).toContain('G>A');
+  expect(tooltip?.textContent).toContain('c.7007G>A');
 });

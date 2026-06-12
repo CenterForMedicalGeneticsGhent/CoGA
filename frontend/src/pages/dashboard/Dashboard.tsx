@@ -35,6 +35,9 @@ const Dashboard: React.FC = () => {
           <Link to="/variant-explorer" className="button-secondary hover:no-underline">
             Variant explorer
           </Link>
+          <Link to="/cnv-explorer" className="button-secondary hover:no-underline">
+            Clinical CNV explorer
+          </Link>
           <Link to="/panels" className="button-secondary hover:no-underline">
             Panel catalog
           </Link>

@@ -11,6 +11,9 @@ from ..schemas import (
     AuditLogPageOut,
     ClickHouseVariantAssemblyListOut,
     ClickHouseVariantAssemblyStatusOut,
+    ClinicalCnvKbJobOut,
+    ClinicalCnvKbRebuildRequest,
+    ClinicalCnvKbStatusOut,
     FamilyInventoryDetailOut,
     FamilyInventoryPageOut,
     FamilyRawFilesOut,
@@ -43,6 +46,10 @@ from ..services.admin_service import (
     rebuild_clickhouse_small_variant_gene_index_status,
     update_sample_projects_data,
     verify_raw_import_file_by_id,
+)
+from ..services.clinical_cnv_kb_jobs import (
+    get_clinical_cnv_kb_status,
+    queue_clinical_cnv_kb_rebuild,
 )
 from ..services.gene_info_jobs_pg import (
     list_gene_reference_admin_status,
@@ -444,5 +451,27 @@ async def refresh_gene_reference(
         session=session,
         scope="symbol",
         symbol=symbol,
+        requested_by=user.email,
+    )
+
+
+@router.get("/clinical-cnv-kb/status", response_model=ClinicalCnvKbStatusOut)
+async def get_clinical_cnv_kb_rebuild_status(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> ClinicalCnvKbStatusOut:
+    return await get_clinical_cnv_kb_status(session)
+
+
+@router.post("/clinical-cnv-kb/rebuild", response_model=ClinicalCnvKbJobOut)
+async def rebuild_clinical_cnv_kb(
+    request: ClinicalCnvKbRebuildRequest,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> ClinicalCnvKbJobOut:
+    return await queue_clinical_cnv_kb_rebuild(
+        session,
+        assembly=request.assembly,
+        skip_clinvar=request.skip_clinvar,
         requested_by=user.email,
     )
