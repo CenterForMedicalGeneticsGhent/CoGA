@@ -34,6 +34,6 @@ describe('trackSampling', () => {
   });
 
   it('uses a strict small-variant track display threshold', () => {
-    expect(SMALL_VARIANT_TRACK_RESULT_LIMIT).toBe(1000);
+    expect(SMALL_VARIANT_TRACK_RESULT_LIMIT).toBe(10000);
   });
 });

@@ -82,9 +82,9 @@ test('renders too many message when bounded track count reaches the limit', () =
       ? { data: [], isLoading: false }
       : {
           data: {
-            total: 1000,
+            total: 10000,
             total_is_estimated: true,
-            count_limit: 1000,
+            count_limit: 10000,
             variants: [],
           },
           isLoading: false,
@@ -129,8 +129,8 @@ test('requests small variants carried by the displayed sample before pagination'
     expect.objectContaining({
       params: expect.objectContaining({
         sample_filter: 'S1:0/1|1/0|0|1|1|0|1/1|1|1',
-        page_size: 999,
-        track_result_limit: 1000,
+        page_size: 9999,
+        track_result_limit: 10000,
       }),
     }),
   );
@@ -161,8 +161,8 @@ test('preserves an explicit small-variant sample filter', async () => {
       params: expect.objectContaining({
         sample_filter: 'S1:1/1',
         source: 'glimpse2',
-        page_size: 999,
-        track_result_limit: 1000,
+        page_size: 9999,
+        track_result_limit: 10000,
       }),
     }),
   );
