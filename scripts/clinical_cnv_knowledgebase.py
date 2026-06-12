@@ -35,6 +35,7 @@ import io
 import os
 import re
 import sys
+import tempfile
 import time
 import json
 import hashlib
@@ -68,6 +69,10 @@ CLINVAR_VARIANT_SUMMARY = (
 )
 
 OMIM_API = "https://api.omim.org/api"
+
+# Orphanet rare-disease nomenclature (disorder names + OrphaCodes), used to
+# match syndrome names. Auto-downloaded when no local XML is provided.
+ORPHANET_NOMENCLATURE_URL = "https://www.orphadata.com/data/xml/en_product1.xml"
 
 
 def log(msg: str) -> None:
@@ -392,9 +397,14 @@ def annotate_cytobands(df: pd.DataFrame, cyto: pd.DataFrame) -> pd.DataFrame:
             cytos.append("")
             continue
 
-        hits = tree.overlap(int(r["start"]), int(r["end"]) + 1)
-        bands = sorted(set(h.data for h in hits))
-        cytos.append(";".join(bands))
+        hits = sorted(tree.overlap(int(r["start"]), int(r["end"]) + 1), key=lambda h: h.begin)
+        if not hits:
+            cytos.append("")
+            continue
+        first = str(hits[0].data)
+        last = str(hits[-1].data)
+        # Clean cytoband range, e.g. "5p15.33-p15.1" instead of every band joined.
+        cytos.append(f"{chrom}{first}" if first == last else f"{chrom}{first}-{last}")
 
     out["cytoband"] = cytos
     return out
@@ -406,39 +416,68 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
     This is used only as supporting evidence, not as the backbone list.
     """
     log("Downloading ClinVar variant_summary.txt.gz; this can take a while.")
-    content = gzip.decompress(safe_get(CLINVAR_VARIANT_SUMMARY, timeout=180))
-    df = pd.read_csv(io.BytesIO(content), sep="\t", dtype=str, low_memory=False)
+    # The archive is ~250 MB compressed and several GB uncompressed. Stream it
+    # to disk and read in bounded chunks (only the columns we need), keeping just
+    # the filtered CNV subset, so the build does not get OOM-killed (exit -9).
+    keep_cols = {
+        "Assembly", "Chromosome", "Start", "Stop", "ClinicalSignificance",
+        "Type", "Name", "VariationID", "RCVaccession",
+    }
+    tmp = tempfile.NamedTemporaryFile(prefix="clinvar-", suffix=".txt.gz", delete=False)
+    frames = []
+    try:
+        with requests.get(CLINVAR_VARIANT_SUMMARY, stream=True, timeout=600) as r:
+            r.raise_for_status()
+            for piece in r.iter_content(chunk_size=1 << 20):
+                if piece:
+                    tmp.write(piece)
+        tmp.close()
+        reader = pd.read_csv(
+            tmp.name,
+            sep="\t",
+            dtype=str,
+            compression="gzip",
+            chunksize=100_000,
+            low_memory=True,
+            usecols=lambda c: c in keep_cols,
+        )
+        for chunk in reader:
+            if "Assembly" not in chunk.columns:
+                log("ClinVar missing expected columns; skipping ClinVar support.")
+                return pd.DataFrame()
+            chunk = chunk[chunk["Assembly"].fillna("") == assembly]
+            if chunk.empty:
+                continue
+            sig = chunk["ClinicalSignificance"].fillna("").str.lower()
+            chunk = chunk[sig.str.contains("pathogenic") & ~sig.str.contains("conflicting")]
+            if chunk.empty:
+                continue
+            typ = (
+                chunk["Type"].fillna("").str.lower()
+                if "Type" in chunk.columns
+                else chunk.get("Name", "").fillna("").str.lower()
+            )
+            chunk = chunk[
+                typ.str.contains("copy number")
+                | typ.str.contains("deletion")
+                | typ.str.contains("duplication")
+                | typ.str.contains("cnv")
+            ]
+            if not chunk.empty:
+                frames.append(chunk)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
-    required = ["Assembly", "Chromosome", "Start", "Stop", "ClinicalSignificance"]
-    for c in required:
-        if c not in df.columns:
-            log(f"ClinVar missing expected column {c}; skipping ClinVar support.")
-            return pd.DataFrame()
-
-    df = df[df["Assembly"].fillna("") == assembly].copy()
-
-    sig = df["ClinicalSignificance"].fillna("").str.lower()
-    df = df[sig.str.contains("pathogenic") & ~sig.str.contains("conflicting")].copy()
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if df.empty:
+        return pd.DataFrame()
 
     type_col = first_existing_col(df, ["Type", "VariationType", "variant_type"])
     name_col = first_existing_col(df, ["Name"])
     acc_col = first_existing_col(df, ["VariationID", "RCVaccession", "Accession"])
-
-    if type_col:
-        typ = df[type_col].fillna("").str.lower()
-        df = df[
-            typ.str.contains("copy number")
-            | typ.str.contains("deletion")
-            | typ.str.contains("duplication")
-            | typ.str.contains("cnv")
-        ].copy()
-    else:
-        nm = df[name_col].fillna("").str.lower() if name_col else ""
-        df = df[
-            nm.str.contains("deletion")
-            | nm.str.contains("duplication")
-            | nm.str.contains("copy number")
-        ].copy()
 
     rows = []
     for _, r in df.iterrows():
@@ -629,17 +668,40 @@ def parse_orphanet_xml(path: str) -> pd.DataFrame:
     return pd.DataFrame(rows).drop_duplicates()
 
 
-def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str]) -> pd.DataFrame:
+def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str] = None) -> pd.DataFrame:
     out = kb.copy()
-    if not orphanet_xml:
-        return out
+    xml_path = orphanet_xml
+    tmp_path = None
 
-    p = Path(orphanet_xml)
-    if not p.exists():
-        log(f"Orphanet XML not found: {orphanet_xml}")
-        return out
+    if xml_path:
+        if not Path(xml_path).exists():
+            log(f"Orphanet XML not found: {xml_path}")
+            return out
+    else:
+        log("Downloading Orphanet nomenclature (en_product1.xml).")
+        try:
+            content = safe_get(ORPHANET_NOMENCLATURE_URL, timeout=180)
+        except Exception as e:
+            log(f"Orphanet download failed: {e}")
+            return out
+        tmp = tempfile.NamedTemporaryFile(prefix="orphanet-", suffix=".xml", delete=False)
+        tmp.write(content)
+        tmp.close()
+        xml_path = tmp.name
+        tmp_path = tmp.name
 
-    orpha = parse_orphanet_xml(str(p))
+    try:
+        orpha = parse_orphanet_xml(str(xml_path))
+    except Exception as e:
+        log(f"Orphanet parse failed: {e}")
+        return out
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
     if orpha.empty:
         return out
 
@@ -655,13 +717,16 @@ def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str]) -> pd.Da
         key = normalize_name(name)
         hit = lookup.get(key)
 
-        if not hit:
-            # loose contains fallback
-            hit = None
+        if not hit and key:
+            # Match only when a sufficiently specific Orphanet disease name
+            # (multi-token, >= 8 chars) appears verbatim inside the region name.
+            # Avoids over-generic single-token names matching everything.
+            best = None
             for k, v in lookup.items():
-                if key and (key in k or k in key):
-                    hit = v
-                    break
+                if len(k) >= 8 and " " in k and k in key:
+                    if best is None or len(k) > len(best[0]):
+                        best = (k, v)
+            hit = best[1] if best else None
 
         if hit:
             ids.append(hit[0])
@@ -841,6 +906,18 @@ def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
+def clean_syndrome_name(name: str) -> str:
+    """Tidy a region/syndrome name for display.
+
+    Drops trailing gene lists like "(includes RBM8A)" (not part of the name) and
+    collapses whitespace, while keeping the distinguishing region descriptors.
+    """
+    s = str(name or "").strip()
+    s = re.sub(r"\s*\(includes[^)]*\)", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+
 def build_kb(
     *,
     assembly: str,
@@ -885,6 +962,7 @@ def build_kb(
         raise RuntimeError("No usable ClinGen interval records found.")
 
     kb = pd.concat(tables, ignore_index=True)
+    kb["syndrome_name"] = kb["syndrome_name"].map(clean_syndrome_name)
 
     log("Collapsing duplicate ClinGen records.")
     kb = collapse_duplicate_regions(kb)

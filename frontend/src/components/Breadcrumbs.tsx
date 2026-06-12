@@ -47,7 +47,9 @@ const Breadcrumbs: React.FC = () => {
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(' ')
       .toUpperCase();
-    if (segment === cnvDetailId && cnvCrumb?.label) {
+    if (segment === 'cnv-details') {
+      label = 'CNV EXPLORER';
+    } else if (segment === cnvDetailId && cnvCrumb?.label) {
       label = cnvCrumb.label.toUpperCase();
     }
     const isLast = index === others.length - 1;
@@ -55,6 +57,10 @@ const Breadcrumbs: React.FC = () => {
 
     if (segment === 'admin') {
       to = '/admin';
+    }
+
+    if (segment === 'cnv-details') {
+      to = '/cnv-explorer';
     }
 
     if (isAdminPath) {

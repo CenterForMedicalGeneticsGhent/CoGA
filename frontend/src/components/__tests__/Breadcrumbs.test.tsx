@@ -64,4 +64,7 @@ test('shows the clinical CNV name in the breadcrumb instead of its id', () => {
     screen.getByText('1Q21.1 RECURRENT (TAR SYNDROME) REGION'),
   ).toBeInTheDocument();
   expect(screen.queryByText('Cnv 1')).not.toBeInTheDocument();
+  // The "cnv-details" crumb reads "CNV EXPLORER" and links to the overview.
+  const explorerLink = screen.getByText('CNV EXPLORER').closest('a');
+  expect(explorerLink).toHaveAttribute('href', '/cnv-explorer');
 });
