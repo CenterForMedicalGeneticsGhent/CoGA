@@ -19,19 +19,15 @@ const adminGroups: AdminGroup[] = [
     description: 'System-wide reference datasets and annotations.',
     modules: [
       {
-        label: 'Organisms & Assemblies',
+        label: 'Species & Assemblies',
         to: '/admin/reference/assemblies',
-        description: 'Species, assemblies, chromosomes, genes, and reference intervals.',
+        description:
+          'Per-assembly reference datasets (cytobands, genes, clinical CNVs, SegDups), gene metadata sync, dataset status, and updates.',
       },
       {
         label: 'Gene Panels',
         to: '/admin/reference/gene-panels',
         description: 'Panel catalog, source metadata, and panel membership.',
-      },
-      {
-        label: 'Gene Reference Sync',
-        to: '/admin/reference/gene-reference',
-        description: 'Refresh cached human gene summaries and external annotations.',
       },
       {
         label: 'HPO Terminology',

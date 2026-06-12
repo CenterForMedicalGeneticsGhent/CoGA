@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
@@ -65,6 +66,21 @@ interface ClinicalCnvKbStatus {
   recent_jobs: ClinicalCnvKbJob[];
   available: boolean;
   detail?: string | null;
+}
+
+interface GeneMetadataStatus {
+  active_job?: { status: string } | null;
+  human_gene_symbols: number;
+  total_cached_records: number;
+  last_completed_at?: string | null;
+}
+
+interface ReferenceAuditEvent {
+  created_at: string;
+  user_email?: string | null;
+  method: string;
+  route_path?: string | null;
+  status_code: number;
 }
 
 interface ReferenceImportSourceAssembly {
@@ -175,6 +191,28 @@ const ReferenceCatalogPage: React.FC = () => {
     enabled: userIsAdmin,
     queryFn: async () => (await api.get('/admin/clinical-cnv-kb/status')).data as ClinicalCnvKbStatus,
     refetchInterval: (query) => (query.state.data?.active_job ? 3000 : false),
+  });
+
+  const { data: geneMetaStatus } = useQuery<GeneMetadataStatus>({
+    queryKey: ['admin', 'gene-reference-status'],
+    enabled: userIsAdmin,
+    queryFn: async () => (await api.get('/admin/gene-reference/status')).data as GeneMetadataStatus,
+    refetchInterval: (query) => {
+      const active = query.state.data?.active_job;
+      return active && (active.status === 'queued' || active.status === 'running') ? 3000 : false;
+    },
+    retry: false,
+  });
+
+  const { data: referenceAudit } = useQuery<ReferenceAuditEvent[]>({
+    queryKey: ['admin', 'audit-logs', 'reference'],
+    enabled: userIsAdmin,
+    queryFn: async () => {
+      const res = await api.get('/admin/audit-logs', {
+        params: { path_contains: 'reference', page_size: 8 },
+      });
+      return (res.data?.items ?? []) as ReferenceAuditEvent[];
+    },
   });
 
   const { data: sourceOrganisms = [] } = useQuery<ReferenceImportSourceOrganism[]>({
@@ -411,6 +449,15 @@ const ReferenceCatalogPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'clinical-cnv-kb', 'status'] });
     } catch (err: unknown) {
       setCnvKbError(getErrorMessage(err, 'Could not start the clinical CNV knowledgebase rebuild.'));
+    }
+  };
+
+  const handleRefreshGeneMetadata = async () => {
+    try {
+      await api.post('/admin/gene-reference/refresh-all');
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'gene-reference-status'] });
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Could not start the gene metadata refresh.'));
     }
   };
 
@@ -896,6 +943,44 @@ const ReferenceCatalogPage: React.FC = () => {
             ) : null}
           </section>
 
+          <section className="surface-card space-y-3">
+            <div className="analysis-toolbar items-center">
+              <h2 className="section-title">Gene metadata (human)</h2>
+              <Link
+                to="/admin/reference/gene-reference"
+                className="subtle-link"
+                style={{ marginLeft: 'auto' }}
+              >
+                Full sync view →
+              </Link>
+            </div>
+            <p className="section-copy">
+              Cached HGNC / Ensembl / ClinGen gene context. Global human cache, shared across human
+              assemblies.
+            </p>
+            <div className="dashboard-link-stack">
+              <p className="dashboard-link-note">
+                {formatCatalogCount(geneMetaStatus?.human_gene_symbols)} genes ·{' '}
+                {formatCatalogCount(geneMetaStatus?.total_cached_records)} records · last sync{' '}
+                {geneMetaStatus?.last_completed_at
+                  ? formatDateTime(geneMetaStatus.last_completed_at)
+                  : '—'}
+              </p>
+            </div>
+            {userIsAdmin ? (
+              <button
+                type="button"
+                className="form-button w-full justify-center"
+                onClick={handleRefreshGeneMetadata}
+                disabled={Boolean(geneMetaStatus?.active_job)}
+              >
+                {geneMetaStatus?.active_job
+                  ? `Refresh ${geneMetaStatus.active_job.status}…`
+                  : 'Refresh all gene metadata'}
+              </button>
+            ) : null}
+          </section>
+
           <details className="surface-card admin-collapse space-y-3">
             <summary className="admin-collapse-summary">Manual entry — species &amp; assembly</summary>
             <div className="admin-collapse-body space-y-4">
@@ -1020,6 +1105,47 @@ const ReferenceCatalogPage: React.FC = () => {
           </details>
         </section>
       </section>
+
+      {userIsAdmin && referenceAudit && referenceAudit.length > 0 ? (
+        <section className="surface-card space-y-3">
+          <h2 className="section-title">Recent reference activity</h2>
+          <div className="data-table-shell overflow-x-auto">
+            <table className="analysis-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>By</th>
+                  <th>Action</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {referenceAudit.map((event, index) => (
+                  <tr key={`${event.created_at}-${index}`}>
+                    <td className="table-mono">{formatDateTime(event.created_at)}</td>
+                    <td>{event.user_email || 'system'}</td>
+                    <td className="table-mono">
+                      {event.method} {event.route_path || ''}
+                    </td>
+                    <td>
+                      <span
+                        style={{
+                          color:
+                            event.status_code >= 400
+                              ? 'var(--color-signature-red-dark)'
+                              : 'var(--color-secondary)',
+                        }}
+                      >
+                        {event.status_code}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 };
