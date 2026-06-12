@@ -2589,10 +2589,12 @@ tbody tr:hover {
   gap: 0.3rem;
 }
 
-/* Keep every column in the nested assemblies table left-aligned. */
+/* Keep every column in the nested assemblies table left-aligned, and vertically
+   centre cell content so the count+icon cells line up with the plain-text ones. */
 .reference-catalog-assembly-table th,
 .reference-catalog-assembly-table td {
   text-align: left;
+  vertical-align: middle;
 }
 
 .reference-refresh-icon {
