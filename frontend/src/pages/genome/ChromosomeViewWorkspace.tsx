@@ -13,6 +13,7 @@ import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import GeneTrack from '../../components/visualizations/GeneTrack';
 import BlacklistTrack from '../../components/visualizations/BlacklistTrack';
 import CnvTrack from '../../components/visualizations/CnvTrack';
+import DgvTrack from '../../components/visualizations/DgvTrack';
 import SegmentalDuplicationTrack from '../../components/visualizations/SegmentalDuplicationTrack';
 import SmallVariantTrack from '../../components/visualizations/SmallVariantTrack';
 import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansionTrack';
@@ -37,6 +38,7 @@ const VARIANT_TRACK_HEIGHT = 80;
 const HAPLOTYPE_TRACK_HEIGHT = 15;
 const ZOOMED_IDEOGRAM_HEIGHT = 40;
 const CNV_TRACK_HEIGHT = 20;
+const DGV_TRACK_HEIGHT = 48;
 const SEGMENTAL_DUPLICATION_TRACK_HEIGHT = 20;
 const BLACKLIST_TRACK_HEIGHT = 20;
 const SMALL_VARIANT_TRACK_HEIGHT = 20;
@@ -676,6 +678,23 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                 chrom={chrom}
                 width={trackWidth}
                 height={CNV_TRACK_HEIGHT}
+                regionStart={region.start}
+                regionEnd={region.end}
+              />
+            </ViewerTrackBlock>
+            <ViewerTrackBlock
+              label="DGV"
+              width={trackWidth}
+              frameClassName="h-[48px]"
+              roiRange={regionRoiRange}
+              roiTitle={roiTitle}
+              viewportInteraction={viewportInteraction}
+            >
+              <DgvTrack
+                assembly={assembly}
+                chrom={chrom}
+                width={trackWidth}
+                height={DGV_TRACK_HEIGHT}
                 regionStart={region.start}
                 regionEnd={region.end}
               />

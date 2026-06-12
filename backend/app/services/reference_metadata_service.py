@@ -20,6 +20,9 @@ from ..schemas import (
     ClinicalCnvOut,
     ChromosomeOut,
     ChromosomeSizeOut,
+    DgvDensityBin,
+    DgvTrackOut,
+    DgvVariantOut,
     GeneOut,
     ReferenceDatasetImportOut,
     ReferenceImportActivityOut,
@@ -28,7 +31,9 @@ from ..schemas import (
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 
-ReferenceDatasetType = Literal["cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications"]
+ReferenceDatasetType = Literal[
+    "cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications", "dgv"
+]
 _TRUE_TEXT_VALUES = {"1", "true", "yes", "y", "mane", "mane_select", "select", "canonical"}
 logger = logging.getLogger(__name__)
 
@@ -311,6 +316,7 @@ async def _assembly_dataset_count(
         "blacklist": "SELECT COUNT(*) FROM blacklist WHERE assembly_id = CAST(:assembly_id AS uuid)",
         "clinical_cnvs": "SELECT COUNT(*) FROM clinical_cnvs WHERE assembly_id = CAST(:assembly_id AS uuid)",
         "segmental_duplications": "SELECT COUNT(*) FROM segmental_duplications WHERE assembly_id = CAST(:assembly_id AS uuid)",
+        "dgv": "SELECT COUNT(*) FROM dgv_variants WHERE assembly_id = CAST(:assembly_id AS uuid)",
     }[dataset_type]
     result = await session.execute(text(count_query), {"assembly_id": assembly_id})
     return int(result.scalar_one() or 0)
@@ -329,7 +335,8 @@ async def list_reference_statuses(
                 COALESCE(gene_counts.count, 0) AS genes,
                 COALESCE(blacklist_counts.count, 0) AS blacklist_regions,
                 COALESCE(cnv_counts.count, 0) AS clinical_cnvs,
-                COALESCE(segdup_counts.count, 0) AS segmental_duplications
+                COALESCE(segdup_counts.count, 0) AS segmental_duplications,
+                COALESCE(dgv_counts.count, 0) AS dgv
             FROM assemblies a
             LEFT JOIN (
                 SELECT assembly_id, COUNT(*) AS count
@@ -356,6 +363,11 @@ async def list_reference_statuses(
                 FROM segmental_duplications
                 GROUP BY assembly_id
             ) AS segdup_counts ON segdup_counts.assembly_id = a.id
+            LEFT JOIN (
+                SELECT assembly_id, COUNT(*) AS count
+                FROM dgv_variants
+                GROUP BY assembly_id
+            ) AS dgv_counts ON dgv_counts.assembly_id = a.id
             ORDER BY a.assembly_name, a.version
             """
         )
@@ -398,6 +410,7 @@ async def list_reference_statuses(
             blacklist_regions=int(row["blacklist_regions"]),
             clinical_cnvs=int(row["clinical_cnvs"]),
             segmental_duplications=int(row["segmental_duplications"]),
+            dgv=int(row["dgv"]),
             last_imports=imports_by_assembly.get(row["assembly_id"], []),
         )
         for row in result.mappings().all()
@@ -543,6 +556,118 @@ async def upload_reference_dataset(
     )
 
 
+# DGV is huge (~2M variants for hg38), so rows are inserted in bounded batches
+# rather than one giant statement to keep memory and statement size in check.
+_DGV_INSERT_CHUNK = 20000
+_DGV_GAIN_TOKENS = ("gain", "duplication", "insertion", "tandem")
+_DGV_LOSS_TOKENS = ("loss", "deletion")
+
+
+def dgv_variant_class(subtype: str | None, variant_type: str | None = None) -> str:
+    """Normalize a DGV variantsubtype into a colour bucket: gain / loss / mixed / other."""
+    haystack = f"{subtype or ''} {variant_type or ''}".lower()
+    has_gain = any(token in haystack for token in _DGV_GAIN_TOKENS)
+    has_loss = any(token in haystack for token in _DGV_LOSS_TOKENS)
+    if (has_gain and has_loss) or "complex" in haystack:
+        return "mixed"
+    if has_loss:
+        return "loss"
+    if has_gain:
+        return "gain"
+    return "other"
+
+
+def _opt_int(value: str | None) -> int | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return int(float(value))
+    except ValueError:
+        return None
+
+
+def _opt_float(value: str | None) -> float | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def parse_dgv_row(
+    row: list[str],
+    *,
+    header_index: dict[str, int] | None,
+    assembly_id: str,
+) -> dict[str, object] | None:
+    """Build a dgv_variants insert dict from one TSV row, or None to skip it.
+
+    Columns are resolved by header name when a header is present, otherwise by
+    the fixed DGV column order (variantaccession, chr, start, end, varianttype,
+    variantsubtype, reference, …, frequency, samplesize, observedgains,
+    observedlosses)."""
+
+    def col(name: str, pos: int) -> str:
+        idx = header_index.get(name) if header_index is not None else pos
+        if idx is None or idx >= len(row):
+            return ""
+        return row[idx].strip()
+
+    chrom = col("chr", 1)
+    start_raw = col("start", 2)
+    end_raw = col("end", 3)
+    if not chrom or not start_raw or not end_raw:
+        return None
+    try:
+        start_i = int(start_raw.replace(",", ""))
+        end_i = int(end_raw.replace(",", ""))
+    except ValueError:
+        return None
+    if end_i < start_i:
+        start_i, end_i = end_i, start_i
+
+    subtype = col("variantsubtype", 5) or None
+    variant_type = col("varianttype", 4) or None
+    return {
+        "assembly_id": assembly_id,
+        "chr": normalize_chromosome(chrom),
+        "start": start_i,
+        "end": end_i,
+        "accession": col("variantaccession", 0) or None,
+        "variant_type": variant_type,
+        "variant_subtype": subtype,
+        "variant_class": dgv_variant_class(subtype, variant_type),
+        "frequency": _opt_float(col("frequency", 13)),
+        "observed_gains": _opt_int(col("observedgains", 15)),
+        "observed_losses": _opt_int(col("observedlosses", 16)),
+        "sample_size": _opt_int(col("samplesize", 14)),
+        "source": col("reference", 6) or None,
+    }
+
+
+async def insert_dgv_batch(session: AsyncSession, rows: list[dict[str, object]]) -> None:
+    await session.execute(
+        text(
+            """
+            INSERT INTO dgv_variants (
+                assembly_id, chr, start, "end", accession, variant_type,
+                variant_subtype, variant_class, frequency, observed_gains,
+                observed_losses, sample_size, source
+            )
+            VALUES (
+                CAST(:assembly_id AS uuid), :chr, :start, :end, :accession, :variant_type,
+                :variant_subtype, :variant_class, :frequency, :observed_gains,
+                :observed_losses, :sample_size, :source
+            )
+            """
+        ),
+        rows,
+    )
+
+
 async def apply_reference_dataset_text(
     session: AsyncSession,
     *,
@@ -562,6 +687,7 @@ async def apply_reference_dataset_text(
         "blacklist": "SELECT COUNT(*) FROM blacklist WHERE assembly_id = CAST(:assembly_id AS uuid)",
         "clinical_cnvs": "SELECT COUNT(*) FROM clinical_cnvs WHERE assembly_id = CAST(:assembly_id AS uuid)",
         "segmental_duplications": "SELECT COUNT(*) FROM segmental_duplications WHERE assembly_id = CAST(:assembly_id AS uuid)",
+        "dgv": "SELECT COUNT(*) FROM dgv_variants WHERE assembly_id = CAST(:assembly_id AS uuid)",
     }[dataset_type]
     existing = await session.execute(text(count_query), {"assembly_id": assembly_id})
     existing_count = int(existing.scalar_one() or 0)
@@ -578,6 +704,7 @@ async def apply_reference_dataset_text(
         "blacklist": "DELETE FROM blacklist WHERE assembly_id = CAST(:assembly_id AS uuid)",
         "clinical_cnvs": "DELETE FROM clinical_cnvs WHERE assembly_id = CAST(:assembly_id AS uuid)",
         "segmental_duplications": "DELETE FROM segmental_duplications WHERE assembly_id = CAST(:assembly_id AS uuid)",
+        "dgv": "DELETE FROM dgv_variants WHERE assembly_id = CAST(:assembly_id AS uuid)",
     }[dataset_type]
     if replaced:
         await session.execute(text(delete_query), {"assembly_id": assembly_id})
@@ -896,6 +1023,32 @@ async def apply_reference_dataset_text(
         )
         inserted = len(rows)
 
+    elif dataset_type == "dgv":
+        header_index: dict[str, int] | None = None
+        batch: list[dict[str, object]] = []
+        for row in _reader_from_text(text_value):
+            if not row:
+                continue
+            first = row[0].strip().lower()
+            if header_index is None and first in {"variantaccession", "variant_accession"}:
+                header_index = {name.strip().lower(): idx for idx, name in enumerate(row)}
+                continue
+            if first.startswith("#") or first.startswith("track"):
+                continue
+            parsed = parse_dgv_row(row, header_index=header_index, assembly_id=assembly_id)
+            if parsed is None:
+                continue
+            batch.append(parsed)
+            if len(batch) >= _DGV_INSERT_CHUNK:
+                await insert_dgv_batch(session, batch)
+                inserted += len(batch)
+                batch = []
+        if batch:
+            await insert_dgv_batch(session, batch)
+            inserted += len(batch)
+        if inserted == 0:
+            raise HTTPException(status_code=400, detail="No valid DGV variant rows found")
+
     else:
         rows = []
         for row in _reader_from_text(text_value):
@@ -1120,6 +1273,121 @@ async def get_segmental_duplications_data(
         )
         for row in result.mappings().all()
     ]
+
+
+_DGV_LINE_CAP = 1500
+_DGV_DENSITY_BINS = 200
+_DGV_CLASSES = ("gain", "loss", "mixed", "other")
+
+
+async def get_dgv_track_data(
+    session: AsyncSession,
+    *,
+    assembly: str,
+    chrom: str,
+    start: int,
+    end: int,
+    line_cap: int = _DGV_LINE_CAP,
+    bins: int = _DGV_DENSITY_BINS,
+) -> DgvTrackOut:
+    """DGV track payload for the Chromosome View. Returns individual variants
+    when the in-view count is small enough to draw as stacked lines, otherwise a
+    per-bin gain/loss/mixed density profile for a zoomed-out heat strip."""
+    assembly_row = await _get_assembly_by_name(session, assembly)
+    apply_window = end > start
+    region_clause = (
+        'assembly_id = CAST(:assembly_id AS uuid) '
+        'AND chr IN :chromosomes '
+        'AND (:apply_window = false OR (start < :end AND "end" > :start))'
+    )
+    common_params: dict[str, Any] = {
+        "assembly_id": assembly_row["id"],
+        "chromosomes": chromosome_aliases(chrom),
+        "apply_window": apply_window,
+        "start": start,
+        "end": end,
+    }
+
+    count_stmt = text(f"SELECT COUNT(*) FROM dgv_variants WHERE {region_clause}").bindparams(
+        bindparam("chromosomes", expanding=True)
+    )
+    total = int((await session.execute(count_stmt, common_params)).scalar_one() or 0)
+    if total == 0:
+        return DgvTrackOut(total=0, mode="lines")
+
+    if total <= line_cap:
+        detail_stmt = text(
+            f"""
+            SELECT chr, start, "end", accession, variant_type, variant_subtype,
+                   variant_class, frequency, observed_gains, observed_losses, source
+            FROM dgv_variants
+            WHERE {region_clause}
+            ORDER BY start, "end"
+            LIMIT :limit
+            """
+        ).bindparams(bindparam("chromosomes", expanding=True))
+        result = await session.execute(detail_stmt, {**common_params, "limit": line_cap})
+        variants = [
+            DgvVariantOut(
+                chr=row["chr"],
+                start=int(row["start"]),
+                end=int(row["end"]),
+                accession=row.get("accession"),
+                variant_type=row.get("variant_type"),
+                variant_subtype=row.get("variant_subtype"),
+                variant_class=row.get("variant_class") or "other",
+                frequency=row.get("frequency"),
+                observed_gains=row.get("observed_gains"),
+                observed_losses=row.get("observed_losses"),
+                source=row.get("source"),
+            )
+            for row in result.mappings().all()
+        ]
+        return DgvTrackOut(total=total, mode="lines", variants=variants)
+
+    # Density mode: bucket clamped start positions into `bins` and count per class.
+    span = end - start
+    if not apply_window or span <= 0:
+        return DgvTrackOut(total=total, mode="density")
+    bin_count = max(1, min(bins, span))
+    bin_size = max(span // bin_count, 1)
+    density_stmt = text(
+        f"""
+        SELECT
+            LEAST(
+                GREATEST(CAST((GREATEST(start, :start) - :start) / :bin_size AS int), 0),
+                :max_bin
+            ) AS bin,
+            variant_class,
+            COUNT(*) AS n
+        FROM dgv_variants
+        WHERE {region_clause}
+        GROUP BY 1, variant_class
+        """
+    ).bindparams(bindparam("chromosomes", expanding=True))
+    rows = (
+        await session.execute(
+            density_stmt,
+            {**common_params, "bin_size": bin_size, "max_bin": bin_count - 1},
+        )
+    ).mappings().all()
+
+    buckets = [dict.fromkeys(_DGV_CLASSES, 0) for _ in range(bin_count)]
+    for row in rows:
+        klass = row["variant_class"] if row["variant_class"] in _DGV_CLASSES else "other"
+        buckets[int(row["bin"])][klass] += int(row["n"])
+    density = [
+        DgvDensityBin(
+            start=start + i * bin_size,
+            end=start + (i + 1) * bin_size,
+            gain=b["gain"],
+            loss=b["loss"],
+            mixed=b["mixed"],
+            other=b["other"],
+        )
+        for i, b in enumerate(buckets)
+    ]
+    return DgvTrackOut(total=total, mode="density", bins=density, bin_size=bin_size)
 
 
 _CLINICAL_CNV_COLUMNS = (

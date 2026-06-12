@@ -736,6 +736,7 @@ class AssemblyReferenceStatusOut(BaseModel):
     blacklist_regions: int
     clinical_cnvs: int
     segmental_duplications: int
+    dgv: int = 0
     last_imports: List[ReferenceDatasetImportOut] = Field(default_factory=list)
 
 
@@ -792,7 +793,9 @@ class ReferenceAutoImportResult(BaseModel):
 class ReferenceUploadResult(BaseModel):
     assembly_id: str
     assembly_name: str
-    dataset_type: Literal["cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications"]
+    dataset_type: Literal[
+        "cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications", "dgv"
+    ]
     inserted: int
     replaced: bool
 
@@ -1042,6 +1045,41 @@ class SegmentalDuplicationOut(ApiDocumentModel):
     end: int
     label: str
     source: Optional[str] = None
+
+
+class DgvVariantOut(BaseModel):
+    chr: str
+    start: int
+    end: int
+    accession: Optional[str] = None
+    variant_type: Optional[str] = None
+    variant_subtype: Optional[str] = None
+    variant_class: str = "other"
+    frequency: Optional[float] = None
+    observed_gains: Optional[int] = None
+    observed_losses: Optional[int] = None
+    source: Optional[str] = None
+
+
+class DgvDensityBin(BaseModel):
+    start: int
+    end: int
+    gain: int = 0
+    loss: int = 0
+    mixed: int = 0
+    other: int = 0
+
+
+class DgvTrackOut(BaseModel):
+    """DGV is too dense to draw every variant at chromosome scale. The server
+    decides per request: `lines` (individual variants, when the in-view count is
+    small) or `density` (per-bin gain/loss/mixed counts, when it is large)."""
+
+    total: int
+    mode: Literal["lines", "density"]
+    bin_size: int = 0
+    variants: List[DgvVariantOut] = Field(default_factory=list)
+    bins: List[DgvDensityBin] = Field(default_factory=list)
 
 
 class GenePanelOut(ApiDocumentModel):
