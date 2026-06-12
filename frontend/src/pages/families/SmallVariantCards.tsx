@@ -379,9 +379,27 @@ export default function SmallVariantCards({
 
         const clinicalLinkLabels = new Set(['OMIM', 'ClinVar', 'DECIPHER', 'gnomAD']);
         const consequenceLabel = formatTokenLabel(variant.effect);
-        const compactScores = scoreItems.filter((item) =>
-          ['CADD', 'REVEL', 'SpliceAI', 'pLI'].includes(item.label),
-        );
+        const popFreq = variant.population_frequencies || {};
+        const omimLink = externalLinks.find((link) => link.label === 'OMIM');
+        const freqDetailRows = [
+          { label: 'popmax', value: formatFrequency(popFreq.gnomad_popmax_af) },
+          { label: 'exomes', value: formatFrequency(popFreq.gnomad_exomes_af) },
+          { label: 'genomes', value: formatFrequency(popFreq.gnomad_genomes_af) },
+          { label: 'TOPMed', value: formatFrequency(popFreq.topmed_af) },
+          ...(typeof variant.gnomad_hom_count === 'number'
+            ? [{ label: 'gnomAD hom', value: String(variant.gnomad_hom_count) }]
+            : []),
+        ].filter((item) => item.value !== '—');
+        const silicoRows = [
+          typeof variant.cadd_phred === 'number' ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
+          typeof variant.revel === 'number' ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
+          typeof variant.spliceai_max === 'number' ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) } : null,
+          variant.sift ? { label: 'SIFT', value: variant.sift } : null,
+          variant.polyphen ? { label: 'PolyPhen', value: variant.polyphen } : null,
+          typeof variant.gene_pli === 'number' ? { label: 'pLI', value: formatScore(variant.gene_pli, 3) } : null,
+          typeof variant.gene_missense_z === 'number' ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z) } : null,
+        ].filter((item): item is { label: string; value: string } => Boolean(item));
+        const ic = variant.internal_cohort;
 
         return (
           <article
@@ -402,15 +420,13 @@ export default function SmallVariantCards({
                   </span>
                 )}
                 <span className="variant-card-locus">{formatLocus(variant)}</span>
-                <span className="variant-card-change" title={variant.hgvsc || undefined}>
-                  {variant.hgvsp || variant.hgvsc || `${variant.ref || '—'} → ${variant.alt || '—'}`}
+                <span className="variant-card-subtitle">
+                  {variant.hgvsp || variant.hgvsc || consequenceLabel}
                 </span>
               </div>
               <div className="variant-card-headtags">
                 {variant.clinvar ? (
-                  <span
-                    className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}
-                  >
+                  <span className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}>
                     <span className="variant-card-chip-key">ClinVar</span>
                     {clinvarSummary}
                   </span>
@@ -427,55 +443,177 @@ export default function SmallVariantCards({
               </div>
             </div>
 
-            <div className="variant-card-chip-row variant-card-clinical-row">
-              <span className={`variant-card-chip variant-card-chip--${getImpactTone(variant.impact)}`}>
-                {consequenceLabel !== '—' ? consequenceLabel : variant.impact || 'Impact n/a'}
-              </span>
-              <span
-                className={`variant-card-chip variant-card-chip--${getFrequencyTone(variant.gnomad_af)}`}
-              >
-                <span className="variant-card-chip-key">gnomAD</span>
-                {formatFrequency(variant.gnomad_af)}
-              </span>
-              {variant.mane_select ? (
-                <span className="variant-card-chip variant-card-chip--success">MANE Select</span>
-              ) : null}
-              {variant.mane_plus_clinical ? (
-                <span className="variant-card-chip variant-card-chip--accent">MANE+Clinical</span>
-              ) : null}
-              {variant.canonical ? (
-                <span className="variant-card-chip variant-card-chip--soft">Canonical</span>
-              ) : null}
-              {variant.lof ? (
-                <span className="variant-card-chip variant-card-chip--critical">LoF {variant.lof}</span>
-              ) : null}
-              {variant.review?.compound_het ? (
-                <span className="variant-card-chip variant-card-chip--impact">Comp-het pair</span>
-              ) : null}
-              {visibleReviewTags.map((tagKey) => (
-                <span
-                  key={tagKey}
-                  className="variant-card-chip variant-card-chip--tag"
-                  style={getReviewTagStyle(tagKey, tagMap)}
-                  title={buildReviewTagTooltip({
-                    tagKey,
-                    tagMap,
-                    tagMetadata: variant.review?.tag_metadata,
-                  })}
-                >
-                  {tagMap[tagKey]?.label || tagKey}
-                </span>
-              ))}
-            </div>
-
-            <div className="variant-card-meta-row">
-              <div className="variant-card-scores-inline">
-                {compactScores.map((item) => (
-                  <span key={item.label} className="variant-card-score">
-                    <span className="variant-card-score-key">{item.label}</span>
-                    {item.value}
+            {visibleReviewTags.length || variant.review?.compound_het ? (
+              <div className="variant-card-chip-row variant-card-tag-row">
+                {variant.review?.compound_het ? (
+                  <span className="variant-card-chip variant-card-chip--impact">Comp-het pair</span>
+                ) : null}
+                {visibleReviewTags.map((tagKey) => (
+                  <span
+                    key={tagKey}
+                    className="variant-card-chip variant-card-chip--tag"
+                    style={getReviewTagStyle(tagKey, tagMap)}
+                    title={buildReviewTagTooltip({
+                      tagKey,
+                      tagMap,
+                      tagMetadata: variant.review?.tag_metadata,
+                    })}
+                  >
+                    {tagMap[tagKey]?.label || tagKey}
                   </span>
                 ))}
+              </div>
+            ) : null}
+
+            <div className="variant-card-cols">
+              <section className="variant-card-col">
+                <p className="variant-card-col-title">Variant &amp; genotypes</p>
+                <div className="variant-card-chip-row">
+                  <span className={`variant-card-chip variant-card-chip--${getImpactTone(variant.impact)}`}>
+                    {consequenceLabel !== '—' ? consequenceLabel : variant.impact || 'Impact n/a'}
+                  </span>
+                  {variant.mane_select ? (
+                    <span className="variant-card-chip variant-card-chip--success">MANE</span>
+                  ) : null}
+                  {variant.canonical ? (
+                    <span className="variant-card-chip variant-card-chip--soft">Canonical</span>
+                  ) : null}
+                  {variant.lof ? (
+                    <span className="variant-card-chip variant-card-chip--critical">LoF {variant.lof}</span>
+                  ) : null}
+                </div>
+                <dl className="variant-card-mini-dl">
+                  <div>
+                    <dt>HGVS.c</dt>
+                    <dd>{variant.hgvsc || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>HGVS.p</dt>
+                    <dd>{variant.hgvsp || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Alleles</dt>
+                    <dd>
+                      {variant.ref || '—'} → {variant.alt || '—'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>dbSNP</dt>
+                    <dd>{variant.rsid || '—'}</dd>
+                  </div>
+                  {omimLink ? (
+                    <div>
+                      <dt>OMIM</dt>
+                      <dd>
+                        <a
+                          href={omimLink.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="variant-card-resource variant-card-resource--clinical"
+                        >
+                          {variant.gene || 'search'}
+                        </a>
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+                {members.length ? (
+                  <div className="variant-card-gtlist">
+                    {members.map((member) => {
+                      const genotype = variant.genotypes.find(
+                        (entry) => entry.sample === member.sample_id,
+                      );
+                      const gt = genotype?.gt || '—';
+                      const depth = genotype?.dp;
+                      const normalized = gt.replace(/\|/g, '/');
+                      const zygosity =
+                        !gt || gt === '—' || normalized === './.'
+                          ? 'na'
+                          : normalized === '0/0'
+                            ? 'ref'
+                            : normalized === '1/1'
+                              ? 'hom'
+                              : 'het';
+                      return (
+                        <div
+                          key={member.sample_id}
+                          className={`variant-card-gtline variant-card-gtline--${zygosity}${
+                            member.affected ? ' is-affected' : ''
+                          }${member.role === 'proband' ? ' is-proband' : ''}`}
+                          title={`${member.sample_id} · ${member.role}${
+                            member.affected ? ' · affected' : ''
+                          }`}
+                        >
+                          <span className="variant-card-gtline-sample">{member.sample_id}</span>
+                          <span className="variant-card-gtline-gt">{gt}</span>
+                          <span className="variant-card-gtline-dp">
+                            DP {typeof depth === 'number' ? depth : '—'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="variant-card-col">
+                <p className="variant-card-col-title">Frequencies</p>
+                <div className="variant-card-chip-row">
+                  <span
+                    className={`variant-card-chip variant-card-chip--${getFrequencyTone(variant.gnomad_af)}`}
+                  >
+                    <span className="variant-card-chip-key">gnomAD</span>
+                    {formatFrequency(variant.gnomad_af)}
+                  </span>
+                  {typeof popFreq.gnomad_popmax_af === 'number' ? (
+                    <span
+                      className={`variant-card-chip variant-card-chip--${getFrequencyTone(
+                        popFreq.gnomad_popmax_af,
+                      )}`}
+                    >
+                      <span className="variant-card-chip-key">popmax</span>
+                      {formatFrequency(popFreq.gnomad_popmax_af)}
+                    </span>
+                  ) : null}
+                </div>
+                {freqDetailRows.length ? (
+                  <dl className="variant-card-mini-dl">
+                    {freqDetailRows.map((item) => (
+                      <div key={item.label}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+                <div className="variant-card-coga">
+                  <span className="variant-card-col-key">CoGA cohort</span>
+                  {ic ? (
+                    <span className="variant-card-coga-value">
+                      {ic.samples} sample{ic.samples === 1 ? '' : 's'} · {ic.het} het / {ic.hom} hom
+                      {' · '}
+                      {ic.families} famil{ic.families === 1 ? 'y' : 'ies'}
+                    </span>
+                  ) : (
+                    <span className="variant-card-empty-note">Not seen in your cohort</span>
+                  )}
+                </div>
+              </section>
+
+              <section className="variant-card-col">
+                <p className="variant-card-col-title">In silico</p>
+                {silicoRows.length ? (
+                  <dl className="variant-card-mini-dl">
+                    {silicoRows.map((item) => (
+                      <div key={item.label}>
+                        <dt>{item.label}</dt>
+                        <dd>{item.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="variant-card-empty-note">No predictions imported.</p>
+                )}
                 {transcripts.length ? (
                   <button
                     type="button"
@@ -488,59 +626,8 @@ export default function SmallVariantCards({
                     </span>
                   </button>
                 ) : null}
-              </div>
-              {externalLinks.length ? (
-                <div className="variant-card-resources">
-                  {externalLinks.map((link) => (
-                    <a
-                      key={link.label}
-                      href={link.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`variant-card-resource${
-                        clinicalLinkLabels.has(link.label) ? ' variant-card-resource--clinical' : ''
-                      }`}
-                    >
-                      {link.label}
-                    </a>
-                  ))}
-                </div>
-              ) : null}
+              </section>
             </div>
-
-            {members.length ? (
-              <div className="variant-card-gt-row">
-                {members.map((member) => {
-                  const genotype = variant.genotypes.find(
-                    (entry) => entry.sample === member.sample_id,
-                  );
-                  const gt = genotype?.gt || '—';
-                  const normalized = gt.replace(/\|/g, '/');
-                  const zygosity =
-                    !gt || gt === '—' || normalized === './.'
-                      ? 'na'
-                      : normalized === '0/0'
-                        ? 'ref'
-                        : normalized === '1/1'
-                          ? 'hom'
-                          : 'het';
-                  return (
-                    <span
-                      key={member.sample_id}
-                      className={`variant-card-gt variant-card-gt--${zygosity}${
-                        member.affected ? ' is-affected' : ''
-                      }${member.role === 'proband' ? ' is-proband' : ''}`}
-                      title={`${member.sample_id} · ${member.role}${
-                        member.affected ? ' · affected' : ''
-                      }`}
-                    >
-                      <span className="variant-card-gt-sample">{member.sample_id}</span>
-                      <span className="variant-card-gt-value">{gt}</span>
-                    </span>
-                  );
-                })}
-              </div>
-            ) : null}
 
             {variant.review?.note ? (
               <p className="variant-card-review-note">{variant.review.note}</p>
@@ -577,6 +664,19 @@ export default function SmallVariantCards({
                 </button>
               </div>
               <div className="variant-card-nav">
+                {externalLinks
+                  .filter((link) => clinicalLinkLabels.has(link.label))
+                  .map((link) => (
+                    <a
+                      key={link.label}
+                      href={link.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="variant-card-resource variant-card-resource--clinical"
+                    >
+                      {link.label}
+                    </a>
+                  ))}
                 <Link to={igvHref} className="variant-card-inline-link">
                   IGV
                 </Link>
@@ -587,7 +687,7 @@ export default function SmallVariantCards({
             </div>
 
             <details className="variant-card-more">
-              <summary>Annotations, scores &amp; genotype detail</summary>
+              <summary>More annotations &amp; detail</summary>
               <div className="variant-card-more-grid">
                 <div className="variant-card-section">
                   <p className="variant-card-section-title">Variant summary</p>
@@ -600,7 +700,6 @@ export default function SmallVariantCards({
                     ))}
                   </dl>
                 </div>
-
                 <div className="variant-card-section">
                   <p className="variant-card-section-title">Transcript context</p>
                   <dl className="variant-card-detail-list">
@@ -612,9 +711,8 @@ export default function SmallVariantCards({
                     ))}
                   </dl>
                 </div>
-
                 <div className="variant-card-section">
-                  <p className="variant-card-section-title">Scores and prediction</p>
+                  <p className="variant-card-section-title">All scores &amp; constraint</p>
                   {scoreItems.length ? (
                     <dl className="variant-card-stat-list">
                       {scoreItems.map((item) => (
@@ -628,9 +726,8 @@ export default function SmallVariantCards({
                     <p className="variant-card-empty-note">No predictive scores imported.</p>
                   )}
                 </div>
-
                 <div className="variant-card-section">
-                  <p className="variant-card-section-title">Population frequency</p>
+                  <p className="variant-card-section-title">All population frequencies</p>
                   {frequencyItems.length ? (
                     <dl className="variant-card-stat-list">
                       {frequencyItems.map((item) => (
@@ -644,7 +741,6 @@ export default function SmallVariantCards({
                     <p className="variant-card-empty-note">No population frequencies imported.</p>
                   )}
                 </div>
-
                 {additionalAnnotations.length ? (
                   <div className="variant-card-section">
                     <p className="variant-card-section-title">Additional annotations</p>
@@ -658,7 +754,6 @@ export default function SmallVariantCards({
                     </dl>
                   </div>
                 ) : null}
-
                 {variant.review?.compound_het ? (
                   <div className="variant-card-section">
                     <p className="variant-card-section-title">Compound-het pair</p>
@@ -683,11 +778,6 @@ export default function SmallVariantCards({
                           {formatCompoundHetPhaseStatus(variant.review.compound_het.phase_status)}
                         </span>
                       </div>
-                      {variant.review.compound_het.note ? (
-                        <p className="variant-card-review-note">
-                          {variant.review.compound_het.note}
-                        </p>
-                      ) : null}
                     </div>
                   </div>
                 ) : null}
@@ -695,7 +785,7 @@ export default function SmallVariantCards({
 
               {members.length ? (
                 <div className="variant-card-section">
-                  <p className="variant-card-section-title">Family genotypes</p>
+                  <p className="variant-card-section-title">Family genotypes (depth &amp; allele detail)</p>
                   <div className="variant-card-genotype-strip">
                     {members.map((member) => {
                       const genotype = variant.genotypes.find(

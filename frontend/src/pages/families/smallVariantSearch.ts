@@ -115,6 +115,14 @@ export interface SmallVariant {
   transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];
   review?: SmallVariantReview | null;
+  internal_cohort?: SmallVariantInternalCohort | null;
+}
+
+export interface SmallVariantInternalCohort {
+  samples: number;
+  het: number;
+  hom: number;
+  families: number;
 }
 
 export interface SmallVariantPage {

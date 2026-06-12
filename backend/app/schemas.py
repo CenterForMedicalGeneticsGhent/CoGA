@@ -1180,6 +1180,15 @@ class SmallVariantTranscriptOut(BaseModel):
     primary: bool = False
 
 
+class VariantInternalCohortOut(BaseModel):
+    """Occurrence of a variant within the accessible CoGA cohort."""
+
+    samples: int = 0
+    het: int = 0
+    hom: int = 0
+    families: int = 0
+
+
 class VariantOut(ApiDocumentModel):
     chr: str
     start: int
@@ -1233,6 +1242,7 @@ class VariantOut(ApiDocumentModel):
     transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
     genotypes: List[GenotypeOut] = Field(default_factory=list)
     review: Optional[SmallVariantReviewOut] = None
+    internal_cohort: Optional[VariantInternalCohortOut] = None
 
 
 class SmallVariantGroupOut(BaseModel):
