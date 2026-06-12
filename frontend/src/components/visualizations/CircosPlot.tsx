@@ -46,7 +46,7 @@ interface CircosPlotProps {
 
 const BAND_STROKE = 0.3;
 const BAND_FINISH = 'glossy';
-const TELOMERE_CORNER_RADIUS = 5.5;
+export const TELOMERE_CORNER_RADIUS = 5.5;
 const CHROMOSOME_GAP = 0.01;
 const TELOMERE_END_WHITESPACE = 0.0007;
 

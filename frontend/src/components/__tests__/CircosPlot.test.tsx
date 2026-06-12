@@ -1,6 +1,9 @@
 import { render, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import CircosPlot, { type Chromosome } from '../visualizations/CircosPlot';
+import CircosPlot, {
+  TELOMERE_CORNER_RADIUS,
+  type Chromosome,
+} from '../visualizations/CircosPlot';
 
 describe('CircosPlot', () => {
   it('renders glossy band gradients, rounded telomeres, and tapered centromeres', async () => {
@@ -52,7 +55,9 @@ describe('CircosPlot', () => {
 
     const outline = container.querySelector<SVGPathElement>('.circos-chromosome-outline');
     expect(outline).not.toBeNull();
-    expect(outline?.getAttribute('d')).toContain('A4.5,4.5');
+    expect(outline?.getAttribute('d')).toContain(
+      `A${TELOMERE_CORNER_RADIUS},${TELOMERE_CORNER_RADIUS}`,
+    );
     expect(outline?.getAttribute('d')?.startsWith('M0,-240')).toBe(false);
 
     const acenBands = Array.from(
