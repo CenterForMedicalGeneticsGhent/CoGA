@@ -2580,6 +2580,40 @@ tbody tr:hover {
   gap: 0.08rem;
 }
 
+.reference-count-with-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.reference-refresh-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.reference-refresh-icon:hover:not(:disabled) {
+  color: var(--color-signature-red-dark);
+  border-color: var(--color-signature-red-dark);
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.03));
+}
+
+.reference-refresh-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 @media (max-width: 960px) {
   .reference-catalog-table td:first-child,
   .reference-catalog-table td:nth-child(2),

@@ -159,9 +159,6 @@ const ReferenceCatalogPage: React.FC = () => {
   const [autoImportSuccess, setAutoImportSuccess] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
-  const [cnvKbAssembly, setCnvKbAssembly] = useState('');
-  const [cnvKbSkipClinvar, setCnvKbSkipClinvar] = useState(false);
-  const [cnvKbError, setCnvKbError] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<'add' | 'manual' | 'upload' | null>(null);
 
   const { data: species = [] } = useQuery<Species[]>({
@@ -437,26 +434,41 @@ const ReferenceCatalogPage: React.FC = () => {
     }
   };
 
-  const handleCnvKbRebuild = async () => {
-    if (!cnvKbAssembly) {
-      setCnvKbError('Choose an assembly first.');
+  const handleCnvRebuild = async (assemblyName: string) => {
+    if (
+      !window.confirm(
+        `Rebuild the clinical CNV knowledgebase for ${assemblyName}? This runs in the background and may take several minutes.`,
+      )
+    ) {
       return;
     }
-    setCnvKbError(null);
+    setError(null);
+    setSuccess(null);
     try {
       await api.post('/admin/clinical-cnv-kb/rebuild', {
-        assembly: cnvKbAssembly,
-        skip_clinvar: cnvKbSkipClinvar,
+        assembly: assemblyName,
+        skip_clinvar: false,
       });
+      setSuccess(`Started clinical CNV knowledgebase rebuild for ${assemblyName}.`);
       await queryClient.invalidateQueries({ queryKey: ['admin', 'clinical-cnv-kb', 'status'] });
     } catch (err: unknown) {
-      setCnvKbError(getErrorMessage(err, 'Could not start the clinical CNV knowledgebase rebuild.'));
+      setError(getErrorMessage(err, 'Could not start the clinical CNV knowledgebase rebuild.'));
     }
   };
 
   const handleRefreshGeneMetadata = async () => {
+    if (
+      !window.confirm(
+        'Refresh cached human gene metadata (HGNC / Ensembl / ClinGen)? This runs in the background and may take a while.',
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setSuccess(null);
     try {
       await api.post('/admin/gene-reference/refresh-all');
+      setSuccess('Started gene metadata refresh.');
       await queryClient.invalidateQueries({ queryKey: ['admin', 'gene-reference-status'] });
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Could not start the gene metadata refresh.'));
@@ -527,9 +539,20 @@ const ReferenceCatalogPage: React.FC = () => {
         </section>
       )}
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(21rem,0.95fr)]">
+      <section className="space-y-5">
         <section className="surface-card space-y-4">
-          <h2 className="section-title">Configured species and assemblies</h2>
+          <div className="analysis-toolbar items-center">
+            <h2 className="section-title">Configured species and assemblies</h2>
+            {userIsAdmin ? (
+              <Link
+                to="/admin/reference/gene-reference"
+                className="subtle-link"
+                style={{ marginLeft: 'auto' }}
+              >
+                Advanced gene sync →
+              </Link>
+            ) : null}
+          </div>
           {species.length === 0 ? (
             <p className="section-copy">
               No species are configured yet. Add one first, then attach one or more assemblies to
@@ -661,13 +684,44 @@ const ReferenceCatalogPage: React.FC = () => {
                                               {formatCatalogCount(status?.chromosomes)}
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.genes)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.genes)}
+                                                {userIsAdmin && entry.tax_id === 9606 ? (
+                                                  <button
+                                                    type="button"
+                                                    className="reference-refresh-icon"
+                                                    title="Refresh cached human gene metadata"
+                                                    aria-label="Refresh gene metadata"
+                                                    disabled={Boolean(geneMetaStatus?.active_job)}
+                                                    onClick={handleRefreshGeneMetadata}
+                                                  >
+                                                    ↻
+                                                  </button>
+                                                ) : null}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
                                               {formatCatalogCount(status?.blacklist_regions)}
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.clinical_cnvs)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.clinical_cnvs)}
+                                                {userIsAdmin ? (
+                                                  <button
+                                                    type="button"
+                                                    className="reference-refresh-icon"
+                                                    title={`Rebuild clinical CNV knowledgebase for ${assembly.assembly_name}`}
+                                                    aria-label="Rebuild clinical CNV knowledgebase"
+                                                    disabled={
+                                                      Boolean(cnvKbStatus?.active_job) ||
+                                                      cnvKbStatus?.available === false
+                                                    }
+                                                    onClick={() => handleCnvRebuild(assembly.assembly_name)}
+                                                  >
+                                                    ↻
+                                                  </button>
+                                                ) : null}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
                                               {formatCatalogCount(status?.segmental_duplications)}
@@ -890,117 +944,6 @@ const ReferenceCatalogPage: React.FC = () => {
             </div>
           </AdminModal>
           )}
-
-          <section className="surface-card space-y-3">
-            <h2 className="section-title">Rebuild clinical CNV knowledgebase</h2>
-            <p className="section-copy">
-              Builds from ClinGen, UCSC, and ClinVar/OMIM/Orphanet, then replaces the clinical CNV
-              set for the assembly. Runs in the background.
-            </p>
-            {cnvKbStatus && !cnvKbStatus.available ? (
-              <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
-                {cnvKbStatus.detail || 'The build script is not available on the server.'}
-              </p>
-            ) : null}
-            {cnvKbError && (
-              <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
-                {cnvKbError}
-              </p>
-            )}
-            {userIsAdmin ? (
-              <div className="field-grid">
-                <label className="field-label">
-                  Target assembly
-                  <select
-                    value={cnvKbAssembly}
-                    onChange={(e) => setCnvKbAssembly(e.target.value)}
-                  >
-                    <option value="">Select assembly</option>
-                    {assemblies.map((assembly) => (
-                      <option key={assembly.id} value={assembly.assembly_name}>
-                        {assembly.assembly_name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Skip ClinVar support counts (faster)
-                  <input
-                    type="checkbox"
-                    checked={cnvKbSkipClinvar}
-                    onChange={(e) => setCnvKbSkipClinvar(e.target.checked)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="form-button w-full justify-center"
-                  onClick={handleCnvKbRebuild}
-                  disabled={
-                    Boolean(cnvKbStatus?.active_job) || cnvKbStatus?.available === false
-                  }
-                >
-                  {cnvKbStatus?.active_job
-                    ? `Rebuild ${cnvKbStatus.active_job.status}…`
-                    : 'Rebuild knowledgebase'}
-                </button>
-              </div>
-            ) : (
-              <p className="section-copy">
-                Admin access is required to rebuild the clinical CNV knowledgebase.
-              </p>
-            )}
-            {cnvKbStatus?.recent_jobs?.length ? (
-              <div className="dashboard-link-stack">
-                {cnvKbStatus.recent_jobs.slice(0, 5).map((job) => (
-                  <p key={job._id} className="dashboard-link-note">
-                    <strong>{job.assembly_name}</strong> — {job.status}
-                    {job.status === 'completed'
-                      ? ` (${job.inserted.toLocaleString()} CNVs)`
-                      : ''}
-                    {job.error ? `: ${job.error}` : ''}
-                  </p>
-                ))}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="surface-card space-y-3">
-            <div className="analysis-toolbar items-center">
-              <h2 className="section-title">Gene metadata (human)</h2>
-              <Link
-                to="/admin/reference/gene-reference"
-                className="subtle-link"
-                style={{ marginLeft: 'auto' }}
-              >
-                Full sync view →
-              </Link>
-            </div>
-            <p className="section-copy">
-              Cached HGNC / Ensembl / ClinGen gene context. Global human cache, shared across human
-              assemblies.
-            </p>
-            <div className="dashboard-link-stack">
-              <p className="dashboard-link-note">
-                {formatCatalogCount(geneMetaStatus?.human_gene_symbols)} genes ·{' '}
-                {formatCatalogCount(geneMetaStatus?.total_cached_records)} records · last sync{' '}
-                {geneMetaStatus?.last_completed_at
-                  ? formatDateTime(geneMetaStatus.last_completed_at)
-                  : '—'}
-              </p>
-            </div>
-            {userIsAdmin ? (
-              <button
-                type="button"
-                className="form-button w-full justify-center"
-                onClick={handleRefreshGeneMetadata}
-                disabled={Boolean(geneMetaStatus?.active_job)}
-              >
-                {geneMetaStatus?.active_job
-                  ? `Refresh ${geneMetaStatus.active_job.status}…`
-                  : 'Refresh all gene metadata'}
-              </button>
-            ) : null}
-          </section>
 
           {activeModal === 'manual' && (
           <AdminModal title="Manual entry — species & assembly" onClose={() => setActiveModal(null)}>
