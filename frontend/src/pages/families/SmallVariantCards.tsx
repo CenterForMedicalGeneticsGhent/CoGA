@@ -20,7 +20,6 @@ import {
   formatTokenLabel,
   getClinvarHighlightTone,
   getClinvarTone,
-  getFrequencyTone,
   getImpactTone,
   getReviewClassificationTone,
   getReviewTagStyle,
@@ -377,22 +376,47 @@ export default function SmallVariantCards({
             tagKey !== COLLABORATION_QUICK_TAGS.excluded,
         );
 
-        const clinicalLinkLabels = new Set(['OMIM', 'ClinVar', 'DECIPHER', 'gnomAD']);
         const consequenceLabel = formatTokenLabel(variant.effect);
         const popFreq = variant.population_frequencies || {};
+        const extra = variant.annotation_extra || {};
+        const pickExtra = (keys: string[]): string | number | boolean | null => {
+          for (const key of keys) {
+            const value = extra[key];
+            if (value !== undefined && value !== null && value !== '') return value;
+          }
+          return null;
+        };
+        const alphaMissense = pickExtra([
+          'alphamissense',
+          'alphamissense_score',
+          'am_pathogenicity',
+          'alphamissense_pathogenicity',
+          'am_class',
+          'alphamissense_class',
+        ]);
+        const gnomadLink = externalLinks.find((link) => link.label === 'gnomAD');
+        const clinvarLink = externalLinks.find((link) => link.label === 'ClinVar');
         const omimLink = externalLinks.find((link) => link.label === 'OMIM');
-        const freqDetailRows = [
-          { label: 'popmax', value: formatFrequency(popFreq.gnomad_popmax_af) },
-          { label: 'exomes', value: formatFrequency(popFreq.gnomad_exomes_af) },
-          { label: 'genomes', value: formatFrequency(popFreq.gnomad_genomes_af) },
-          { label: 'TOPMed', value: formatFrequency(popFreq.topmed_af) },
+        const decipherLink = externalLinks.find((link) => link.label === 'DECIPHER');
+        const freqRows = [
+          { label: 'gnomAD', value: formatFrequency(variant.gnomad_af), href: gnomadLink?.href },
+          { label: 'popmax', value: formatFrequency(popFreq.gnomad_popmax_af), href: undefined },
+          { label: 'exomes', value: formatFrequency(popFreq.gnomad_exomes_af), href: undefined },
+          { label: 'genomes', value: formatFrequency(popFreq.gnomad_genomes_af), href: undefined },
+          { label: 'TOPMed', value: formatFrequency(popFreq.topmed_af), href: undefined },
           ...(typeof variant.gnomad_hom_count === 'number'
-            ? [{ label: 'gnomAD hom', value: String(variant.gnomad_hom_count) }]
+            ? [{ label: 'gnomAD hom', value: String(variant.gnomad_hom_count), href: undefined }]
             : []),
-        ].filter((item) => item.value !== '—');
+        ].filter((row) => row.label === 'gnomAD' || row.value !== '—');
         const silicoRows = [
           typeof variant.cadd_phred === 'number' ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
           typeof variant.revel === 'number' ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
+          alphaMissense != null
+            ? {
+                label: 'AlphaMissense',
+                value: typeof alphaMissense === 'number' ? formatScore(alphaMissense, 3) : String(alphaMissense),
+              }
+            : null,
           typeof variant.spliceai_max === 'number' ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) } : null,
           variant.sift ? { label: 'SIFT', value: variant.sift } : null,
           variant.polyphen ? { label: 'PolyPhen', value: variant.polyphen } : null,
@@ -426,10 +450,24 @@ export default function SmallVariantCards({
               </div>
               <div className="variant-card-headtags">
                 {variant.clinvar ? (
-                  <span className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}>
-                    <span className="variant-card-chip-key">ClinVar</span>
-                    {clinvarSummary}
-                  </span>
+                  clinvarLink ? (
+                    <a
+                      href={clinvarLink.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`variant-card-chip variant-card-chip--link variant-card-chip--${getClinvarTone(
+                        variant.clinvar,
+                      )}`}
+                    >
+                      <span className="variant-card-chip-key">ClinVar</span>
+                      {clinvarSummary}
+                    </a>
+                  ) : (
+                    <span className={`variant-card-chip variant-card-chip--${getClinvarTone(variant.clinvar)}`}>
+                      <span className="variant-card-chip-key">ClinVar</span>
+                      {clinvarSummary}
+                    </span>
+                  )
                 ) : null}
                 {variant.review?.classification ? (
                   <span
@@ -516,6 +554,21 @@ export default function SmallVariantCards({
                       </dd>
                     </div>
                   ) : null}
+                  {decipherLink ? (
+                    <div>
+                      <dt>DECIPHER</dt>
+                      <dd>
+                        <a
+                          href={decipherLink.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="variant-card-resource variant-card-resource--clinical"
+                        >
+                          {variant.gene || 'view'}
+                        </a>
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
                 {members.length ? (
                   <div className="variant-card-gtlist">
@@ -525,6 +578,31 @@ export default function SmallVariantCards({
                       );
                       const gt = genotype?.gt || '—';
                       const depth = genotype?.dp;
+                      const alleleDepths = genotype?.ad;
+                      const alleleFrequencies = genotype?.af;
+                      const refDepth =
+                        alleleDepths && alleleDepths.length > 0 ? alleleDepths[0] : undefined;
+                      const altDepths =
+                        alleleDepths && alleleDepths.length > 1 ? alleleDepths.slice(1) : undefined;
+                      const computedAfs =
+                        alleleFrequencies && alleleFrequencies.length
+                          ? alleleFrequencies
+                          : typeof depth === 'number' && depth > 0 && altDepths?.length
+                            ? altDepths
+                                .map((value) => (typeof value === 'number' ? value / depth : undefined))
+                                .filter((value): value is number => typeof value === 'number')
+                            : undefined;
+                      const adText =
+                        typeof refDepth === 'number' || altDepths?.length
+                          ? `${typeof refDepth === 'number' ? refDepth : '-'},${
+                              altDepths ? altDepths.join(',') : '-'
+                            }`
+                          : '—';
+                      const afText = computedAfs?.length
+                        ? computedAfs
+                            .map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-'))
+                            .join(',')
+                        : '—';
                       const normalized = gt.replace(/\|/g, '/');
                       const zygosity =
                         !gt || gt === '—' || normalized === './.'
@@ -540,15 +618,13 @@ export default function SmallVariantCards({
                           className={`variant-card-gtline variant-card-gtline--${zygosity}${
                             member.affected ? ' is-affected' : ''
                           }${member.role === 'proband' ? ' is-proband' : ''}`}
-                          title={`${member.sample_id} · ${member.role}${
-                            member.affected ? ' · affected' : ''
-                          }`}
                         >
                           <span className="variant-card-gtline-sample">{member.sample_id}</span>
+                          <span className="variant-card-gtline-role">{member.role}</span>
                           <span className="variant-card-gtline-gt">{gt}</span>
-                          <span className="variant-card-gtline-dp">
-                            DP {typeof depth === 'number' ? depth : '—'}
-                          </span>
+                          <span className="variant-card-gtline-metric">DP {typeof depth === 'number' ? depth : '—'}</span>
+                          <span className="variant-card-gtline-metric">AD {adText}</span>
+                          <span className="variant-card-gtline-metric">AF {afText}</span>
                         </div>
                       );
                     })}
@@ -558,34 +634,27 @@ export default function SmallVariantCards({
 
               <section className="variant-card-col">
                 <p className="variant-card-col-title">Frequencies</p>
-                <div className="variant-card-chip-row">
-                  <span
-                    className={`variant-card-chip variant-card-chip--${getFrequencyTone(variant.gnomad_af)}`}
-                  >
-                    <span className="variant-card-chip-key">gnomAD</span>
-                    {formatFrequency(variant.gnomad_af)}
-                  </span>
-                  {typeof popFreq.gnomad_popmax_af === 'number' ? (
-                    <span
-                      className={`variant-card-chip variant-card-chip--${getFrequencyTone(
-                        popFreq.gnomad_popmax_af,
-                      )}`}
-                    >
-                      <span className="variant-card-chip-key">popmax</span>
-                      {formatFrequency(popFreq.gnomad_popmax_af)}
-                    </span>
-                  ) : null}
-                </div>
-                {freqDetailRows.length ? (
-                  <dl className="variant-card-mini-dl">
-                    {freqDetailRows.map((item) => (
-                      <div key={item.label}>
-                        <dt>{item.label}</dt>
-                        <dd>{item.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : null}
+                <dl className="variant-card-mini-dl">
+                  {freqRows.map((row) => (
+                    <div key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>
+                        {row.href ? (
+                          <a
+                            href={row.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="variant-card-resource variant-card-resource--clinical"
+                          >
+                            {row.value}
+                          </a>
+                        ) : (
+                          row.value
+                        )}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
                 <div className="variant-card-coga">
                   <span className="variant-card-col-key">CoGA cohort</span>
                   {ic ? (
@@ -664,24 +733,11 @@ export default function SmallVariantCards({
                 </button>
               </div>
               <div className="variant-card-nav">
-                {externalLinks
-                  .filter((link) => clinicalLinkLabels.has(link.label))
-                  .map((link) => (
-                    <a
-                      key={link.label}
-                      href={link.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="variant-card-resource variant-card-resource--clinical"
-                    >
-                      {link.label}
-                    </a>
-                  ))}
-                <Link to={igvHref} className="variant-card-inline-link">
+                <Link to={igvHref} className="variant-card-resource variant-card-resource--clinical">
                   IGV
                 </Link>
-                <Link to={viewHref} className="variant-card-inline-link">
-                  Chromosome
+                <Link to={viewHref} className="variant-card-resource variant-card-resource--clinical">
+                  Chromosome view
                 </Link>
               </div>
             </div>
@@ -782,72 +838,6 @@ export default function SmallVariantCards({
                   </div>
                 ) : null}
               </div>
-
-              {members.length ? (
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Family genotypes (depth &amp; allele detail)</p>
-                  <div className="variant-card-genotype-strip">
-                    {members.map((member) => {
-                      const genotype = variant.genotypes.find(
-                        (entry) => entry.sample === member.sample_id,
-                      );
-                      const gt = genotype?.gt || '—';
-                      const depth = genotype?.dp;
-                      const alleleDepths = genotype?.ad;
-                      const alleleFrequencies = genotype?.af;
-                      const refDepth =
-                        alleleDepths && alleleDepths.length > 0 ? alleleDepths[0] : undefined;
-                      const altDepths =
-                        alleleDepths && alleleDepths.length > 1 ? alleleDepths.slice(1) : undefined;
-                      const computedAfs =
-                        alleleFrequencies && alleleFrequencies.length
-                          ? alleleFrequencies
-                          : typeof depth === 'number' && depth > 0 && altDepths?.length
-                            ? altDepths
-                                .map((value) => (typeof value === 'number' ? value / depth : undefined))
-                                .filter((value): value is number => typeof value === 'number')
-                            : undefined;
-
-                      return (
-                        <div
-                          key={member.sample_id}
-                          className={`variant-card-genotype-tile${
-                            member.affected ? ' variant-card-genotype-tile--affected' : ''
-                          }${member.role === 'proband' ? ' variant-card-genotype-tile--proband' : ''}`}
-                        >
-                          <div className="variant-card-genotype-header">
-                            <span className="variant-card-genotype-sample">{member.sample_id}</span>
-                            <span className={`table-chip ${member.affected ? 'badge-chip--signature' : ''}`}>
-                              {member.affected ? 'affected' : 'unaffected'}
-                            </span>
-                            <span className="table-chip">{member.role}</span>
-                          </div>
-                          <div className="variant-card-genotype-body">
-                            <span className="variant-card-genotype-value">{gt}</span>
-                            <span>DP {typeof depth === 'number' ? depth : '—'}</span>
-                            <span>
-                              AD{' '}
-                              {typeof refDepth === 'number' || altDepths?.length
-                                ? `${typeof refDepth === 'number' ? refDepth : '-'},${
-                                    altDepths ? altDepths.join(',') : '-'
-                                  }`
-                                : '—'}
-                            </span>
-                            <span>
-                              AF{' '}
-                              {computedAfs?.length
-                                ? computedAfs
-                                    .map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-'))
-                                    .join(', ')
-                                : '—'}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
             </details>
           </article>
         );

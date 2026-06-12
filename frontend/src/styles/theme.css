@@ -3670,6 +3670,14 @@ tbody tr:hover {
   gap: 0.7rem;
 }
 
+.variant-results-count {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-signature-red-dark);
+  font-variant-numeric: tabular-nums;
+}
+
 .variant-results-toggle {
   display: flex;
   flex-wrap: wrap;
@@ -3921,6 +3929,16 @@ tbody tr:hover {
   color: var(--color-signature-red-dark);
 }
 
+.variant-card-chip--link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.variant-card-chip--link:hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
 /* --- Compact single-variant card layout --- */
 .variant-card-head {
   display: flex;
@@ -4114,13 +4132,8 @@ tbody tr:hover {
 
 .variant-card-nav {
   display: inline-flex;
-  gap: 0.3rem;
-}
-
-.variant-card-nav .variant-card-inline-link {
-  min-height: 1.6rem;
-  padding: 0.1rem 0.55rem;
-  font-size: 0.72rem;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
 }
 
 .variant-card-more {
@@ -4265,21 +4278,28 @@ tbody tr:hover {
 }
 
 .variant-card-gtline {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  padding: 0.12rem 0.45rem;
-  border-left: 2px solid var(--color-border);
+  gap: 0.1rem 0.5rem;
   font-size: 0.76rem;
+  line-height: 1.5;
 }
 
 .variant-card-gtline-sample {
-  overflow: hidden;
   font-weight: 600;
   color: var(--color-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.variant-card-gtline-role {
+  padding: 0 0.32rem;
+  border-radius: 3px;
+  background: rgba(124, 144, 157, 0.14);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
 }
 
 .variant-card-gtline-gt {
@@ -4288,22 +4308,14 @@ tbody tr:hover {
   color: var(--color-heading);
 }
 
-.variant-card-gtline-dp {
+.variant-card-gtline-metric {
   font-size: 0.7rem;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
-.variant-card-gtline--het {
-  border-left-color: rgba(180, 125, 45, 0.5);
-}
-
 .variant-card-gtline--het .variant-card-gtline-gt {
   color: #8d6020;
-}
-
-.variant-card-gtline--hom {
-  border-left-color: rgba(173, 31, 45, 0.55);
 }
 
 .variant-card-gtline--hom .variant-card-gtline-gt {
@@ -4323,8 +4335,9 @@ tbody tr:hover {
   color: var(--color-signature-red-dark);
 }
 
-.variant-card-gtline.is-proband {
-  box-shadow: inset 2px 0 0 0 var(--color-signature-red);
+.variant-card-gtline.is-proband .variant-card-gtline-role {
+  background: var(--color-signature-red-soft);
+  color: var(--color-signature-red-dark);
 }
 
 .variant-card-link-row {

@@ -73,7 +73,15 @@ export default function SmallVariantResults({
       <section className="surface-card space-y-4">
         <div className="variant-results-toolbar">
           <div className="space-y-1">
-            <h2 className="section-title">Variants</h2>
+            <h2 className="section-title">
+              Variants
+              {typeof data?.total === 'number' ? (
+                <span className="variant-results-count">
+                  {data.total.toLocaleString()}
+                  {data.total_is_estimated ? '+' : ''}
+                </span>
+              ) : null}
+            </h2>
             <p className="table-subtle">
               Auto view shows up to {CARD_VIEW_THRESHOLD} variants as cards and switches to a
               paginated list beyond that. Compound-het matches stay grouped by pair.
