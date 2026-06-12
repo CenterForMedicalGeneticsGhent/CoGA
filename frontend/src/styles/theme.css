@@ -1137,6 +1137,34 @@ tbody tr:hover {
   padding: 0.95rem;
 }
 
+/* Compact density for admin reference / management pages */
+.admin-compact .surface-card {
+  padding: 1.05rem 1.2rem;
+}
+
+.admin-compact .surface-card-muted {
+  padding: 0.8rem 0.95rem;
+}
+
+.admin-compact .field-grid {
+  gap: 0.6rem;
+}
+
+.admin-compact .section-title {
+  font-size: 0.98rem;
+}
+
+.admin-compact .section-copy,
+.admin-compact .catalog-card-copy,
+.admin-compact .dashboard-link-note {
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.admin-compact .form-button {
+  margin-top: 0.1rem;
+}
+
 .page-top-card {
   position: relative;
   overflow: hidden;

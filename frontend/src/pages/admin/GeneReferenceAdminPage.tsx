@@ -149,16 +149,15 @@ const GeneReferenceAdminPage: React.FC = () => {
   }
 
   return (
-    <div className="page-shell space-y-8">
+    <div className="page-shell admin-compact space-y-5">
       <section className="surface-card page-top-card">
         <div className="page-header">
-          <div className="space-y-2">
+          <div className="space-y-1">
             <p className="page-kicker">Administration</p>
             <h1 className="catalog-card-title">Gene reference sync</h1>
             <p className="catalog-card-copy">
-              Refresh cached human gene context for one symbol or for the full imported catalog. The
-              sync merges HGNC, Ensembl, NCBI Gene, ClinGen, GenCC, ClinVar gene-condition data,
-              and optional local dbNSFP gene annotations.
+              Refresh cached human gene context (HGNC, Ensembl, NCBI, ClinGen, GenCC, ClinVar) for
+              one symbol or the full imported catalog.
             </p>
           </div>
           <div className="surface-card-muted gene-profile-status">
@@ -192,10 +191,7 @@ const GeneReferenceAdminPage: React.FC = () => {
         <div className="gene-sync-action-grid">
           <article className="surface-card-muted gene-sync-action-panel">
             <p className="section-title">Refresh one human gene</p>
-            <p className="dashboard-link-note">
-              Use this when you want to update the cached context for a specific symbol without
-              touching the rest of the local gene catalog.
-            </p>
+            <p className="dashboard-link-note">Update the cached context for one symbol.</p>
             <div className="gene-sync-inline-form">
               <label className="field-label">
                 Gene symbol
@@ -219,10 +215,7 @@ const GeneReferenceAdminPage: React.FC = () => {
 
           <article className="surface-card-muted gene-sync-action-panel">
             <p className="section-title">Refresh all imported human genes</p>
-            <p className="dashboard-link-note">
-              This updates the cache for every locally imported human gene so the explorer remains
-              available offline after the job finishes.
-            </p>
+            <p className="dashboard-link-note">Re-cache every imported human gene for offline use.</p>
             <div className="inline-actions">
               <button
                 type="button"

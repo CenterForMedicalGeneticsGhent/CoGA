@@ -200,15 +200,14 @@ const GenePanelsPage: React.FC = () => {
   };
 
   return (
-    <div className="page-shell space-y-6">
+    <div className="page-shell admin-compact space-y-5">
       <section className="surface-card page-top-card">
         <div className="page-header">
-          <div className="space-y-2">
+          <div className="space-y-1">
             <p className="page-kicker">Panels</p>
             <h2 className="catalog-card-title">Gene panels</h2>
             <p className="catalog-card-copy">
-              Review curated panel content and genomic footprint. Creating or deleting panels is an
-              administrative task.
+              Curated panel content and genomic footprint. Create or delete panels (admin).
             </p>
           </div>
         </div>
@@ -244,10 +243,7 @@ const GenePanelsPage: React.FC = () => {
           </form>
           {status && <p className="form-status max-w-2xl">{status}</p>}
           <section className="surface-card field-grid max-w-4xl">
-            <div>
-              <p className="page-kicker">PanelApp</p>
-              <h3 className="section-title">Import PanelApp panel</h3>
-            </div>
+            <h3 className="section-title">Import PanelApp panel</h3>
             <form onSubmit={searchPanelApp} className="analysis-toolbar items-end">
               <label className="field-label">
                 <span>PanelApp search</span>
