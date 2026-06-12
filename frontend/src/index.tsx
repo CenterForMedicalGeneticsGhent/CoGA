@@ -287,7 +287,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 />
                 <Route
                   path="/admin/operations/variants"
-                  element={routeElement(<AdminClickhouseManagementPage />)}
+                  element={<Navigate to="/admin/operations/clickhouse" replace />}
                 />
                 <Route
                   path="/admin/monitoring/audit-logs"

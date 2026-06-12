@@ -93,14 +93,10 @@ const adminGroups: AdminGroup[] = [
     description: 'Technical storage and operational controls.',
     modules: [
       {
-        label: 'ClickHouse Tables',
+        label: 'ClickHouse Tables & Operations',
         to: '/admin/operations/clickhouse',
-        description: 'Assembly table status, ensure actions, optimize, and index rebuilds.',
-      },
-      {
-        label: 'Variant Operations',
-        to: '/admin/operations/variants',
-        description: 'Variant-storage maintenance and ClickHouse-backed operations.',
+        description:
+          'Per-assembly table status plus manual maintenance: ensure, optimize, and gene-index rebuilds.',
       },
     ],
   },
