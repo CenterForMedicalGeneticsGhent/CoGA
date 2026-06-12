@@ -23,9 +23,10 @@ from .variant_upload_service import (
     _transmitted_parent_haplotype,
 )
 
-# Fetch ceiling — well above ~5 Mb of dense imputed sites; truncation only ever
-# affects the tail of a pathologically dense window.
-PHASED_FETCH_LIMIT = 200_000
+# Fetch ceiling — covers a whole (largest) chromosome of family-scoped imputed
+# sites with headroom (~275k on chr2 here); truncation only affects the tail of
+# an unusually large family's full-chromosome view.
+PHASED_FETCH_LIMIT = 500_000
 # Output bins per child — the track is grouped into at most this many points,
 # which both bounds the payload/render and (by giving each bin many markers in a
 # dense window) denoises single-marker GLIMPSE2 phasing errors. When markers are
