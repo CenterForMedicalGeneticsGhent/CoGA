@@ -6,6 +6,7 @@ import { formatGt } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { getTrackVariantLimit } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizTooltip from './VizTooltip';
 
 interface Genotype {
   sample: string;
@@ -140,11 +141,9 @@ const VariantTrack: React.FC<Props> = ({
     event: React.MouseEvent<SVGElement>,
     variant: PositionedVariant,
   ) => {
-    const bounds = event.currentTarget.ownerSVGElement?.getBoundingClientRect();
-    if (!bounds) return;
     setTooltip({
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
+      x: event.clientX,
+      y: event.clientY,
       v: variant,
     });
   };
@@ -243,10 +242,7 @@ const VariantTrack: React.FC<Props> = ({
       </svg>
       {isLoading && <VizLoadingOverlay message="Loading SVs" />}
       {tooltip && (
-        <div
-          className="viz-tooltip"
-          style={{ left: tooltip.x + 8, top: tooltip.y + 8 }}
-        >
+        <VizTooltip x={tooltip.x} y={tooltip.y}>
           <div>{`${tooltip.v.chr}:${tooltip.v.start}-${tooltip.v.end} ${tooltip.v.type}${
             tooltip.v.length !== undefined ? ` (len=${tooltip.v.length})` : ""
           }${tooltip.v.source ? ` [${tooltip.v.source}]` : ""}`}</div>
@@ -259,7 +255,7 @@ const VariantTrack: React.FC<Props> = ({
               }`
             }</div>
           ))}
-        </div>
+        </VizTooltip>
       )}
     </div>
   );

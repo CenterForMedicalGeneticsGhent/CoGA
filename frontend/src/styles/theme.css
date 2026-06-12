@@ -7440,6 +7440,14 @@ button.table-link:hover {
   pointer-events: none;
 }
 
+/* Floating variant: portalled to <body> and pinned to the viewport so the
+   tooltip escapes the track frame's `overflow: hidden` clip and always renders
+   above the track below. Sits above track content and app chrome, below modals. */
+.viz-tooltip--floating {
+  position: fixed;
+  z-index: 45;
+}
+
 .viz-swatch {
   display: block;
   height: 0.75rem;

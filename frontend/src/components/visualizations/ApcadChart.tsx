@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizTooltip from './VizTooltip';
 
 const DEFAULT_CHROMS = [
   ...Array.from({ length: 22 }, (_, i) => String(i + 1)),
@@ -467,7 +468,7 @@ const ApcadChart: React.FC<Props> = ({
       setHoverSegment(null);
       return;
     }
-    setHoverSegment({ x, y, segment: hit.segment });
+    setHoverSegment({ x: event.clientX, y: event.clientY, segment: hit.segment });
   };
 
   return (
@@ -481,10 +482,10 @@ const ApcadChart: React.FC<Props> = ({
         onMouseLeave={() => setHoverSegment(null)}
       />
       {hoverSegment && (
-        <div className="viz-tooltip" style={{ left: hoverSegment.x + 8, top: hoverSegment.y + 8 }}>
+        <VizTooltip x={hoverSegment.x} y={hoverSegment.y}>
           <div>PCF {hoverSegment.segment.origin}</div>
           <div>value {hoverSegment.segment.value.toFixed(4)}</div>
-        </div>
+        </VizTooltip>
       )}
       {loading && <VizLoadingOverlay message="Loading APCAD" />}
       {!loading && hasData === false && (

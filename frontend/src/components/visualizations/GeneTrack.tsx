@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { select, pointer } from "d3-selection";
+import { select } from "d3-selection";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
 
@@ -110,12 +111,19 @@ const GeneTrack: React.FC<Props> = ({
         return `translate(${x},${y})`;
       })
       .on("mousemove", function (event, d) {
-        const [x, y] = pointer(event, svg.node());
         const panels = panelMap[d.g.hgnc_symbol] || [];
+        // Position in viewport coordinates: the tooltip is portalled to <body>
+        // (position: fixed) so it escapes the track frame's overflow clip.
+        const offset = 12;
+        const estimatedWidth = 320;
+        const left =
+          event.clientX + offset + estimatedWidth > window.innerWidth
+            ? Math.max(offset, event.clientX - offset - estimatedWidth)
+            : event.clientX + offset;
         tooltip
           .style("display", "block")
-          .style("left", `${x + 10}px`)
-          .style("top", `${y + 10}px`)
+          .style("left", `${left}px`)
+          .style("top", `${event.clientY + offset}px`)
           .html(
             `<div>${d.g.hgnc_symbol}</div>` +
               (panels.length ? `<div>Panels: ${panels.join(", ")}</div>` : "")
@@ -208,10 +216,10 @@ const GeneTrack: React.FC<Props> = ({
       {genes !== undefined && !hasGenes && (
         <div className="viz-empty-overlay">No genes in this region</div>
       )}
-      <div
-        ref={tooltipRef}
-        className="viz-tooltip hidden"
-      />
+      {createPortal(
+        <div ref={tooltipRef} className="viz-tooltip viz-tooltip--floating hidden" />,
+        document.body,
+      )}
     </div>
   );
 };

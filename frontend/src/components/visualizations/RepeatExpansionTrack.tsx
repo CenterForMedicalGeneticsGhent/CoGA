@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
+import VizTooltip from './VizTooltip';
 
 interface Props {
   familyId: string;
@@ -116,12 +117,10 @@ const RepeatExpansionTrack: React.FC<Props> = ({
               rx={2}
               fill={color}
               onMouseMove={(event) => {
-                const bounds = event.currentTarget.ownerSVGElement?.getBoundingClientRect();
-                if (!bounds) return;
                 setTooltip({
                   item,
-                  x: event.clientX - bounds.left,
-                  y: event.clientY - bounds.top,
+                  x: event.clientX,
+                  y: event.clientY,
                 });
               }}
               onMouseLeave={() => setTooltip(null)}
@@ -136,11 +135,11 @@ const RepeatExpansionTrack: React.FC<Props> = ({
         </div>
       )}
       {tooltip && (
-        <div className="viz-tooltip" style={{ left: tooltip.x + 8, top: tooltip.y + 8 }}>
+        <VizTooltip x={tooltip.x} y={tooltip.y}>
           <div>{tooltip.item.display_name}</div>
           <div>{tooltip.item.disease}</div>
           <div>{tooltip.item.allele_repeat_counts.join(' / ') || 'no call'} repeats</div>
-        </div>
+        </VizTooltip>
       )}
     </div>
   );
