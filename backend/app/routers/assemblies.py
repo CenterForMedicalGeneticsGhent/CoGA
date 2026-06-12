@@ -85,6 +85,7 @@ async def import_reference_data(
         tax_id=request.tax_id,
         ucsc_genome=request.ucsc_genome,
         overwrite=request.overwrite,
+        performed_by=user.email,
     )
 
 
@@ -140,4 +141,5 @@ async def upload_reference_data(
         dataset_type=dataset_type,  # type: ignore[arg-type]
         file=file,
         overwrite=overwrite,
+        performed_by=user.email,
     )

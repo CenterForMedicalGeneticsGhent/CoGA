@@ -166,7 +166,7 @@ async def _run_job(job_id: str) -> None:
         row = (
             await session.execute(
                 text(
-                    "SELECT assembly_id::text AS assembly_id, assembly_name, skip_clinvar "
+                    "SELECT assembly_id::text AS assembly_id, assembly_name, skip_clinvar, requested_by "
                     "FROM clinical_cnv_kb_jobs WHERE id = CAST(:job_id AS uuid)"
                 ),
                 {"job_id": job_id},
@@ -217,6 +217,8 @@ async def _run_job(job_id: str) -> None:
                 dataset_type="clinical_cnvs",
                 text_value=tsv_text,
                 overwrite=True,
+                performed_by=row.get("requested_by"),
+                source="clinical-cnv-kb",
             )
         await _update_job(
             job_id,

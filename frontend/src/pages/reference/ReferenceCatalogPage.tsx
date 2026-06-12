@@ -20,6 +20,15 @@ interface Assembly {
   release_date: string;
 }
 
+interface ReferenceDatasetImport {
+  dataset_type: string;
+  inserted: number;
+  replaced: boolean;
+  source?: string | null;
+  performed_by?: string | null;
+  performed_at: string;
+}
+
 interface AssemblyReferenceStatus {
   assembly_id: string;
   assembly_name: string;
@@ -28,6 +37,7 @@ interface AssemblyReferenceStatus {
   blacklist_regions: number;
   clinical_cnvs: number;
   segmental_duplications: number;
+  last_imports?: ReferenceDatasetImport[];
 }
 
 interface ReferenceImportSourceOrganism {
@@ -91,6 +101,16 @@ interface ReferenceAutoImportResult {
 }
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
+
+const formatDate = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+};
+
+const formatDateTime = (value: string) => {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+};
 
 const ReferenceCatalogPage: React.FC = () => {
   const userIsAdmin = isAdmin();
@@ -536,11 +556,29 @@ const ReferenceCatalogPage: React.FC = () => {
                                         <th>Blacklist</th>
                                         <th>Clin CNVs</th>
                                         <th>SegDup/LCR</th>
+                                        <th>Last updated</th>
                                       </tr>
                                     </thead>
                                     <tbody>
                                       {speciesAssemblies.map((assembly) => {
                                         const status = statusByAssembly.get(assembly.id);
+                                        const lastImports = status?.last_imports ?? [];
+                                        const latestImport = lastImports.reduce<
+                                          ReferenceDatasetImport | null
+                                        >(
+                                          (latest, entry) =>
+                                            !latest || entry.performed_at > latest.performed_at
+                                              ? entry
+                                              : latest,
+                                          null,
+                                        );
+                                        const lastUpdatedTooltip = lastImports
+                                          .map(
+                                            (entry) =>
+                                              `${entry.dataset_type}: ${formatDateTime(entry.performed_at)}` +
+                                              (entry.performed_by ? ` by ${entry.performed_by}` : ''),
+                                          )
+                                          .join('\n');
                                         return (
                                           <tr key={assembly.id}>
                                             <td>
@@ -570,6 +608,21 @@ const ReferenceCatalogPage: React.FC = () => {
                                             </td>
                                             <td className="table-mono">
                                               {formatCatalogCount(status?.segmental_duplications)}
+                                            </td>
+                                            <td className="table-mono" title={lastUpdatedTooltip || undefined}>
+                                              {latestImport ? (
+                                                <span>
+                                                  {formatDate(latestImport.performed_at)}
+                                                  {latestImport.performed_by ? (
+                                                    <span className="dashboard-link-note">
+                                                      {' '}
+                                                      by {latestImport.performed_by}
+                                                    </span>
+                                                  ) : null}
+                                                </span>
+                                              ) : (
+                                                <span className="table-empty">—</span>
+                                              )}
                                             </td>
                                           </tr>
                                         );

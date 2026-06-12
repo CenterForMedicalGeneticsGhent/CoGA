@@ -669,6 +669,7 @@ async def import_reference_from_ucsc(
     ucsc_genome: str,
     overwrite: bool,
     missing_only: bool = False,
+    performed_by: str | None = None,
 ) -> ReferenceAutoImportResult:
     source_entries = await list_reference_source_assemblies(tax_id=tax_id)
     source_assembly = next((entry for entry in source_entries if entry.ucsc_genome == ucsc_genome), None)
@@ -750,6 +751,8 @@ async def import_reference_from_ucsc(
                 text_value=cytoband_text,
                 overwrite=overwrite,
                 commit=False,
+                performed_by=performed_by,
+                source="ucsc",
             )
             cytobands_inserted = cytobands.inserted
             cytobands_replaced = cytobands.replaced
@@ -762,6 +765,8 @@ async def import_reference_from_ucsc(
                 text_value=gene_text,
                 overwrite=overwrite,
                 commit=False,
+                performed_by=performed_by,
+                source="ucsc",
             )
             genes_inserted = genes.inserted
             genes_replaced = genes.replaced

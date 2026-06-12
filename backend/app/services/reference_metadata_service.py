@@ -21,6 +21,7 @@ from ..schemas import (
     ChromosomeOut,
     ChromosomeSizeOut,
     GeneOut,
+    ReferenceDatasetImportOut,
     ReferenceUploadResult,
     SegmentalDuplicationOut,
 )
@@ -358,6 +359,35 @@ async def list_reference_statuses(
             """
         )
     )
+    # Latest import per (assembly, dataset_type) for "last updated / by / count".
+    imports_result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT ON (assembly_id, dataset_type)
+                assembly_id::text AS assembly_id,
+                dataset_type,
+                inserted,
+                replaced,
+                source,
+                performed_by,
+                performed_at
+            FROM reference_dataset_imports
+            ORDER BY assembly_id, dataset_type, performed_at DESC
+            """
+        )
+    )
+    imports_by_assembly: dict[str, list[ReferenceDatasetImportOut]] = {}
+    for row in imports_result.mappings().all():
+        imports_by_assembly.setdefault(row["assembly_id"], []).append(
+            ReferenceDatasetImportOut(
+                dataset_type=row["dataset_type"],
+                inserted=int(row["inserted"] or 0),
+                replaced=bool(row["replaced"]),
+                source=row.get("source"),
+                performed_by=row.get("performed_by"),
+                performed_at=row["performed_at"],
+            )
+        )
     return [
         AssemblyReferenceStatusOut(
             assembly_id=row["assembly_id"],
@@ -367,6 +397,7 @@ async def list_reference_statuses(
             blacklist_regions=int(row["blacklist_regions"]),
             clinical_cnvs=int(row["clinical_cnvs"]),
             segmental_duplications=int(row["segmental_duplications"]),
+            last_imports=imports_by_assembly.get(row["assembly_id"], []),
         )
         for row in result.mappings().all()
     ]
@@ -451,6 +482,7 @@ async def upload_reference_dataset(
     dataset_type: ReferenceDatasetType,
     file: UploadFile,
     overwrite: bool,
+    performed_by: str | None = None,
 ) -> ReferenceUploadResult:
     text_value = await decode_reference_upload(file)
     return await apply_reference_dataset_text(
@@ -459,6 +491,8 @@ async def upload_reference_dataset(
         dataset_type=dataset_type,
         text_value=text_value,
         overwrite=overwrite,
+        performed_by=performed_by,
+        source="upload",
     )
 
 
@@ -470,6 +504,8 @@ async def apply_reference_dataset_text(
     text_value: str,
     overwrite: bool,
     commit: bool = True,
+    performed_by: str | None = None,
+    source: str | None = None,
 ) -> ReferenceUploadResult:
     assembly = await _get_assembly_by_id(session, assembly_id)
 
@@ -869,6 +905,23 @@ async def apply_reference_dataset_text(
         )
         inserted = len(rows)
 
+    await session.execute(
+        text(
+            """
+            INSERT INTO reference_dataset_imports
+                (assembly_id, dataset_type, inserted, replaced, source, performed_by)
+            VALUES (CAST(:assembly_id AS uuid), :dataset_type, :inserted, :replaced, :source, :performed_by)
+            """
+        ),
+        {
+            "assembly_id": assembly_id,
+            "dataset_type": dataset_type,
+            "inserted": inserted,
+            "replaced": replaced,
+            "source": source,
+            "performed_by": performed_by,
+        },
+    )
     if commit:
         await session.commit()
     return ReferenceUploadResult(
