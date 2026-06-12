@@ -112,18 +112,17 @@ describe('ReferenceCatalogPage', () => {
   it('renders the catalog with assembly reference counts', async () => {
     renderPage();
 
-    expect(await screen.findByText('Homo sapiens')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Homo sapiens' })).toBeInTheDocument();
     expect(screen.getByText(/human • tax id 9606/i)).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /species/i })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /assembly/i })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /gene ref/i })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: /cytobands/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /genes/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /blacklist/i })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: /clin cnvs/i })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: /segdup\/lcr/i })).toBeInTheDocument();
-    expect(screen.getByRole('columnheader', { name: /last updated/i })).toBeInTheDocument();
-    expect(screen.getByText('19,876')).toBeInTheDocument(); // genes
-    expect(screen.getByText('48')).toBeInTheDocument(); // clinical CNVs
-    expect(screen.getByText('64')).toBeInTheDocument(); // segmental duplications
+    expect(screen.getByText('19,876')).toBeInTheDocument();
+    expect(screen.getByText('132')).toBeInTheDocument();
+    expect(screen.getByText('48')).toBeInTheDocument();
+    expect(screen.getByText('64')).toBeInTheDocument();
   });
 
   it('imports an organism and assembly from the automatic UCSC flow', async () => {
@@ -149,7 +148,7 @@ describe('ReferenceCatalogPage', () => {
 
     renderPage();
 
-    await screen.findByText('Homo sapiens');
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
 
     fireEvent.click(screen.getByRole('button', { name: /add organism \/ assembly/i }));
 
@@ -195,7 +194,7 @@ describe('ReferenceCatalogPage', () => {
 
     renderPage();
 
-    await screen.findByText('Homo sapiens');
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
 
     fireEvent.click(screen.getByRole('button', { name: /upload reference data/i }));
 
