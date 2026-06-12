@@ -16,3 +16,11 @@ httpx
 pyfaidx
 pysam
 PyYAML
+# Clinical CNV knowledgebase build script (scripts/clinical_cnv_knowledgebase.py),
+# invoked as a subprocess by the admin "rebuild knowledgebase" action.
+pandas
+requests
+beautifulsoup4
+lxml
+intervaltree
+tqdm

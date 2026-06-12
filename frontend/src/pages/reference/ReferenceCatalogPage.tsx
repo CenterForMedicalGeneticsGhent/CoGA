@@ -37,6 +37,26 @@ interface ReferenceImportSourceOrganism {
   assembly_count: number;
 }
 
+interface ClinicalCnvKbJob {
+  _id: string;
+  assembly_name: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  skip_clinvar: boolean;
+  requested_by?: string | null;
+  requested_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  inserted: number;
+  error?: string | null;
+}
+
+interface ClinicalCnvKbStatus {
+  active_job: ClinicalCnvKbJob | null;
+  recent_jobs: ClinicalCnvKbJob[];
+  available: boolean;
+  detail?: string | null;
+}
+
 interface ReferenceImportSourceAssembly {
   scientific_name: string;
   common_name: string;
@@ -102,6 +122,9 @@ const ReferenceCatalogPage: React.FC = () => {
   const [autoImportSuccess, setAutoImportSuccess] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [cnvKbAssembly, setCnvKbAssembly] = useState('');
+  const [cnvKbSkipClinvar, setCnvKbSkipClinvar] = useState(false);
+  const [cnvKbError, setCnvKbError] = useState<string | null>(null);
 
   const { data: species = [] } = useQuery<Species[]>({
     queryKey: ['species'],
@@ -125,6 +148,13 @@ const ReferenceCatalogPage: React.FC = () => {
       const res = await api.get('/assemblies/reference-status');
       return res.data as AssemblyReferenceStatus[];
     },
+  });
+
+  const { data: cnvKbStatus } = useQuery<ClinicalCnvKbStatus>({
+    queryKey: ['admin', 'clinical-cnv-kb', 'status'],
+    enabled: userIsAdmin,
+    queryFn: async () => (await api.get('/admin/clinical-cnv-kb/status')).data as ClinicalCnvKbStatus,
+    refetchInterval: (query) => (query.state.data?.active_job ? 3000 : false),
   });
 
   const { data: sourceOrganisms = [] } = useQuery<ReferenceImportSourceOrganism[]>({
@@ -344,6 +374,23 @@ const ReferenceCatalogPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
     } catch (err: unknown) {
       setAutoImportError(getErrorMessage(err, 'Automatic reference import failed.'));
+    }
+  };
+
+  const handleCnvKbRebuild = async () => {
+    if (!cnvKbAssembly) {
+      setCnvKbError('Choose an assembly first.');
+      return;
+    }
+    setCnvKbError(null);
+    try {
+      await api.post('/admin/clinical-cnv-kb/rebuild', {
+        assembly: cnvKbAssembly,
+        skip_clinvar: cnvKbSkipClinvar,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'clinical-cnv-kb', 'status'] });
+    } catch (err: unknown) {
+      setCnvKbError(getErrorMessage(err, 'Could not start the clinical CNV knowledgebase rebuild.'));
     }
   };
 
@@ -774,6 +821,84 @@ const ReferenceCatalogPage: React.FC = () => {
                 </p>
               )}
             </div>
+          </section>
+
+          <section className="surface-card space-y-4">
+            <div>
+              <p className="page-kicker">Clinical CNVs</p>
+              <h2 className="section-title">Rebuild clinical CNV knowledgebase</h2>
+            </div>
+            <p className="section-copy">
+              Runs the knowledgebase build script (ClinGen dosage regions, UCSC cytobands, and
+              optional ClinVar / OMIM / DECIPHER enrichment), then replaces the clinical CNV
+              reference set for the chosen assembly. The build runs in the background and can take
+              several minutes.
+            </p>
+            {cnvKbStatus && !cnvKbStatus.available ? (
+              <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
+                {cnvKbStatus.detail || 'The build script is not available on the server.'}
+              </p>
+            ) : null}
+            {cnvKbError && (
+              <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
+                {cnvKbError}
+              </p>
+            )}
+            {userIsAdmin ? (
+              <div className="field-grid">
+                <label className="field-label">
+                  Target assembly
+                  <select
+                    value={cnvKbAssembly}
+                    onChange={(e) => setCnvKbAssembly(e.target.value)}
+                  >
+                    <option value="">Select assembly</option>
+                    {assemblies.map((assembly) => (
+                      <option key={assembly.id} value={assembly.assembly_name}>
+                        {assembly.assembly_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field-label">
+                  Skip ClinVar support counts (faster)
+                  <input
+                    type="checkbox"
+                    checked={cnvKbSkipClinvar}
+                    onChange={(e) => setCnvKbSkipClinvar(e.target.checked)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="form-button w-full justify-center"
+                  onClick={handleCnvKbRebuild}
+                  disabled={
+                    Boolean(cnvKbStatus?.active_job) || cnvKbStatus?.available === false
+                  }
+                >
+                  {cnvKbStatus?.active_job
+                    ? `Rebuild ${cnvKbStatus.active_job.status}…`
+                    : 'Rebuild knowledgebase'}
+                </button>
+              </div>
+            ) : (
+              <p className="section-copy">
+                Admin access is required to rebuild the clinical CNV knowledgebase.
+              </p>
+            )}
+            {cnvKbStatus?.recent_jobs?.length ? (
+              <div className="dashboard-link-stack">
+                {cnvKbStatus.recent_jobs.slice(0, 5).map((job) => (
+                  <p key={job._id} className="dashboard-link-note">
+                    <strong>{job.assembly_name}</strong> — {job.status}
+                    {job.status === 'completed'
+                      ? ` (${job.inserted.toLocaleString()} CNVs)`
+                      : ''}
+                    {job.error ? `: ${job.error}` : ''}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </section>
 
           <section className="surface-card space-y-4">

@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/db ./db
 COPY backend/app ./app
+# Ship the clinical CNV knowledgebase build script so the admin "rebuild
+# knowledgebase" action can invoke it (see CLINICAL_CNV_KB_SCRIPT_PATH).
+COPY scripts ./scripts
 
 EXPOSE 8000
 

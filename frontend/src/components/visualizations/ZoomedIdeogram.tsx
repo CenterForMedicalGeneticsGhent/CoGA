@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
 import { getStainColor } from "../../lib/stainColors";
+import VizTooltip from "./VizTooltip";
 
 interface IdeogramBand {
   name: string;
@@ -96,10 +97,21 @@ const ZoomedIdeogram: React.FC<Props> = ({
       return res.data as Chromosome;
     },
   });
+  const [bandTooltip, setBandTooltip] = React.useState<{
+    x: number;
+    y: number;
+    name: string;
+  } | null>(null);
 
   if (!data || regionEnd <= regionStart) {
     return <svg width={width} height={height} />;
   }
+
+  const bandHoverHandlers = (band: IdeogramBand) => ({
+    onMouseMove: (e: React.MouseEvent) =>
+      setBandTooltip({ x: e.clientX, y: e.clientY, name: band.name }),
+    onMouseLeave: () => setBandTooltip(null),
+  });
 
   const viewHeight = Math.max(height - AXIS_HEIGHT, 0);
   const regionLength = Math.max(regionEnd - regionStart, 1);
@@ -145,6 +157,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
   });
 
   return (
+    <>
     <svg width={width} height={height}>
       <defs>{bandGradients}</defs>
       {bands.map((band, i) => {
@@ -170,9 +183,8 @@ const ZoomedIdeogram: React.FC<Props> = ({
               fill={`url(#${gradientId})`}
               stroke={cssVar("--color-black")}
               strokeWidth={BAND_STROKE}
-            >
-              <title>{band.name}</title>
-            </polygon>
+              {...bandHoverHandlers(band)}
+            />
           );
         }
         if (isTelomereStart) {
@@ -184,9 +196,8 @@ const ZoomedIdeogram: React.FC<Props> = ({
               fill={`url(#${gradientId})`}
               stroke={cssVar("--color-black")}
               strokeWidth={BAND_STROKE}
-            >
-              <title>{band.name}</title>
-            </path>
+              {...bandHoverHandlers(band)}
+            />
           );
         }
         if (isTelomereEnd) {
@@ -198,9 +209,8 @@ const ZoomedIdeogram: React.FC<Props> = ({
               fill={`url(#${gradientId})`}
               stroke={cssVar("--color-black")}
               strokeWidth={BAND_STROKE}
-            >
-              <title>{band.name}</title>
-            </path>
+              {...bandHoverHandlers(band)}
+            />
           );
         }
         return (
@@ -213,9 +223,8 @@ const ZoomedIdeogram: React.FC<Props> = ({
             fill={`url(#${gradientId})`}
             stroke={cssVar("--color-black")}
             strokeWidth={BAND_STROKE}
-          >
-            <title>{band.name}</title>
-          </rect>
+            {...bandHoverHandlers(band)}
+          />
         );
       })}
       <line
@@ -260,6 +269,12 @@ const ZoomedIdeogram: React.FC<Props> = ({
         );
       })}
     </svg>
+    {bandTooltip && (
+      <VizTooltip x={bandTooltip.x} y={bandTooltip.y}>
+        <div>{`${chrom.replace(/^chr/i, "")}${bandTooltip.name}`}</div>
+      </VizTooltip>
+    )}
+    </>
   );
 };
 

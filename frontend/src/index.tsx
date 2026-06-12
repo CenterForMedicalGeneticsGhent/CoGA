@@ -34,6 +34,9 @@ const ChromosomeViewPage = lazy(
 );
 const CircosPlotPage = lazy(() => import('./pages/genome/CircosPlotPage'));
 const CnvDetailsPage = lazy(() => import('./pages/genome/CnvDetailsPage'));
+const ClinicalCnvExplorerPage = lazy(
+  () => import('./pages/cnv-explorer/ClinicalCnvExplorerPage'),
+);
 const PedUpload = lazy(() => import('./pages/uploads/PedUpload'));
 const SampleUpload = lazy(() => import('./pages/uploads/SampleUpload'));
 const FamilyStructuralVariantsPage = lazy(
@@ -205,7 +208,11 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 element={routeElement(<ReferenceCatalogPage />)}
               />
               <Route
-                path="/cnv-details"
+                path="/cnv-explorer"
+                element={routeElement(<ClinicalCnvExplorerPage />)}
+              />
+              <Route
+                path="/cnv-details/:cnvId"
                 element={routeElement(<CnvDetailsPage />)}
               />
               <Route

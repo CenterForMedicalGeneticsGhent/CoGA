@@ -6,6 +6,7 @@ import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
 
 interface Cnv {
+  _id: string;
   start: number;
   end: number;
   type?: string;
@@ -21,11 +22,6 @@ interface Props {
   regionStart: number;
   regionEnd: number;
 }
-
-const TYPE_COLORS: Record<string, string> = {
-  DEL: cssVar('--color-variant-del'),
-  DUP: cssVar('--color-variant-dup'),
-};
 
 const CnvTrack: React.FC<Props> = ({
   assembly,
@@ -71,8 +67,9 @@ const CnvTrack: React.FC<Props> = ({
         const end = Math.min(r.end, regionEnd);
         const x = ((start - regionStart) / regionLength) * width;
         const w = Math.max(((end - start) / regionLength) * width, 2);
-        const typeKey = r.type?.toUpperCase() ?? '';
-        const color = TYPE_COLORS[typeKey] || cssVar('--color-cnv-default');
+        // Clinical CNVs use a single orange accent (like genes use one blue),
+        // independent of gain/loss type.
+        const color = cssVar('--color-cnv-clinical');
         return (
           <rect
             key={idx}
@@ -87,11 +84,7 @@ const CnvTrack: React.FC<Props> = ({
               setTooltip({ x: event.clientX, y: event.clientY, label: r.label })
             }
             onMouseLeave={() => setTooltip(null)}
-            onClick={() => {
-              if (r.details_html) {
-                navigate('/cnv-details', { state: { html: r.details_html } });
-              }
-            }}
+            onClick={() => navigate(`/cnv-details/${r._id}`)}
           />
         );
       })}

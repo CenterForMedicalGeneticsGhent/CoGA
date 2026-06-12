@@ -8,6 +8,7 @@ import {
   getBandGradientStops,
 } from "../../lib/ideogram";
 import { getStainColor } from "../../lib/stainColors";
+import VizTooltip from "./VizTooltip";
 
 interface IdeogramBand {
   name: string;
@@ -128,6 +129,9 @@ const Ideogram: React.FC<Props> = ({
   const clipId = useId().replace(/:/g, "");
   const dragStart = useRef<number | null>(null);
   const [dragCurrent, setDragCurrent] = useState<number | null>(null);
+  const [bandTooltip, setBandTooltip] = useState<{ x: number; y: number; name: string } | null>(
+    null,
+  );
   const { data } = useQuery<Chromosome>({
     queryKey: ["chromosome", assembly, chrom],
     queryFn: async () => {
@@ -243,7 +247,12 @@ const Ideogram: React.FC<Props> = ({
     return <svg width={width} height={height} />;
   }
 
+  const cytobandLabel = bandTooltip
+    ? `${chrom.replace(/^chr/i, "")}${bandTooltip.name}`
+    : "";
+
   return (
+    <>
     <svg
       width={width}
       height={height}
@@ -282,9 +291,11 @@ const Ideogram: React.FC<Props> = ({
                 fill={`url(#${gradientId})`}
                 stroke={cssVar("--color-black")}
                 strokeWidth={BAND_STROKE}
-              >
-                <title>{band.name}</title>
-              </polygon>
+                onMouseMove={(e) =>
+                  setBandTooltip({ x: e.clientX, y: e.clientY, name: band.name })
+                }
+                onMouseLeave={() => setBandTooltip(null)}
+              />
             );
           }
           return (
@@ -297,9 +308,11 @@ const Ideogram: React.FC<Props> = ({
               fill={`url(#${gradientId})`}
               stroke={cssVar("--color-black")}
               strokeWidth={BAND_STROKE}
-            >
-              <title>{band.name}</title>
-            </rect>
+              onMouseMove={(e) =>
+                setBandTooltip({ x: e.clientX, y: e.clientY, name: band.name })
+              }
+              onMouseLeave={() => setBandTooltip(null)}
+            />
           );
         })}
       </g>
@@ -373,6 +386,12 @@ const Ideogram: React.FC<Props> = ({
           );
         })}
     </svg>
+    {bandTooltip && (
+      <VizTooltip x={bandTooltip.x} y={bandTooltip.y}>
+        <div>{cytobandLabel}</div>
+      </VizTooltip>
+    )}
+    </>
   );
 };
 
