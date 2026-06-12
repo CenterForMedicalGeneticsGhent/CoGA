@@ -39,6 +39,7 @@ interface AssemblyReferenceStatus {
   blacklist_regions: number;
   clinical_cnvs: number;
   segmental_duplications: number;
+  dgv?: number;
   last_imports?: ReferenceDatasetImport[];
 }
 
@@ -322,6 +323,11 @@ const ReferenceCatalogPage: React.FC = () => {
       title: 'Segmental duplications/LCRs',
       description:
         'Upload a BED-like file with segmental duplication/LCR intervals; ClinGen recurrent CNV BED keeps black LCR bars.',
+    },
+    dgv: {
+      title: 'DGV variants',
+      description:
+        'Upload the Database of Genomic Variants TSV (variantaccession, chr, start, end, varianttype, variantsubtype, …). Large files load in the background.',
     },
   };
 
@@ -759,6 +765,7 @@ const ReferenceCatalogPage: React.FC = () => {
                                         <th>Blacklist</th>
                                         <th>Clin CNVs</th>
                                         <th>SegDup/LCR</th>
+                                        <th>DGV</th>
                                         <th>Last updated</th>
                                       </tr>
                                     </thead>
@@ -825,6 +832,12 @@ const ReferenceCatalogPage: React.FC = () => {
                                               <span className="reference-count-with-action">
                                                 {formatCatalogCount(status?.segmental_duplications)}
                                                 {renderCountAction(assembly, entry.tax_id, 'segmental_duplications')}
+                                              </span>
+                                            </td>
+                                            <td className="table-mono">
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.dgv)}
+                                                {renderCountAction(assembly, entry.tax_id, 'dgv')}
                                               </span>
                                             </td>
                                             <td className="table-mono" title={lastUpdatedTooltip || undefined}>
@@ -1034,6 +1047,7 @@ const ReferenceCatalogPage: React.FC = () => {
                     <option value="blacklist">Blacklist</option>
                     <option value="clinical_cnvs">Clinical CNVs</option>
                     <option value="segmental_duplications">Segmental duplications/LCRs</option>
+                    <option value="dgv">DGV variants</option>
                   </select>
                 </label>
                 <label className="field-label">

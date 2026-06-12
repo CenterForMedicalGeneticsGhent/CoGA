@@ -73,6 +73,10 @@
   --color-gene-stroke: #556f87;
   --color-blacklist: #9ca3af;
   --color-segmental-duplication: #1f2937;
+  --color-dgv-gain: #3a6ea5;
+  --color-dgv-loss: #b04a4a;
+  --color-dgv-mixed: #6b5b95;
+  --color-dgv-other: #9aa0a6;
 
   --color-stain-gneg: #ffffff;
   --color-stain-gpos25: #c8c8c8;
