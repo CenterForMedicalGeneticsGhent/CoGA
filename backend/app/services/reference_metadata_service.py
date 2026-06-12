@@ -22,6 +22,7 @@ from ..schemas import (
     ChromosomeSizeOut,
     GeneOut,
     ReferenceDatasetImportOut,
+    ReferenceImportActivityOut,
     ReferenceUploadResult,
     SegmentalDuplicationOut,
 )
@@ -398,6 +399,52 @@ async def list_reference_statuses(
             clinical_cnvs=int(row["clinical_cnvs"]),
             segmental_duplications=int(row["segmental_duplications"]),
             last_imports=imports_by_assembly.get(row["assembly_id"], []),
+        )
+        for row in result.mappings().all()
+    ]
+
+
+async def list_recent_reference_imports(
+    session: AsyncSession,
+    *,
+    limit: int = 20,
+) -> list[ReferenceImportActivityOut]:
+    """Chronological feed of dataset imports across all assemblies for the
+    "Recent reference activity" panel — every upload, UCSC import, and CNV-KB
+    rebuild is recorded uniformly via reference_dataset_imports."""
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                i.assembly_id::text AS assembly_id,
+                a.assembly_name,
+                s.name AS species_name,
+                i.dataset_type,
+                i.inserted,
+                i.replaced,
+                i.source,
+                i.performed_by,
+                i.performed_at
+            FROM reference_dataset_imports i
+            JOIN assemblies a ON a.id = i.assembly_id
+            JOIN species s ON s.id = a.species_id
+            ORDER BY i.performed_at DESC
+            LIMIT :limit
+            """
+        ),
+        {"limit": limit},
+    )
+    return [
+        ReferenceImportActivityOut(
+            assembly_id=row["assembly_id"],
+            assembly_name=row["assembly_name"],
+            species_name=row["species_name"],
+            dataset_type=row["dataset_type"],
+            inserted=int(row["inserted"] or 0),
+            replaced=bool(row["replaced"]),
+            source=row.get("source"),
+            performed_by=row.get("performed_by"),
+            performed_at=row["performed_at"],
         )
         for row in result.mappings().all()
     ]

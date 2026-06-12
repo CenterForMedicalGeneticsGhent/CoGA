@@ -76,12 +76,16 @@ interface GeneMetadataStatus {
   last_completed_at?: string | null;
 }
 
-interface ReferenceAuditEvent {
-  created_at: string;
-  user_email?: string | null;
-  method: string;
-  route_path?: string | null;
-  status_code: number;
+interface ReferenceImportActivity {
+  assembly_id: string;
+  assembly_name: string;
+  species_name: string;
+  dataset_type: string;
+  inserted: number;
+  replaced: boolean;
+  source?: string | null;
+  performed_by?: string | null;
+  performed_at: string;
 }
 
 interface ReferenceImportSourceAssembly {
@@ -115,6 +119,7 @@ interface ReferenceAutoImportResult {
   cytoband_source_url: string;
   gene_source_url: string;
   gene_source: string;
+  gene_warning?: string | null;
 }
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
@@ -157,6 +162,7 @@ const ReferenceCatalogPage: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [autoImportError, setAutoImportError] = useState<string | null>(null);
   const [autoImportSuccess, setAutoImportSuccess] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<'add' | 'manual' | 'upload' | null>(null);
@@ -212,14 +218,14 @@ const ReferenceCatalogPage: React.FC = () => {
     retry: false,
   });
 
-  const { data: referenceAudit } = useQuery<ReferenceAuditEvent[]>({
-    queryKey: ['admin', 'audit-logs', 'reference'],
+  const { data: referenceActivity } = useQuery<ReferenceImportActivity[]>({
+    queryKey: ['assemblies', 'reference-import', 'recent'],
     enabled: userIsAdmin,
     queryFn: async () => {
-      const res = await api.get('/admin/audit-logs', {
-        params: { path_contains: 'reference', page_size: 8 },
+      const res = await api.get('/assemblies/reference-import/recent', {
+        params: { limit: 12 },
       });
-      return (res.data?.items ?? []) as ReferenceAuditEvent[];
+      return res.data as ReferenceImportActivity[];
     },
   });
 
@@ -425,6 +431,7 @@ const ReferenceCatalogPage: React.FC = () => {
 
     setAutoImportError(null);
     setAutoImportSuccess(null);
+    setImporting(true);
 
     try {
       const { data } = await api.post<ReferenceAutoImportResult>('/assemblies/reference-import', {
@@ -432,9 +439,14 @@ const ReferenceCatalogPage: React.FC = () => {
         ucsc_genome: autoImportForm.ucsc_genome,
         overwrite: autoImportForm.overwrite,
       });
-      setAutoImportSuccess(
-        `Imported ${data.assembly_name} ${data.assembly_version}: ${data.cytobands_inserted} cytobands and ${data.genes_inserted} genes loaded.`
-      );
+      const genesPart = data.gene_warning
+        ? ''
+        : ` and ${data.genes_inserted} genes`;
+      let message = `Imported ${data.assembly_name} ${data.assembly_version}: ${data.cytobands_inserted} cytobands${genesPart} loaded.`;
+      if (data.gene_warning) {
+        message += ` No gene table was available from UCSC (${data.gene_warning}) — you can upload genes manually for this assembly.`;
+      }
+      setAutoImportSuccess(message);
       setAutoImportForm((current) => ({
         ...current,
         ucsc_genome: '',
@@ -442,8 +454,11 @@ const ReferenceCatalogPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['species'] });
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'all'] });
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
+      await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-import', 'recent'] });
     } catch (err: unknown) {
       setAutoImportError(getErrorMessage(err, 'Automatic reference import failed.'));
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -850,7 +865,11 @@ const ReferenceCatalogPage: React.FC = () => {
           {activeModal === 'add' && (
           <AdminModal
             title="Add organism / assembly (from UCSC)"
-            onClose={() => setActiveModal(null)}
+            onClose={() => {
+              if (!importing) {
+                setActiveModal(null);
+              }
+            }}
           >
             {autoImportError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
@@ -875,6 +894,7 @@ const ReferenceCatalogPage: React.FC = () => {
                         overwrite: autoImportForm.overwrite,
                       })
                     }
+                    disabled={importing}
                   >
                     <option value="">Select organism</option>
                     {sourceOrganisms.map((entry) => (
@@ -895,7 +915,7 @@ const ReferenceCatalogPage: React.FC = () => {
                         ucsc_genome: e.target.value,
                       }))
                     }
-                    disabled={!autoImportForm.tax_id}
+                    disabled={!autoImportForm.tax_id || importing}
                   >
                     <option value="">Select assembly</option>
                     {sourceAssemblies.map((entry) => (
@@ -916,11 +936,26 @@ const ReferenceCatalogPage: React.FC = () => {
                         overwrite: e.target.checked,
                       }))
                     }
+                    disabled={importing}
                   />
                 </label>
-                <button type="submit" className="form-button w-full justify-center">
-                  Download cytobands and genes
+                <button
+                  type="submit"
+                  className="form-button w-full justify-center"
+                  disabled={importing || !autoImportForm.ucsc_genome}
+                >
+                  {importing ? 'Downloading from UCSC…' : 'Download cytobands and genes'}
                 </button>
+                {importing && (
+                  <div className="reference-import-progress" aria-live="polite">
+                    <div className="reference-import-progress-shell">
+                      <div className="reference-import-progress-bar" />
+                    </div>
+                    <p className="dashboard-link-note">
+                      Fetching cytobands and gene tables from UCSC — this can take up to a minute.
+                    </p>
+                  </div>
+                )}
               </form>
             ) : (
               <p className="section-copy">
@@ -1188,7 +1223,7 @@ const ReferenceCatalogPage: React.FC = () => {
         </AdminModal>
       )}
 
-      {userIsAdmin && referenceAudit && referenceAudit.length > 0 ? (
+      {userIsAdmin && referenceActivity && referenceActivity.length > 0 ? (
         <section className="surface-card space-y-3">
           <h2 className="section-title">Recent reference activity</h2>
           <div className="data-table-shell overflow-x-auto">
@@ -1197,30 +1232,30 @@ const ReferenceCatalogPage: React.FC = () => {
                 <tr>
                   <th>When</th>
                   <th>By</th>
-                  <th>Action</th>
-                  <th>Status</th>
+                  <th>Assembly</th>
+                  <th>Dataset</th>
+                  <th>Rows</th>
+                  <th>Source</th>
                 </tr>
               </thead>
               <tbody>
-                {referenceAudit.map((event, index) => (
-                  <tr key={`${event.created_at}-${index}`}>
-                    <td className="table-mono">{formatDateTime(event.created_at)}</td>
-                    <td>{event.user_email || 'system'}</td>
-                    <td className="table-mono">
-                      {event.method} {event.route_path || ''}
-                    </td>
+                {referenceActivity.map((event, index) => (
+                  <tr key={`${event.performed_at}-${event.assembly_id}-${event.dataset_type}-${index}`}>
+                    <td className="table-mono">{formatDateTime(event.performed_at)}</td>
+                    <td>{event.performed_by || 'system'}</td>
                     <td>
-                      <span
-                        style={{
-                          color:
-                            event.status_code >= 400
-                              ? 'var(--color-signature-red-dark)'
-                              : 'var(--color-secondary)',
-                        }}
-                      >
-                        {event.status_code}
+                      <strong>{event.assembly_name}</strong>
+                      <span className="dashboard-link-note"> · {event.species_name}</span>
+                    </td>
+                    <td>{datasetCopy[event.dataset_type]?.title ?? event.dataset_type}</td>
+                    <td className="table-mono">
+                      {event.inserted.toLocaleString()}
+                      <span className="dashboard-link-note">
+                        {' '}
+                        {event.replaced ? 'replaced' : 'added'}
                       </span>
                     </td>
+                    <td className="table-mono">{event.source || '—'}</td>
                   </tr>
                 ))}
               </tbody>

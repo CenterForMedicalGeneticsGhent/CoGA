@@ -2631,6 +2631,41 @@ tbody tr:hover {
   border-color: var(--color-secondary, #2f7d6b);
 }
 
+/* Indeterminate progress bar shown while a UCSC import is downloading. */
+.reference-import-progress {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.reference-import-progress-shell {
+  position: relative;
+  width: 100%;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: rgba(10, 11, 12, 0.08);
+  overflow: hidden;
+}
+
+.reference-import-progress-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-signature-red), var(--color-signature-red-dark));
+  animation: reference-import-progress-slide 1.15s ease-in-out infinite;
+}
+
+@keyframes reference-import-progress-slide {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 @media (max-width: 960px) {
   .reference-catalog-table td:first-child,
   .reference-catalog-table td:nth-child(2),

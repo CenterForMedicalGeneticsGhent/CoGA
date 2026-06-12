@@ -736,6 +736,7 @@ async def import_reference_from_ucsc(
     cytoband_source_url = ""
     gene_source_url = ""
     gene_source = "UCSC gene tables"
+    gene_warning: str | None = None
     cytobands_inserted = 0
     genes_inserted = 0
     cytobands_replaced = False
@@ -757,19 +758,30 @@ async def import_reference_from_ucsc(
             cytobands_inserted = cytobands.inserted
             cytobands_replaced = cytobands.replaced
         if not missing_only or genes_existing == 0 or overwrite:
-            gene_text, gene_source_url, gene_source = await _download_genes(client, ucsc_genome=ucsc_genome)
-            genes = await apply_reference_dataset_text(
-                session,
-                assembly_id=assembly_id,
-                dataset_type="genes",
-                text_value=gene_text,
-                overwrite=overwrite,
-                commit=False,
-                performed_by=performed_by,
-                source="ucsc",
-            )
-            genes_inserted = genes.inserted
-            genes_replaced = genes.replaced
+            # Not every UCSC genome publishes a supported gene table (e.g.
+            # T2T/hs1). Treat that as a soft failure: still create the assembly
+            # with cytobands so genes can be uploaded manually later.
+            try:
+                gene_text, gene_source_url, gene_source = await _download_genes(
+                    client, ucsc_genome=ucsc_genome
+                )
+            except HTTPException as exc:
+                gene_source = "unavailable"
+                gene_warning = exc.detail if isinstance(exc.detail, str) else "Gene table unavailable"
+                gene_text = None
+            if gene_text is not None:
+                genes = await apply_reference_dataset_text(
+                    session,
+                    assembly_id=assembly_id,
+                    dataset_type="genes",
+                    text_value=gene_text,
+                    overwrite=overwrite,
+                    commit=False,
+                    performed_by=performed_by,
+                    source="ucsc",
+                )
+                genes_inserted = genes.inserted
+                genes_replaced = genes.replaced
     await session.commit()
 
     return ReferenceAutoImportResult(
@@ -788,6 +800,7 @@ async def import_reference_from_ucsc(
         cytoband_source_url=cytoband_source_url,
         gene_source_url=gene_source_url,
         gene_source=gene_source,
+        gene_warning=gene_warning,
     )
 
 
