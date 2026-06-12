@@ -130,6 +130,7 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
             variants: false,
             smallVariants: false,
             haplotypes: false,
+            phasedMarkers: false,
             repeatExpansions: false,
           }}
           variantFilters={{}}
@@ -209,6 +210,7 @@ describe('ChromosomeViewWorkspace', () => {
               variants: false,
               smallVariants: false,
               haplotypes: false,
+            phasedMarkers: false,
               repeatExpansions: false,
             }}
             variantFilters={{}}

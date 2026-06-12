@@ -9,6 +9,7 @@ import Ideogram from '../../components/visualizations/Ideogram';
 import ZoomedIdeogram from '../../components/visualizations/ZoomedIdeogram';
 import VariantTrack from '../../components/visualizations/VariantTrack';
 import HaplotypeTrack from '../../components/visualizations/HaplotypeTrack';
+import PhasedMarkerTrack from '../../components/visualizations/PhasedMarkerTrack';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import GeneTrack from '../../components/visualizations/GeneTrack';
 import BlacklistTrack from '../../components/visualizations/BlacklistTrack';
@@ -35,6 +36,7 @@ import {
 const TRACK_HEIGHT = 120;
 const VARIANT_TRACK_HEIGHT = 80;
 const HAPLOTYPE_TRACK_HEIGHT = 15;
+const PHASED_MARKER_TRACK_HEIGHT = 24;
 const ZOOMED_IDEOGRAM_HEIGHT = 40;
 const CNV_TRACK_HEIGHT = 20;
 const SEGMENTAL_DUPLICATION_TRACK_HEIGHT = 20;
@@ -238,6 +240,15 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   );
   const haplotypeRiskRegion =
     visibleRoi && normalizeChrom(visibleRoi.chr) === normalizeChrom(chrom) ? visibleRoi : null;
+  // Per-marker parent-of-origin requires a trio: both parents present, and the
+  // marker track is only meaningful for the children (non-parent members).
+  const parentRole = (role?: string | null) => {
+    const normalized = (role || '').toLowerCase();
+    return normalized === 'father' || normalized === 'mother';
+  };
+  const hasBothParents =
+    familyMembers.some((member) => (member.role || '').toLowerCase() === 'father') &&
+    familyMembers.some((member) => (member.role || '').toLowerCase() === 'mother');
   const { data: geneSuggestions = [] } = useQuery<GeneSuggestion[]>({
     queryKey: ['chromosome-jump-suggestions', assemblyId, trimmedJumpQuery],
     enabled: trimmedJumpQuery.length >= 2 && !isLocationJump,
@@ -607,6 +618,33 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                     />
                   </ViewerTrackBlock>
                 )}
+                {trackVisibility.phasedMarkers &&
+                  hasBothParents &&
+                  !parentRole(member.role) &&
+                  availability[member.sample_id]?.haplotypes && (
+                    <ViewerTrackBlock
+                      label="Phased markers"
+                      width={trackWidth}
+                      frameClassName="h-[24px]"
+                      roiRange={regionRoiRange}
+                      roiTitle={roiTitle}
+                      viewportInteraction={viewportInteraction}
+                    >
+                      <PhasedMarkerTrack
+                        familyId={familyDisplayId}
+                        sampleId={member.sample_id}
+                        chrom={chrom}
+                        regionStart={region.start}
+                        regionEnd={region.end}
+                        width={trackWidth}
+                        height={PHASED_MARKER_TRACK_HEIGHT}
+                        member={member}
+                        familyMembers={familyMembers}
+                        inheritanceModel={resolvedHaplotypeInheritanceModel}
+                        riskRegion={haplotypeRiskRegion}
+                      />
+                    </ViewerTrackBlock>
+                  )}
                 {trackVisibility.repeatExpansions && availability[member.sample_id]?.repeatExpansions && (
                   <ViewerTrackBlock
                     label="Repeat expansions"

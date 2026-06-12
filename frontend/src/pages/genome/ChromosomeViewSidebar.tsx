@@ -7,6 +7,7 @@ export interface ChromosomeTrackVisibility {
   variants: boolean;
   smallVariants: boolean;
   haplotypes: boolean;
+  phasedMarkers: boolean;
   repeatExpansions: boolean;
 }
 

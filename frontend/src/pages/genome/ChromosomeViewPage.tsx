@@ -73,6 +73,7 @@ const TRACK_LABELS: Record<ChromosomeTrackKey, string> = {
   variants: 'SVs',
   smallVariants: 'Small variants',
   haplotypes: 'Haplotypes',
+  phasedMarkers: 'Phased markers',
   repeatExpansions: 'Repeat expansions',
 };
 
@@ -103,6 +104,7 @@ const ChromosomeViewPage: React.FC = () => {
     variants: true,
     smallVariants: true,
     haplotypes: true,
+    phasedMarkers: true,
     repeatExpansions: true,
   });
   const chrom = normalizeChrom(chromParam || '1');
@@ -322,7 +324,11 @@ const ChromosomeViewPage: React.FC = () => {
       if (entry.apcad || entry.apcadPcf) tracks.add('apcad');
       if (entry.variants) tracks.add('variants');
       if (entry.smallVariants) tracks.add('smallVariants');
-      if (entry.haplotypes) tracks.add('haplotypes');
+      if (entry.haplotypes) {
+        tracks.add('haplotypes');
+        // Per-marker parent-of-origin derives from the same phased trio data.
+        tracks.add('phasedMarkers');
+      }
       if (entry.repeatExpansions) tracks.add('repeatExpansions');
     });
     return Array.from(tracks);
