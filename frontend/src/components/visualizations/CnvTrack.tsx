@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
+import VizTooltip from './VizTooltip';
 
 interface Cnv {
   start: number;
@@ -35,6 +36,9 @@ const CnvTrack: React.FC<Props> = ({
   regionEnd,
 }) => {
   const navigate = useNavigate();
+  const [tooltip, setTooltip] = React.useState<{ x: number; y: number; label: string } | null>(
+    null,
+  );
   const { data } = useQuery<Cnv[]>({
     queryKey: ['cnvs', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
@@ -78,19 +82,27 @@ const CnvTrack: React.FC<Props> = ({
             height={trackHeight}
             fill={color}
             className="cursor-pointer"
+            aria-label={r.label}
+            onMouseMove={(event) =>
+              setTooltip({ x: event.clientX, y: event.clientY, label: r.label })
+            }
+            onMouseLeave={() => setTooltip(null)}
             onClick={() => {
               if (r.details_html) {
                 navigate('/cnv-details', { state: { html: r.details_html } });
               }
             }}
-          >
-            <title>{r.label}</title>
-          </rect>
+          />
         );
       })}
       </svg>
       {data.length === 0 && (
         <div className="viz-empty-overlay">No Clin CNVs in this region</div>
+      )}
+      {tooltip && (
+        <VizTooltip x={tooltip.x} y={tooltip.y}>
+          <div>{tooltip.label}</div>
+        </VizTooltip>
       )}
     </div>
   );
