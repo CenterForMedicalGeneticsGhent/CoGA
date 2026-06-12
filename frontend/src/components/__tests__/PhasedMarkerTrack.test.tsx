@@ -72,8 +72,9 @@ test('hovering a marker shows the parent-of-origin tooltip', () => {
   expect(tooltip?.textContent).toContain('1:100');
 });
 
-test('hides detail and prompts to zoom when the region is larger than 5 Mb', () => {
-  const { container } = renderTrack(6_000_000);
-  expect(container.textContent).toContain('Zoom to ≤5 Mb');
-  expect(container.querySelectorAll('rect[width="1"]').length).toBe(0);
+test('renders markers at wide windows (no 5 Mb span gate)', () => {
+  const { container } = renderTrack(20_000_000);
+  expect(container.textContent).not.toContain('Zoom');
+  // server-bounded markers still render regardless of window size
+  expect(container.querySelectorAll('rect[width="1"]').length).toBe(4);
 });

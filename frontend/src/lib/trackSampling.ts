@@ -1,11 +1,13 @@
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
 
-export const SMALL_VARIANT_DETAIL_MAX_BP = 5_000_000;
 export const SMALL_VARIANT_TRACK_RESULT_LIMIT = 10000;
 
+// No span gate: small-variant / phased-marker detail is shown at any zoom and
+// governed solely by the variant cap (SMALL_VARIANT_TRACK_RESULT_LIMIT) — beyond
+// that count the track shows "too many"; the phased-marker endpoint is bounded.
 export const shouldShowSmallVariantDetails = (span: number): boolean =>
-  Number.isFinite(span) && span > 0 && span <= SMALL_VARIANT_DETAIL_MAX_BP;
+  Number.isFinite(span) && span > 0;
 
 export const getTrackVariantLimit = (width: number): number => {
   if (!Number.isFinite(width) || width <= 0) {

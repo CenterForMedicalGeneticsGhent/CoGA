@@ -2,7 +2,6 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
-import { shouldShowSmallVariantDetails } from '../../lib/trackSampling';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
@@ -63,8 +62,8 @@ const PhasedMarkerTrack: React.FC<Props> = ({
     node: React.ReactNode;
   } | null>(null);
 
-  const detailVisible =
-    regionEnd > regionStart && shouldShowSmallVariantDetails(regionEnd - regionStart);
+  // No span gate — the server-side endpoint is bounded for any window.
+  const hasRegion = regionEnd > regionStart;
 
   // Per-marker parent-of-origin is computed server-side (it needs every sample's
   // phased GT across the dense imputed sites) and returned per child, density-
@@ -77,7 +76,7 @@ const PhasedMarkerTrack: React.FC<Props> = ({
       });
       return res.data as PhasedMarkerResponse;
     },
-    enabled: detailVisible,
+    enabled: hasRegion,
   });
 
   // Haplotype blocks — reused (same query key as HaplotypeTrack) only to infer
@@ -90,7 +89,7 @@ const PhasedMarkerTrack: React.FC<Props> = ({
       });
       return res.data as HaplotypeResponse;
     },
-    enabled: detailVisible,
+    enabled: hasRegion,
     staleTime: Infinity,
   });
 
@@ -110,13 +109,8 @@ const PhasedMarkerTrack: React.FC<Props> = ({
     [haplotypeData?.samples, familyMembers, inheritanceModel, riskRegion, chrom, regionStart, regionEnd],
   );
 
-  if (!detailVisible) {
-    return (
-      <div className="relative" style={{ width, height }}>
-        <svg width={width} height={height} />
-        <div className="viz-empty-overlay">Zoom to ≤5 Mb to view phased markers</div>
-      </div>
-    );
+  if (!hasRegion) {
+    return <svg width={width} height={height} />;
   }
 
   const regionLength = regionEnd - regionStart;

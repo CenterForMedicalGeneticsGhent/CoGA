@@ -56,8 +56,15 @@ test('renders loader while small variants are loading', () => {
   expect(screen.getByText(/loading small variants/i)).toBeInTheDocument();
 });
 
-test('does not request broad unfiltered chromosome small variants', () => {
-  useQueryMock.mockReturnValue({ data: undefined, isLoading: false });
+test('requests broad regions and shows too many when over the cap (no span gate)', () => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : {
+          data: { total: 10000, total_is_estimated: true, count_limit: 10000, variants: [] },
+          isLoading: false,
+        },
+  );
 
   render(
     <SmallVariantTrack
@@ -71,8 +78,8 @@ test('does not request broad unfiltered chromosome small variants', () => {
     />
   );
 
-  expect(useQueryMock.mock.calls[0][0].enabled).toBe(false);
-  expect(useQueryMock.mock.calls[1][0].enabled).toBe(false);
+  // The span no longer gates the request — it fires and the variant cap governs.
+  expect(useQueryMock.mock.calls[0][0].enabled).toBe(true);
   expect(screen.getByText(/too many variants to display/i)).toBeInTheDocument();
 });
 

@@ -27,9 +27,10 @@ describe('trackSampling', () => {
     expect(getAdaptiveTrackWindow(0, 1200, 10_000)).toBe(10_000);
   });
 
-  it('only enables individual small variants in high-resolution windows', () => {
+  it('enables small-variant detail at any zoom (no span gate)', () => {
     expect(shouldShowSmallVariantDetails(5_000_000)).toBe(true);
-    expect(shouldShowSmallVariantDetails(5_000_001)).toBe(false);
+    expect(shouldShowSmallVariantDetails(5_000_001)).toBe(true);
+    expect(shouldShowSmallVariantDetails(250_000_000)).toBe(true);
     expect(shouldShowSmallVariantDetails(0)).toBe(false);
   });
 
