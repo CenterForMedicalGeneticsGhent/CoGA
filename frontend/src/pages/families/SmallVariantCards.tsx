@@ -572,6 +572,14 @@ export default function SmallVariantCards({
                 </dl>
                 {members.length ? (
                   <div className="variant-card-gtlist">
+                    <div className="variant-card-gthead">
+                      <span>Sample</span>
+                      <span>Role</span>
+                      <span>GT</span>
+                      <span>DP</span>
+                      <span>AD</span>
+                      <span>AF</span>
+                    </div>
                     {members.map((member) => {
                       const genotype = variant.genotypes.find(
                         (entry) => entry.sample === member.sample_id,
@@ -612,6 +620,8 @@ export default function SmallVariantCards({
                             : normalized === '1/1'
                               ? 'hom'
                               : 'het';
+                      const sexSymbol =
+                        member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚥';
                       return (
                         <div
                           key={member.sample_id}
@@ -619,12 +629,24 @@ export default function SmallVariantCards({
                             member.affected ? ' is-affected' : ''
                           }${member.role === 'proband' ? ' is-proband' : ''}`}
                         >
-                          <span className="variant-card-gtline-sample">{member.sample_id}</span>
+                          <span className="variant-card-gtline-sample">
+                            <span
+                              className={`variant-card-gtline-sex variant-card-gtline-sex--${
+                                member.sex || 'und'
+                              }`}
+                              title={member.sex || 'unknown sex'}
+                            >
+                              {sexSymbol}
+                            </span>
+                            {member.sample_id}
+                          </span>
                           <span className="variant-card-gtline-role">{member.role}</span>
                           <span className="variant-card-gtline-gt">{gt}</span>
-                          <span className="variant-card-gtline-metric">DP {typeof depth === 'number' ? depth : '—'}</span>
-                          <span className="variant-card-gtline-metric">AD {adText}</span>
-                          <span className="variant-card-gtline-metric">AF {afText}</span>
+                          <span className="variant-card-gtline-metric">
+                            {typeof depth === 'number' ? depth : '—'}
+                          </span>
+                          <span className="variant-card-gtline-metric">{adText}</span>
+                          <span className="variant-card-gtline-metric">{afText}</span>
                         </div>
                       );
                     })}

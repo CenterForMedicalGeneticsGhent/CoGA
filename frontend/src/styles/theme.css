@@ -4270,32 +4270,58 @@ tbody tr:hover {
   font-variant-numeric: tabular-nums;
 }
 
-/* Compact per-member genotype lines (left column). */
+/* Per-member genotype table (left column), aligned in columns via subgrid. */
 .variant-card-gtlist {
   display: grid;
-  gap: 0.18rem;
-  margin-top: 0.2rem;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
+  gap: 0.14rem 0.7rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
 }
 
+.variant-card-gthead,
 .variant-card-gtline {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: baseline;
-  gap: 0.1rem 0.5rem;
-  font-size: 0.76rem;
-  line-height: 1.5;
+}
+
+.variant-card-gthead {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
 .variant-card-gtline-sample {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-width: 0;
   font-weight: 600;
   color: var(--color-secondary);
 }
 
+.variant-card-gtline-sex {
+  font-weight: 700;
+}
+
+.variant-card-gtline-sex--male {
+  color: #3f618f;
+}
+
+.variant-card-gtline-sex--female {
+  color: #8a5277;
+}
+
+.variant-card-gtline-sex--und {
+  color: var(--color-text-muted);
+}
+
 .variant-card-gtline-role {
-  padding: 0 0.32rem;
-  border-radius: 3px;
-  background: rgba(124, 144, 157, 0.14);
-  font-size: 0.62rem;
+  font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4309,7 +4335,6 @@ tbody tr:hover {
 }
 
 .variant-card-gtline-metric {
-  font-size: 0.7rem;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -4336,7 +4361,6 @@ tbody tr:hover {
 }
 
 .variant-card-gtline.is-proband .variant-card-gtline-role {
-  background: var(--color-signature-red-soft);
   color: var(--color-signature-red-dark);
 }
 
