@@ -160,6 +160,13 @@ const ReferenceCatalogPage: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [activeModal, setActiveModal] = useState<'add' | 'manual' | 'upload' | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    run: () => Promise<void>;
+  } | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const { data: species = [] } = useQuery<Species[]>({
     queryKey: ['species'],
@@ -434,14 +441,7 @@ const ReferenceCatalogPage: React.FC = () => {
     }
   };
 
-  const handleCnvRebuild = async (assemblyName: string) => {
-    if (
-      !window.confirm(
-        `Rebuild the clinical CNV knowledgebase for ${assemblyName}? This runs in the background and may take several minutes.`,
-      )
-    ) {
-      return;
-    }
+  const performCnvRebuild = async (assemblyName: string) => {
     setError(null);
     setSuccess(null);
     try {
@@ -456,14 +456,7 @@ const ReferenceCatalogPage: React.FC = () => {
     }
   };
 
-  const handleRefreshGeneMetadata = async () => {
-    if (
-      !window.confirm(
-        'Refresh cached human gene metadata (HGNC / Ensembl / ClinGen)? This runs in the background and may take a while.',
-      )
-    ) {
-      return;
-    }
+  const performRefreshGeneMetadata = async () => {
     setError(null);
     setSuccess(null);
     try {
@@ -473,6 +466,101 @@ const ReferenceCatalogPage: React.FC = () => {
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Could not start the gene metadata refresh.'));
     }
+  };
+
+  const requestCnvRebuild = (assemblyName: string) => {
+    setConfirmAction({
+      title: 'Rebuild clinical CNV knowledgebase',
+      message: `Rebuild the clinical CNV knowledgebase for ${assemblyName}? This pulls from ClinGen, UCSC, and ClinVar / OMIM / Orphanet, runs in the background, and may take several minutes.`,
+      confirmLabel: 'Rebuild',
+      run: () => performCnvRebuild(assemblyName),
+    });
+  };
+
+  const requestRefreshGeneMetadata = () => {
+    setConfirmAction({
+      title: 'Refresh gene metadata',
+      message:
+        'Refresh cached human gene metadata (HGNC / Ensembl / ClinGen)? This runs in the background and may take a while.',
+      confirmLabel: 'Refresh',
+      run: performRefreshGeneMetadata,
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) {
+      return;
+    }
+    setConfirmBusy(true);
+    try {
+      await confirmAction.run();
+    } finally {
+      setConfirmBusy(false);
+      setConfirmAction(null);
+    }
+  };
+
+  const openUploadFor = (assemblyId: string, datasetType: string) => {
+    setReferenceUpload({ assembly_id: assemblyId, dataset_type: datasetType });
+    setReferenceFile(null);
+    setUploadError(null);
+    setUploadSuccess(null);
+    setActiveModal('upload');
+  };
+
+  /**
+   * The action affordance shown beside a per-assembly count: a refresh icon where
+   * a source re-sync exists (human gene metadata, human clinical CNV rebuild),
+   * otherwise an upload icon that opens the upload modal pre-targeted at this
+   * assembly + dataset so admins can supply their own reference file.
+   */
+  const renderCountAction = (assembly: Assembly, taxId: number, datasetType: string) => {
+    if (!userIsAdmin) {
+      return null;
+    }
+
+    if (datasetType === 'genes' && taxId === 9606) {
+      return (
+        <button
+          type="button"
+          className="reference-refresh-icon"
+          title="Refresh cached human gene metadata"
+          aria-label="Refresh gene metadata"
+          disabled={Boolean(geneMetaStatus?.active_job)}
+          onClick={requestRefreshGeneMetadata}
+        >
+          ↻
+        </button>
+      );
+    }
+
+    if (datasetType === 'clinical_cnvs' && taxId === 9606 && cnvKbStatus?.available !== false) {
+      return (
+        <button
+          type="button"
+          className="reference-refresh-icon"
+          title={`Rebuild clinical CNV knowledgebase for ${assembly.assembly_name}`}
+          aria-label="Rebuild clinical CNV knowledgebase"
+          disabled={Boolean(cnvKbStatus?.active_job)}
+          onClick={() => requestCnvRebuild(assembly.assembly_name)}
+        >
+          ↻
+        </button>
+      );
+    }
+
+    const datasetLabel = datasetCopy[datasetType]?.title ?? datasetType.replace('_', ' ');
+    return (
+      <button
+        type="button"
+        className="reference-refresh-icon reference-refresh-icon--upload"
+        title={`Upload ${datasetLabel} for ${assembly.assembly_name}`}
+        aria-label={`Upload ${datasetLabel}`}
+        onClick={() => openUploadFor(assembly.id, datasetType)}
+      >
+        ↥
+      </button>
+    );
   };
 
   return (
@@ -681,50 +769,34 @@ const ReferenceCatalogPage: React.FC = () => {
                                               {assembly.release_date || '—'}
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.chromosomes)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.chromosomes)}
+                                                {renderCountAction(assembly, entry.tax_id, 'cytobands')}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
                                                 {formatCatalogCount(status?.genes)}
-                                                {userIsAdmin && entry.tax_id === 9606 ? (
-                                                  <button
-                                                    type="button"
-                                                    className="reference-refresh-icon"
-                                                    title="Refresh cached human gene metadata"
-                                                    aria-label="Refresh gene metadata"
-                                                    disabled={Boolean(geneMetaStatus?.active_job)}
-                                                    onClick={handleRefreshGeneMetadata}
-                                                  >
-                                                    ↻
-                                                  </button>
-                                                ) : null}
+                                                {renderCountAction(assembly, entry.tax_id, 'genes')}
                                               </span>
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.blacklist_regions)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.blacklist_regions)}
+                                                {renderCountAction(assembly, entry.tax_id, 'blacklist')}
+                                              </span>
                                             </td>
                                             <td className="table-mono">
                                               <span className="reference-count-with-action">
                                                 {formatCatalogCount(status?.clinical_cnvs)}
-                                                {userIsAdmin ? (
-                                                  <button
-                                                    type="button"
-                                                    className="reference-refresh-icon"
-                                                    title={`Rebuild clinical CNV knowledgebase for ${assembly.assembly_name}`}
-                                                    aria-label="Rebuild clinical CNV knowledgebase"
-                                                    disabled={
-                                                      Boolean(cnvKbStatus?.active_job) ||
-                                                      cnvKbStatus?.available === false
-                                                    }
-                                                    onClick={() => handleCnvRebuild(assembly.assembly_name)}
-                                                  >
-                                                    ↻
-                                                  </button>
-                                                ) : null}
+                                                {renderCountAction(assembly, entry.tax_id, 'clinical_cnvs')}
                                               </span>
                                             </td>
                                             <td className="table-mono">
-                                              {formatCatalogCount(status?.segmental_duplications)}
+                                              <span className="reference-count-with-action">
+                                                {formatCatalogCount(status?.segmental_duplications)}
+                                                {renderCountAction(assembly, entry.tax_id, 'segmental_duplications')}
+                                              </span>
                                             </td>
                                             <td className="table-mono" title={lastUpdatedTooltip || undefined}>
                                               {latestImport ? (
@@ -1070,6 +1142,39 @@ const ReferenceCatalogPage: React.FC = () => {
           )}
         </section>
       </section>
+
+      {confirmAction && (
+        <AdminModal
+          title={confirmAction.title}
+          onClose={() => {
+            if (!confirmBusy) {
+              setConfirmAction(null);
+            }
+          }}
+        >
+          <div className="space-y-4">
+            <p className="section-copy">{confirmAction.message}</p>
+            <div className="analysis-toolbar items-center" style={{ justifyContent: 'flex-end', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="button-ghost"
+                onClick={() => setConfirmAction(null)}
+                disabled={confirmBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="form-button"
+                onClick={handleConfirmAction}
+                disabled={confirmBusy}
+              >
+                {confirmBusy ? 'Working…' : confirmAction.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </AdminModal>
+      )}
 
       {userIsAdmin && referenceAudit && referenceAudit.length > 0 ? (
         <section className="surface-card space-y-3">

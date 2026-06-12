@@ -2583,7 +2583,14 @@ tbody tr:hover {
 .reference-count-with-action {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.3rem;
+}
+
+/* Right-align the numeric count columns (cytobands … SegDup/LCR) so digits line up. */
+.reference-catalog-assembly-table th:nth-child(n + 3):nth-child(-n + 7),
+.reference-catalog-assembly-table td:nth-child(n + 3):nth-child(-n + 7) {
+  text-align: right;
 }
 
 .reference-refresh-icon {
@@ -2612,6 +2619,12 @@ tbody tr:hover {
 .reference-refresh-icon:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Upload affordance — shown where no source re-sync exists; tinted to read as "add your own". */
+.reference-refresh-icon--upload:hover:not(:disabled) {
+  color: var(--color-secondary, #2f7d6b);
+  border-color: var(--color-secondary, #2f7d6b);
 }
 
 @media (max-width: 960px) {

@@ -226,4 +226,39 @@ describe('ReferenceCatalogPage', () => {
       await screen.findByText(/loaded 2 genes records into grch38/i)
     ).toBeInTheDocument();
   });
+
+  it('confirms in a modal before refreshing gene metadata', async () => {
+    (api.post as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} });
+
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh gene metadata/i }));
+
+    expect(
+      await screen.findByText(/refresh cached human gene metadata/i)
+    ).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/admin/gene-reference/refresh-all')
+    );
+  });
+
+  it('opens the upload modal pre-targeted when no source re-sync exists', async () => {
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+
+    fireEvent.click(screen.getByRole('button', { name: /upload cytobands/i }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Upload reference data' })
+    ).toBeInTheDocument();
+    expect((screen.getByLabelText(/^assembly$/i) as HTMLSelectElement).value).toBe('assembly-1');
+    expect((screen.getByLabelText(/^dataset$/i) as HTMLSelectElement).value).toBe('cytobands');
+  });
 });
