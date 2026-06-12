@@ -118,20 +118,20 @@ const adminGroups: AdminGroup[] = [
 ];
 
 const AdminDashboardPage: React.FC = () => (
-  <div className="page-shell space-y-8">
+  <div className="page-shell admin-compact space-y-5">
     <section className="surface-card page-top-card">
       <div className="page-header">
-        <div className="space-y-2">
+        <div className="space-y-1">
           <p className="page-kicker">Administration</p>
           <h1 className="catalog-card-title">Admin dashboard</h1>
           <p className="catalog-card-copy">
-            All administrative workspaces are grouped by operational domain and reachable from this page.
+            Administrative workspaces grouped by operational domain.
           </p>
         </div>
       </div>
     </section>
 
-    <div className="grid gap-5 xl:grid-cols-2">
+    <div className="grid gap-4 xl:grid-cols-2">
       {adminGroups.map((group) => (
         <section key={group.title} className="surface-card-flat catalog-card">
           <div className="space-y-2">

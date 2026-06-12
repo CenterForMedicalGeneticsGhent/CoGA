@@ -1165,6 +1165,75 @@ tbody tr:hover {
   margin-top: 0.1rem;
 }
 
+/* Compact table rows across admin pages. */
+.admin-compact :is(th, td) {
+  padding: 0.5rem 0.7rem;
+}
+
+/* Smaller buttons across admin pages. */
+.admin-compact :is(button, .form-button, .button-secondary, .button-grey, .button-ghost, .button-danger) {
+  min-height: 2.2rem;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  gap: 0.4rem;
+}
+
+/* Keep dense control rows tidy. */
+.admin-compact .field-label {
+  font-size: 0.68rem;
+  gap: 0.32rem;
+}
+
+.panel-search-input {
+  flex: 1 1 18rem;
+  max-width: 24rem;
+  margin-left: auto;
+}
+
+/* Collapsible admin sub-section (disclosure) */
+.admin-collapse > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.admin-collapse > summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-collapse > summary::before {
+  content: '▸';
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+}
+
+.admin-collapse[open] > summary::before {
+  content: '▾';
+}
+
+.admin-collapse-body {
+  margin-top: 0.75rem;
+}
+
+/* Compact admin dashboard tiles + flat cards */
+.admin-compact .surface-card-flat {
+  padding: 0.95rem 1.05rem;
+}
+
+.admin-compact .hpo-term-grid {
+  gap: 0.55rem;
+}
+
+.admin-compact .hpo-term-card {
+  padding: 0.6rem 0.75rem;
+}
+
 .page-top-card {
   position: relative;
   overflow: hidden;

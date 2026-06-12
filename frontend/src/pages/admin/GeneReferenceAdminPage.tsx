@@ -61,6 +61,7 @@ const GeneReferenceAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [symbol, setSymbol] = useState('');
   const [status, setStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const {
     data,
@@ -338,7 +339,7 @@ const GeneReferenceAdminPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {data.recent_jobs.map((job) => (
+              {(historyExpanded ? data.recent_jobs : data.recent_jobs.slice(0, 6)).map((job) => (
                 <tr key={job._id}>
                   <td>{formatTimestamp(job.requested_at)}</td>
                   <td>{job.scope}</td>
@@ -354,6 +355,15 @@ const GeneReferenceAdminPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {data.recent_jobs.length > 6 ? (
+          <button
+            type="button"
+            className="button-ghost mt-2"
+            onClick={() => setHistoryExpanded((value) => !value)}
+          >
+            {historyExpanded ? 'Show fewer' : `Show all ${data.recent_jobs.length}`}
+          </button>
+        ) : null}
       </section>
     </div>
   );

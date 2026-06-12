@@ -72,6 +72,7 @@ const GenePanelsPage: React.FC = () => {
   const [genes, setGenes] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('');
+  const [panelSearch, setPanelSearch] = useState('');
   const [panelAppQuery, setPanelAppQuery] = useState('');
   const [panelAppResults, setPanelAppResults] = useState<PanelAppPanelSummary[]>([]);
   const [panelAppLoading, setPanelAppLoading] = useState(false);
@@ -214,7 +215,8 @@ const GenePanelsPage: React.FC = () => {
       </section>
       {userIsAdmin && (
         <>
-          <form onSubmit={handleSubmit} className="surface-card field-grid max-w-2xl">
+          <div className="grid gap-4 xl:grid-cols-2 items-start">
+          <form onSubmit={handleSubmit} className="surface-card field-grid">
             <label className="field-label">
               <span>Panel name</span>
               <input
@@ -241,8 +243,7 @@ const GenePanelsPage: React.FC = () => {
               Create Panel
             </button>
           </form>
-          {status && <p className="form-status max-w-2xl">{status}</p>}
-          <section className="surface-card field-grid max-w-4xl">
+          <section className="surface-card field-grid">
             <h3 className="section-title">Import PanelApp panel</h3>
             <form onSubmit={searchPanelApp} className="analysis-toolbar items-end">
               <label className="field-label">
@@ -343,6 +344,8 @@ const GenePanelsPage: React.FC = () => {
               </div>
             )}
           </section>
+          </div>
+          {status && <p className="form-status">{status}</p>}
         </>
       )}
       {!userIsAdmin && (
@@ -354,7 +357,17 @@ const GenePanelsPage: React.FC = () => {
         </section>
       )}
       <section className="surface-card space-y-4">
-        <h3 className="section-title">Existing Panels</h3>
+        <div className="analysis-toolbar items-end">
+          <h3 className="section-title">Existing Panels</h3>
+          <input
+            type="search"
+            value={panelSearch}
+            onChange={(e) => setPanelSearch(e.target.value)}
+            placeholder="Filter by name, source, or description"
+            aria-label="Filter panels"
+            className="panel-search-input"
+          />
+        </div>
         <div className="data-table-shell overflow-x-auto">
           <table className="analysis-table">
             <thead>
@@ -371,7 +384,14 @@ const GenePanelsPage: React.FC = () => {
           </tr>
         </thead>
         <tbody>
-          {panels?.map((p) => {
+          {panels
+            ?.filter((p) => {
+              const q = panelSearch.trim().toLowerCase();
+              if (!q) return true;
+              return [p.name, formatSource(p), p.description || '', p.external_version || '']
+                .some((value) => String(value).toLowerCase().includes(q));
+            })
+            .map((p) => {
             const geneCount = p.gene_count ?? p.genes.length;
             return (
               <tr key={p._id}>

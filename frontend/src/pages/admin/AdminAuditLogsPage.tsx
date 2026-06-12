@@ -146,7 +146,7 @@ const AdminAuditLogsPage: React.FC = () => {
   }
 
   return (
-    <div className="page-shell space-y-8">
+    <div className="page-shell admin-compact space-y-5">
       <section className="surface-card page-top-card">
         <div className="page-header">
           <div className="space-y-2">

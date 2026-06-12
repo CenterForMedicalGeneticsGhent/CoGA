@@ -843,8 +843,11 @@ const ReferenceCatalogPage: React.FC = () => {
             ) : null}
           </section>
 
-          <section className="surface-card space-y-3">
-            <h2 className="section-title">Add organism manually</h2>
+          <details className="surface-card admin-collapse space-y-3">
+            <summary className="admin-collapse-summary">Manual entry — species &amp; assembly</summary>
+            <div className="admin-collapse-body space-y-4">
+            <div className="space-y-3">
+            <h3 className="section-title">Add organism manually</h3>
             {userIsAdmin ? (
               <form onSubmit={handleSpeciesSubmit} className="field-grid">
                 <label className="field-label">
@@ -886,10 +889,10 @@ const ReferenceCatalogPage: React.FC = () => {
                 Admin access is required to add a new species entry.
               </p>
             )}
-          </section>
+            </div>
 
-          <section className="surface-card space-y-3">
-            <h2 className="section-title">Add assembly manually</h2>
+            <div className="space-y-3">
+            <h3 className="section-title">Add assembly manually</h3>
             {userIsAdmin ? (
               <form onSubmit={handleAssemblySubmit} className="field-grid">
                 <label className="field-label">
@@ -959,7 +962,9 @@ const ReferenceCatalogPage: React.FC = () => {
                 Admin access is required to attach a new assembly to the catalog.
               </p>
             )}
-          </section>
+            </div>
+            </div>
+          </details>
         </section>
       </section>
     </div>
