@@ -261,4 +261,92 @@ describe('ReferenceCatalogPage', () => {
     expect((screen.getByLabelText(/^assembly$/i) as HTMLSelectElement).value).toBe('assembly-1');
     expect((screen.getByLabelText(/^dataset$/i) as HTMLSelectElement).value).toBe('cytobands');
   });
+
+  const startConflictingUpload = async () => {
+    renderPage();
+    await screen.findByRole('heading', { name: 'Homo sapiens' });
+
+    fireEvent.click(screen.getByRole('button', { name: /upload reference data/i }));
+    fireEvent.change(screen.getByLabelText(/^assembly$/i), { target: { value: 'assembly-1' } });
+    fireEvent.change(screen.getByLabelText(/^dataset$/i), { target: { value: 'genes' } });
+    fireEvent.change(screen.getByLabelText(/reference file/i), {
+      target: { files: [new File(['chr1\t100\t200\tGENE1'], 'refGene.txt')] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /upload file/i }));
+  };
+
+  it('asks to overwrite in a modal when the data already exist (409), then replaces', async () => {
+    (api.post as unknown as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockResolvedValueOnce({
+        data: {
+          assembly_id: 'assembly-1',
+          assembly_name: 'GRCh38',
+          dataset_type: 'genes',
+          inserted: 5,
+          replaced: true,
+        },
+      });
+
+    await startConflictingUpload();
+
+    expect(
+      await screen.findByText(/already exist for the selected assembly/i)
+    ).toBeInTheDocument();
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Overwrite' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenLastCalledWith(
+        '/assemblies/assembly-1/reference-upload/genes',
+        expect.any(FormData),
+        expect.objectContaining({
+          params: { overwrite: true },
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+      )
+    );
+    expect(
+      await screen.findByText(/replaced genes for grch38 with 5 records/i)
+    ).toBeInTheDocument();
+  });
+
+  it('surfaces an error and keeps the upload modal open when the overwrite re-post fails', async () => {
+    (api.post as unknown as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce({ response: { status: 409 } })
+      .mockRejectedValueOnce({ response: { data: { detail: 'Boom' } } });
+
+    await startConflictingUpload();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Overwrite' }));
+
+    // the inner catch surfaces the error via uploadError…
+    expect(await screen.findByText(/boom/i)).toBeInTheDocument();
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    // …the confirm modal is dismissed (finally cleared confirmAction)…
+    expect(screen.queryByRole('button', { name: 'Overwrite' })).not.toBeInTheDocument();
+    // …and the upload modal stays open so the user can retry.
+    expect(screen.getByRole('heading', { name: 'Upload reference data' })).toBeInTheDocument();
+  });
+
+  it('cancels the overwrite confirmation without re-posting', async () => {
+    (api.post as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+      response: { status: 409 },
+    });
+
+    await startConflictingUpload();
+
+    expect(
+      await screen.findByText(/already exist for the selected assembly/i)
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(await screen.findByText(/reference upload cancelled/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/already exist for the selected assembly/i)
+    ).not.toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
 });

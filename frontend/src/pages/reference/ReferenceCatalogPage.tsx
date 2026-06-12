@@ -164,7 +164,9 @@ const ReferenceCatalogPage: React.FC = () => {
     title: string;
     message: string;
     confirmLabel: string;
+    tone?: 'default' | 'danger';
     run: () => Promise<void>;
+    onCancel?: () => void;
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
@@ -387,22 +389,26 @@ const ReferenceCatalogPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
     } catch (err: unknown) {
       if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        const overwrite = window.confirm(
-          'Reference data of this type already exist for the selected assembly. Overwrite them?'
-        );
-        if (overwrite) {
-          try {
-            const { data } = await runUpload(true);
-            setUploadSuccess(
-              `Replaced ${data.dataset_type.replace('_', ' ')} for ${data.assembly_name} with ${data.inserted} records.`
-            );
-            await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
-          } catch (overwriteError: unknown) {
-            setUploadError(getErrorMessage(overwriteError, 'Reference upload failed.'));
-          }
-        } else {
-          setUploadError('Reference upload cancelled.');
-        }
+        const datasetLabel = datasetCopy[referenceUpload.dataset_type]?.title ?? 'reference data';
+        setConfirmAction({
+          title: 'Overwrite existing reference data',
+          message: `${datasetLabel} already exist for the selected assembly. Replace them with the uploaded file? This cannot be undone.`,
+          confirmLabel: 'Overwrite',
+          tone: 'danger',
+          run: async () => {
+            try {
+              const { data } = await runUpload(true);
+              setUploadSuccess(
+                `Replaced ${data.dataset_type.replace('_', ' ')} for ${data.assembly_name} with ${data.inserted} records.`
+              );
+              setReferenceFile(null);
+              await queryClient.invalidateQueries({ queryKey: ['assemblies', 'reference-status'] });
+            } catch (overwriteError: unknown) {
+              setUploadError(getErrorMessage(overwriteError, 'Reference upload failed.'));
+            }
+          },
+          onCancel: () => setUploadError('Reference upload cancelled.'),
+        });
       } else {
         setUploadError(getErrorMessage(err, 'Reference upload failed.'));
       }
@@ -498,6 +504,14 @@ const ReferenceCatalogPage: React.FC = () => {
       setConfirmBusy(false);
       setConfirmAction(null);
     }
+  };
+
+  const dismissConfirm = () => {
+    if (confirmBusy) {
+      return;
+    }
+    confirmAction?.onCancel?.();
+    setConfirmAction(null);
   };
 
   const openUploadFor = (assemblyId: string, datasetType: string) => {
@@ -933,7 +947,11 @@ const ReferenceCatalogPage: React.FC = () => {
           )}
 
           {activeModal === 'upload' && (
-          <AdminModal title="Upload reference data" onClose={() => setActiveModal(null)}>
+          <AdminModal
+            title="Upload reference data"
+            onClose={() => setActiveModal(null)}
+            inactive={Boolean(confirmAction)}
+          >
             {uploadError && (
               <p className="section-copy" style={{ color: 'var(--color-signature-red-dark)' }}>
                 {uploadError}
@@ -1144,28 +1162,22 @@ const ReferenceCatalogPage: React.FC = () => {
       </section>
 
       {confirmAction && (
-        <AdminModal
-          title={confirmAction.title}
-          onClose={() => {
-            if (!confirmBusy) {
-              setConfirmAction(null);
-            }
-          }}
-        >
+        <AdminModal title={confirmAction.title} onClose={dismissConfirm}>
           <div className="space-y-4">
             <p className="section-copy">{confirmAction.message}</p>
             <div className="analysis-toolbar items-center" style={{ justifyContent: 'flex-end', gap: '0.5rem' }}>
               <button
                 type="button"
                 className="button-ghost"
-                onClick={() => setConfirmAction(null)}
+                onClick={dismissConfirm}
                 disabled={confirmBusy}
+                autoFocus
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="form-button"
+                className={confirmAction.tone === 'danger' ? 'button-danger' : 'form-button'}
                 onClick={handleConfirmAction}
                 disabled={confirmBusy}
               >
