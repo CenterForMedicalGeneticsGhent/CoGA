@@ -103,6 +103,14 @@ const GlobalSmallVariantExplorerPage = () => {
     },
   });
 
+  const { data: panels = EMPTY_PANELS } = useQuery<GenePanel[]>({
+    queryKey: ['panels'],
+    queryFn: async () => {
+      const res = await api.get('/panels');
+      return res.data as GenePanel[];
+    },
+  });
+
   const { data: sampleOptions } = useQuery<string[]>({
     queryKey: ['variant-explorer', 'samples', assemblyId ?? null],
     enabled: Boolean(assemblyId),
@@ -284,7 +292,7 @@ const GlobalSmallVariantExplorerPage = () => {
           sampleDraftFilters={search.sampleDraftFilters}
           setDraftFilterValue={search.setDraftFilterValue}
           toggleDraftFilterListValue={search.toggleDraftFilterListValue}
-          panels={EMPTY_PANELS}
+          panels={panels}
           presets={EMPTY_PRESETS}
           tags={tags}
           onSaveCurrentPreset={noopSavePreset}
