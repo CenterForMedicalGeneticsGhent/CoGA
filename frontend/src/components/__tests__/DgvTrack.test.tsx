@@ -58,6 +58,29 @@ test('lines mode draws variants with a hover tooltip', () => {
   expect(tooltip?.textContent).toContain('duplication');
 });
 
+test('lines mode places gains above and losses below the baseline', () => {
+  useQueryMock.mockReturnValue({
+    data: {
+      total: 2,
+      mode: 'lines',
+      bin_size: 0,
+      variants: [
+        { chr: '1', start: 50, end: 150, accession: 'dup1', variant_class: 'gain' },
+        { chr: '1', start: 50, end: 150, accession: 'del1', variant_class: 'loss' },
+      ],
+      bins: [],
+    },
+  });
+
+  const { container } = renderTrack(); // height 48 -> baseline 24
+  const dup = container.querySelector('rect[aria-label="dup1"]') as SVGRectElement;
+  const del = container.querySelector('rect[aria-label="del1"]') as SVGRectElement;
+  expect(dup).not.toBeNull();
+  expect(del).not.toBeNull();
+  expect(Number(dup.getAttribute('y'))).toBeLessThan(24);
+  expect(Number(del.getAttribute('y'))).toBeGreaterThanOrEqual(24);
+});
+
 test('density mode draws stacked bars with a per-bin tooltip', () => {
   useQueryMock.mockReturnValue({
     data: {

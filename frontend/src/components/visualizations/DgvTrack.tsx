@@ -53,7 +53,10 @@ const CLASS_VAR: Record<DgvClass, string> = {
   mixed: '--color-dgv-mixed',
   other: '--color-dgv-other',
 };
-const CLASS_ORDER: DgvClass[] = ['gain', 'loss', 'mixed', 'other'];
+// Bidirectional layout: duplications/gains (and the minor mixed/other) sit above
+// a centre baseline, deletions/losses below it — the standard CNV convention.
+const UP_CLASSES: DgvClass[] = ['gain', 'mixed', 'other'];
+const DOWN_CLASSES: DgvClass[] = ['loss'];
 const LANE_GAP_PX = 1;
 const LANE_MIN_HEIGHT = 2.5;
 
@@ -83,7 +86,8 @@ const densityTooltip = (b: DgvDensityBin, total: number): React.ReactNode => (
  * DGV (Database of Genomic Variants) track. The server returns individual
  * variants when few enough overlap the view (`lines` mode, packed into lanes as
  * thin gain/loss-coloured bars), otherwise a per-bin density profile (`density`
- * mode) drawn as stacked bars so a whole chromosome stays legible.
+ * mode) so a whole chromosome stays legible. Both modes are drawn around a
+ * centre baseline: duplications/gains grow upward, deletions/losses downward.
  */
 const DgvTrack: React.FC<Props> = ({
   assembly,
@@ -119,11 +123,10 @@ const DgvTrack: React.FC<Props> = ({
   const total = typeof data.total === 'number' ? data.total : variants.length;
   const mode: 'lines' | 'density' = data.mode === 'density' ? 'density' : 'lines';
 
-  const renderLines = () => {
+  const packLanes = (group: DgvVariant[], maxLanes: number) => {
     const laneLastX: number[] = [];
-    const maxLanes = Math.max(1, Math.floor(height / LANE_MIN_HEIGHT));
     let overflow = 0;
-    const placed = variants
+    const placed = group
       .map((v) => {
         const s = Math.max(v.start, regionStart);
         const e = Math.min(v.end, regionEnd);
@@ -147,29 +150,60 @@ const DgvTrack: React.FC<Props> = ({
       .filter((item): item is { v: DgvVariant; x: number; w: number; lane: number } =>
         item !== null,
       );
+    return { placed, laneCount: Math.max(laneLastX.length, 1), overflow };
+  };
 
-    const laneCount = Math.max(laneLastX.length, 1);
-    const laneH = height / laneCount;
-    const barH = Math.max(laneH - LANE_GAP_PX, 1);
+  const renderLines = () => {
+    const baseline = height / 2;
+    const half = height / 2;
+    const maxLanes = Math.max(1, Math.floor(half / LANE_MIN_HEIGHT));
+    // Gains (and minor mixed/other) above the baseline, losses below it.
+    const up = packLanes(variants.filter((v) => v.variant_class !== 'loss'), maxLanes);
+    const down = packLanes(variants.filter((v) => v.variant_class === 'loss'), maxLanes);
+    const upLaneH = half / up.laneCount;
+    const downLaneH = half / down.laneCount;
+    const upBarH = Math.max(upLaneH - LANE_GAP_PX, 1);
+    const downBarH = Math.max(downLaneH - LANE_GAP_PX, 1);
+    const overflow = up.overflow + down.overflow;
+
+    const lineRect = (
+      item: { v: DgvVariant; x: number; w: number; lane: number },
+      y: number,
+      barH: number,
+      key: string,
+    ) => (
+      <rect
+        key={key}
+        x={item.x}
+        y={y}
+        width={item.w}
+        height={barH}
+        fill={dgvColor(item.v.variant_class)}
+        className="cursor-pointer"
+        aria-label={item.v.accession ?? item.v.variant_subtype ?? 'DGV variant'}
+        onMouseMove={(event) =>
+          setTooltip({ x: event.clientX, y: event.clientY, node: lineTooltip(item.v) })
+        }
+        onMouseLeave={() => setTooltip(null)}
+      />
+    );
 
     return (
       <>
-        {placed.map((item, idx) => (
-          <rect
-            key={idx}
-            x={item.x}
-            y={item.lane * laneH}
-            width={item.w}
-            height={barH}
-            fill={dgvColor(item.v.variant_class)}
-            className="cursor-pointer"
-            aria-label={item.v.accession ?? item.v.variant_subtype ?? 'DGV variant'}
-            onMouseMove={(event) =>
-              setTooltip({ x: event.clientX, y: event.clientY, node: lineTooltip(item.v) })
-            }
-            onMouseLeave={() => setTooltip(null)}
-          />
-        ))}
+        <line
+          x1={0}
+          x2={width}
+          y1={baseline}
+          y2={baseline}
+          stroke={cssVar('--color-grid')}
+          strokeWidth={1}
+        />
+        {up.placed.map((item, idx) =>
+          lineRect(item, baseline - (item.lane + 1) * upLaneH, upBarH, `u${idx}`),
+        )}
+        {down.placed.map((item, idx) =>
+          lineRect(item, baseline + item.lane * downLaneH, downBarH, `d${idx}`),
+        )}
         {overflow > 0 ? (
           <text
             x={width - 2}
@@ -185,37 +219,58 @@ const DgvTrack: React.FC<Props> = ({
   };
 
   const renderDensity = () => {
-    const maxTotal = bins.reduce(
-      (m, b) => Math.max(m, b.gain + b.loss + b.mixed + b.other),
+    const baseline = height / 2;
+    const half = height / 2;
+    const sumOf = (b: DgvDensityBin, keys: DgvClass[]) => keys.reduce((s, k) => s + b[k], 0);
+    // Scale up and down sides by the same factor so magnitudes stay comparable.
+    const maxAmp = bins.reduce(
+      (m, b) => Math.max(m, sumOf(b, UP_CLASSES), sumOf(b, DOWN_CLASSES)),
       0,
     );
-    if (maxTotal === 0) return null;
+    if (maxAmp === 0) return null;
     return (
       <>
+        <line
+          x1={0}
+          x2={width}
+          y1={baseline}
+          y2={baseline}
+          stroke={cssVar('--color-grid')}
+          strokeWidth={1}
+        />
         {bins.map((b, idx) => {
           const total = b.gain + b.loss + b.mixed + b.other;
           if (total === 0) return null;
           const x = ((b.start - regionStart) / regionLength) * width;
           const w = Math.max(((b.end - b.start) / regionLength) * width, 1);
-          const barH = (total / maxTotal) * height;
-          let y = height - barH;
+          let yUp = baseline;
+          const upRects = UP_CLASSES.map((klass) => {
+            const n = b[klass];
+            if (n === 0) return null;
+            const segH = (n / maxAmp) * half;
+            yUp -= segH;
+            return <rect key={`u${klass}`} x={x} y={yUp} width={w} height={segH} fill={dgvColor(klass)} />;
+          });
+          let yDown = baseline;
+          const downRects = DOWN_CLASSES.map((klass) => {
+            const n = b[klass];
+            if (n === 0) return null;
+            const segH = (n / maxAmp) * half;
+            const rect = (
+              <rect key={`d${klass}`} x={x} y={yDown} width={w} height={segH} fill={dgvColor(klass)} />
+            );
+            yDown += segH;
+            return rect;
+          });
           return (
             <g key={idx}>
-              {CLASS_ORDER.map((klass) => {
-                const n = b[klass];
-                if (n === 0) return null;
-                const segH = (n / total) * barH;
-                const rect = (
-                  <rect key={klass} x={x} y={y} width={w} height={segH} fill={dgvColor(klass)} />
-                );
-                y += segH;
-                return rect;
-              })}
+              {upRects}
+              {downRects}
               <rect
                 x={x}
-                y={height - barH}
+                y={0}
                 width={w}
-                height={barH}
+                height={height}
                 fill="transparent"
                 className="cursor-pointer"
                 onMouseMove={(event) =>
