@@ -109,7 +109,7 @@ const CnvDetailsPage: React.FC = () => {
           </div>
           <div>
             <dt>Cytoband</dt>
-            <dd>{cytoband || '—'}</dd>
+            <dd>{cnv.cytoband || cytoband || '—'}</dd>
           </div>
           <div>
             <dt>Type</dt>
@@ -121,10 +121,28 @@ const CnvDetailsPage: React.FC = () => {
               <dd>{cnv.assembly}</dd>
             </div>
           ) : null}
-          {cnv.omim_id ? (
+          {cnv.source_id ? (
             <div>
-              <dt>OMIM ID</dt>
-              <dd>{cnv.omim_id}</dd>
+              <dt>ISCA</dt>
+              <dd>{cnv.source_id}</dd>
+            </div>
+          ) : null}
+          {cnv.omim_id || cnv.omim_title ? (
+            <div>
+              <dt>OMIM</dt>
+              <dd>
+                {[cnv.omim_id, cnv.omim_title].filter(Boolean).join(' · ')}
+              </dd>
+            </div>
+          ) : null}
+          {cnv.orpha_id || cnv.orpha_name ? (
+            <div>
+              <dt>Orphanet</dt>
+              <dd>
+                {[cnv.orpha_name, cnv.orpha_id ? `ORPHA:${cnv.orpha_id}` : null]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </dd>
             </div>
           ) : null}
           {cnv.decipher_id ? (
@@ -169,6 +187,16 @@ const CnvDetailsPage: React.FC = () => {
             >
               DECIPHER ↗
             </a>
+            {cnv.orpha_id ? (
+              <a
+                href={`https://www.orpha.net/en/disease/detail/${encodeURIComponent(cnv.orpha_id)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="variant-card-resource variant-card-resource--clinical"
+              >
+                Orphanet ↗
+              </a>
+            ) : null}
           </div>
         </div>
 

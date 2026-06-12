@@ -112,9 +112,9 @@ const ClinicalCnvExplorerPage = () => {
               <thead>
                 <tr>
                   <th>CNV</th>
+                  <th>Cytoband</th>
                   <th>Location</th>
                   <th className="table-mono">Size</th>
-                  <th>Type</th>
                 </tr>
               </thead>
               <tbody>
@@ -126,10 +126,12 @@ const ClinicalCnvExplorerPage = () => {
                       </Link>
                     </td>
                     <td className="table-mono">
+                      {cnv.cytoband || <span className="table-empty">—</span>}
+                    </td>
+                    <td className="table-mono">
                       {cnv.chr}:{formatBp(cnv.start)}–{formatBp(cnv.end)}
                     </td>
                     <td className="table-mono">{formatSize(Math.max(cnv.end - cnv.start, 0))}</td>
-                    <td>{cnv.type || <span className="table-empty">—</span>}</td>
                   </tr>
                 ))}
               </tbody>

@@ -40,11 +40,16 @@ _CLINICAL_CNV_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "label": ("label", "name", "syndrome_name", "region_name", "syndrome"),
     "type": ("type", "cnv_type", "variant_type"),
     "omim_id": ("omim_id", "omim"),
+    "omim_title": ("omim_title",),
     "decipher_id": ("decipher_id", "decipher"),
     "description": ("description", "clinical_description"),
+    "cytoband": ("cytoband", "cyto_band", "cytogenetic_location"),
+    "source_id": ("source_id", "isca_id", "isca"),
+    "orpha_id": ("orpha_id", "orphanet_id", "orpha"),
+    "orpha_name": ("orpha_name", "orphanet_name"),
     "details_html": ("details_html", "details"),
     "source": ("source",),
-    "source_detail": ("source_url", "source_id", "clingen_url", "source_detail"),
+    "source_detail": ("source_url", "clingen_url", "source_detail"),
 }
 
 
@@ -714,6 +719,11 @@ async def apply_reference_dataset_text(
                 omim_id = _cell(row, header_index.get("omim_id"))
                 decipher_id = _cell(row, header_index.get("decipher_id"))
                 description = _cell(row, header_index.get("description"))
+                cytoband = _cell(row, header_index.get("cytoband"))
+                source_id = _cell(row, header_index.get("source_id"))
+                omim_title = _cell(row, header_index.get("omim_title"))
+                orpha_id = _cell(row, header_index.get("orpha_id"))
+                orpha_name = _cell(row, header_index.get("orpha_name"))
                 html = _cell(row, header_index.get("details_html"))
                 if html is None:
                     parts = [
@@ -749,6 +759,7 @@ async def apply_reference_dataset_text(
                 omim_id = _cell(row, detail_base)
                 decipher_id = _cell(row, detail_base + 1)
                 description = _cell(row, detail_base + 2)
+                cytoband = source_id = omim_title = orpha_id = orpha_name = None
 
             rows.append(
                 {
@@ -762,6 +773,11 @@ async def apply_reference_dataset_text(
                     "omim_id": omim_id,
                     "decipher_id": decipher_id,
                     "description": description,
+                    "cytoband": cytoband,
+                    "source_id": source_id,
+                    "omim_title": omim_title,
+                    "orpha_id": orpha_id,
+                    "orpha_name": orpha_name,
                 }
             )
         if not rows:
@@ -771,7 +787,8 @@ async def apply_reference_dataset_text(
                 """
                 INSERT INTO clinical_cnvs (
                     assembly_id, chr, start, "end", type, label, details_html,
-                    omim_id, decipher_id, description
+                    omim_id, decipher_id, description,
+                    cytoband, source_id, omim_title, orpha_id, orpha_name
                 )
                 VALUES (
                     CAST(:assembly_id AS uuid),
@@ -783,7 +800,12 @@ async def apply_reference_dataset_text(
                     :details_html,
                     :omim_id,
                     :decipher_id,
-                    :description
+                    :description,
+                    :cytoband,
+                    :source_id,
+                    :omim_title,
+                    :orpha_id,
+                    :orpha_name
                 )
                 """
             ),
@@ -1002,7 +1024,8 @@ async def get_segmental_duplications_data(
 
 _CLINICAL_CNV_COLUMNS = (
     'id::text AS id, chr, start, "end", type, label, details_html, '
-    "omim_id, decipher_id, description"
+    "omim_id, omim_title, decipher_id, description, "
+    "cytoband, source_id, orpha_id, orpha_name"
 )
 
 
@@ -1017,8 +1040,13 @@ def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> Clinic
         details_html=row.get("details_html"),
         assembly=assembly,
         omim_id=row.get("omim_id"),
+        omim_title=row.get("omim_title"),
         decipher_id=row.get("decipher_id"),
         description=row.get("description"),
+        cytoband=row.get("cytoband"),
+        source_id=row.get("source_id"),
+        orpha_id=row.get("orpha_id"),
+        orpha_name=row.get("orpha_name"),
     )
 
 

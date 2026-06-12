@@ -998,8 +998,13 @@ class ClinicalCnvOut(ApiDocumentModel):
     details_html: Optional[str] = None
     assembly: Optional[str] = None
     omim_id: Optional[str] = None
+    omim_title: Optional[str] = None
     decipher_id: Optional[str] = None
     description: Optional[str] = None
+    cytoband: Optional[str] = None
+    source_id: Optional[str] = None
+    orpha_id: Optional[str] = None
+    orpha_name: Optional[str] = None
 
 
 class SegmentalDuplicationOut(ApiDocumentModel):

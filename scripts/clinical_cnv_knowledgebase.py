@@ -51,6 +51,13 @@ import xml.etree.ElementTree as ET
 
 CLINGEN_DOWNLOADS = "https://search.clinicalgenome.org/kb/downloads"
 
+# Authoritative recurrent-CNV regions with inline syndrome names
+# (TAR, Williams-Beuren, DiGeorge, ...). Complements the region curation list.
+CLINGEN_RECURRENT_CNV = {
+    "GRCh38": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg38.bed",
+    "GRCh37": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg19.bed",
+}
+
 UCSC_CYTO = {
     "GRCh38": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz",
     "GRCh37": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/cytoBand.txt.gz",
@@ -222,9 +229,12 @@ def load_table_from_url(url: str) -> pd.DataFrame:
 
 
 def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) -> pd.DataFrame:
+    # Note: do NOT include location columns here. ClinGen's "ISCA Region Name"
+    # holds the real region name; including "Genomic Location" made the name
+    # resolve to coordinates instead.
     name_col = first_existing_col(df, [
-        "Region Name", "region_name", "Region", "Location", "Name",
-        "Dosage Region", "Genomic Location"
+        "ISCA Region Name", "Region Name", "region_name", "Region", "Name",
+        "Dosage Region", "Syndrome",
     ])
 
     location_col = first_existing_col(df, [
@@ -289,12 +299,14 @@ def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) ->
         else:
             region_name = f"{chrom}:{start}-{end}"
 
-        original = " | ".join(
-            str(row[c]) for c in df.columns
-            if pd.notna(row.get(c)) and str(row.get(c)).strip()
+        # Only mine OMIM IDs from descriptive text columns. Scanning the whole
+        # row matched 6-digit genomic coordinates as bogus MIM numbers.
+        omim_text = " ".join(
+            str(row.get(c, ""))
+            for c in (disease_col, comment_col, hi_desc_col, ts_desc_col, name_col)
+            if c and pd.notna(row.get(c))
         )
-
-        omim_ids = extract_omim_ids(original)
+        omim_ids = extract_omim_ids(omim_text)
 
         source_id = str(row.get(isca_col, "")).strip() if isca_col else ""
 
@@ -761,6 +773,74 @@ def collapse_duplicate_regions(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
+    """ClinGen recurrent-CNV regions with authoritative inline syndrome names.
+
+    These carry the recognizable names (TAR syndrome, Williams-Beuren, DiGeorge,
+    etc.) with exact coordinates, so no fuzzy name matching is required.
+    """
+    url = CLINGEN_RECURRENT_CNV.get(assembly)
+    if not url:
+        return pd.DataFrame()
+    try:
+        text = safe_get(url).decode("utf-8", errors="replace")
+    except Exception as e:
+        log(f"  skipped recurrent CNV bed: {e}")
+        return pd.DataFrame()
+
+    records = []
+    for line in text.splitlines():
+        if not line or line.startswith("track") or line.startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) < 4:
+            continue
+        name = cols[3].strip()
+        # Keep curated syndrome regions; drop plain breakpoint markers (BP1, ...).
+        if "region" not in name.lower() and "syndrome" not in name.lower():
+            continue
+        try:
+            chrom = clean_chr(cols[0])
+            start = int(cols[1])
+            end = int(cols[2])
+        except ValueError:
+            continue
+        records.append({
+            "cnv_id": make_id("CLINGEN-RECURRENT", chrom, start, end, name),
+            "syndrome_name": name,
+            "chromosome": chrom,
+            "start": start,
+            "end": end,
+            "size_bp": end - start + 1,
+            "assembly": assembly,
+            "cytoband": "",
+            "source": "ClinGen recurrent CNV",
+            "source_id": "",
+            "hi_score": "",
+            "ts_score": "",
+            "hi_description": "",
+            "ts_description": "",
+            "omim_id": "",
+            "omim_title": "",
+            "decipher_id": "",
+            "decipher_url": "",
+            "orpha_id": "",
+            "orpha_name": "",
+            "genes": "",
+            "clinical_description": "",
+            "phenotypes": "",
+            "references": "",
+            "clingen_url": "",
+            "source_url": url,
+            "clinvar_pathogenic_loss_count": 0,
+            "clinvar_pathogenic_gain_count": 0,
+            "clinvar_pathogenic_accessions": "",
+        })
+    if records:
+        log(f"  retained {len(records)} recurrent CNV regions")
+    return pd.DataFrame(records)
+
+
 def build_kb(
     *,
     assembly: str,
@@ -795,6 +875,11 @@ def build_kb(
                 log(f"  retained {len(norm)} interval records")
         except Exception as e:
             log(f"  skipped {url}: {e}")
+
+    log("Loading ClinGen recurrent CNV regions (named syndromes).")
+    recurrent = load_clingen_recurrent_regions(assembly)
+    if not recurrent.empty:
+        tables.append(recurrent)
 
     if not tables:
         raise RuntimeError("No usable ClinGen interval records found.")
