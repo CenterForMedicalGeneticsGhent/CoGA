@@ -215,8 +215,13 @@ export interface ApiClinicalCnv {
   details_html?: string | null;
   assembly?: string | null;
   omim_id?: string | null;
+  omim_title?: string | null;
   decipher_id?: string | null;
   description?: string | null;
+  cytoband?: string | null;
+  source_id?: string | null;
+  orpha_id?: string | null;
+  orpha_name?: string | null;
 }
 
 export interface ApiChromosomeBand {

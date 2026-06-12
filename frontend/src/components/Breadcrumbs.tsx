@@ -1,5 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import type { ApiClinicalCnv } from '../lib/apiTypes';
 
 /**
  * Renders a breadcrumb trail based on the current route.
@@ -9,6 +11,17 @@ import { Link, useLocation } from 'react-router-dom';
 const Breadcrumbs: React.FC = () => {
   const { pathname, search } = useLocation();
   const segments = pathname.split('/').filter(Boolean);
+
+  // On the clinical CNV detail route, show the CNV's name instead of its id.
+  // Subscribe to the cache the detail page populates (no fetch of our own).
+  const cnvDetailId = segments[0] === 'cnv-details' && segments[1] ? segments[1] : null;
+  const { data: cnvCrumb } = useQuery<ApiClinicalCnv>({
+    queryKey: ['clinical-cnv', cnvDetailId],
+    enabled: false,
+    queryFn: () => {
+      throw new Error('disabled');
+    },
+  });
 
   if (segments.length === 0 || ['login', 'signup'].includes(segments[0])) {
     return null;
@@ -29,16 +42,25 @@ const Breadcrumbs: React.FC = () => {
   let path = '';
   others.forEach((segment, index) => {
     path += `/${segment}`;
-    const label = segment
+    let label = segment
       .split('-')
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(' ')
       .toUpperCase();
+    if (segment === 'cnv-details') {
+      label = 'CNV EXPLORER';
+    } else if (segment === cnvDetailId && cnvCrumb?.label) {
+      label = cnvCrumb.label.toUpperCase();
+    }
     const isLast = index === others.length - 1;
     let to = path;
 
     if (segment === 'admin') {
       to = '/admin';
+    }
+
+    if (segment === 'cnv-details') {
+      to = '/cnv-explorer';
     }
 
     if (isAdminPath) {

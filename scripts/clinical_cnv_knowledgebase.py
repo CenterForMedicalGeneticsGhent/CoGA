@@ -35,6 +35,7 @@ import io
 import os
 import re
 import sys
+import tempfile
 import time
 import json
 import hashlib
@@ -51,6 +52,13 @@ import xml.etree.ElementTree as ET
 
 CLINGEN_DOWNLOADS = "https://search.clinicalgenome.org/kb/downloads"
 
+# Authoritative recurrent-CNV regions with inline syndrome names
+# (TAR, Williams-Beuren, DiGeorge, ...). Complements the region curation list.
+CLINGEN_RECURRENT_CNV = {
+    "GRCh38": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg38.bed",
+    "GRCh37": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg19.bed",
+}
+
 UCSC_CYTO = {
     "GRCh38": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz",
     "GRCh37": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/cytoBand.txt.gz",
@@ -61,6 +69,10 @@ CLINVAR_VARIANT_SUMMARY = (
 )
 
 OMIM_API = "https://api.omim.org/api"
+
+# Orphanet rare-disease nomenclature (disorder names + OrphaCodes), used to
+# match syndrome names. Auto-downloaded when no local XML is provided.
+ORPHANET_NOMENCLATURE_URL = "https://www.orphadata.com/data/xml/en_product1.xml"
 
 
 def log(msg: str) -> None:
@@ -222,9 +234,12 @@ def load_table_from_url(url: str) -> pd.DataFrame:
 
 
 def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) -> pd.DataFrame:
+    # Note: do NOT include location columns here. ClinGen's "ISCA Region Name"
+    # holds the real region name; including "Genomic Location" made the name
+    # resolve to coordinates instead.
     name_col = first_existing_col(df, [
-        "Region Name", "region_name", "Region", "Location", "Name",
-        "Dosage Region", "Genomic Location"
+        "ISCA Region Name", "Region Name", "region_name", "Region", "Name",
+        "Dosage Region", "Syndrome",
     ])
 
     location_col = first_existing_col(df, [
@@ -289,12 +304,14 @@ def normalize_clingen_table(df: pd.DataFrame, source_url: str, assembly: str) ->
         else:
             region_name = f"{chrom}:{start}-{end}"
 
-        original = " | ".join(
-            str(row[c]) for c in df.columns
-            if pd.notna(row.get(c)) and str(row.get(c)).strip()
+        # Only mine OMIM IDs from descriptive text columns. Scanning the whole
+        # row matched 6-digit genomic coordinates as bogus MIM numbers.
+        omim_text = " ".join(
+            str(row.get(c, ""))
+            for c in (disease_col, comment_col, hi_desc_col, ts_desc_col, name_col)
+            if c and pd.notna(row.get(c))
         )
-
-        omim_ids = extract_omim_ids(original)
+        omim_ids = extract_omim_ids(omim_text)
 
         source_id = str(row.get(isca_col, "")).strip() if isca_col else ""
 
@@ -380,9 +397,14 @@ def annotate_cytobands(df: pd.DataFrame, cyto: pd.DataFrame) -> pd.DataFrame:
             cytos.append("")
             continue
 
-        hits = tree.overlap(int(r["start"]), int(r["end"]) + 1)
-        bands = sorted(set(h.data for h in hits))
-        cytos.append(";".join(bands))
+        hits = sorted(tree.overlap(int(r["start"]), int(r["end"]) + 1), key=lambda h: h.begin)
+        if not hits:
+            cytos.append("")
+            continue
+        first = str(hits[0].data)
+        last = str(hits[-1].data)
+        # Clean cytoband range, e.g. "5p15.33-p15.1" instead of every band joined.
+        cytos.append(f"{chrom}{first}" if first == last else f"{chrom}{first}-{last}")
 
     out["cytoband"] = cytos
     return out
@@ -394,39 +416,68 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
     This is used only as supporting evidence, not as the backbone list.
     """
     log("Downloading ClinVar variant_summary.txt.gz; this can take a while.")
-    content = gzip.decompress(safe_get(CLINVAR_VARIANT_SUMMARY, timeout=180))
-    df = pd.read_csv(io.BytesIO(content), sep="\t", dtype=str, low_memory=False)
+    # The archive is ~250 MB compressed and several GB uncompressed. Stream it
+    # to disk and read in bounded chunks (only the columns we need), keeping just
+    # the filtered CNV subset, so the build does not get OOM-killed (exit -9).
+    keep_cols = {
+        "Assembly", "Chromosome", "Start", "Stop", "ClinicalSignificance",
+        "Type", "Name", "VariationID", "RCVaccession",
+    }
+    tmp = tempfile.NamedTemporaryFile(prefix="clinvar-", suffix=".txt.gz", delete=False)
+    frames = []
+    try:
+        with requests.get(CLINVAR_VARIANT_SUMMARY, stream=True, timeout=600) as r:
+            r.raise_for_status()
+            for piece in r.iter_content(chunk_size=1 << 20):
+                if piece:
+                    tmp.write(piece)
+        tmp.close()
+        reader = pd.read_csv(
+            tmp.name,
+            sep="\t",
+            dtype=str,
+            compression="gzip",
+            chunksize=100_000,
+            low_memory=True,
+            usecols=lambda c: c in keep_cols,
+        )
+        for chunk in reader:
+            if "Assembly" not in chunk.columns:
+                log("ClinVar missing expected columns; skipping ClinVar support.")
+                return pd.DataFrame()
+            chunk = chunk[chunk["Assembly"].fillna("") == assembly]
+            if chunk.empty:
+                continue
+            sig = chunk["ClinicalSignificance"].fillna("").str.lower()
+            chunk = chunk[sig.str.contains("pathogenic") & ~sig.str.contains("conflicting")]
+            if chunk.empty:
+                continue
+            typ = (
+                chunk["Type"].fillna("").str.lower()
+                if "Type" in chunk.columns
+                else chunk.get("Name", "").fillna("").str.lower()
+            )
+            chunk = chunk[
+                typ.str.contains("copy number")
+                | typ.str.contains("deletion")
+                | typ.str.contains("duplication")
+                | typ.str.contains("cnv")
+            ]
+            if not chunk.empty:
+                frames.append(chunk)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
 
-    required = ["Assembly", "Chromosome", "Start", "Stop", "ClinicalSignificance"]
-    for c in required:
-        if c not in df.columns:
-            log(f"ClinVar missing expected column {c}; skipping ClinVar support.")
-            return pd.DataFrame()
-
-    df = df[df["Assembly"].fillna("") == assembly].copy()
-
-    sig = df["ClinicalSignificance"].fillna("").str.lower()
-    df = df[sig.str.contains("pathogenic") & ~sig.str.contains("conflicting")].copy()
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if df.empty:
+        return pd.DataFrame()
 
     type_col = first_existing_col(df, ["Type", "VariationType", "variant_type"])
     name_col = first_existing_col(df, ["Name"])
     acc_col = first_existing_col(df, ["VariationID", "RCVaccession", "Accession"])
-
-    if type_col:
-        typ = df[type_col].fillna("").str.lower()
-        df = df[
-            typ.str.contains("copy number")
-            | typ.str.contains("deletion")
-            | typ.str.contains("duplication")
-            | typ.str.contains("cnv")
-        ].copy()
-    else:
-        nm = df[name_col].fillna("").str.lower() if name_col else ""
-        df = df[
-            nm.str.contains("deletion")
-            | nm.str.contains("duplication")
-            | nm.str.contains("copy number")
-        ].copy()
 
     rows = []
     for _, r in df.iterrows():
@@ -617,17 +668,40 @@ def parse_orphanet_xml(path: str) -> pd.DataFrame:
     return pd.DataFrame(rows).drop_duplicates()
 
 
-def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str]) -> pd.DataFrame:
+def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str] = None) -> pd.DataFrame:
     out = kb.copy()
-    if not orphanet_xml:
-        return out
+    xml_path = orphanet_xml
+    tmp_path = None
 
-    p = Path(orphanet_xml)
-    if not p.exists():
-        log(f"Orphanet XML not found: {orphanet_xml}")
-        return out
+    if xml_path:
+        if not Path(xml_path).exists():
+            log(f"Orphanet XML not found: {xml_path}")
+            return out
+    else:
+        log("Downloading Orphanet nomenclature (en_product1.xml).")
+        try:
+            content = safe_get(ORPHANET_NOMENCLATURE_URL, timeout=180)
+        except Exception as e:
+            log(f"Orphanet download failed: {e}")
+            return out
+        tmp = tempfile.NamedTemporaryFile(prefix="orphanet-", suffix=".xml", delete=False)
+        tmp.write(content)
+        tmp.close()
+        xml_path = tmp.name
+        tmp_path = tmp.name
 
-    orpha = parse_orphanet_xml(str(p))
+    try:
+        orpha = parse_orphanet_xml(str(xml_path))
+    except Exception as e:
+        log(f"Orphanet parse failed: {e}")
+        return out
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
     if orpha.empty:
         return out
 
@@ -643,13 +717,16 @@ def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str]) -> pd.Da
         key = normalize_name(name)
         hit = lookup.get(key)
 
-        if not hit:
-            # loose contains fallback
-            hit = None
+        if not hit and key:
+            # Match only when a sufficiently specific Orphanet disease name
+            # (multi-token, >= 8 chars) appears verbatim inside the region name.
+            # Avoids over-generic single-token names matching everything.
+            best = None
             for k, v in lookup.items():
-                if key and (key in k or k in key):
-                    hit = v
-                    break
+                if len(k) >= 8 and " " in k and k in key:
+                    if best is None or len(k) > len(best[0]):
+                        best = (k, v)
+            hit = best[1] if best else None
 
         if hit:
             ids.append(hit[0])
@@ -761,6 +838,86 @@ def collapse_duplicate_regions(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
+    """ClinGen recurrent-CNV regions with authoritative inline syndrome names.
+
+    These carry the recognizable names (TAR syndrome, Williams-Beuren, DiGeorge,
+    etc.) with exact coordinates, so no fuzzy name matching is required.
+    """
+    url = CLINGEN_RECURRENT_CNV.get(assembly)
+    if not url:
+        return pd.DataFrame()
+    try:
+        text = safe_get(url).decode("utf-8", errors="replace")
+    except Exception as e:
+        log(f"  skipped recurrent CNV bed: {e}")
+        return pd.DataFrame()
+
+    records = []
+    for line in text.splitlines():
+        if not line or line.startswith("track") or line.startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) < 4:
+            continue
+        name = cols[3].strip()
+        # Keep curated syndrome regions; drop plain breakpoint markers (BP1, ...).
+        if "region" not in name.lower() and "syndrome" not in name.lower():
+            continue
+        try:
+            chrom = clean_chr(cols[0])
+            start = int(cols[1])
+            end = int(cols[2])
+        except ValueError:
+            continue
+        records.append({
+            "cnv_id": make_id("CLINGEN-RECURRENT", chrom, start, end, name),
+            "syndrome_name": name,
+            "chromosome": chrom,
+            "start": start,
+            "end": end,
+            "size_bp": end - start + 1,
+            "assembly": assembly,
+            "cytoband": "",
+            "source": "ClinGen recurrent CNV",
+            "source_id": "",
+            "hi_score": "",
+            "ts_score": "",
+            "hi_description": "",
+            "ts_description": "",
+            "omim_id": "",
+            "omim_title": "",
+            "decipher_id": "",
+            "decipher_url": "",
+            "orpha_id": "",
+            "orpha_name": "",
+            "genes": "",
+            "clinical_description": "",
+            "phenotypes": "",
+            "references": "",
+            "clingen_url": "",
+            "source_url": url,
+            "clinvar_pathogenic_loss_count": 0,
+            "clinvar_pathogenic_gain_count": 0,
+            "clinvar_pathogenic_accessions": "",
+        })
+    if records:
+        log(f"  retained {len(records)} recurrent CNV regions")
+    return pd.DataFrame(records)
+
+
+def clean_syndrome_name(name: str) -> str:
+    """Tidy a region/syndrome name for display.
+
+    Drops trailing gene lists like "(includes RBM8A)" (not part of the name) and
+    collapses whitespace, while keeping the distinguishing region descriptors.
+    """
+    s = str(name or "").strip()
+    s = re.sub(r"\s*\(includes[^)]*\)", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+
 def build_kb(
     *,
     assembly: str,
@@ -796,10 +953,16 @@ def build_kb(
         except Exception as e:
             log(f"  skipped {url}: {e}")
 
+    log("Loading ClinGen recurrent CNV regions (named syndromes).")
+    recurrent = load_clingen_recurrent_regions(assembly)
+    if not recurrent.empty:
+        tables.append(recurrent)
+
     if not tables:
         raise RuntimeError("No usable ClinGen interval records found.")
 
     kb = pd.concat(tables, ignore_index=True)
+    kb["syndrome_name"] = kb["syndrome_name"].map(clean_syndrome_name)
 
     log("Collapsing duplicate ClinGen records.")
     kb = collapse_duplicate_regions(kb)
