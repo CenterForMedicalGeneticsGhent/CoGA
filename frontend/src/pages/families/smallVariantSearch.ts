@@ -115,6 +115,14 @@ export interface SmallVariant {
   transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];
   review?: SmallVariantReview | null;
+  internal_cohort?: SmallVariantInternalCohort | null;
+}
+
+export interface SmallVariantInternalCohort {
+  samples: number;
+  het: number;
+  hom: number;
+  families: number;
 }
 
 export interface SmallVariantPage {
@@ -299,7 +307,7 @@ export const HOM_GT_GROUP = ['1/1', '1|1'];
 export const HET_GT_GROUP = ['0/1', '1/0', '0|1', '1|0'];
 export const REF_GT_GROUP = ['0/0', '0|0', './.', 'absent'];
 export const ALL_GT_GROUPS = [...HOM_GT_GROUP, ...HET_GT_GROUP, ...REF_GT_GROUP];
-export const CARD_VIEW_THRESHOLD = 30;
+export const CARD_VIEW_THRESHOLD = 100;
 
 export const SYSTEM_TAG_GROUP_LABELS: Record<SmallVariantTagDefinition['group'], string> = {
   collaboration: 'Collaboration',

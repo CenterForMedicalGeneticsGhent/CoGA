@@ -3670,6 +3670,14 @@ tbody tr:hover {
   gap: 0.7rem;
 }
 
+.variant-results-count {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-signature-red-dark);
+  font-variant-numeric: tabular-nums;
+}
+
 .variant-results-toggle {
   display: flex;
   flex-wrap: wrap;
@@ -3691,26 +3699,32 @@ tbody tr:hover {
   gap: 0.8rem;
 }
 
+/* Flat card: no rounded box or tint; a left + top rail carries the accent. */
 .variant-card {
   display: grid;
-  gap: 0.8rem;
-  border: 1px solid rgba(10, 11, 12, 0.09);
-  border-radius: 6px;
-  background: linear-gradient(180deg, rgba(252, 252, 253, 0.98) 0%, rgba(255, 255, 255, 1) 100%);
-  padding: 0.85rem 0.95rem 0.9rem;
-  box-shadow: 0 10px 20px rgba(10, 12, 14, 0.025);
+  gap: 0.55rem;
+  border: 0;
+  border-top: 2px solid var(--color-border-strong);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.75rem 0.5rem 0.9rem 0.95rem;
+  box-shadow: none;
 }
 
+/* Clinical accent: left + top rail keyed to the ClinVar significance. */
 .variant-card--clinvar-pathogenic {
-  background: linear-gradient(180deg, rgba(253, 244, 245, 0.98) 0%, rgba(255, 250, 250, 1) 100%);
+  border-top-color: var(--color-signature-red);
+  border-left-color: var(--color-signature-red);
 }
 
 .variant-card--clinvar-benign {
-  background: linear-gradient(180deg, rgba(244, 252, 247, 0.98) 0%, rgba(250, 255, 251, 1) 100%);
+  border-top-color: rgba(53, 111, 83, 0.8);
+  border-left-color: rgba(53, 111, 83, 0.8);
 }
 
 .variant-card--excluded {
-  opacity: 0.88;
+  opacity: 0.6;
 }
 
 .variant-card-topbar {
@@ -3912,6 +3926,441 @@ tbody tr:hover {
 .variant-card-chip--accent {
   border-color: rgba(159, 34, 57, 0.2);
   background: rgba(159, 34, 57, 0.1);
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-chip--link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.variant-card-chip--link:hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
+/* --- Compact single-variant card layout --- */
+.variant-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.9rem;
+}
+
+.variant-card-headline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.variant-card-gene {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--color-heading);
+  text-decoration: none;
+}
+
+.variant-card-gene:hover {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-change {
+  max-width: 24rem;
+  overflow: hidden;
+  font-size: 0.84rem;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variant-card-headtags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.variant-card-chip-key {
+  margin-right: 0.32rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.variant-card-clinical-row {
+  gap: 0.4rem;
+}
+
+.variant-card-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+}
+
+.variant-card-scores-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.9rem;
+  min-width: 0;
+}
+
+.variant-card-score {
+  font-size: 0.76rem;
+  color: var(--color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-card-score-key {
+  margin-right: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-card-scores-inline .variant-transcript-trigger {
+  width: auto;
+  min-height: 1.6rem;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.variant-card-resources {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+}
+
+.variant-card-resource {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.variant-card-resource:hover {
+  text-decoration: underline;
+}
+
+.variant-card-resource--clinical {
+  color: var(--color-signature-red-dark);
+}
+
+/* Compact family genotype chips. */
+.variant-card-gt-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.variant-card-gt {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.16rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: rgba(247, 249, 252, 0.9);
+  font-size: 0.74rem;
+}
+
+.variant-card-gt-sample {
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+.variant-card-gt-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-card-gt--het {
+  border-color: rgba(180, 125, 45, 0.28);
+  background: rgba(180, 125, 45, 0.08);
+}
+
+.variant-card-gt--het .variant-card-gt-value {
+  color: #8d6020;
+}
+
+.variant-card-gt--hom {
+  border-color: rgba(173, 31, 45, 0.28);
+  background: rgba(173, 31, 45, 0.08);
+}
+
+.variant-card-gt--hom .variant-card-gt-value {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-gt--ref,
+.variant-card-gt--ref .variant-card-gt-value {
+  color: var(--color-text-muted);
+}
+
+.variant-card-gt--na {
+  opacity: 0.7;
+}
+
+.variant-card-gt.is-proband {
+  box-shadow: inset 0 0 0 1px var(--color-signature-red);
+}
+
+.variant-card-gt.is-affected .variant-card-gt-sample {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.variant-card-quick {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.variant-card-nav {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+}
+
+.variant-card-more {
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.variant-card-more > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  list-style: none;
+}
+
+.variant-card-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.variant-card-more > summary::before {
+  content: '▸ ';
+}
+
+.variant-card-more[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+.variant-card-more[open] > summary::before {
+  content: '▾ ';
+}
+
+.variant-card-more-grid {
+  display: grid;
+  gap: 0.8rem 1.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 0.8rem;
+}
+
+/* --- Multi-column card body --- */
+.variant-card-tag-row {
+  gap: 0.4rem;
+}
+
+.variant-card-cols {
+  display: grid;
+  gap: 0.7rem 1.6rem;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.95fr);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .variant-card-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.variant-card-col {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.variant-card-col-title {
+  margin: 0;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-card-mini-dl {
+  display: grid;
+  gap: 0.16rem;
+  margin: 0;
+}
+
+.variant-card-mini-dl > div {
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.variant-card-mini-dl dt {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-card-mini-dl dd {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.variant-card-col .variant-transcript-trigger {
+  width: auto;
+  justify-content: flex-start;
+  min-height: 1.6rem;
+  margin-top: 0.15rem;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.variant-card-coga {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+  padding-top: 0.32rem;
+  border-top: 1px dashed var(--color-border);
+  font-size: 0.8rem;
+}
+
+.variant-card-col-key {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-coga-value {
+  color: var(--color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-member genotype table (left column), aligned in columns via subgrid. */
+.variant-card-gtlist {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
+  gap: 0.14rem 0.7rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.variant-card-gthead,
+.variant-card-gtline {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+}
+
+.variant-card-gthead {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.variant-card-gtline-sample {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--color-secondary);
+}
+
+.variant-card-gtline-sex {
+  font-weight: 700;
+}
+
+.variant-card-gtline-sex--male {
+  color: #3f618f;
+}
+
+.variant-card-gtline-sex--female {
+  color: #8a5277;
+}
+
+.variant-card-gtline-sex--und {
+  color: var(--color-text-muted);
+}
+
+.variant-card-gtline-role {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.variant-card-gtline-gt {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-card-gtline-metric {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-card-gtline--het .variant-card-gtline-gt {
+  color: #8d6020;
+}
+
+.variant-card-gtline--hom .variant-card-gtline-gt {
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-gtline--ref .variant-card-gtline-gt {
+  color: var(--color-text-muted);
+}
+
+.variant-card-gtline--na {
+  opacity: 0.6;
+}
+
+.variant-card-gtline.is-affected .variant-card-gtline-sample {
+  font-weight: 700;
+  color: var(--color-signature-red-dark);
+}
+
+.variant-card-gtline.is-proband .variant-card-gtline-role {
   color: var(--color-signature-red-dark);
 }
 

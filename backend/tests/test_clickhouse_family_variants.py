@@ -288,7 +288,7 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     assert page.total_is_estimated is False
     assert page.unfiltered_total == 3
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 3
+    assert len(queries) == 4
     assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
     assert "GROUP BY e.key, e.variantId" not in queries[0][0]
     assert queries[0][1]["visible_sample_ids"] == [
@@ -355,7 +355,7 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert page.total == 1
     assert page.total_is_estimated is False
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 3
+    assert len(queries) == 4
     assert "arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> sample_id IN %(sample_filter_0_samples)s" in queries[0][0]
     assert "arrayMax(af) >= %(sample_filter_0_min_af)s" in queries[0][0]
     assert "ad[2] >= %(sample_filter_0_min_ad_alt)s" in queries[0][0]
@@ -426,7 +426,7 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
     assert page.unfiltered_total == 1001
     assert page.unfiltered_total_is_estimated is False
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 3
+    assert len(queries) == 4
     assert "LIMIT %(count_limit)s" in "\n".join(queries)
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0]
 
@@ -528,7 +528,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
 
     assert page.total == 1
     assert [str(variant.id) for variant in page.variants] == ["v2"]
-    assert len(queries) == 3
+    assert len(queries) == 4
     query, params = queries[0]
     assert "INNER JOIN" not in query
     assert "GRCh38/SNV_INDEL/variants/annotations" in query

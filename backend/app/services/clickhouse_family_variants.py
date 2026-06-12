@@ -21,6 +21,7 @@ from ..schemas import (
     SmallVariantSampleSummaryOut,
     SmallVariantSummaryOut,
     SmallVariantTranscriptOut,
+    VariantInternalCohortOut,
     VariantOut,
     VariantPage,
 )
@@ -2116,6 +2117,59 @@ def _group_review_for_pair(
     return None
 
 
+_INTERNAL_GT_REF_MISSING = ("", ".", "./.", ".|.", "0/0", "0|0")
+_INTERNAL_GT_HOM = ("1/1", "1|1")
+
+
+async def _fetch_internal_cohort_map(
+    context: FamilyMetadataContext,
+    variant_ids: Sequence[str],
+) -> dict[str, VariantInternalCohortOut]:
+    """Per-variant occurrence across the family's accessible-project cohort.
+
+    Aggregated directly from ``entries`` (sign = 1) so each carrier sample is
+    counted once regardless of how the data was loaded.
+    """
+
+    normalized_ids = tuple({str(value).strip() for value in variant_ids if str(value).strip()})
+    if not normalized_ids or not context.assembly_name or not context.project_ids:
+        return {}
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    params: dict[str, Any] = {
+        "variant_ids": normalized_ids,
+        "project_ids": tuple(context.project_ids),
+        "gt_ref_missing": _INTERNAL_GT_REF_MISSING,
+        "gt_hom": _INTERNAL_GT_HOM,
+    }
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT
+            variantId,
+            uniqExactIf(sample_id, gt IN %(gt_hom)s) AS hom,
+            uniqExactIf(sample_id, gt NOT IN %(gt_hom)s) AS het,
+            uniqExact(sample_id) AS samples,
+            uniqExact(family_guid) AS families
+        FROM {entries_table}
+        ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
+        WHERE sign = 1
+          AND project_guid IN %(project_ids)s
+          AND variantId IN %(variant_ids)s
+          AND gt NOT IN %(gt_ref_missing)s
+        GROUP BY variantId
+        """,
+        params,
+    )
+    result: dict[str, VariantInternalCohortOut] = {}
+    for variant_id, hom, het, samples, families in rows:
+        result[str(variant_id)] = VariantInternalCohortOut(
+            samples=int(samples or 0),
+            het=int(het or 0),
+            hom=int(hom or 0),
+            families=int(families or 0),
+        )
+    return result
+
+
 async def _hydrate_small_variant_outs(
     session: AsyncSession,
     *,
@@ -2132,6 +2186,15 @@ async def _hydrate_small_variant_outs(
     )
     for variant in variants:
         variant.review = review_map.get(str(variant.id))
+
+    try:
+        internal_map = await _fetch_internal_cohort_map(
+            context, [str(variant.id) for variant in variants]
+        )
+    except Exception:  # pragma: no cover - internal frequency is best-effort
+        internal_map = {}
+    for variant in variants:
+        variant.internal_cohort = internal_map.get(str(variant.id))
 
     metric_map = await _fetch_gene_constraint_metric_map(session, variants)
     for variant in variants:
