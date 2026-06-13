@@ -93,6 +93,7 @@ describe('FamilyParaphasePage', () => {
                     role: 'proband',
                     affected: true,
                     sex: 'male',
+                    clinical_status: 'no_call',
                     total_cn: null,
                     gene_cn: null,
                     highest_total_cn: 4,
@@ -142,6 +143,7 @@ describe('FamilyParaphasePage', () => {
                     role: 'mother',
                     affected: false,
                     sex: 'female',
+                    clinical_status: 'normal',
                     total_cn: 2,
                     gene_cn: 2,
                     highest_total_cn: 2,
@@ -199,6 +201,7 @@ describe('FamilyParaphasePage', () => {
                     role: 'proband',
                     affected: true,
                     sex: 'male',
+                    clinical_status: 'pathogenic',
                     total_cn: 4,
                     gene_cn: 2,
                     highest_total_cn: 4,
@@ -296,32 +299,40 @@ describe('FamilyParaphasePage', () => {
       expect(screen.getByRole('heading', { name: /duplicated-region results/i })).toBeInTheDocument();
     });
 
-    const row = screen.getByText('SMN1/SMN2').closest('tr');
-    expect(row).not.toBeNull();
-    const rowScope = within(row as HTMLElement);
-    expect(rowScope.getByText('Clinical')).toBeInTheDocument();
-    expect(rowScope.getByText('Spinal muscular atrophy')).toHaveAttribute(
+    const smnCard = screen.getByText('SMN1/SMN2').closest('article');
+    expect(smnCard).not.toBeNull();
+    const smnScope = within(smnCard as HTMLElement);
+    expect(smnScope.getByText('Clinical')).toBeInTheDocument();
+    expect(smnScope.getByText('Spinal muscular atrophy')).toHaveAttribute(
       'href',
       'https://www.omim.org/entry/253300',
     );
-    expect(rowScope.getByText('PROBAND')).toBeInTheDocument();
-    expect(rowScope.getByText('MOTHER')).toBeInTheDocument();
-    expect(rowScope.getByText(/6 final haplotypes/i)).toBeInTheDocument();
-    expect(rowScope.getByText(/38:chr5:70917100-70961220/i)).toBeInTheDocument();
-    expect(rowScope.getAllByText('SMN1 CN').length).toBeGreaterThan(0);
-    expect(rowScope.getAllByText('SMN2 CN').length).toBeGreaterThan(0);
-    expect(rowScope.getByText('SMN1 reads c.840C')).toBeInTheDocument();
-    expect(rowScope.getByText('SMN1 haplotypes')).toBeInTheDocument();
-    expect(rowScope.getByText('smn1_smn1hap1')).toBeInTheDocument();
-    expect(rowScope.queryByText('Assembled haplotypes')).not.toBeInTheDocument();
-    expect(rowScope.queryByText('assembled_1, assembled_2')).not.toBeInTheDocument();
-    expect(rowScope.getByText(/depth is ambiguous/i)).toBeInTheDocument();
-    expect(rowScope.getAllByText('1').length).toBeGreaterThan(0);
-    expect(rowScope.getAllByText('2').length).toBeGreaterThan(0);
+    expect(smnScope.getByText('PROBAND')).toBeInTheDocument();
+    expect(smnScope.getByText('MOTHER')).toBeInTheDocument();
+    // Pathogenicity status chips + key CN are visible by default.
+    expect(smnScope.getByText('No-call')).toBeInTheDocument();
+    expect(smnScope.getByText('Normal')).toBeInTheDocument();
+    expect(smnScope.getAllByText('SMN1 CN').length).toBeGreaterThan(0);
+    expect(smnScope.getAllByText('SMN2 CN').length).toBeGreaterThan(0);
+    // Verbose technical detail is hidden until "Extra info" is opened.
+    expect(smnScope.queryByText(/6 final haplotypes/i)).not.toBeInTheDocument();
+    fireEvent.click(smnScope.getByRole('button', { name: /^extra info$/i }));
+    expect(smnScope.getByText(/6 final haplotypes/i)).toBeInTheDocument();
+    expect(smnScope.getByText(/38:chr5:70917100-70961220/i)).toBeInTheDocument();
+    expect(smnScope.getByText('SMN1 reads c.840C')).toBeInTheDocument();
+    expect(smnScope.getByText('SMN1 haplotypes')).toBeInTheDocument();
+    expect(smnScope.getByText('smn1_smn1hap1')).toBeInTheDocument();
+    expect(smnScope.queryByText('Assembled haplotypes')).not.toBeInTheDocument();
+    expect(smnScope.queryByText('assembled_1, assembled_2')).not.toBeInTheDocument();
+    expect(smnScope.getByText(/depth is ambiguous/i)).toBeInTheDocument();
 
-    const rccxRow = screen.getByText('RCCX module').closest('tr');
-    expect(rccxRow).not.toBeNull();
-    const rccxScope = within(rccxRow as HTMLElement);
+    const rccxCard = screen.getByText('RCCX module').closest('article');
+    expect(rccxCard).not.toBeNull();
+    // A pathogenic sample gives the locus card the red top+left rail.
+    expect(rccxCard).toHaveClass('variant-card--clinvar-pathogenic');
+    const rccxScope = within(rccxCard as HTMLElement);
+    expect(rccxScope.getByText('Pathogenic')).toBeInTheDocument();
+    fireEvent.click(rccxScope.getByRole('button', { name: /^extra info$/i }));
     expect(rccxScope.getByText('Annotated Alleles')).toBeInTheDocument();
     expect(rccxScope.getByText(/WT, deletion_P31L/i)).toBeInTheDocument();
     expect(rccxScope.getByText(/Per-allele CYP21A2 annotations/i)).toBeInTheDocument();

@@ -6676,6 +6676,166 @@ button.table-link:hover {
   background: rgba(26, 77, 100, 0.1);
 }
 
+/* Per-locus result cards: clean summary by default, detail under "Extra info". */
+.paraphase-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+}
+
+.paraphase-card {
+  gap: 0.45rem;
+}
+
+.paraphase-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.paraphase-card-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.paraphase-card-interpretation {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.paraphase-card-samples {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.paraphase-sample-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.28rem 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.78rem;
+}
+
+.paraphase-sample-id {
+  font-weight: 650;
+}
+
+.paraphase-sample-role {
+  font-size: 0.72rem;
+}
+
+.paraphase-sample-cn {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+  color: var(--color-text-muted);
+}
+
+.paraphase-sample-cn strong {
+  color: var(--color-text);
+}
+
+/* Pathogenicity status chip. */
+.paraphase-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.paraphase-status--pathogenic {
+  background: var(--color-signature-red-soft);
+  color: var(--color-signature-red-dark);
+  border-color: rgba(198, 31, 45, 0.4);
+}
+
+.paraphase-status--carrier {
+  background: rgba(180, 120, 20, 0.1);
+  color: #8a5a00;
+  border-color: rgba(180, 120, 20, 0.35);
+}
+
+.paraphase-status--normal {
+  background: rgba(53, 111, 83, 0.1);
+  color: #2f6a4f;
+  border-color: rgba(53, 111, 83, 0.32);
+}
+
+.paraphase-status--review {
+  background: rgba(38, 92, 130, 0.1);
+  color: #1f4d64;
+  border-color: rgba(38, 92, 130, 0.3);
+}
+
+.paraphase-status--nocall {
+  background: rgba(120, 120, 120, 0.1);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+.paraphase-extra-toggle {
+  justify-self: start;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.paraphase-card-extra {
+  display: grid;
+  gap: 0.7rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--color-border);
+}
+
+.paraphase-findings {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2rem 0.7rem;
+  margin: 0;
+  font-size: 0.74rem;
+}
+
+.paraphase-findings dt {
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.64rem;
+  padding-top: 0.05rem;
+}
+
+.paraphase-findings dt.paraphase-findings-pathogenic {
+  color: var(--color-signature-red-dark);
+}
+
+.paraphase-findings dd {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.paraphase-sample-detail {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.paraphase-sample-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
 .family-paraphase-calls {
   min-width: 28rem;
   display: grid;
