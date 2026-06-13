@@ -545,6 +545,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                         to={`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, variant.position - 100)}&end=${variant.position + 100}${
                           resolvedProjectId ? `&project_id=${resolvedProjectId}` : ''
                         }`}
+                        className="variant-card-resource variant-card-resource--clinical"
                       >
                         Chromosome view
                       </Link>
