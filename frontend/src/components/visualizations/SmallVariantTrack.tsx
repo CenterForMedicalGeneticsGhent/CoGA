@@ -7,6 +7,7 @@ import { formatGt } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import {
   SMALL_VARIANT_TRACK_RESULT_LIMIT,
+  TRACK_DOT_RADIUS,
   shouldShowSmallVariantDetails,
 } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
@@ -343,7 +344,9 @@ const SmallVariantTrack: React.FC<Props> = ({
     const g = svg.append('g');
     const rowCount = originMode ? 3 : 1;
     const rowHeight = height / rowCount;
-    const radius = Math.max(1.5, Math.min(2.5, rowHeight / 2 - 1));
+    // Shared with the coverage / APCAD tracks so all per-point dots match, but
+    // never larger than half a row.
+    const radius = Math.min(TRACK_DOT_RADIUS, rowHeight / 2 - 1);
     const cyForOrigin = (origin: ParentalOrigin): number => {
       if (!originMode) return height / 2;
       const row = origin === 'paternal' ? 0 : origin === 'maternal' ? 2 : 1;

@@ -3,6 +3,10 @@ const clamp = (value: number, min: number, max: number): number =>
 
 export const SMALL_VARIANT_TRACK_RESULT_LIMIT = 10000;
 
+// Shared dot radius for the per-point tracks (coverage, APCAD, small variants) so
+// they all render at the same size.
+export const TRACK_DOT_RADIUS = 1.8;
+
 // No span gate: small-variant / phased-marker detail is shown at any zoom and
 // governed solely by the variant cap (SMALL_VARIANT_TRACK_RESULT_LIMIT) — beyond
 // that count the track shows "too many"; the phased-marker endpoint is bounded.

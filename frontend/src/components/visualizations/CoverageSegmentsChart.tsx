@@ -7,6 +7,7 @@ import {
 } from '../../lib/settings';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
+import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
 
 const DEFAULT_CHROMS = [
@@ -423,7 +424,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
       ctx.beginPath();
       ctx.fillStyle = color;
-      ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
+      ctx.arc(cx, cy, TRACK_DOT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
     });
 
