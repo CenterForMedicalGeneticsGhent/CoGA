@@ -280,9 +280,9 @@ test('colors ClinVar benign/pathogenic; other ClinVar falls through to impact', 
     container.querySelectorAll('circle'),
   );
   expect(likelyPathogenic).toHaveAttribute('fill', '#dc2626'); // red
-  expect(likelyBenign).toHaveAttribute('fill', '#bfdbfe'); // light blue
-  // "Conflicting" is not benign/pathogenic → coloured by impact (none → light gray).
-  expect(conflicting).toHaveAttribute('fill', '#d1d5db');
+  expect(likelyBenign).toHaveAttribute('fill', '#60a5fa'); // blue
+  // "Conflicting" is not benign/pathogenic → coloured by impact (none → gray).
+  expect(conflicting).toHaveAttribute('fill', '#9ca3af');
 });
 
 test('colors variants by functional impact when no ClinVar override applies', async () => {
@@ -309,10 +309,10 @@ test('colors variants by functional impact when no ClinVar override applies', as
 
   await waitFor(() => expect(container.querySelectorAll('circle')).toHaveLength(4));
   const [high, moderate, low, modifier] = Array.from(container.querySelectorAll('circle'));
-  expect(high).toHaveAttribute('fill', '#fed7aa'); // light orange
-  expect(moderate).toHaveAttribute('fill', '#bbf7d0'); // light green
-  expect(low).toHaveAttribute('fill', '#d1d5db'); // light gray
-  expect(modifier).toHaveAttribute('fill', '#d1d5db'); // light gray (lowest)
+  expect(high).toHaveAttribute('fill', '#fb923c'); // orange
+  expect(moderate).toHaveAttribute('fill', '#4ade80'); // green
+  expect(low).toHaveAttribute('fill', '#9ca3af'); // gray
+  expect(modifier).toHaveAttribute('fill', '#9ca3af'); // gray (lowest)
 });
 
 test('ClinVar pathogenic overrides functional impact', async () => {

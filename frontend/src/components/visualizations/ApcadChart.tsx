@@ -370,7 +370,7 @@ const ApcadChart: React.FC<Props> = ({
 
       ctx.fillStyle = fill;
       ctx.beginPath();
-      ctx.arc(cx, cy, 0.7, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 1, 0, Math.PI * 2);
       ctx.fill();
     });
 
