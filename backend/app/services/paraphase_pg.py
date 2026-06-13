@@ -139,6 +139,13 @@ def load_paraphase_medical_regions() -> list[dict[str, Any]]:
                         for key, value in (raw_region.get("field_descriptions") or {}).items()
                         if key and value
                     },
+                    "clinical": _clinical_block(raw_region.get("clinical")),
+                    "status_rule": (
+                        raw_region["clinical"].get("status_rule")
+                        if isinstance(raw_region.get("clinical"), dict)
+                        and isinstance(raw_region["clinical"].get("status_rule"), dict)
+                        else None
+                    ),
                     "notes": [str(item) for item in raw_region.get("notes") or [] if item],
                     "disorders": [
                         {
@@ -152,6 +159,60 @@ def load_paraphase_medical_regions() -> list[dict[str, Any]]:
             )
         return regions
     return []
+
+
+_CLINICAL_DISPLAY_KEYS = ("interpretation", "normal", "carrier", "pathogenic", "caveats")
+
+
+def _clinical_block(raw: Any) -> dict[str, str] | None:
+    if not isinstance(raw, dict):
+        return None
+    block = {key: str(raw[key]) for key in _CLINICAL_DISPLAY_KEYS if raw.get(key)}
+    return block or None
+
+
+def _condition_met(value: float, condition: dict[str, Any]) -> bool:
+    for op, target in condition.items():
+        try:
+            bound = float(target)
+        except (TypeError, ValueError):
+            return False
+        if op == "eq" and value != bound:
+            return False
+        if op == "lte" and not value <= bound:
+            return False
+        if op == "gte" and not value >= bound:
+            return False
+        if op == "lt" and not value < bound:
+            return False
+        if op == "gt" and not value > bound:
+            return False
+    return True
+
+
+def _clinical_status(
+    region: dict[str, Any] | None,
+    copy_number_metrics: list[ParaphaseMetricOut],
+    *,
+    copy_number_signal: bool,
+    fusion_count: int | None,
+) -> str | None:
+    if region is None:
+        return None
+    rule = region.get("status_rule")
+    if isinstance(rule, dict) and rule.get("field"):
+        metric = next((item for item in copy_number_metrics if item.key == rule["field"]), None)
+        if metric is None or metric.value is None:
+            return "no_call"
+        for status in ("pathogenic", "carrier", "normal"):
+            condition = rule.get(status)
+            if isinstance(condition, dict) and _condition_met(metric.value, condition):
+                return status
+        return "review"
+    # Allele-dependent loci (no automatic call): surface anything non-baseline for review.
+    if region.get("clinical"):
+        return "review" if copy_number_signal or (fusion_count or 0) > 0 else "none"
+    return None
 
 
 def _paraphase_region_for_gene(gene_symbol: str) -> dict[str, Any] | None:
@@ -172,6 +233,7 @@ def _region_out_payload(region: dict[str, Any]) -> dict[str, Any]:
         "display_name": region["display_name"],
         "genes": region.get("genes") or [],
         "summary": region.get("summary"),
+        "clinical": region.get("clinical"),
         "clinical_priority": region.get("clinical_priority") or 999,
         "key_copy_number_fields": region.get("key_copy_number_fields") or [],
         "key_read_fields": region.get("key_read_fields") or [],
@@ -414,11 +476,18 @@ async def get_family_paraphase_table_response(
         haplotype_groups = _extract_haplotype_groups(payload)
         extra_fields = _extract_extra_fields(payload, region_info)
         copy_number_signal = any(_copy_number_is_signal(metric) for metric in copy_number_metrics)
+        clinical_status = _clinical_status(
+            region_info,
+            copy_number_metrics,
+            copy_number_signal=copy_number_signal,
+            fusion_count=_optional_count(payload.get("fusions_called")),
+        )
         sample_result = ParaphaseSampleResultOut(
             sample=sample_name,
             role=meta.get("role"),
             affected=meta.get("affected"),
             sex=meta.get("sex"),
+            clinical_status=clinical_status,
             total_cn=row.get("total_cn"),
             gene_cn=row.get("gene_cn"),
             highest_total_cn=row.get("highest_total_cn"),

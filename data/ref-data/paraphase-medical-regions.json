@@ -5,13 +5,35 @@
     {
       "region_id": "smn1_smn2",
       "display_name": "SMN1/SMN2",
-      "genes": ["SMN1", "SMN2"],
-      "aliases": ["smn1", "smn2", "smn"],
+      "genes": [
+        "SMN1",
+        "SMN2"
+      ],
+      "aliases": [
+        "smn1",
+        "smn2",
+        "smn"
+      ],
       "summary": "Clinically relevant copy-number calls for SMN1, SMN2, and SMN exon 7-8 deletion alleles.",
       "clinical_priority": 1,
-      "key_copy_number_fields": ["smn1_cn", "smn2_cn", "smn_del78_cn", "smn2_del78_cn"],
-      "key_read_fields": ["smn1_read_number", "smn2_read_number", "smn_del78_read_number", "smn2_del78_read_number"],
-      "key_haplotype_fields": ["smn1_haplotypes", "smn2_haplotypes", "smn_del78_haplotypes", "smn2_del78_haplotypes"],
+      "key_copy_number_fields": [
+        "smn1_cn",
+        "smn2_cn",
+        "smn_del78_cn",
+        "smn2_del78_cn"
+      ],
+      "key_read_fields": [
+        "smn1_read_number",
+        "smn2_read_number",
+        "smn_del78_read_number",
+        "smn2_del78_read_number"
+      ],
+      "key_haplotype_fields": [
+        "smn1_haplotypes",
+        "smn2_haplotypes",
+        "smn_del78_haplotypes",
+        "smn2_del78_haplotypes"
+      ],
       "notes": [
         "A null SMN1 or SMN2 copy-number call can occur when Paraphase finds one haplotype but depth does not unambiguously support copy number one versus two."
       ],
@@ -20,18 +42,55 @@
           "name": "Spinal muscular atrophy",
           "omim_url": "https://www.omim.org/entry/253300"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Read SMN1 copy number first: 0 copies = SMA-affected, 1 = carrier, 2 = normal. SMN2 copy number does not change affected/carrier status but modifies severity in affected people (more SMN2 = milder).",
+        "normal": "SMN1 CN 2.",
+        "carrier": "SMN1 CN 1.",
+        "pathogenic": "SMN1 CN 0 -> SMA-affected; report SMN2 CN as a severity modifier (fewer SMN2 = more severe).",
+        "caveats": "Misses silent 2+0 carriers (appear as SMN1 CN 2) and intragenic point mutations in an otherwise-present SMN1.",
+        "status_rule": {
+          "field": "smn1_cn",
+          "pathogenic": {
+            "eq": 0
+          },
+          "carrier": {
+            "eq": 1
+          },
+          "normal": {
+            "gte": 2
+          }
+        }
+      }
     },
     {
       "region_id": "rccx",
       "display_name": "RCCX module",
-      "genes": ["RCCX", "CYP21A2", "TNXB", "C4A", "C4B"],
-      "aliases": ["rccx", "cyp21a2", "tnxb", "c4a", "c4b"],
+      "genes": [
+        "RCCX",
+        "CYP21A2",
+        "TNXB",
+        "C4A",
+        "C4B"
+      ],
+      "aliases": [
+        "rccx",
+        "cyp21a2",
+        "tnxb",
+        "c4a",
+        "c4b"
+      ],
       "summary": "Complex RCCX structural variation spanning CYP21A2, TNXB, and complement C4 genes.",
       "clinical_priority": 2,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "key_extra_fields": [
         "annotated_alleles",
         "hap_variants",
@@ -61,69 +120,150 @@
           "name": "Complement C4 variation and autoimmune disease susceptibility",
           "omim_url": "https://www.omim.org/search?index=entry&search=C4A%20C4B%20autoimmune"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Read the per-allele CYP21A2/CYP21A1P annotation, not total copy number. 21-hydroxylase CAH is recessive: a damaging allele (CYP21A2 deletion, pseudogene-derived fusion/chimera, or pathogenic variant) on BOTH alleles = affected; one normal allele = carrier.",
+        "normal": "Each allele has one functional CYP21A2 + one CYP21A1P (WT); isolated pseudogene duplication/deletion or a benign gene duplication are not disease.",
+        "carrier": "One affected allele (CYP21A2 deletion, CYP21A1P/CYP21A2 fusion, or pathogenic variant) with a normal allele.",
+        "pathogenic": "Biallelic damaging alleles (gene deletion, chimeric/30-kb deletion alleles, gene conversion, or known pathogenic CYP21A2 variants).",
+        "caveats": "Allele-dependent, not inferable from copy number alone (e.g. a WT+Q319X duplication allele is NOT pathogenic)."
+      }
     },
     {
       "region_id": "pms2",
       "display_name": "PMS2",
-      "genes": ["PMS2"],
-      "aliases": ["pms2"],
+      "genes": [
+        "PMS2"
+      ],
+      "aliases": [
+        "pms2"
+      ],
       "summary": "PMS2 copy-number and haplotype resolution in a duplicated/pseudogene-rich Lynch syndrome region.",
       "clinical_priority": 3,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Lynch syndrome",
           "omim_url": "https://www.omim.org/search?index=entry&search=PMS2%20Lynch%20syndrome"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Paraphase assigns 3' exon variants to the functional PMS2 gene vs the PMS2CL pseudogene. Lynch syndrome is dominant: a pathogenic variant in PMS2 (not PMS2CL) = predisposition; biallelic PMS2 variants cause CMMRD.",
+        "normal": "Variant localized to the PMS2CL pseudogene, or no pathogenic PMS2 variant.",
+        "carrier": "One pathogenic PMS2 variant = Lynch predisposition (dominant).",
+        "pathogenic": "Pathogenic/likely-pathogenic variant assigned to functional PMS2 (including resolved 3'-exon variants).",
+        "caveats": "Variant- and gene-assignment-dependent (PMS2 vs PMS2CL), not a copy-number call."
+      }
     },
     {
       "region_id": "strc",
       "display_name": "STRC",
-      "genes": ["STRC"],
-      "aliases": ["strc"],
+      "genes": [
+        "STRC"
+      ],
+      "aliases": [
+        "strc"
+      ],
       "summary": "STRC copy-number changes are a common cause of hereditary hearing loss.",
       "clinical_priority": 4,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Hereditary hearing loss and deafness",
           "omim_url": "https://www.omim.org/search?index=entry&search=STRC%20deafness"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "STRC is recessive and Paraphase distinguishes it from its near-identical pseudogene: 2 functional copies = normal, 1 = carrier, 0 = biallelic loss consistent with DFNB16 hearing loss.",
+        "normal": "STRC CN 2.",
+        "carrier": "STRC CN 1 (heterozygous deletion).",
+        "pathogenic": "STRC CN 0 -> biallelic loss / DFNB16 hearing loss; a deletion extending into CATSPER2 causes deafness-infertility syndrome in males.",
+        "caveats": "A single-copy deletion plus a point variant on the other allele also causes hearing loss, so CN 1 is not safely carrier-only.",
+        "status_rule": {
+          "field": "gene_cn",
+          "pathogenic": {
+            "eq": 0
+          },
+          "carrier": {
+            "eq": 1
+          },
+          "normal": {
+            "gte": 2
+          }
+        }
+      }
     },
     {
       "region_id": "ikbkg",
       "display_name": "IKBKG",
-      "genes": ["IKBKG"],
-      "aliases": ["ikbkg", "nemo"],
+      "genes": [
+        "IKBKG"
+      ],
+      "aliases": [
+        "ikbkg",
+        "nemo"
+      ],
       "summary": "IKBKG copy-number and rearrangement calls in the duplicated IKBKG/pseudogene region.",
       "clinical_priority": 5,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Incontinentia pigmenti",
           "omim_url": "https://www.omim.org/entry/308300"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Check whether the recurrent IKBKG exon 4-10 deletion sits on the functional IKBKG haplotype (pathogenic) or only on the IKBKGP1 pseudogene (benign). Incontinentia pigmenti is X-linked dominant.",
+        "normal": "Intact IKBKG; a deletion confined to the IKBKGP1 pseudogene (common, ~10-12%) is benign.",
+        "carrier": "X-linked dominant -- heterozygous females with the gene deletion are typically affected, not silent carriers.",
+        "pathogenic": "IKBKG exon 4-10 deletion on the functional gene haplotype -> incontinentia pigmenti.",
+        "caveats": "X-linked with male lethality; a gene-level deletion in a viable male suggests mosaicism or an atypical rearrangement."
+      }
     },
     {
       "region_id": "ncf1",
       "display_name": "NCF1",
-      "genes": ["NCF1"],
-      "aliases": ["ncf1"],
+      "genes": [
+        "NCF1"
+      ],
+      "aliases": [
+        "ncf1"
+      ],
       "summary": "NCF1 copy-number and pseudogene-aware calls relevant to oxidative burst disease and Williams syndrome region interpretation.",
       "clinical_priority": 6,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Chronic granulomatous disease",
@@ -133,103 +273,225 @@
           "name": "Williams syndrome region",
           "omim_url": "https://www.omim.org/entry/194050"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Interpret the count of functional NCF1 copies (GTGT at exon 2) out of the ~6 NCF1-family copies: 2 functional = normal, 1 = carrier, 0 = p47phox-deficient chronic granulomatous disease (recessive).",
+        "normal": "2 functional GTGT copies (of ~6).",
+        "carrier": "1 functional GTGT copy (asymptomatic).",
+        "pathogenic": "0 functional GTGT copies (all delta-GT) -> p47phox CGD (>97% of p47phox patients).",
+        "caveats": "Recessive; NCF1-family copy number varies between people, so judge the functional-copy count relative to total rather than a fixed ratio."
+      }
     },
     {
       "region_id": "neb",
       "display_name": "NEB",
-      "genes": ["NEB"],
-      "aliases": ["neb"],
+      "genes": [
+        "NEB"
+      ],
+      "aliases": [
+        "neb"
+      ],
       "summary": "NEB duplicated-region calls relevant to nemaline myopathy.",
       "clinical_priority": 7,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Nemaline myopathy",
           "omim_url": "https://www.omim.org/search?index=entry&search=NEB%20nemaline%20myopathy"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "The NEB triplicate (TRI) region is normally 3 copies per allele (diploid 6). Pathogenicity is per-allele deviation: +/-1 block is benign, but a gain/loss of >=2 blocks per allele on both alleles is recessive-pathogenic. Total CN alone is ambiguous -- inspect the TRI haplotype distribution.",
+        "normal": "Total CN 6 (3 per allele); CN 5 or 7 (a single-block change) is a benign polymorphism.",
+        "carrier": "One allele with a >=2-block deviation, the other normal.",
+        "pathogenic": "Biallelic >=2-block deviation (often a high total CN) -> NEB-related nemaline myopathy.",
+        "caveats": "Recessive and per-allele; total CN cannot be classified without allele-level phasing, and TRI CNVs explain only ~10-15% of NEB myopathy."
+      }
     },
     {
       "region_id": "f8",
       "display_name": "F8",
-      "genes": ["F8"],
-      "aliases": ["f8", "factor8"],
+      "genes": [
+        "F8"
+      ],
+      "aliases": [
+        "f8",
+        "factor8"
+      ],
       "summary": "F8 intron 22 inversion and related structural events in hemophilia A.",
       "clinical_priority": 8,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Hemophilia A",
           "omim_url": "https://www.omim.org/entry/306700"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Look for the recurrent intron 22 inversion (int22h-1<->int22h-3; a hybrid h1-start/h3-end haplotype) or the intron 1 inversion. Hemophilia A is X-linked recessive.",
+        "normal": "Three int22h haplotypes in their expected orientation with no hybrid/inversion breakpoint.",
+        "carrier": "Heterozygous female with the inversion = carrier (~30% have FVIII <40% and bleeding risk).",
+        "pathogenic": "Intron 22 inversion (~45% of severe hemophilia A) or intron 1 inversion (~2-5%); in a male this means affected (severe).",
+        "caveats": "X-linked -- call sex and zygosity carefully; inversions occur only in severe disease, not mild/moderate HA."
+      }
     },
     {
       "region_id": "cfc1",
       "display_name": "CFC1",
-      "genes": ["CFC1"],
-      "aliases": ["cfc1"],
+      "genes": [
+        "CFC1"
+      ],
+      "aliases": [
+        "cfc1"
+      ],
       "summary": "CFC1 region calls relevant to heterotaxy and laterality disorders.",
       "clinical_priority": 9,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Heterotaxy syndrome",
           "omim_url": "https://www.omim.org/search?index=entry&search=CFC1%20heterotaxy"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Confirm any loss-of-function variant or copy-number change is on the functional CFC1 (not the CFC1B paralog). CFC1 is an uncommon, reduced-penetrance cause of heterotaxy/laterality defects -- treat a finding as supportive evidence.",
+        "normal": "Two intact functional CFC1 copies; benign reduced-penetrance polymorphisms (e.g. N21H, R47Q) occur in unaffected people.",
+        "carrier": "No clean recessive carrier model; a heterozygous LoF/CNV may be a risk allele transmitted by unaffected parents.",
+        "pathogenic": "Loss-of-function variant or CNV of functional CFC1, associated with heterotaxy / complex CHD (supportive, not definitive).",
+        "caveats": "Incomplete penetrance and genetic heterogeneity -- correlate with phenotype and other heterotaxy genes."
+      }
     },
     {
       "region_id": "opsin",
       "display_name": "OPN1LW/OPN1MW",
-      "genes": ["OPN1LW", "OPN1MW"],
-      "aliases": ["opn1lw", "opn1mw", "opsin"],
+      "genes": [
+        "OPN1LW",
+        "OPN1MW"
+      ],
+      "aliases": [
+        "opn1lw",
+        "opn1mw",
+        "opsin"
+      ],
       "summary": "X-linked opsin array copy-number and haplotype calls relevant to color vision deficiency.",
       "clinical_priority": 10,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Color vision deficiencies",
           "omim_url": "https://www.omim.org/search?index=entry&search=OPN1LW%20OPN1MW%20color%20vision"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Interpret the OPN1LW/OPN1MW array as structural integrity (locus control region + gene copies) AND the exon-3 haplotype of the expressed copies. Disease arises only when all expressed copies are inactivated.",
+        "normal": "One OPN1LW then 1-3 OPN1MW copies (total ~2-4), intact LCR, and a normal exon-3 haplotype on the expressed copies.",
+        "carrier": "Females may carry a deleterious haplotype or array SV on one X and be asymptomatic; large arrays (>3 genes) are less stable.",
+        "pathogenic": "Blue cone monochromacy when all expressed copies are nonfunctional -- LCR/cluster deletion, p.Cys203Arg, or deleterious exon-3 haplotypes (LIAVA, LVAVA, LIAVS).",
+        "caveats": "Allele- and position-dependent -- copy number alone is insufficient; a deleterious haplotype matters only if it is in an expressed copy."
+      }
     },
     {
       "region_id": "hba",
       "display_name": "HBA1/HBA2",
-      "genes": ["HBA1", "HBA2"],
-      "aliases": ["hba1", "hba2", "hba"],
+      "genes": [
+        "HBA1",
+        "HBA2"
+      ],
+      "aliases": [
+        "hba1",
+        "hba2",
+        "hba"
+      ],
       "summary": "Alpha-globin locus copy-number calls relevant to alpha-thalassemia.",
       "clinical_priority": 11,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Alpha-thalassemia",
           "omim_url": "https://www.omim.org/search?index=entry&search=HBA1%20HBA2%20alpha-thalassemia"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Severity tracks the number of functional alpha-globin genes (normal = 4): 4 normal, 3 silent carrier, 2 alpha-thalassemia trait, 1 HbH disease, 0 Hb Bart hydrops fetalis.",
+        "normal": "4 functional alpha-globin genes.",
+        "carrier": "3 (silent carrier) or 2 (alpha-thalassemia trait -- the reproductive carrier state).",
+        "pathogenic": "1 -> HbH disease; 0 -> Hb Bart hydrops fetalis (usually fatal in utero).",
+        "caveats": "Copy number cannot distinguish cis vs trans at total 2, and non-deletional variants (e.g. Hb Constant Spring) are missed.",
+        "status_rule": {
+          "field": "total_cn",
+          "pathogenic": {
+            "lte": 1
+          },
+          "carrier": {
+            "lte": 3
+          },
+          "normal": {
+            "gte": 4
+          }
+        }
+      }
     },
     {
       "region_id": "gba",
       "display_name": "GBA",
-      "genes": ["GBA"],
-      "aliases": ["gba", "gba1"],
+      "genes": [
+        "GBA"
+      ],
+      "aliases": [
+        "gba",
+        "gba1"
+      ],
       "summary": "GBA copy-number and recombinant allele calls in the GBA/GBAP1 region.",
       "clinical_priority": 12,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Gaucher disease",
@@ -239,35 +501,81 @@
           "name": "Parkinson disease susceptibility",
           "omim_url": "https://www.omim.org/search?index=entry&search=GBA%20Parkinson"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Paraphase resolves GBA1 from the GBAP1 pseudogene and reports recombinant/fusion alleles (RecNciI, RecTL, RecTL+55) and point variants. Gaucher disease is recessive (biallelic); a single GBA1 variant is a carrier and a low-penetrance Parkinson risk factor.",
+        "normal": "Two intact GBA1 copies; pseudogene-only (GBAP1) variants are not disease-causing.",
+        "carrier": "One GBA1 pathogenic/recombinant allele -- no Gaucher disease, but elevated Parkinson risk.",
+        "pathogenic": "Biallelic GBA1 damaging variants (recombinant/fusion alleles and/or known pathogenic variants e.g. N370S/L444P); recombinant/null alleles tend to be more severe.",
+        "caveats": "Allele/variant-dependent, not a copy-number call; a benign GBAP1-internal variant must not be mistaken for a GBA1 recombinant."
+      }
     },
     {
       "region_id": "cyp11b",
       "display_name": "CYP11B1/CYP11B2",
-      "genes": ["CYP11B1", "CYP11B2"],
-      "aliases": ["cyp11b1", "cyp11b2", "cyp11b"],
+      "genes": [
+        "CYP11B1",
+        "CYP11B2"
+      ],
+      "aliases": [
+        "cyp11b1",
+        "cyp11b2",
+        "cyp11b"
+      ],
       "summary": "CYP11B1/CYP11B2 copy-number and hybrid gene calls relevant to adrenal steroid disorders.",
       "clinical_priority": 13,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Glucocorticoid-remediable aldosteronism",
           "omim_url": "https://www.omim.org/search?index=entry&search=CYP11B1%20CYP11B2%20glucocorticoid-remediable%20aldosteronism"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Normal individuals carry distinct CYP11B1 and CYP11B2. A CYP11B1/CYP11B2 chimeric (fusion) allele causes glucocorticoid-remediable aldosteronism (GRA / familial hyperaldosteronism type 1) and is autosomal dominant -- a single chimera is sufficient.",
+        "normal": "Intact, separate CYP11B1 and CYP11B2 with no fusion/chimeric haplotype.",
+        "carrier": "Not applicable -- autosomal dominant; a chimera-positive person is affected/at-risk, not a silent carrier.",
+        "pathogenic": "A CYP11B1/CYP11B2 chimeric/fusion allele -> GRA/FH-I; confirm biochemically.",
+        "caveats": "Phenotype and penetrance depend on the crossover breakpoint; correlate the fusion call with biochemistry."
+      }
     },
     {
       "region_id": "cfh_cfhr",
       "display_name": "CFH/CFHR locus",
-      "genes": ["CFH", "CFHR1", "CFHR2", "CFHR3", "CFHR4"],
-      "aliases": ["cfh", "cfhr1", "cfhr2", "cfhr3", "cfhr4", "cfh_cfhr"],
+      "genes": [
+        "CFH",
+        "CFHR1",
+        "CFHR2",
+        "CFHR3",
+        "CFHR4"
+      ],
+      "aliases": [
+        "cfh",
+        "cfhr1",
+        "cfhr2",
+        "cfhr3",
+        "cfhr4",
+        "cfh_cfhr"
+      ],
       "summary": "CFH/CFHR large deletion and duplication calls relevant to complement-mediated disease.",
       "clinical_priority": 14,
-      "key_copy_number_fields": ["total_cn", "gene_cn", "highest_total_cn"],
+      "key_copy_number_fields": [
+        "total_cn",
+        "gene_cn",
+        "highest_total_cn"
+      ],
       "key_read_fields": [],
-      "key_haplotype_fields": ["final_haplotypes"],
+      "key_haplotype_fields": [
+        "final_haplotypes"
+      ],
       "disorders": [
         {
           "name": "Atypical hemolytic uremic syndrome",
@@ -277,7 +585,14 @@
           "name": "Age-related macular degeneration",
           "omim_url": "https://www.omim.org/search?index=entry&search=CFH%20age-related%20macular%20degeneration"
         }
-      ]
+      ],
+      "clinical": {
+        "interpretation": "Interpret by which genes are deleted/duplicated AND whether a breakpoint creates a CFH-involving hybrid. CFHR-only changes are mostly risk modifiers; CFH::CFHR hybrids are high-risk for atypical HUS.",
+        "normal": "Two intact copies of CFH and of each CFHR gene; a heterozygous CFHR3-CFHR1 deletion is common and on its own is only a modifier.",
+        "carrier": "Homozygous CFHR3-CFHR1 deletion predisposes to anti-Factor-H-antibody aHUS but is protective against AMD; CFHR-only rearrangements are moderate-risk.",
+        "pathogenic": "CFH-involving rearrangements (CFH::CFHR1 hybrid, reverse CFHR1::CFH, CFH duplication) = high-risk for aHUS.",
+        "caveats": "These are risk/modifier findings, not deterministic; the same CFHR3-CFHR1 deletion raises aHUS risk but lowers AMD risk, and only CFH-breakpoint hybrids carry the high-risk signal."
+      }
     }
   ]
 }

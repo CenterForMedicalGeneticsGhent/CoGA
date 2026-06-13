@@ -1612,11 +1612,20 @@ class ParaphaseDisorderOut(BaseModel):
     omim_url: Optional[str] = None
 
 
+class ParaphaseClinicalOut(BaseModel):
+    interpretation: Optional[str] = None
+    normal: Optional[str] = None
+    carrier: Optional[str] = None
+    pathogenic: Optional[str] = None
+    caveats: Optional[str] = None
+
+
 class ParaphaseRegionInfoOut(BaseModel):
     region_id: str
     display_name: str
     genes: List[str] = Field(default_factory=list)
     summary: Optional[str] = None
+    clinical: Optional[ParaphaseClinicalOut] = None
     clinical_priority: int = 999
     key_copy_number_fields: List[str] = Field(default_factory=list)
     key_read_fields: List[str] = Field(default_factory=list)
@@ -1639,6 +1648,10 @@ class ParaphaseSampleResultOut(BaseModel):
     role: Optional[str] = None
     affected: Optional[bool] = None
     sex: Optional[str] = None
+    # Clinical status derived from locus-specific copy-number rules where defined,
+    # else "review" when a copy-number change is present: pathogenic | carrier |
+    # normal | review | no_call | none.
+    clinical_status: Optional[str] = None
     total_cn: Optional[int] = None
     gene_cn: Optional[int] = None
     highest_total_cn: Optional[int] = None

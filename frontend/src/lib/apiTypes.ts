@@ -330,11 +330,20 @@ export interface ApiParaphaseDisorder {
   omim_url?: string | null;
 }
 
+export interface ApiParaphaseClinical {
+  interpretation?: string | null;
+  normal?: string | null;
+  carrier?: string | null;
+  pathogenic?: string | null;
+  caveats?: string | null;
+}
+
 export interface ApiParaphaseRegionInfo {
   region_id: string;
   display_name: string;
   genes: string[];
   summary?: string | null;
+  clinical?: ApiParaphaseClinical | null;
   clinical_priority: number;
   key_copy_number_fields: string[];
   key_read_fields: string[];
@@ -352,11 +361,20 @@ export interface ApiParaphaseExtraField {
   description?: string | null;
 }
 
+export type ParaphaseClinicalStatus =
+  | 'pathogenic'
+  | 'carrier'
+  | 'normal'
+  | 'review'
+  | 'no_call'
+  | 'none';
+
 export interface ApiParaphaseSampleResult {
   sample: string;
   role?: string | null;
   affected?: boolean | null;
   sex?: string | null;
+  clinical_status?: ParaphaseClinicalStatus | null;
   total_cn?: number | null;
   gene_cn?: number | null;
   highest_total_cn?: number | null;

@@ -143,6 +143,230 @@ const formatExtraFieldValue = (value: unknown): string => {
   return String(value);
 };
 
+const CLINICAL_STATUS_META: Record<string, { label: string; className: string }> = {
+  pathogenic: { label: 'Pathogenic', className: 'paraphase-status--pathogenic' },
+  carrier: { label: 'Carrier', className: 'paraphase-status--carrier' },
+  normal: { label: 'Normal', className: 'paraphase-status--normal' },
+  review: { label: 'Review', className: 'paraphase-status--review' },
+  no_call: { label: 'No-call', className: 'paraphase-status--nocall' },
+  none: { label: '', className: '' },
+};
+
+// The verbose, locus-agnostic technical readout — hidden behind "Extra info".
+const ParaphaseSampleDetail: React.FC<{
+  gene: ApiParaphaseGeneResult;
+  call: ApiParaphaseSampleResult;
+}> = ({ gene, call }) => {
+  const otherCnMetrics = gene.is_medically_relevant
+    ? nonClinicalCopyNumberMetrics(gene, call)
+    : sampleCopyNumberMetrics(call);
+  const highlightedReadKeys = new Set(gene.region_info?.key_read_fields || []);
+  const highlightedReadMetrics = clinicalReadMetrics(gene, call);
+  const secondaryReadMetrics =
+    call.read_metrics?.filter((metric) => !highlightedReadKeys.has(metric.key)) || [];
+  return (
+    <div className="paraphase-sample-detail">
+      <div className="paraphase-sample-detail-head">
+        <strong>{call.sample}</strong>
+        <span className="table-subtle">{call.role}</span>
+      </div>
+      {otherCnMetrics.length > 0 && (
+        <div className="paraphase-cn-grid">
+          {otherCnMetrics.map((metric) => (
+            <span key={metric.key}>
+              {metric.label} <strong>{formatMetricValue(metric.value)}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+      {highlightedReadMetrics.length > 0 && (
+        <div className="paraphase-read-grid paraphase-read-grid--clinical">
+          {highlightedReadMetrics.map((metric) => (
+            <span key={metric.key}>
+              {metric.label} <strong>{formatMetricValue(metric.value)}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+      {secondaryReadMetrics.length > 0 && (
+        <div className="paraphase-read-grid">
+          {secondaryReadMetrics.map((metric) => (
+            <span key={metric.key}>
+              {metric.label} <strong>{formatMetricValue(metric.value)}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+      {!!gene.region_info?.notes?.length && hasClinicalNoCall(gene, call) && (
+        <div className="paraphase-clinical-note">{gene.region_info.notes[0]}</div>
+      )}
+      {!!call.extra_fields?.length && (
+        <div className="paraphase-extra-fields">
+          {call.extra_fields.map((field) => (
+            <div key={field.key} className="paraphase-extra-field">
+              <div>
+                <span>{field.label}</span>
+                {field.description && <p>{field.description}</p>}
+              </div>
+              <strong>{formatExtraFieldValue(field.value)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="table-subtle">
+        {call.final_haplotype_count} final haplotypes · {call.assembled_haplotype_count} assembled ·{' '}
+        {call.variant_site_count} phase sites
+      </div>
+      {visibleHaplotypeGroups(call).length > 0 && (
+        <div className="paraphase-haplotype-groups">
+          {visibleHaplotypeGroups(call).map((group) => (
+            <div key={group.key} className="paraphase-haplotype-group">
+              <span>{group.label}</span>
+              <strong>{group.count}</strong>
+              <div>
+                {group.haplotypes.slice(0, 6).join(', ')}
+                {group.haplotypes.length > 6 ? ` +${group.haplotypes.length - 6} more` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="table-subtle">
+        Depth {formatRegionDepth(call.region_depth)} · genome{' '}
+        {formatNullableNumber(call.genome_depth, 1)}
+      </div>
+      {call.phase_region && <div className="table-subtle">{call.phase_region}</div>}
+    </div>
+  );
+};
+
+const ParaphaseLocusCard: React.FC<{
+  gene: ApiParaphaseGeneResult;
+  members: { sample_id: string; role?: string | null }[];
+}> = ({ gene, members }) => {
+  const [showExtra, setShowExtra] = useState(false);
+  const region = gene.region_info;
+  const clinical = region?.clinical;
+  const anyPathogenic = Object.values(gene.samples).some(
+    (call) => call.clinical_status === 'pathogenic',
+  );
+  return (
+    <article
+      className={`variant-card paraphase-card${anyPathogenic ? ' variant-card--clinvar-pathogenic' : ''}`}
+    >
+      <div className="paraphase-card-head">
+        <div>
+          <div className="paraphase-card-title">{region?.display_name || gene.gene_symbol}</div>
+          {region?.genes?.length ? (
+            <div className="table-subtle">{region.genes.join(', ')}</div>
+          ) : (
+            region?.display_name &&
+            region.display_name !== gene.gene_symbol && (
+              <div className="table-subtle">{gene.gene_symbol}</div>
+            )
+          )}
+        </div>
+        {gene.is_medically_relevant && <span className="table-chip table-chip--accent">Clinical</span>}
+      </div>
+      {!!region?.disorders?.length && (
+        <div className="paraphase-disorder-list">
+          {region.disorders.map((disorder) => (
+            <a key={disorder.name} href={disorder.omim_url || '#'} target="_blank" rel="noreferrer">
+              {disorder.name}
+            </a>
+          ))}
+        </div>
+      )}
+      {clinical?.interpretation && (
+        <p className="paraphase-card-interpretation">{clinical.interpretation}</p>
+      )}
+      <div className="paraphase-card-samples">
+        {members.map((member) => {
+          const call = gene.samples[member.sample_id];
+          if (!call) {
+            return (
+              <div key={member.sample_id} className="paraphase-sample-row">
+                <span className="paraphase-sample-id">{member.sample_id}</span>
+                <span className="table-subtle">No data</span>
+              </div>
+            );
+          }
+          const status = call.clinical_status || 'none';
+          const meta = CLINICAL_STATUS_META[status] || CLINICAL_STATUS_META.none;
+          const clinicalCn = clinicalCopyNumberMetrics(gene, call);
+          return (
+            <div
+              key={member.sample_id}
+              className={`paraphase-sample-row${status === 'pathogenic' ? ' paraphase-sample-row--pathogenic' : ''}`}
+            >
+              <span className="paraphase-sample-id">{member.sample_id}</span>
+              <span className="table-subtle paraphase-sample-role">{member.role}</span>
+              {meta.label && <span className={`paraphase-status ${meta.className}`}>{meta.label}</span>}
+              <span className="paraphase-sample-cn">
+                {clinicalCn.length ? (
+                  clinicalCn.map((metric) => (
+                    <span key={metric.key}>
+                      {metric.label} <strong>{formatMetricValue(metric.value)}</strong>
+                    </span>
+                  ))
+                ) : (
+                  <span className="table-subtle">CN n/a</span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="button-link paraphase-extra-toggle"
+        aria-expanded={showExtra}
+        onClick={() => setShowExtra((value) => !value)}
+      >
+        {showExtra ? 'Hide extra info' : 'Extra info'}
+      </button>
+      {showExtra && (
+        <div className="paraphase-card-extra">
+          {clinical && (clinical.normal || clinical.carrier || clinical.pathogenic || clinical.caveats) && (
+            <dl className="paraphase-findings">
+              {clinical.normal && (
+                <>
+                  <dt>Normal</dt>
+                  <dd>{clinical.normal}</dd>
+                </>
+              )}
+              {clinical.carrier && (
+                <>
+                  <dt>Carrier</dt>
+                  <dd>{clinical.carrier}</dd>
+                </>
+              )}
+              {clinical.pathogenic && (
+                <>
+                  <dt className="paraphase-findings-pathogenic">Pathogenic</dt>
+                  <dd>{clinical.pathogenic}</dd>
+                </>
+              )}
+              {clinical.caveats && (
+                <>
+                  <dt>Caveats</dt>
+                  <dd>{clinical.caveats}</dd>
+                </>
+              )}
+            </dl>
+          )}
+          {members.map((member) => {
+            const call = gene.samples[member.sample_id];
+            return call ? (
+              <ParaphaseSampleDetail key={member.sample_id} gene={gene} call={call} />
+            ) : null;
+          })}
+        </div>
+      )}
+    </article>
+  );
+};
+
 const FamilyParaphasePage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
@@ -351,200 +575,15 @@ const FamilyParaphasePage: React.FC = () => {
           </div>
         </div>
 
-        <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table family-paraphase-table">
-            <thead>
-              <tr>
-                <th>Gene</th>
-                <th>Family copy number</th>
-                <th>Sample results</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredGenes.map((gene) => (
-                <tr key={gene.gene_symbol}>
-                  <td>
-                    <div className="family-paraphase-gene-head">
-                      <div>
-                        <div className="font-semibold">
-                          {gene.region_info?.display_name || gene.gene_symbol}
-                        </div>
-                        {gene.region_info?.display_name &&
-                          gene.region_info.display_name !== gene.gene_symbol && (
-                            <div className="table-subtle">{gene.gene_symbol}</div>
-                          )}
-                      </div>
-                      {gene.is_medically_relevant && (
-                        <span className="table-chip table-chip--accent">Clinical</span>
-                      )}
-                    </div>
-                    {gene.region_info?.summary && (
-                      <div className="paraphase-region-summary">{gene.region_info.summary}</div>
-                    )}
-                    {!!gene.region_info?.disorders?.length && (
-                      <div className="paraphase-disorder-list">
-                        {gene.region_info.disorders.map((disorder) => (
-                          <a
-                            key={disorder.name}
-                            href={disorder.omim_url || '#'}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {disorder.name}
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                    <div className="table-subtle">
-                      Highest total CN {formatNullableNumber(gene.max_highest_total_cn)}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="paraphase-cn-summary">
-                      <span>
-                        Total <strong>{formatNullableNumber(gene.max_total_cn)}</strong>
-                      </span>
-                      <span>
-                        Gene <strong>{formatNullableNumber(gene.max_gene_cn)}</strong>
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="family-paraphase-calls">
-                      {orderedMembers.map((member) => {
-                        const call = gene.samples[member.sample_id];
-                        const clinicalCnMetrics = call ? clinicalCopyNumberMetrics(gene, call) : [];
-                        const otherCnMetrics = call
-                          ? gene.is_medically_relevant
-                            ? nonClinicalCopyNumberMetrics(gene, call)
-                            : sampleCopyNumberMetrics(call)
-                          : [];
-                        const highlightedReadMetrics = call ? clinicalReadMetrics(gene, call) : [];
-                        const highlightedReadKeys = new Set(
-                          gene.region_info?.key_read_fields || [],
-                        );
-                        const secondaryReadMetrics =
-                          call?.read_metrics?.filter((metric) => !highlightedReadKeys.has(metric.key)) || [];
-                        return (
-                          <div
-                            key={member.sample_id}
-                            className={`family-paraphase-call${
-                              hasCopyNumberSignal(call) ? ' family-paraphase-call--signal' : ''
-                            }`}
-                          >
-                            <div className="family-paraphase-call-head">
-                              <strong>{member.sample_id}</strong>
-                              <span className="table-subtle">{member.role}</span>
-                            </div>
-                            {call ? (
-                              <>
-                                {gene.is_medically_relevant && clinicalCnMetrics.length > 0 && (
-                                  <div className="paraphase-clinical-metrics">
-                                    {clinicalCnMetrics.map((metric) => (
-                                      <span key={metric.key}>
-                                        {metric.label}{' '}
-                                        <strong>{formatMetricValue(metric.value)}</strong>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                {otherCnMetrics.length > 0 && (
-                                  <div className="paraphase-cn-grid">
-                                    {otherCnMetrics.map((metric) => (
-                                      <span key={metric.key}>
-                                        {metric.label}{' '}
-                                        <strong>{formatMetricValue(metric.value)}</strong>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                {gene.is_medically_relevant && highlightedReadMetrics.length > 0 && (
-                                  <div className="paraphase-read-grid paraphase-read-grid--clinical">
-                                    {highlightedReadMetrics.map((metric) => (
-                                      <span key={metric.key}>
-                                        {metric.label}{' '}
-                                        <strong>{formatMetricValue(metric.value)}</strong>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                {secondaryReadMetrics.length > 0 && (
-                                  <div className="paraphase-read-grid">
-                                    {secondaryReadMetrics.map((metric) => (
-                                      <span key={metric.key}>
-                                        {metric.label}{' '}
-                                        <strong>{formatMetricValue(metric.value)}</strong>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                {!!gene.region_info?.notes?.length && hasClinicalNoCall(gene, call) && (
-                                  <div className="paraphase-clinical-note">
-                                    {gene.region_info.notes[0]}
-                                  </div>
-                                )}
-                                {gene.is_medically_relevant && !!call.extra_fields?.length && (
-                                  <div className="paraphase-extra-fields">
-                                    {call.extra_fields.map((field) => (
-                                      <div key={field.key} className="paraphase-extra-field">
-                                        <div>
-                                          <span>{field.label}</span>
-                                          {field.description && <p>{field.description}</p>}
-                                        </div>
-                                        <strong>{formatExtraFieldValue(field.value)}</strong>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                <div className="table-subtle">
-                                  {call.final_haplotype_count} final haplotypes ·{' '}
-                                  {call.assembled_haplotype_count} assembled ·{' '}
-                                  {call.variant_site_count} phase sites
-                                </div>
-                                {visibleHaplotypeGroups(call).length > 0 && (
-                                  <div className="paraphase-haplotype-groups">
-                                    {visibleHaplotypeGroups(call).map((group) => (
-                                      <div key={group.key} className="paraphase-haplotype-group">
-                                        <span>{group.label}</span>
-                                        <strong>{group.count}</strong>
-                                        <div>
-                                          {group.haplotypes.slice(0, 6).join(', ')}
-                                          {group.haplotypes.length > 6
-                                            ? ` +${group.haplotypes.length - 6} more`
-                                            : ''}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                <div className="table-subtle">
-                                  Depth {formatRegionDepth(call.region_depth)} · genome{' '}
-                                  {formatNullableNumber(call.genome_depth, 1)}
-                                </div>
-                                {call.phase_region && (
-                                  <div className="table-subtle">{call.phase_region}</div>
-                                )}
-                              </>
-                            ) : (
-                              <span className="table-subtle">No data</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredGenes.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="table-subtle">
-                    No Paraphase results match the current filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {filteredGenes.length === 0 ? (
+          <p className="table-subtle">No Paraphase results match the current filters.</p>
+        ) : (
+          <div className="paraphase-card-grid">
+            {filteredGenes.map((gene) => (
+              <ParaphaseLocusCard key={gene.gene_symbol} gene={gene} members={orderedMembers} />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
