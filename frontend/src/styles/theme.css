@@ -6719,6 +6719,12 @@ button.table-link:hover {
   color: var(--color-text-muted);
 }
 
+.paraphase-card-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
 .paraphase-card-samples {
   display: grid;
   gap: 0.3rem;

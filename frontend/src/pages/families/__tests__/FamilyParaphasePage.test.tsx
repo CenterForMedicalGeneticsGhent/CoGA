@@ -307,6 +307,14 @@ describe('FamilyParaphasePage', () => {
       'href',
       'https://www.omim.org/entry/253300',
     );
+    // Chromosome-view link is derived from the analysed phase_region and uses the
+    // shared red small-variant link style.
+    const smnChromLink = smnScope.getByRole('link', { name: /chromosome view/i });
+    expect(smnChromLink).toHaveAttribute(
+      'href',
+      '/families/F1/chromosome/5?start=70917100&end=70961220',
+    );
+    expect(smnChromLink).toHaveClass('variant-card-resource--clinical');
     expect(smnScope.getByText('PROBAND')).toBeInTheDocument();
     expect(smnScope.getByText('MOTHER')).toBeInTheDocument();
     // Pathogenicity status chips + key CN are visible by default.
