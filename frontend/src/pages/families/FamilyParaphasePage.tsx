@@ -143,6 +143,26 @@ const formatExtraFieldValue = (value: unknown): string => {
   return String(value);
 };
 
+// Paraphase reports the analysed region per call as e.g. "38:chr5:70917100-70961220".
+const parsePhaseRegion = (
+  phaseRegion?: string | null,
+): { chrom: string; start: number; end: number } | null => {
+  if (!phaseRegion) return null;
+  const match = phaseRegion.match(/chr([\w]+):(\d+)-(\d+)/i);
+  if (!match) return null;
+  return { chrom: match[1], start: Number(match[2]), end: Number(match[3]) };
+};
+
+const buildParaphaseChromosomeHref = (
+  familyId: string,
+  region: { chrom: string; start: number; end: number },
+  projectId?: string | null,
+): string => {
+  const params = new URLSearchParams({ start: String(region.start), end: String(region.end) });
+  if (projectId) params.set('project_id', projectId);
+  return `/families/${familyId}/chromosome/${region.chrom}?${params.toString()}`;
+};
+
 const CLINICAL_STATUS_META: Record<string, { label: string; className: string }> = {
   pathogenic: { label: 'Pathogenic', className: 'paraphase-status--pathogenic' },
   carrier: { label: 'Carrier', className: 'paraphase-status--carrier' },
@@ -243,13 +263,19 @@ const ParaphaseSampleDetail: React.FC<{
 const ParaphaseLocusCard: React.FC<{
   gene: ApiParaphaseGeneResult;
   members: { sample_id: string; role?: string | null }[];
-}> = ({ gene, members }) => {
+  familyId: string;
+  projectId?: string | null;
+}> = ({ gene, members, familyId, projectId }) => {
   const [showExtra, setShowExtra] = useState(false);
   const region = gene.region_info;
   const clinical = region?.clinical;
   const anyPathogenic = Object.values(gene.samples).some(
     (call) => call.clinical_status === 'pathogenic',
   );
+  const phaseRegion =
+    Object.values(gene.samples)
+      .map((call) => parsePhaseRegion(call.phase_region))
+      .find(Boolean) || null;
   return (
     <article
       className={`variant-card paraphase-card${anyPathogenic ? ' variant-card--clinvar-pathogenic' : ''}`}
@@ -279,6 +305,16 @@ const ParaphaseLocusCard: React.FC<{
       )}
       {clinical?.interpretation && (
         <p className="paraphase-card-interpretation">{clinical.interpretation}</p>
+      )}
+      {phaseRegion && (
+        <div className="paraphase-card-links">
+          <Link
+            to={buildParaphaseChromosomeHref(familyId, phaseRegion, projectId)}
+            className="variant-card-resource variant-card-resource--clinical"
+          >
+            Chromosome view
+          </Link>
+        </div>
       )}
       <div className="paraphase-card-samples">
         {members.map((member) => {
@@ -580,7 +616,13 @@ const FamilyParaphasePage: React.FC = () => {
         ) : (
           <div className="paraphase-card-grid">
             {filteredGenes.map((gene) => (
-              <ParaphaseLocusCard key={gene.gene_symbol} gene={gene} members={orderedMembers} />
+              <ParaphaseLocusCard
+                key={gene.gene_symbol}
+                gene={gene}
+                members={orderedMembers}
+                familyId={family.family_id}
+                projectId={resolvedProjectId}
+              />
             ))}
           </div>
         )}
