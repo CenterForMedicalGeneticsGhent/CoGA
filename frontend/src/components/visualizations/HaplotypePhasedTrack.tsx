@@ -40,8 +40,10 @@ interface HaplotypeResponse {
 
 interface PhasedMarker {
   pos: number;
-  paternal: number | null;
-  maternal: number | null;
+  // Value drawn on each lane (0/1). Child: inherited paternal (hap1) / maternal
+  // (hap2) homolog; parent: the allele on their own hap1 / hap2.
+  hap1: number | null;
+  hap2: number | null;
 }
 
 interface PhasedMarkerResponse {
@@ -49,6 +51,10 @@ interface PhasedMarkerResponse {
 }
 
 const isDeletedHaplotype = (value: string): boolean => value === '.';
+
+const laneValue = (value: number | null): string => (value === null ? '.' : String(value));
+const gtString = (marker?: PhasedMarker): string =>
+  marker ? `${laneValue(marker.hap1)}|${laneValue(marker.hap2)}` : '—';
 
 /** Nearest marker to a genomic position, by binary search over pos-sorted markers. */
 const nearestMarkerByPos = (markers: PhasedMarker[], pos: number): PhasedMarker | null => {
@@ -66,6 +72,9 @@ const nearestMarkerByPos = (markers: PhasedMarker[], pos: number): PhasedMarker 
   }
   return candidate;
 };
+
+const sampleIdForRole = (members: HaplotypeMemberLike[], role: string): string | null =>
+  members.find((member) => (member.role || '').toLowerCase() === role)?.sample_id ?? null;
 
 interface Props {
   familyId: string;
@@ -86,13 +95,16 @@ interface Props {
   familyMembers?: HaplotypeMemberLike[];
   riskRegion?: HaplotypeRiskRegion | null;
   /**
-   * Overlay the raw per-marker parent-of-origin calls on top of the haplotype
-   * blocks. Enabled for a child with both parents present; the haplotype block is
-   * then drawn as a thin line and the markers as dots on top so disagreements
-   * (phasing noise / switches) stand out against the cleaned blocks.
+   * Overlay the raw per-marker phasing as dots on top of the (thin) haplotype
+   * line. Enabled for the whole family when both parents are present. For a child
+   * the dots are the inherited parental homolog; for a parent, the alleles on
+   * their own homologs. Disagreements with the cleaned blocks stand out.
    */
   showMarkers?: boolean;
 }
+
+const BAND_THICKNESS = 4;
+const DOT_RADIUS = 3;
 
 const HaplotypePhasedTrack: React.FC<Props> = ({
   familyId,
@@ -134,8 +146,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
 
-  // Raw per-marker parent-of-origin (computed server-side, returned per child).
-  // Only fetched when we are overlaying markers for this member.
+  // Raw per-marker phasing (computed server-side, returned per member). Only
+  // fetched when we are overlaying markers.
   const { data: phasedData } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
@@ -186,14 +198,24 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     () => haplotypeData?.samples.find((entry) => entry.sample === sampleId)?.segments || [],
     [haplotypeData?.samples, sampleId],
   );
+  const markersFor = (id: string | null): PhasedMarker[] =>
+    id ? phasedData?.samples.find((entry) => entry.sample === id)?.markers || [] : [];
   const markers = useMemo(
-    () =>
-      showMarkers
-        ? phasedData?.samples.find((entry) => entry.sample === sampleId)?.markers || []
-        : [],
+    () => (showMarkers ? markersFor(sampleId) : []),
     [showMarkers, phasedData?.samples, sampleId],
   );
   const sortedMarkers = useMemo(() => [...markers].sort((a, b) => a.pos - b.pos), [markers]);
+
+  // Father / mother markers, indexed by position, to reconstruct their genotype
+  // at a hovered site for the tooltip.
+  const parentGtByPos = useMemo(() => {
+    if (!showMarkers) return null;
+    const toMap = (id: string | null) => new Map(markersFor(id).map((m) => [m.pos, m]));
+    return {
+      father: toMap(sampleIdForRole(familyMembers, 'father')),
+      mother: toMap(sampleIdForRole(familyMembers, 'mother')),
+    };
+  }, [showMarkers, phasedData?.samples, familyMembers]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -226,8 +248,6 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     const deletedFill = cssVar('--color-haplotype-deleted-fill');
     const deletedStroke = cssVar('--color-haplotype-deleted-stroke');
 
-    const BAND_THICKNESS = 4;
-    const DOT_RADIUS = 2.2;
     const laneCenter = (lane: HaplotypeLane, single: boolean): number =>
       single ? half : lane === 'hap1' ? half / 2 : half + half / 2;
 
@@ -240,6 +260,11 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       const palette = signature.origin === 'paternal' ? fatherColors : motherColors;
       return Number.isNaN(parsed) ? unknownColor : palette[parsed] || unknownColor;
     };
+    // Same colour the cleaned block would use, with the disease overlay on top.
+    const laneFill = (seg: Segment, lane: HaplotypeLane): string => {
+      const riskKind = diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chrom);
+      return riskKind ? riskColors[riskKind] : baseColorForLane(seg, lane);
+    };
 
     // Lane divider.
     ctx.strokeStyle = cssVar('--color-grid');
@@ -249,8 +274,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     ctx.lineTo(width, half + 0.5);
     ctx.stroke();
 
-    // Haplotype blocks. With markers overlaid they shrink to a thin line so the
-    // dots sit on top; otherwise they fill their lane like the classic block view.
+    // Haplotype blocks — always a thin line; markers (when shown) sit on top.
     const recombXs: number[] = [];
     segments.forEach((seg, idx) => {
       const x1 = ((seg.start - regionStart) / span) * width;
@@ -265,31 +289,15 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       const lanes = getRenderableHaplotypeLanes(currentMember, seg, chrom);
       const single = lanes.length === 1;
       lanes.forEach((lane) => {
-        const riskKind = diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chrom);
-        const color = riskKind ? riskColors[riskKind] : baseColorForLane(seg, lane);
-        let y: number;
-        let h: number;
-        if (showMarkers) {
-          y = laneCenter(lane, single) - BAND_THICKNESS / 2;
-          h = BAND_THICKNESS;
-        } else if (single) {
-          y = 1;
-          h = height - 2;
-        } else if (lane === 'hap1') {
-          y = 1;
-          h = half - 2;
-        } else {
-          y = half + 1;
-          h = half - 2;
-        }
-        ctx.fillStyle = color;
-        ctx.fillRect(x1, y, w, h);
+        const y = laneCenter(lane, single) - BAND_THICKNESS / 2;
+        ctx.fillStyle = laneFill(seg, lane);
+        ctx.fillRect(x1, y, w, BAND_THICKNESS);
         if (isDeletedHaplotype(seg[lane])) {
           ctx.strokeStyle = deletedStroke;
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(x1 + 0.75, y + 1);
-          ctx.lineTo(x2 - 0.75, y + h - 1);
+          ctx.moveTo(x1 + 0.75, y);
+          ctx.lineTo(x2 - 0.75, y + BAND_THICKNESS);
           ctx.stroke();
         }
       });
@@ -309,34 +317,30 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
     if (!showMarkers) return;
 
-    // Raw per-marker calls as dots on top of the thin haplotype line.
-    const markerColor = (marker: PhasedMarker, lane: HaplotypeLane): string | null => {
-      const value = lane === 'hap1' ? marker.paternal : marker.maternal;
-      if (value === null) return null;
-      const segment = {
-        chr: chrom,
+    // Raw per-marker calls as dots on top of the thin line, coloured exactly like
+    // the block lane beneath them.
+    const dotColor = (marker: PhasedMarker, lane: HaplotypeLane): string => {
+      const synthetic: Segment = {
         start: marker.pos,
         end: marker.pos + 1,
-        hap1: marker.paternal === null ? '.' : String(marker.paternal),
-        hap2: marker.maternal === null ? '.' : String(marker.maternal),
+        hap1: laneValue(marker.hap1),
+        hap2: laneValue(marker.hap2),
         ps: null,
       };
-      const riskKind = diseaseHaplotypeKindForLane(diseaseModel, currentMember, segment, lane, chrom);
-      if (riskKind) return riskColors[riskKind];
-      return (lane === 'hap1' ? fatherColors : motherColors)[value];
+      return laneFill(synthetic, lane);
     };
     const paternalCy = laneCenter('hap1', false);
     const maternalCy = laneCenter('hap2', false);
     markers.forEach((marker) => {
       const x = ((marker.pos - regionStart) / span) * width;
-      if (marker.paternal !== null) {
-        ctx.fillStyle = markerColor(marker, 'hap1') ?? unknownColor;
+      if (marker.hap1 !== null) {
+        ctx.fillStyle = dotColor(marker, 'hap1');
         ctx.beginPath();
         ctx.arc(x, paternalCy, DOT_RADIUS, 0, Math.PI * 2);
         ctx.fill();
       }
-      if (marker.maternal !== null) {
-        ctx.fillStyle = markerColor(marker, 'hap2') ?? unknownColor;
+      if (marker.hap2 !== null) {
+        ctx.fillStyle = dotColor(marker, 'hap2');
         ctx.beginPath();
         ctx.arc(x, maternalCy, DOT_RADIUS, 0, Math.PI * 2);
         ctx.fill();
@@ -388,6 +392,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       setTooltip(null);
       return;
     }
+    const fatherGt = gtString(parentGtByPos?.father.get(marker.pos));
+    const motherGt = gtString(parentGtByPos?.mother.get(marker.pos));
     setTooltip({
       x: event.clientX,
       y: event.clientY,
@@ -396,8 +402,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
           <strong>
             {chrom}:{marker.pos.toLocaleString()}
           </strong>
-          <div>paternal: {marker.paternal === null ? 'uninformative' : `homolog ${marker.paternal}`}</div>
-          <div>maternal: {marker.maternal === null ? 'uninformative' : `homolog ${marker.maternal}`}</div>
+          <div>Father: {fatherGt}</div>
+          <div>Mother: {motherGt}</div>
         </div>
       ),
     });

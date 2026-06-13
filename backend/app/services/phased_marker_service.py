@@ -1,15 +1,19 @@
-"""Per-marker parent-of-origin for GLIMPSE2-imputed variants.
+"""Per-marker phasing for GLIMPSE2-imputed variants.
 
-For each child in a trio, computes which parental homolog (0/1) was inherited at
-each informative marker, oriented to match the stored haplotype blocks. Every
-informative imputed site is returned as its own raw call — no binning, smoothing,
-or majority-voting.
+For every family member, returns the value drawn on each haplotype lane at each
+informative imputed site — one raw call per site, no binning/smoothing/voting:
 
-This is deliberate: the phased-marker track is the *diagnostic* layer. Its purpose
-is to expose where the imputed phasing is noisy or uncertain about the haplotypes
-(isolated switches, jitter at recombination boundaries). The "cleaned" view is the
-Haplotype block track; collapsing the raw calls here would hide exactly the signal
-this track exists to show.
+- For a child: which parental homolog (0/1) was inherited on each side
+  (paternal -> hap1, maternal -> hap2), oriented to match the stored haplotype
+  blocks.
+- For a parent: the alleles on their own two phased homologs (the raw per-site
+  version of their haplotype blocks).
+
+This is deliberate: the phased-marker overlay is the *diagnostic* layer. Its
+purpose is to expose where the imputed phasing is noisy or uncertain about the
+haplotypes (isolated switches, jitter at recombination boundaries). The "cleaned"
+view is the Haplotype block track; collapsing the raw calls here would hide
+exactly the signal the overlay exists to show.
 
 The Mendelian classifier and the affected-child orientation are reused verbatim
 from the haplotype block builder so the homolog indices line up with the stored
@@ -33,6 +37,10 @@ from .variant_upload_service import (
 PHASED_FETCH_LIMIT = 500_000
 
 
+def _allele_int(allele: str) -> int | None:
+    return int(allele) if allele.isdigit() else None
+
+
 def compute_phased_markers(
     rows: list[tuple[int, list[str], list[str]]],
     *,
@@ -41,24 +49,34 @@ def compute_phased_markers(
     children: list[str],
     affected: set[str],
 ) -> dict[str, list[PhasedMarker]]:
-    """Per child, return the oriented parental homolog (0/1) inherited at every
-    informative marker — one PhasedMarker per imputed site, raw.
+    """Per member, return the raw per-site haplotype-lane values.
 
-    No binning or majority-voting: isolated single-marker switches are preserved
-    so the track surfaces phasing noise/uncertainty rather than hiding it. The
-    only transform applied is the affected-child orientation flip, which lines the
-    homolog indices up with the stored haplotype blocks (so this track's colours +
-    disease overlay match the Haplotype block track)."""
-    raw: dict[str, list[tuple[int, int | None, int | None]]] = {child: [] for child in children}
+    Children get the oriented parental homolog inherited on each side (hap1 =
+    paternal, hap2 = maternal); parents get the alleles on their own two phased
+    homologs. One PhasedMarker per imputed site — no binning or majority-voting,
+    so isolated single-marker switches are preserved (the overlay surfaces phasing
+    noise/uncertainty rather than hiding it). The only transform is the affected-
+    child orientation flip, which lines the child homolog indices up with the
+    stored haplotype blocks."""
+    members = [father, mother, *children]
+    child_set = set(children)
     father_counts = [0, 0]
     mother_counts = [0, 0]
 
+    # First pass: per site, the (hap1, hap2) lane value for each member present.
+    staged: list[tuple[int, dict[str, tuple[int | None, int | None]]]] = []
     for pos, sample_ids, gts in rows:
         gt = dict(zip(sample_ids, gts))
         father_alleles = _phased_haplotype_alleles(gt.get(father))
         mother_alleles = _phased_haplotype_alleles(gt.get(mother))
         if father_alleles is None or mother_alleles is None:
             continue
+
+        lane_values: dict[str, tuple[int | None, int | None]] = {
+            # Parents: the alleles on their own homologs (raw, not oriented).
+            father: (_allele_int(father_alleles[0]), _allele_int(father_alleles[1])),
+            mother: (_allele_int(mother_alleles[0]), _allele_int(mother_alleles[1])),
+        }
         for child in children:
             child_alleles = _phased_haplotype_alleles(gt.get(child))
             if child_alleles is None:
@@ -70,12 +88,13 @@ def compute_phased_markers(
             # `_transmitted_parent_haplotype` returns the homolog index as a string.
             paternal = int(paternal_raw) if paternal_raw is not None else None
             maternal = int(maternal_raw) if maternal_raw is not None else None
-            raw[child].append((pos, paternal, maternal))
+            lane_values[child] = (paternal, maternal)
             if child in affected:
                 if paternal is not None:
                     father_counts[paternal] += 1
                 if maternal is not None:
                     mother_counts[maternal] += 1
+        staged.append((pos, lane_values))
 
     father_flip = father_counts[0] > father_counts[1]
     mother_flip = mother_counts[0] > mother_counts[1]
@@ -85,16 +104,13 @@ def compute_phased_markers(
             return None
         return (1 - value) if flip else value
 
-    result: dict[str, list[PhasedMarker]] = {}
-    for child in children:
-        result[child] = [
-            PhasedMarker(
-                pos=pos,
-                paternal=orient(paternal, father_flip),
-                maternal=orient(maternal, mother_flip),
-            )
-            for pos, paternal, maternal in raw[child]
-        ]
+    result: dict[str, list[PhasedMarker]] = {member: [] for member in members}
+    for pos, lane_values in staged:
+        for member, (hap1, hap2) in lane_values.items():
+            if member in child_set:
+                hap1 = orient(hap1, father_flip)
+                hap2 = orient(hap2, mother_flip)
+            result[member].append(PhasedMarker(pos=pos, hap1=hap1, hap2=hap2))
     return result
 
 
@@ -123,7 +139,7 @@ async def get_family_phased_markers_response(
     rows = await fetch_imputed_phased_genotypes(
         context, chrom=chr, start=int(start), end=int(end), limit=PHASED_FETCH_LIMIT
     )
-    markers_by_child = compute_phased_markers(
+    markers_by_member = compute_phased_markers(
         rows,
         father=father,
         mother=mother,
@@ -135,7 +151,7 @@ async def get_family_phased_markers_response(
         start=start,
         end=end,
         samples=[
-            PhasedMarkerSample(sample=child, markers=markers_by_child.get(child, []))
-            for child in children
+            PhasedMarkerSample(sample=member, markers=markers_by_member.get(member, []))
+            for member in [father, mother, *children]
         ],
     )

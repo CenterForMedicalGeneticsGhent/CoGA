@@ -1499,13 +1499,21 @@ class HaplotypeResponse(BaseModel):
 
 
 class PhasedMarker(BaseModel):
-    """One informative imputed marker (raw call): the parental homolog (0/1) the
-    child inherited on each side, oriented to match the stored haplotype blocks.
-    null = uninformative."""
+    """One informative imputed marker (raw call), with the value drawn on each
+    haplotype lane (0/1, null = uninformative):
+
+    - For a child: ``hap1`` = the paternal homolog inherited, ``hap2`` = the
+      maternal homolog inherited, oriented to match the stored haplotype blocks.
+    - For a parent: ``hap1`` / ``hap2`` are the alleles on their own two phased
+      homologs (the raw per-site version of their haplotype blocks).
+
+    The father's and mother's genotype at a site (shown in the tooltip) are
+    reconstructed client-side from the father/mother marker rows at that position,
+    so they are not duplicated onto every marker."""
 
     pos: int
-    paternal: Optional[int] = None
-    maternal: Optional[int] = None
+    hap1: Optional[int] = None
+    hap2: Optional[int] = None
 
 
 class PhasedMarkerSample(BaseModel):
