@@ -1,10 +1,11 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 import pysam
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_s3
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
@@ -21,30 +22,65 @@ def _alignment_path(
     return DATA_DIR / family_id / f"{sample_id}.{ext}{suffix}"
 
 
+def _alignment_key(family_id: str, sample_id: str, ext: str, suffix: str = "") -> str:
+    return object_key(family_id, f"{sample_id}.{ext}{suffix}")
+
+
+def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = "") -> bool:
+    if storage_is_s3():
+        return object_exists(_alignment_key(family_id, sample_id, ext, suffix))
+    return _alignment_path(family_id, sample_id, ext, suffix).exists()
+
+
+def _serve_alignment(
+    family_id: str, sample_id: str, ext: str, suffix: str, not_found_detail: str
+) -> Response:
+    """Stream a local file, or redirect to a presigned S3 URL in s3 mode."""
+    file_name = f"{sample_id}.{ext}{suffix}"
+    if storage_is_s3():
+        key = _alignment_key(family_id, sample_id, ext, suffix)
+        if not object_exists(key):
+            raise HTTPException(status_code=404, detail=not_found_detail)
+        # IGV follows the 302 and reads bytes (with HTTP range) straight from S3.
+        return RedirectResponse(presigned_get_url(key, filename=file_name), status_code=302)
+    path = _alignment_path(family_id, sample_id, ext, suffix)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=not_found_detail)
+    return FileResponse(path)
+
+
+def _head_alignment(family_id: str, sample_id: str, ext: str, suffix: str, not_found_detail: str) -> Response:
+    if not _alignment_exists(family_id, sample_id, ext, suffix):
+        raise HTTPException(status_code=404, detail=not_found_detail)
+    return Response(status_code=200)
+
+
 def _resolve_alignment_manifest_entry(
     family_id: str,
     sample_id: str,
 ) -> AlignmentManifestEntryOut | None:
-    cram_path = _alignment_path(family_id, sample_id, "cram")
-    crai_path = _alignment_path(family_id, sample_id, "cram", ".crai")
-    if cram_path.exists() and crai_path.exists():
+    """In s3 mode the URLs are short-lived presigned S3 URLs (absolute); otherwise
+    they are backend-relative paths the frontend prefixes with the API base."""
+    for fmt, ext, index_suffix in (("cram", "cram", ".crai"), ("bam", "bam", ".bai")):
+        if not (_alignment_exists(family_id, sample_id, ext) and _alignment_exists(family_id, sample_id, ext, index_suffix)):
+            continue
+        if storage_is_s3():
+            data_name = f"{sample_id}.{ext}"
+            index_name = f"{sample_id}.{ext}{index_suffix}"
+            return AlignmentManifestEntryOut(
+                sample_id=sample_id,
+                format=fmt,
+                url=presigned_get_url(_alignment_key(family_id, sample_id, ext), filename=data_name),
+                index_url=presigned_get_url(
+                    _alignment_key(family_id, sample_id, ext, index_suffix), filename=index_name
+                ),
+            )
         return AlignmentManifestEntryOut(
             sample_id=sample_id,
-            format="cram",
-            url=f"/cram/{family_id}/{sample_id}.cram",
-            index_url=f"/cram/{family_id}/{sample_id}.cram.crai",
+            format=fmt,
+            url=f"/cram/{family_id}/{sample_id}.{ext}",
+            index_url=f"/cram/{family_id}/{sample_id}.{ext}{index_suffix}",
         )
-
-    bam_path = _alignment_path(family_id, sample_id, "bam")
-    bai_path = _alignment_path(family_id, sample_id, "bam", ".bai")
-    if bam_path.exists() and bai_path.exists():
-        return AlignmentManifestEntryOut(
-            sample_id=sample_id,
-            format="bam",
-            url=f"/cram/{family_id}/{sample_id}.bam",
-            index_url=f"/cram/{family_id}/{sample_id}.bam.bai",
-        )
-
     return None
 
 
@@ -96,10 +132,7 @@ async def get_cram(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "cram")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="CRAM file not found")
-    return FileResponse(path)
+    return _serve_alignment(family_id, sample_id, "cram", "", "CRAM file not found")
 
 
 @router.head("/{family_id}/{sample_id}.cram")
@@ -110,10 +143,7 @@ async def head_cram(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "cram")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="CRAM file not found")
-    return Response(status_code=200)
+    return _head_alignment(family_id, sample_id, "cram", "", "CRAM file not found")
 
 
 @router.get("/{family_id}/{sample_id}.cram.crai")
@@ -124,10 +154,7 @@ async def get_crai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "cram", ".crai")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="CRAI file not found")
-    return FileResponse(path)
+    return _serve_alignment(family_id, sample_id, "cram", ".crai", "CRAI file not found")
 
 
 @router.head("/{family_id}/{sample_id}.cram.crai")
@@ -138,10 +165,7 @@ async def head_crai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "cram", ".crai")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="CRAI file not found")
-    return Response(status_code=200)
+    return _head_alignment(family_id, sample_id, "cram", ".crai", "CRAI file not found")
 
 
 @router.get("/{family_id}/{sample_id}.bam")
@@ -152,10 +176,7 @@ async def get_bam(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "bam")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="BAM file not found")
-    return FileResponse(path)
+    return _serve_alignment(family_id, sample_id, "bam", "", "BAM file not found")
 
 
 @router.head("/{family_id}/{sample_id}.bam")
@@ -166,10 +187,7 @@ async def head_bam(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "bam")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="BAM file not found")
-    return Response(status_code=200)
+    return _head_alignment(family_id, sample_id, "bam", "", "BAM file not found")
 
 
 @router.get("/{family_id}/{sample_id}.bam.bai")
@@ -180,10 +198,7 @@ async def get_bai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "bam", ".bai")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="BAI file not found")
-    return FileResponse(path)
+    return _serve_alignment(family_id, sample_id, "bam", ".bai", "BAI file not found")
 
 
 @router.head("/{family_id}/{sample_id}.bam.bai")
@@ -194,10 +209,7 @@ async def head_bai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    path = _alignment_path(family_id, sample_id, "bam", ".bai")
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="BAI file not found")
-    return Response(status_code=200)
+    return _head_alignment(family_id, sample_id, "bam", ".bai", "BAI file not found")
 
 
 @router.get("/{family_id}/{sample_id}.cram.header")
@@ -209,6 +221,14 @@ async def get_cram_header(
 ):
     """Return alignment header for quick M5/SN/LN inspection."""
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    if storage_is_s3():
+        for ext, mode in (("cram", "rc"), ("bam", "rb")):
+            key = _alignment_key(family_id, sample_id, ext)
+            if object_exists(key):
+                # htslib reads the presigned https URL directly (with range requests).
+                with pysam.AlignmentFile(presigned_get_url(key, filename=f"{sample_id}.{ext}"), mode) as af:
+                    return af.header.to_dict()
+        raise HTTPException(status_code=404, detail="No CRAM/BAM found for sample")
     cram_path = _alignment_path(family_id, sample_id, "cram")
     bam_path = _alignment_path(family_id, sample_id, "bam")
     if cram_path.exists():

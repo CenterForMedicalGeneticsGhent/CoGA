@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -83,7 +85,9 @@ async def validate_family_import_package(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyPackageValidationOut:
     del user
-    return validate_family_package(payload.folder_path)
+    # Offloaded: validating an s3:// source stages (downloads) the package, which
+    # would otherwise block the event loop.
+    return await asyncio.to_thread(validate_family_package, payload.folder_path)
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)

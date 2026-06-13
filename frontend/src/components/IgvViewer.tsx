@@ -127,13 +127,18 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
           ? `/cram/${familyId}/manifest?${manifestParams.toString()}`
           : `/cram/${familyId}/manifest`;
         const manifestResponse = await api.get(manifestUrl, { signal: controller.signal });
+        // In S3 mode the manifest returns absolute presigned URLs (auth is baked
+        // into the URL); IGV must fetch those directly without our bearer header.
+        // In local mode the URLs are backend-relative and need the API base + auth.
+        const isAbsolute = (value: string) => /^https?:\/\//i.test(value);
+        const resolveUrl = (value: string) => (isAbsolute(value) ? value : `${base}${value}`);
         const tracks = (manifestResponse.data as AlignmentManifestEntry[]).map((entry) => ({
           name: entry.sample_id,
           type: 'alignment',
           format: entry.format,
-          url: `${base}${entry.url}`,
-          indexURL: `${base}${entry.index_url}`,
-          headers,
+          url: resolveUrl(entry.url),
+          indexURL: resolveUrl(entry.index_url),
+          ...(isAbsolute(entry.url) ? {} : { headers }),
         }));
         type GenomeArg = string | Record<string, unknown>;
         const igv = await loadIgv();
