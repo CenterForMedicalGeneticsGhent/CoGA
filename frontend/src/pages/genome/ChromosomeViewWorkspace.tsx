@@ -44,6 +44,8 @@ const DGV_TRACK_HEIGHT = 48;
 const SEGMENTAL_DUPLICATION_TRACK_HEIGHT = 20;
 const BLACKLIST_TRACK_HEIGHT = 20;
 const SMALL_VARIANT_TRACK_HEIGHT = 20;
+// Taller frame when the small-variant track splits into three parental-origin rows.
+const SMALL_VARIANT_ORIGIN_TRACK_HEIGHT = 45;
 const REPEAT_TRACK_HEIGHT = 20;
 const GENE_JUMP_MIN_PADDING_BP = 5_000;
 const GENE_JUMP_PADDING_RATIO = 0.1;
@@ -251,6 +253,10 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   const hasBothParents =
     familyMembers.some((member) => (member.role || '').toLowerCase() === 'father') &&
     familyMembers.some((member) => (member.role || '').toLowerCase() === 'mother');
+  const fatherSampleId =
+    familyMembers.find((member) => (member.role || '').toLowerCase() === 'father')?.sample_id ?? null;
+  const motherSampleId =
+    familyMembers.find((member) => (member.role || '').toLowerCase() === 'mother')?.sample_id ?? null;
   const { data: geneSuggestions = [] } = useQuery<GeneSuggestion[]>({
     queryKey: ['chromosome-jump-suggestions', assemblyId, trimmedJumpQuery],
     enabled: trimmedJumpQuery.length >= 2 && !isLocationJump,
@@ -553,38 +559,53 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                     />
                   </ViewerTrackBlock>
                 )}
-                {trackVisibility.smallVariants && availability[member.sample_id]?.smallVariants && (
-                  <ViewerTrackBlock
-                    label="Small variants"
-                    width={trackWidth}
-                    meta={
-                      <TrackMeta variantFilters={variantFilters} sampleFilter={sampleFilterMap[member.sample_id]} />
-                    }
-                    frameClassName="h-[20px]"
-                    roiRange={regionRoiRange}
-                    roiTitle={roiTitle}
-                    viewportInteraction={viewportInteraction}
-                  >
-                    <SmallVariantTrack
-                      key={`sm-${familyDisplayId}-${member.sample_id}`}
-                      familyId={familyDisplayId}
-                      sampleId={member.sample_id}
-                      chrom={chrom}
-                      regionStart={region.start}
-                      regionEnd={region.end}
-                      width={trackWidth}
-                      height={SMALL_VARIANT_TRACK_HEIGHT}
-                      filters={{
-                        ...variantFilters,
-                        ...(sampleFilterMap[member.sample_id]
-                          ? {
-                              sample_filter: sampleFilterMap[member.sample_id],
-                            }
-                          : {}),
-                      }}
-                    />
-                  </ViewerTrackBlock>
-                )}
+                {trackVisibility.smallVariants &&
+                  availability[member.sample_id]?.smallVariants &&
+                  (() => {
+                    // Split into paternal/undetermined/maternal rows only for a
+                    // child (non-parent) that has a parent present in the family.
+                    const isChild = !parentRole(member.role);
+                    const paternalSampleId = isChild ? fatherSampleId : null;
+                    const maternalSampleId = isChild ? motherSampleId : null;
+                    const originRows = Boolean(paternalSampleId || maternalSampleId);
+                    return (
+                      <ViewerTrackBlock
+                        label="Small variants"
+                        width={trackWidth}
+                        meta={
+                          <TrackMeta
+                            variantFilters={variantFilters}
+                            sampleFilter={sampleFilterMap[member.sample_id]}
+                          />
+                        }
+                        frameClassName={originRows ? 'h-[45px]' : 'h-[20px]'}
+                        roiRange={regionRoiRange}
+                        roiTitle={roiTitle}
+                        viewportInteraction={viewportInteraction}
+                      >
+                        <SmallVariantTrack
+                          key={`sm-${familyDisplayId}-${member.sample_id}`}
+                          familyId={familyDisplayId}
+                          sampleId={member.sample_id}
+                          chrom={chrom}
+                          regionStart={region.start}
+                          regionEnd={region.end}
+                          width={trackWidth}
+                          height={originRows ? SMALL_VARIANT_ORIGIN_TRACK_HEIGHT : SMALL_VARIANT_TRACK_HEIGHT}
+                          paternalSampleId={paternalSampleId}
+                          maternalSampleId={maternalSampleId}
+                          filters={{
+                            ...variantFilters,
+                            ...(sampleFilterMap[member.sample_id]
+                              ? {
+                                  sample_filter: sampleFilterMap[member.sample_id],
+                                }
+                              : {}),
+                          }}
+                        />
+                      </ViewerTrackBlock>
+                    );
+                  })()}
                 {trackVisibility.haplotypes && availability[member.sample_id]?.haplotypes && (
                   <ViewerTrackBlock
                     label="Haplotypes"

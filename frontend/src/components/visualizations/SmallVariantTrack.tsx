@@ -32,6 +32,7 @@ interface Variant {
   gene_id?: string | null;
   hgvsc?: string | null;
   hgvsp?: string | null;
+  impact?: string | null;
   clinvar?: string | null;
   genotypes?: Genotype[];
   review?: SmallVariantReview | null;
@@ -51,6 +52,13 @@ interface Props {
   width: number;
   height: number;
   filters?: Record<string, string>;
+  /**
+   * When set (the displayed sample is a child with a parent in the family), the
+   * track splits into three rows by parental origin: paternal (top), undetermined
+   * (middle), maternal (bottom). Pass the father's / mother's sample id.
+   */
+  paternalSampleId?: string | null;
+  maternalSampleId?: string | null;
 }
 
 const NON_REFERENCE_GENOTYPES = ['0/1', '1/0', '0|1', '1|0', '1/1', '1|1'];
@@ -63,11 +71,19 @@ const hasActiveFilterValue = (value: unknown): boolean => {
   return String(value ?? '').trim().length > 0;
 };
 
-const CLINVAR_COLORS = {
-  pathogenic: '#b42318',
-  likelyPathogenic: '#ea580c',
-  benign: '#2f855a',
-  uncertain: '#ca8a04',
+// Functional-impact colours (raw VEP/SnpEff IMPACT). Light by request; ClinVar
+// benign/pathogenic override these (see getVariantColor). Kept as literal hex so
+// the component renders without the theme stylesheet (and stays unit-testable).
+const IMPACT_COLORS = {
+  high: '#fed7aa', // light orange — HIGH
+  medium: '#bbf7d0', // light green — MODERATE / MEDIUM
+  low: '#d1d5db', // light gray — LOW / MODIFIER / unknown
+} as const;
+
+// ClinVar overrides: only benign and pathogenic categories recolour the dot.
+const CLINVAR_OVERRIDE_COLORS = {
+  pathogenic: '#dc2626', // red — pathogenic / likely pathogenic
+  benign: '#bfdbfe', // light blue — benign / likely benign
 } as const;
 
 const normalizeClinvar = (clinvar?: string | null): string =>
@@ -77,33 +93,97 @@ const normalizeClinvar = (clinvar?: string | null): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const getClinvarColor = (clinvar?: string | null): string | undefined => {
+// Light blue for benign/likely-benign, red for pathogenic/likely-pathogenic;
+// every other ClinVar value (uncertain, conflicting, risk factor, …) returns
+// undefined so the variant falls through to its functional-impact colour.
+const getClinvarOverrideColor = (clinvar?: string | null): string | undefined => {
   const value = normalizeClinvar(clinvar);
   if (!value) return undefined;
-  if (value.includes('likely pathogenic')) return CLINVAR_COLORS.likelyPathogenic;
-  if (
-    value === 'pathogenic' ||
-    value.includes('pathogenic/likely pathogenic') ||
-    value.includes('pathogenic and')
-  ) {
-    return CLINVAR_COLORS.pathogenic;
-  }
-  if (
-    value.includes('benign') ||
-    value.includes('likely benign') ||
-    value.includes('benign/likely benign')
-  ) {
-    return CLINVAR_COLORS.benign;
-  }
-  if (
-    value.includes('vus') ||
-    value.includes('uncertain significance') ||
-    value.includes('conflicting')
-  ) {
-    return CLINVAR_COLORS.uncertain;
-  }
+  // "conflicting interpretations of pathogenicity" must not read as pathogenic.
+  if (value.includes('conflicting')) return undefined;
+  if (value.includes('pathogenic')) return CLINVAR_OVERRIDE_COLORS.pathogenic;
+  if (value.includes('benign')) return CLINVAR_OVERRIDE_COLORS.benign;
   return undefined;
 };
+
+const getImpactColor = (impact?: string | null): string => {
+  switch ((impact || '').toUpperCase()) {
+    case 'HIGH':
+      return IMPACT_COLORS.high;
+    case 'MODERATE':
+    case 'MEDIUM':
+      return IMPACT_COLORS.medium;
+    default:
+      // LOW, MODIFIER, or unannotated.
+      return IMPACT_COLORS.low;
+  }
+};
+
+type ParentalOrigin = 'paternal' | 'maternal' | 'unknown';
+
+const ORIGIN_LABEL: Record<ParentalOrigin, string> = {
+  paternal: 'Paternal (hap1)',
+  maternal: 'Maternal (hap2)',
+  unknown: 'Undetermined origin',
+};
+
+const REF_OR_MISSING = new Set(['0', '.', '']);
+const isAltAllele = (allele: string): boolean => !REF_OR_MISSING.has(allele);
+const carriesAlt = (gt?: string | null): boolean =>
+  !!gt && gt.split(/[|/]/).some(isAltAllele);
+
+const parseAlleles = (
+  gt?: string | null,
+): { hap1: string; hap2: string; phased: boolean } | null => {
+  if (!gt) return null;
+  const phased = gt.includes('|');
+  const parts = gt.split(/[|/]/);
+  if (parts.length < 2) return null;
+  return { hap1: parts[0], hap2: parts[1], phased };
+};
+
+/**
+ * Parental origin of a child's ALT allele.
+ *
+ * 1. When both parents are present, Mendelian transmission is authoritative: if
+ *    exactly one parent carries the ALT, the child got it from that parent;
+ *    otherwise (both carry → ambiguous, neither → de novo) it is undetermined.
+ * 2. When both parents are NOT available, fall back to the child's phased
+ *    haplotype order (hap1 = paternal, hap2 = maternal) — the haplotype track's
+ *    convention.
+ * 3. Homozygous-ALT (on both homologs) is always undetermined.
+ */
+const variantOrigin = (
+  childGt?: string | null,
+  fatherGt?: string | null,
+  motherGt?: string | null,
+): ParentalOrigin => {
+  const child = parseAlleles(childGt);
+  if (!child) return 'unknown';
+  const hap1Alt = isAltAllele(child.hap1);
+  const hap2Alt = isAltAllele(child.hap2);
+  // On both homologs (hom-alt) or neither (shouldn't occur — filtered): no side.
+  if (hap1Alt === hap2Alt) return 'unknown';
+
+  if (fatherGt && motherGt) {
+    const fatherAlt = carriesAlt(fatherGt);
+    const motherAlt = carriesAlt(motherGt);
+    if (fatherAlt && !motherAlt) return 'paternal';
+    if (motherAlt && !fatherAlt) return 'maternal';
+    // Both carry (ambiguous) or neither (de novo): Mendelian can't attribute it.
+    return 'unknown';
+  }
+
+  // Only one parent (or none) available — use phase orientation if we have it.
+  if (child.phased) {
+    if (hap1Alt) return 'paternal';
+    if (hap2Alt) return 'maternal';
+  }
+
+  return 'unknown';
+};
+
+type PositionedVariant = Variant & { x: number; origin: ParentalOrigin };
 
 const SmallVariantTrack: React.FC<Props> = ({
   familyId,
@@ -114,6 +194,8 @@ const SmallVariantTrack: React.FC<Props> = ({
   width,
   height,
   filters,
+  paternalSampleId,
+  maternalSampleId,
 }) => {
   const pageSize = SMALL_VARIANT_TRACK_RESULT_LIMIT - 1;
   const hasUserFilters = React.useMemo(
@@ -198,47 +280,45 @@ const SmallVariantTrack: React.FC<Props> = ({
     [data?.variants, sampleId, tooManyVariants]
   );
 
+  // Three lanes (paternal / undetermined / maternal) only when the displayed
+  // sample is a child with a parent available; otherwise a single centred lane.
+  const originMode = Boolean(paternalSampleId || maternalSampleId);
+
   const span = regionEnd - regionStart || 1;
-  const withPos = React.useMemo(
+  const withPos = React.useMemo<PositionedVariant[]>(
     () =>
       variants.map((v) => {
         const x = ((v.start - regionStart) / span) * width;
-        return { ...v, x };
+        const gtFor = (sample?: string | null) =>
+          sample ? v.genotypes?.find((g) => g.sample === sample)?.gt : undefined;
+        const origin = originMode
+          ? variantOrigin(gtFor(sampleId), gtFor(paternalSampleId), gtFor(maternalSampleId))
+          : 'unknown';
+        return { ...v, x, origin };
       }),
-    [variants, regionStart, span, width]
+    [variants, regionStart, span, width, originMode, sampleId, paternalSampleId, maternalSampleId]
   );
 
-  const typeColors = React.useMemo<Record<string, string>>(
-    () => ({
-      SNV: cssVar('--color-variant-default'),
-      INDEL: cssVar('--color-variant-ins'),
-      DEL: cssVar('--color-variant-del'),
-      INS: cssVar('--color-variant-ins'),
-    }),
-    []
-  );
   const getVariantColor = React.useCallback(
     (variant: Variant) => {
       const tagColor = variant.review?.tags
         ?.map((tagKey) => tagColorMap[tagKey])
         .find(Boolean);
       if (tagColor) return tagColor;
-      return (
-        getClinvarColor(variant.clinvar) ||
-        typeColors[variant.type?.toUpperCase()] ||
-        cssVar('--color-variant-default')
-      );
+      return getClinvarOverrideColor(variant.clinvar) ?? getImpactColor(variant.impact);
     },
-    [tagColorMap, typeColors],
+    [tagColorMap],
   );
   const emptyMessage = tooManyVariants
     ? 'Too many variants to display. Zoom in or apply filters.'
     : 'no small variants for this region / sample';
 
   const svgRef = React.useRef<SVGSVGElement | null>(null);
-  const [tooltip, setTooltip] = React.useState<{ x: number; y: number; variant: Variant } | null>(
-    null,
-  );
+  const [tooltip, setTooltip] = React.useState<{
+    x: number;
+    y: number;
+    variant: PositionedVariant;
+  } | null>(null);
 
   React.useEffect(() => {
     if (isLoading) {
@@ -260,9 +340,30 @@ const SmallVariantTrack: React.FC<Props> = ({
     }
 
     const g = svg.append('g');
-    const radius = Math.max(2, Math.min(3.5, height / 2 - 1));
-    const cy = height / 2;
+    const rowCount = originMode ? 3 : 1;
+    const rowHeight = height / rowCount;
+    const radius = Math.max(2, Math.min(3.5, rowHeight / 2 - 1));
+    const cyForOrigin = (origin: ParentalOrigin): number => {
+      if (!originMode) return height / 2;
+      const row = origin === 'paternal' ? 0 : origin === 'maternal' ? 2 : 1;
+      return row * rowHeight + rowHeight / 2;
+    };
+
+    // Faint dividers between the three parental-origin lanes.
+    if (originMode) {
+      [rowHeight, rowHeight * 2].forEach((y) => {
+        g.append('line')
+          .attr('x1', 0)
+          .attr('x2', width)
+          .attr('y1', y)
+          .attr('y2', y)
+          .attr('stroke', cssVar('--color-grid'))
+          .attr('stroke-width', 1);
+      });
+    }
+
     withPos.forEach((v) => {
+      const cy = cyForOrigin(v.origin);
       g
         .append('circle')
         .attr('cx', v.x)
@@ -284,7 +385,7 @@ const SmallVariantTrack: React.FC<Props> = ({
         )
         .on('mouseout', () => setTooltip(null));
     });
-  }, [withPos, height, getVariantColor, emptyMessage, isLoading]);
+  }, [withPos, height, originMode, width, getVariantColor, emptyMessage, isLoading]);
 
   return (
     <div className="relative" style={{ width, height }}>
@@ -302,6 +403,9 @@ const SmallVariantTrack: React.FC<Props> = ({
           </div>
           {tooltip.variant.hgvsc ? <div>{tooltip.variant.hgvsc}</div> : null}
           {tooltip.variant.hgvsp ? <div>{tooltip.variant.hgvsp}</div> : null}
+          {tooltip.variant.impact ? <div>Impact: {tooltip.variant.impact}</div> : null}
+          {tooltip.variant.clinvar ? <div>ClinVar: {tooltip.variant.clinvar}</div> : null}
+          {originMode ? <div>{ORIGIN_LABEL[tooltip.variant.origin]}</div> : null}
         </VizTooltip>
       )}
     </div>
