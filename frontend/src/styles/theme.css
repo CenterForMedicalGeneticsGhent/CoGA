@@ -7156,6 +7156,12 @@ button.table-link:hover {
   color: var(--color-primary);
 }
 
+/* The shared "Chromosome view" link keeps the small-variant card red, not the
+   container's primary colour. */
+.family-mtdna-links .variant-card-resource--clinical {
+  color: var(--color-signature-red-dark);
+}
+
 .family-mtdna-copy-note {
   color: var(--color-muted-strong);
   font-weight: 650;
