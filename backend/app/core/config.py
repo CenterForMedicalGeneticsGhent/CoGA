@@ -126,6 +126,22 @@ class Settings(BaseSettings):
     )
     hpo_download_if_missing: bool = Field(default=True, alias="HPO_DOWNLOAD_IF_MISSING")
     reads_path: str | None = None
+    # Storage backend for raw family data (IGV alignments + family-package sources).
+    # "local" reads from the local filesystem (dev); "s3" reads from an S3 bucket
+    # (production) via presigned URLs for IGV and temp staging for package import.
+    storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
+    s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
+    s3_region: str | None = Field(default=None, alias="S3_REGION")
+    # Optional override for S3-compatible endpoints (e.g. MinIO) and local testing.
+    s3_endpoint_url: str | None = Field(default=None, alias="S3_ENDPOINT_URL")
+    # Optional key prefix prepended to every object key (e.g. "families").
+    s3_prefix: str = Field(default="", alias="S3_PREFIX")
+    s3_presign_expiry_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=604_800,
+        alias="S3_PRESIGN_EXPIRY_SECONDS",
+    )
     family_import_roots: list[str] = Field(default_factory=list, alias="FAMILY_IMPORT_ROOTS")
     family_import_worker_count: int = Field(default=1, ge=1, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
     trgt_strchive_loci_path: str | None = Field(
@@ -198,6 +214,13 @@ class Settings(BaseSettings):
             return value.strip().lower() or "production"
         return value
 
+    @field_validator("storage_backend", mode="before")
+    @classmethod
+    def normalize_storage_backend(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().lower() or "local"
+        return value
+
     @field_validator("audit_log_mode", mode="before")
     @classmethod
     def normalize_audit_log_mode(cls, value: object) -> object:
@@ -218,6 +241,10 @@ class Settings(BaseSettings):
             raise ValueError("AUDIT_LOG_MODE must be one of: async, sync, off")
         if self.audit_log_query_string_mode not in {"none", "keys", "sanitized"}:
             raise ValueError("AUDIT_LOG_QUERY_STRING_MODE must be one of: none, keys, sanitized")
+        if self.storage_backend not in {"local", "s3"}:
+            raise ValueError("STORAGE_BACKEND must be one of: local, s3")
+        if self.storage_backend == "s3" and not self.s3_bucket:
+            raise ValueError("STORAGE_BACKEND=s3 requires S3_BUCKET to be set")
         if self.login_rate_limit_base_backoff_seconds > self.login_rate_limit_max_backoff_seconds:
             raise ValueError(
                 "LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS must be less than or equal to LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS"

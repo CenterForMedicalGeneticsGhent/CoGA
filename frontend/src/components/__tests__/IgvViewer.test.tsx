@@ -96,6 +96,36 @@ describe('IgvViewer', () => {
     ]);
   });
 
+  it('uses presigned S3 URLs directly, without attaching auth headers', async () => {
+    localStorage.setItem('token', 'token-123');
+    apiGetMock.mockResolvedValue({
+      data: [
+        {
+          sample_id: 'S1',
+          format: 'cram',
+          url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram?sig=abc',
+          index_url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram.crai?sig=def',
+        },
+      ],
+    });
+    createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
+    loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
+
+    render(<IgvViewer familyId="F1" sampleIds={['S1']} genome="hg38" locus="chr1:10-20" />);
+
+    await waitFor(() => expect(createBrowserMock).toHaveBeenCalled());
+    const [, options] = createBrowserMock.mock.calls[0];
+    expect(options.tracks).toEqual([
+      {
+        name: 'S1',
+        type: 'alignment',
+        format: 'cram',
+        url: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram?sig=abc',
+        indexURL: 'https://bucket.s3.amazonaws.com/families/F1/S1.cram.crai?sig=def',
+      },
+    ]);
+  });
+
   it('shows a recoverable error state when the IGV loader bootstrap fails', async () => {
     apiGetMock.mockResolvedValue({
       data: [

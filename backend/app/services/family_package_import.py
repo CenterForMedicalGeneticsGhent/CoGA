@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager, contextmanager, suppress
 import csv
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -12,6 +12,8 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
+import tempfile
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
@@ -22,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import yaml
 
 from ..core.config import settings
+from ..core.object_storage import download_prefix, is_s3_uri, join_s3_uri
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import (
     FamilyManifestDatasetAvailability,
@@ -411,6 +414,9 @@ class FamilyPackageBundle:
     manifest: PackageManifest
     ped_path: Path
     ped: ParsedPed
+    # When the package was staged from S3, the original s3:// source so provenance
+    # records the durable S3 URI rather than the ephemeral staging path.
+    source_uri: str | None = None
 
 
 @dataclass(slots=True)
@@ -473,13 +479,33 @@ def _issue(
     )
 
 
-def _authorized_root_candidates() -> list[Path]:
-    return [Path(root).expanduser().resolve() for root in settings.family_import_roots]
+def _staging_root() -> Path:
+    """Local scratch dir under which s3:// packages are staged for an import."""
+    root = Path(tempfile.gettempdir()) / "coga-family-imports"
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
+
+
+def _authorized_local_roots() -> list[Path]:
+    return [
+        Path(root).expanduser().resolve()
+        for root in settings.family_import_roots
+        if not is_s3_uri(root)
+    ]
+
+
+def _authorized_s3_roots() -> list[str]:
+    return [root.strip() for root in settings.family_import_roots if is_s3_uri(root)]
 
 
 def _ensure_authorized_package_path(path: Path) -> Path:
     resolved = path.expanduser().resolve()
-    allowed_roots = _authorized_root_candidates()
+    staging_root = _staging_root()
+    # A package staged from S3 lives under the staging root and is pre-authorized
+    # (its s3:// source was checked before download).
+    if resolved == staging_root or staging_root in resolved.parents:
+        return resolved
+    allowed_roots = _authorized_local_roots()
     if not allowed_roots:
         return resolved
     if any(resolved == root or root in resolved.parents for root in allowed_roots):
@@ -489,6 +515,70 @@ def _ensure_authorized_package_path(path: Path) -> Path:
         status_code=403,
         detail=f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {roots}",
     )
+
+
+def _ensure_authorized_s3_source(uri: str) -> str:
+    normalized = str(uri).strip()
+    allowed = _authorized_s3_roots()
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="S3 family import sources require an s3:// entry in FAMILY_IMPORT_ROOTS",
+        )
+    for root in allowed:
+        prefix = root.rstrip("/")
+        if normalized == prefix or normalized.startswith(prefix + "/"):
+            return normalized
+    raise HTTPException(
+        status_code=403,
+        detail=f"S3 source is outside configured FAMILY_IMPORT_ROOTS: {', '.join(allowed)}",
+    )
+
+
+def _stage_s3_package(uri: str) -> Path:
+    """Download an s3:// package prefix into a fresh temp dir under the staging root."""
+    _ensure_authorized_s3_source(uri)
+    dest = Path(tempfile.mkdtemp(prefix="pkg-", dir=_staging_root()))
+    try:
+        downloaded = download_prefix(uri, dest)
+    except Exception:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    if downloaded == 0:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise HTTPException(status_code=404, detail=f"No objects found at S3 family package source: {uri}")
+    return dest
+
+
+@contextmanager
+def staged_package_source(folder_path: str | Path):
+    """Yield ``(local_root, source_uri)``. For an s3:// source the package is
+    downloaded to a temp dir (cleaned up on exit) and ``source_uri`` is the s3 URI;
+    for a local path it is yielded unchanged with ``source_uri = None``."""
+    if is_s3_uri(folder_path):
+        uri = str(folder_path).strip()
+        dest = _stage_s3_package(uri)
+        try:
+            yield str(dest), uri
+        finally:
+            shutil.rmtree(dest, ignore_errors=True)
+    else:
+        yield str(folder_path), None
+
+
+@asynccontextmanager
+async def staged_package_source_async(folder_path: str | Path):
+    """Async variant: the S3 download (and cleanup) run in a worker thread so the
+    event loop is not blocked during a large package transfer."""
+    if is_s3_uri(folder_path):
+        uri = str(folder_path).strip()
+        dest = await asyncio.to_thread(_stage_s3_package, uri)
+        try:
+            yield str(dest), uri
+        finally:
+            await asyncio.to_thread(shutil.rmtree, dest, True)
+    else:
+        yield str(folder_path), None
 
 
 def _manifest_candidates(root: Path) -> list[Path]:
@@ -2078,7 +2168,8 @@ def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackag
 
 
 def validate_family_package(folder_path: str | Path) -> FamilyPackageValidationOut:
-    validation, _bundle = load_validated_family_package(folder_path)
+    with staged_package_source(folder_path) as (local_root, _source_uri):
+        validation, _bundle = load_validated_family_package(local_root)
     return validation
 
 
@@ -3286,6 +3377,17 @@ async def _record_package_raw_files(
             str(row["sample_id"]): str(row["sample_uuid"]) for row in result.mappings().all()
         }
 
+        def _provenance_path(resolved: Path) -> str:
+            # For an S3-staged package, record the durable s3:// URI (the staging
+            # temp dir is deleted after the import); otherwise the local path.
+            if bundle.source_uri:
+                try:
+                    relative = resolved.relative_to(bundle.root)
+                except ValueError:
+                    return str(resolved)
+                return join_s3_uri(bundle.source_uri, str(relative))
+            return str(resolved)
+
         for dataset_type, dataset in bundle.manifest.datasets.items():
             if not dataset.enabled:
                 continue
@@ -3300,7 +3402,7 @@ async def _record_package_raw_files(
                     scope="family",
                     dataset=dataset_type,
                     file_name=resolved.name,
-                    storage_path=str(resolved),
+                    storage_path=_provenance_path(resolved),
                     managed=False,
                     source="family_package",
                 )
@@ -3325,7 +3427,7 @@ async def _record_package_raw_files(
                         scope="individual",
                         dataset=dataset_type,
                         file_name=resolved.name,
-                        storage_path=str(resolved),
+                        storage_path=_provenance_path(resolved),
                         managed=False,
                         source="family_package",
                     )
@@ -6237,7 +6339,37 @@ async def execute_family_package_import(
     conflict_mode: str = "cancel",
     progress: ProgressCallback | None = None,
 ) -> PackageExecutionResult:
+    """Run an import, staging the package from S3 to a temp dir first when the
+    source is an s3:// URI (cleaned up afterwards)."""
+    async with staged_package_source_async(folder_path) as (local_root, source_uri):
+        return await _execute_family_package_import_local(
+            session,
+            folder_path=local_root,
+            source_uri=source_uri,
+            project_id=project_id,
+            dry_run=dry_run,
+            user=user,
+            requested_family_id=requested_family_id,
+            conflict_mode=conflict_mode,
+            progress=progress,
+        )
+
+
+async def _execute_family_package_import_local(
+    session: AsyncSession | None,
+    *,
+    folder_path: str | Path,
+    source_uri: str | None,
+    project_id: str | None,
+    dry_run: bool,
+    user: CurrentUser | None,
+    requested_family_id: str | None = None,
+    conflict_mode: str = "cancel",
+    progress: ProgressCallback | None = None,
+) -> PackageExecutionResult:
     validation, bundle = load_validated_family_package(folder_path)
+    if bundle is not None:
+        bundle.source_uri = source_uri
     conflict_mode = _normalized_conflict_mode(conflict_mode)
     request_metadata = _execution_metadata(
         requested_family_id=requested_family_id,
