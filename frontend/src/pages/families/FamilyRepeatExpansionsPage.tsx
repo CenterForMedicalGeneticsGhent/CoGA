@@ -309,7 +309,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                 >
                   <td>
                     <div className="family-repeat-table-locus-head">
-                      <div className="font-semibold">{row.display_name}</div>
+                      <div className="family-repeat-locus-name">{row.display_name}</div>
                       {row.status !== 'normal' && (
                         <span
                           className={`table-chip family-repeat-table-locus-flag family-repeat-table-locus-flag--${row.status}`}
@@ -329,7 +329,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                           row,
                           resolvedProjectId,
                         )}
-                        className="table-link"
+                        className="variant-card-resource variant-card-resource--clinical"
                         aria-label={`Chromosome view ${CHROMOSOME_VIEW_PADDING_LABEL} around ${getRepeatChromosomeViewWindow(row)}`}
                         title={`Open ${getRepeatChromosomeViewWindow(row)} in chromosome view`}
                       >
@@ -343,7 +343,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                         href={omimSearchHref(row.disease)}
                         target="_blank"
                         rel="noreferrer"
-                        className="table-link"
+                        className="table-link family-repeat-disease-link"
                         title={`Open ${row.disease} on OMIM`}
                       >
                         {row.disease}

@@ -6420,6 +6420,17 @@ button.table-link:hover {
   margin-bottom: 0.1rem;
 }
 
+/* Gene and disease names read larger than the table body. */
+.family-repeat-locus-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.family-repeat-disease-link {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .family-repeat-table-locus-flag {
   padding-top: 0.18rem;
   padding-bottom: 0.18rem;
