@@ -106,7 +106,7 @@ interface Props {
 const BAND_THICKNESS = 4;
 // Markers are drawn as tall, very thin vertical ellipses sitting on the haplotype
 // line — narrow capped ticks so they read as lines and disagreements stand out.
-const MARKER_WIDTH = 1.5;
+const MARKER_WIDTH = 0.5;
 const MARKER_LANE_PADDING = 2;
 
 const HaplotypePhasedTrack: React.FC<Props> = ({
