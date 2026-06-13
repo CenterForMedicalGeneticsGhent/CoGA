@@ -44,6 +44,9 @@ const formatCutoff = (warningMin?: number | null, pathogenicMin?: number | null)
   return 'No reference cutoff';
 };
 
+const omimSearchHref = (disease: string): string =>
+  `https://www.omim.org/search?index=entry&search=${encodeURIComponent(disease)}`;
+
 const formatAlleles = (alleles: ApiRepeatExpansionAllele[]): string => {
   const values = alleles
     .map((allele) => allele.repeat_count)
@@ -334,7 +337,21 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                       </Link>
                     </div>
                   </td>
-                  <td>{row.disease}</td>
+                  <td>
+                    {row.disease ? (
+                      <a
+                        href={omimSearchHref(row.disease)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="table-link"
+                        title={`Open ${row.disease} on OMIM`}
+                      >
+                        {row.disease}
+                      </a>
+                    ) : (
+                      <span className="table-subtle">—</span>
+                    )}
+                  </td>
                   <td>
                     <div className="family-repeat-table-calls">
                       {orderedMembers.map((member) => {

@@ -6394,20 +6394,22 @@ button.table-link:hover {
   vertical-align: top;
 }
 
-.family-repeat-table tbody tr.family-repeat-table-row--intermediate {
-  background: linear-gradient(90deg, rgba(217, 119, 6, 0.08), transparent 4.5rem), rgba(247, 249, 252, 0.82);
+/* Status rail instead of a fill: red (pathogenic) / orange (grey zone) top + left
+   border, matching the small-variant cards (no reddish background). */
+.family-repeat-table tbody tr.family-repeat-table-row--intermediate > td {
+  border-top: 2px solid var(--color-repeat-intermediate);
 }
 
-.family-repeat-table tbody tr.family-repeat-table-row--pathogenic {
-  background: linear-gradient(90deg, rgba(180, 35, 24, 0.1), transparent 4.5rem), rgba(247, 249, 252, 0.9);
+.family-repeat-table tbody tr.family-repeat-table-row--intermediate > td:first-child {
+  border-left: 3px solid var(--color-repeat-intermediate);
 }
 
-.family-repeat-table tbody tr.family-repeat-table-row--intermediate:hover {
-  background: linear-gradient(90deg, rgba(217, 119, 6, 0.12), transparent 4.5rem), rgba(17, 17, 17, 0.036);
+.family-repeat-table tbody tr.family-repeat-table-row--pathogenic > td {
+  border-top: 2px solid var(--color-repeat-pathogenic);
 }
 
-.family-repeat-table tbody tr.family-repeat-table-row--pathogenic:hover {
-  background: linear-gradient(90deg, rgba(180, 35, 24, 0.14), transparent 4.5rem), rgba(17, 17, 17, 0.04);
+.family-repeat-table tbody tr.family-repeat-table-row--pathogenic > td:first-child {
+  border-left: 3px solid var(--color-repeat-pathogenic);
 }
 
 .family-repeat-table-locus-head {

@@ -182,6 +182,10 @@ describe('FamilyRepeatExpansionsPage', () => {
     expect(rowScope.getByText('Interruption A2: CAG 40 + CAA 2')).toBeInTheDocument();
     expect(rowScope.getByText('17 / 20')).toBeInTheDocument();
     expect(rowScope.getAllByText(/pathogenic/i).length).toBeGreaterThan(0);
+    expect(rowScope.getByRole('link', { name: 'Huntington disease' })).toHaveAttribute(
+      'href',
+      'https://www.omim.org/search?index=entry&search=Huntington%20disease',
+    );
     expect(
       rowScope.getByRole('link', { name: /chromosome view ±1 mb/i }),
     ).toHaveAttribute(
