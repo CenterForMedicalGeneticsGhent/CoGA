@@ -104,9 +104,9 @@ interface Props {
 }
 
 const BAND_THICKNESS = 4;
-// Markers are drawn as tall, very thin vertical ellipses sitting on the haplotype
-// line — narrow capped ticks so they read as lines and disagreements stand out.
-const MARKER_WIDTH = 0.5;
+// Markers are drawn as crisp 1px vertical ticks at the floored x so they stay
+// sharp (no anti-alias blur) and taller than the band so disagreements stand out.
+const MARKER_WIDTH = 1;
 const MARKER_LANE_PADDING = 2;
 
 const HaplotypePhasedTrack: React.FC<Props> = ({
@@ -334,12 +334,10 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     };
     const paternalCy = laneCenter('hap1', false);
     const maternalCy = laneCenter('hap2', false);
-    const markerRadiusY = Math.max(half / 2 - MARKER_LANE_PADDING, MARKER_WIDTH / 2);
+    const markerHalfHeight = Math.max(half / 2 - MARKER_LANE_PADDING, 1);
     const drawMarker = (x: number, cy: number, color: string) => {
       ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.ellipse(x, cy, MARKER_WIDTH / 2, markerRadiusY, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(Math.floor(x), cy - markerHalfHeight, MARKER_WIDTH, markerHalfHeight * 2);
     };
     markers.forEach((marker) => {
       const x = ((marker.pos - regionStart) / span) * width;
