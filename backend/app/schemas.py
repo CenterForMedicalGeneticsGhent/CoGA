@@ -1867,3 +1867,55 @@ class AuditLogPageOut(BaseModel):
     page_size: int
     total: int
     items: List[AuditLogEventOut] = Field(default_factory=list)
+
+
+class UiEventIn(BaseModel):
+    """A single client-side interaction event submitted by the frontend."""
+
+    event_type: str
+    category: Optional[str] = None
+    label: Optional[str] = None
+    target_id: Optional[str] = None
+    path: Optional[str] = None
+    to_path: Optional[str] = None
+    href: Optional[str] = None
+    component: Optional[str] = None
+    session_id: Optional[str] = None
+    occurred_at: Optional[datetime] = None
+    detail: Optional[Dict[str, Any]] = None
+
+
+class UiEventBatchIn(BaseModel):
+    events: List[UiEventIn] = Field(default_factory=list)
+
+
+class UiEventOut(BaseModel):
+    id: str
+    created_at: datetime
+    occurred_at: Optional[datetime] = None
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    user_role: Optional[str] = None
+    event_type: str
+    category: Optional[str] = None
+    label: Optional[str] = None
+    target_id: Optional[str] = None
+    path: Optional[str] = None
+    to_path: Optional[str] = None
+    href: Optional[str] = None
+    component: Optional[str] = None
+    session_id: Optional[str] = None
+    detail: Dict[str, Any] = Field(default_factory=dict)
+    remote_ip: Optional[str] = None
+    user_agent: Optional[str] = None
+
+
+class UiEventPageOut(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    items: List[UiEventOut] = Field(default_factory=list)
+
+
+class UiEventIngestResult(BaseModel):
+    accepted: int

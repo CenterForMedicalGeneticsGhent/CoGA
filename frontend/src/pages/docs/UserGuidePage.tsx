@@ -22,14 +22,14 @@ type GuideSection = {
 
 const guideHighlights: GuideHighlight[] = [
   {
-    title: 'Phenotype-driven, family-based review',
+    title: 'Phenotype-driven, family-based analysis',
     description:
-      'Start from the pedigree and the patient phenotype (HPO), then prioritise variants in the context of the whole family rather than isolated files.',
+      'Start from the pedigree and the patient phenotype (HPO), then prioritise variants in the context of the whole family.',
   },
   {
     title: 'Inheritance-aware prioritisation',
     description:
-      'Apply de novo / dominant, recessive (homozygous and compound heterozygous), X-linked, and carrier-screening logic to small-variant searches.',
+      'Apply de novo / dominant, recessive (homozygous and compound heterozygous), X-linked, and carrier-screening logic to variant searches.',
   },
   {
     title: 'Evidence-rich interpretation',
@@ -42,9 +42,9 @@ const guideHighlights: GuideHighlight[] = [
       'Use the Global Small Variant Explorer to ask how often a variant or gene is seen across every project you can access, and which families carry it.',
   },
   {
-    title: 'Multi-assay genomic review',
+    title: 'Comprehensive genomic review',
     description:
-      'Bring small variants, structural variants, repeat expansions (TRGT), Paraphase, mitochondrial DNA, coverage, and IGV together for one family.',
+      'Bring small variants, structural variants, repeat expansions (TRGT), Paraphase, and mitochondrial DNA together for one family.',
   },
   {
     title: 'Reusable, auditable review state',
@@ -66,10 +66,9 @@ const guideSections: GuideSection[] = [
     content: (
       <>
         <p>
-          CoGA is an integrated review environment for clinical genomics. Like other family-based
+          CoGA is an integrated review environment for clinical genomic analysis. Like other family-based
           platforms, it keeps the pedigree, the assay layers, and your interpretation together so a
-          case is reviewed as a whole rather than as a pile of files. Almost everything you do is
-          scoped: getting the scope right is what makes the rest of the system behave predictably.
+          case is reviewed as a whole rather than as a set of disconnected tests.
         </p>
         <div className="user-guide-callout">
           <strong>Mental model:</strong> a <em>project</em> controls access and assembly, a
@@ -94,7 +93,7 @@ const guideSections: GuideSection[] = [
           </li>
           <li>
             <strong>Reference data</strong> (genes, transcripts, cytobands, ClinVar, gnomAD,
-            blacklist, clinical CNVs) is assembly-scoped and shared across projects on that assembly.
+            blacklist, clinical CNVs, DGV) is assembly-scoped and shared across projects on that assembly.
           </li>
           <li>
             <strong>Review state</strong> — ACMG classifications, tags, notes, and saved filter
@@ -104,11 +103,13 @@ const guideSections: GuideSection[] = [
 
         <h3>The analyst journey</h3>
         <ol>
-          <li>Confirm the project, assembly, and family.</li>
-          <li>Capture or review the phenotype (HPO terms) and the pedigree.</li>
+          <li>Search for families, cases, or individuals through the dashboard.</li>
+          <li>Capture or review the pedigree and associated phenotype (HPO terms).</li>
+          <li>Examine small variants, structural variants, recombinations, mtDNA variants, (triplet) repeat expansions, and complex genomic regions through one family-based workspace.</li>
           <li>Prioritise candidates with inheritance-aware, evidence-rich filtering.</li>
           <li>Interpret each candidate and record an ACMG class, tags, and notes.</li>
           <li>Put findings in cohort context and follow up visually (genome views, IGV).</li>
+          <li>Automatically report interesting variants.</li>
         </ol>
       </>
     ),
@@ -150,8 +151,7 @@ const guideSections: GuideSection[] = [
         </ol>
 
         <div className="user-guide-callout">
-          <strong>Not finding a variant you expect?</strong> The most common causes are the wrong
-          project/assembly, a frequency or quality filter that is too strict, or imputed calls being
+          <strong>Not finding a variant you expect?</strong> The most common causes are a frequency or quality filter that is too strict, or imputed calls being
           hidden. Clear filters and re-check scope before assuming the data is missing.
         </div>
       </>
@@ -196,12 +196,12 @@ const guideSections: GuideSection[] = [
           <li><strong>Structural variants</strong> enable the SV table, review, and CNV detail.</li>
           <li><strong>Repeat expansions (TRGT)</strong> enable the repeat-expansion view.</li>
           <li><strong>Paraphase</strong> enables segmental-duplication / paralogue resolution.</li>
-          <li><strong>Mitochondrial calls</strong> enable the mtDNA heteroplasmy analysis.</li>
-          <li><strong>Coverage, segments, APCAD, haplotypes</strong> populate the genome and chromosome track viewers.</li>
+          <li><strong>Mitochondrial calls</strong> enable the mtDNA homo- and heteroplasmy analysis.</li>
+          <li><strong>Coverage, segments, APCAD, haplotypes, and recombination</strong> populate the genome and chromosome track viewers.</li>
         </ul>
 
         <div className="user-guide-callout">
-          <strong>Assembly and reference first.</strong> Genes, cytobands, ClinVar, and gnomAD are
+          <strong>Assembly and reference first.</strong> Genes, cytobands, ClinVar, DGV, and gnomAD annotations are
           loaded per assembly. If a viewer cannot resolve coordinates or a gene lookup is empty, check
           that the reference layers for that assembly are present.
         </div>
@@ -237,12 +237,12 @@ const guideSections: GuideSection[] = [
 
         <h3>Gene panels</h3>
         <ul>
-          <li>The panel catalog holds reusable gene lists for recurring indications.</li>
+          <li>The gene panel catalog holds reusable gene lists for recurring indications.</li>
           <li>
-            Apply a panel directly in the small-variant filter to restrict a search to a curated set
+            Apply a panel directly in the small-variant or structural-variant filter to restrict a search to a curated set
             of genes — a fast way to focus a broad genome on the clinically relevant loci.
           </li>
-          <li>Panels are managed centrally so a team shares the same definitions.</li>
+          <li>Panels can be imported automatically from PanelApp or custom-made, and are managed centrally so a team shares the same definitions.</li>
         </ul>
       </>
     ),
@@ -277,7 +277,7 @@ const guideSections: GuideSection[] = [
             reviewed, noted, and tagged.
           </li>
           <li>
-            <strong>Region of interest (ROI).</strong> Admins can set a gene or locus of interest
+            <strong>Region of interest (ROI).</strong> Users can set a gene or locus of interest
             directly from the family dashboard and open it in the chromosome view.
           </li>
         </ul>
@@ -286,8 +286,8 @@ const guideSections: GuideSection[] = [
         <p>
           Sex, role, parentage, phenotype, and carrier status are edited per member. Phenotype
           (clinical status: unknown / unaffected / affected) and carrier status (unknown / carrier /
-          non-carrier) are <strong>independent axes</strong> — an individual can be both affected and
-          a carrier — and are set with separate controls. These edits are metadata-only: they update
+          non-carrier) are <strong>independent axes</strong> — an individual can be unaffected but
+          still a carrier — and are set with separate controls. These edits are metadata-only: they update
           the pedigree and mark phenotype-dependent views as needing recomputation, but they never
           delete or reimport raw data.
         </p>
@@ -330,7 +330,7 @@ const guideSections: GuideSection[] = [
           </li>
           <li>
             <strong>In-silico evidence</strong> — CADD, REVEL, SpliceAI, SIFT, and PolyPhen
-            thresholds.
+            thresholds, amongst others.
           </li>
           <li>
             <strong>Transcript scope</strong> — restrict to canonical, MANE, or loss-of-function
@@ -346,10 +346,16 @@ const guideSections: GuideSection[] = [
           encode segregation expectations across the family directly in the search.
         </p>
 
+        <h3>Bi-sample partner analysis</h3>
+        <p>
+          A special case is the coupled partner analysis — a dedicated filter for (expanded) preconception
+          carrier screening. Only genes where both partners carry a variant meeting the filter criteria are returned.
+        </p>
+
         <div className="user-guide-callout">
           <strong>Presets save the recipe, not the result.</strong> Built-in presets cover common
           patterns (dominant, recessive, compound het, carrier screening, ClinVar review); save your
-          own to standardise how your team searches.
+          own to standardise variant filtration.
         </div>
       </>
     ),
@@ -421,14 +427,14 @@ const guideSections: GuideSection[] = [
           <div className="user-guide-mini-card">
             <p className="user-guide-mini-card-title">Repeat expansions (TRGT)</p>
             <p className="user-guide-mini-card-copy">
-              Inspect per-sample repeat-locus calls against the catalog to assess expansions in the
+              Inspect per-sample repeat-locus calls against the catalog to assess repeat expansions in the
               family.
             </p>
           </div>
           <div className="user-guide-mini-card">
             <p className="user-guide-mini-card-title">Paraphase</p>
             <p className="user-guide-mini-card-copy">
-              Resolve paralogous / segmental-duplication regions where standard short-read calling is
+              Resolve paralogous / complex regions where standard variant calling is
               unreliable.
             </p>
           </div>
@@ -456,21 +462,20 @@ const guideSections: GuideSection[] = [
     content: (
       <>
         <p>
-          Tables are for finding candidates; viewers are for confirming them. Each viewer reads the
+          Tables are for finding candidates; viewers are for confirming and inspecting them and diving deeper into their genomic context. Each viewer reads the
           tracks that were imported for the family.
         </p>
         <ul>
           <li><strong>Genome overview</strong> — whole-genome context for variants and tracks.</li>
           <li>
             <strong>Chromosome view</strong> — a single chromosome with coverage, segments, and
-            variant tracks; the ROI opens here with flanking context.
+            variant tracks; the ROI opens here with ±1 Mb of flanking context.
           </li>
           <li><strong>Circos plot</strong> — genome-wide structural relationships at a glance.</li>
           <li>
             <strong>IGV</strong> — read-level confirmation against the reference for a specific
             locus.
           </li>
-          <li><strong>CNV detail</strong> — focused inspection of a structural event.</li>
         </ul>
         <h3>Small-variant track: colours and rows</h3>
         <p>
@@ -508,6 +513,17 @@ const guideSections: GuideSection[] = [
           de-novo, and ambiguous variants stay in the middle row. These are the <em>raw</em> calls —
           hover any dot to see its impact, ClinVar significance, and parental origin.
         </p>
+
+        <h3>Haplotype track</h3>
+        <p>
+          The haplotype track enables visual inspection of recombinations. Raw (imputed) informative
+          markers are shown, and the (imputed) haplotype blocks are colour-coded according to the
+          pedigree information. For individuals affected by a dominant disorder, the shared haplotype
+          blocks are colour-coded in red. Individuals affected by a recessive disorder have two
+          affected haplotypes (coloured orange), while carrier parents — or other carriers in the
+          pedigree — carry a single affected (orange) haplotype.
+        </p>
+
         <div className="user-guide-callout">
           <strong>Viewers only show what was imported.</strong> Coverage, segment, APCAD, and
           haplotype tracks appear when the corresponding sample data exists; an empty track usually
@@ -575,14 +591,14 @@ const guideSections: GuideSection[] = [
           <li>
             Filter with the same dimensions as the family search — gene, consequence, ClinVar,
             frequency, in-silico — plus tags and ACMG classification to surface, for example, every
-            variant tagged <em>Reported</em>.
+            variant tagged <em>Reported</em>, or every individual with a pathogenic variant in a certain gene.
           </li>
           <li>
             Click a heterozygous, homozygous, or family count to drill into the carriers, grouped by
             family, and link straight to the family workspace.
           </li>
           <li>Optionally add a per-sample genotype filter to find variants a specific sample carries.</li>
-          <li>Switch the assembly, and choose whether imputed calls are included.</li>
+          <li>Imputed calls are left out by default but can be included with a toggle.</li>
         </ul>
         <div className="user-guide-callout">
           <strong>Counts are relative to your access.</strong> Aggregations only span the projects
@@ -631,7 +647,14 @@ const guideSections: GuideSection[] = [
             your team relies on.
           </li>
           <li>
-            <strong>Audit logs</strong> — review who changed what, when.
+            <strong>Audit logs</strong> — a full activity trail for inspection and platform
+            optimisation, split into two views. <strong>API requests</strong> records every backend
+            call: who, what, when, the response and duration, inferred data updates, and which search
+            filters a query used. <strong>UI interactions</strong> records client-side activity that
+            never reaches the backend — every button and link click and each in-app navigation.
+            Identifiers are masked (paths reduced to <em>:id</em>, query strings to their filter
+            names), so the trail shows <em>how</em> the platform is used without exposing patient
+            data.
           </li>
         </ul>
         <p>

@@ -3,7 +3,7 @@ import { clearSession, getAuthToken } from './auth';
 import { buildApiUnavailableMessage, isNetworkTransportError } from './errorMessage';
 
 const DEFAULT_API_BASE_URL = '/api';
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL;
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL;
 const AUTH_EXCLUDED_PATHS = new Set(['/auth/login', '/auth/signup']);
 
 export const hasAuthorizationHeader = (headers: unknown): boolean => {

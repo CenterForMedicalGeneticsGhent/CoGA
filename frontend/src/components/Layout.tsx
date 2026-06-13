@@ -5,6 +5,7 @@ import ErrorBoundary from './ErrorBoundary';
 import PageState from './PageState';
 import { clearSession, getStoredUsername } from '../lib/auth';
 import { githubIssuesUrl, githubRepositoryUrl } from '../lib/githubLinks';
+import { useUiTelemetry } from '../lib/useUiTelemetry';
 
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage'));
 
@@ -12,6 +13,8 @@ const Layout: React.FC = () => {
   const navigate = useNavigate();
   const username = getStoredUsername();
   const [showSettings, setShowSettings] = useState(false);
+
+  useUiTelemetry();
 
   const handleLogout = () => {
     clearSession();

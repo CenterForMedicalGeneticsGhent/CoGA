@@ -76,16 +76,10 @@ const LoginPage: React.FC = () => {
 
               <div className="auth-gallery-metrics">
                 <div className="auth-gallery-metric">
-                  <span className="auth-gallery-metric-label">Pedigree intake</span>
-                  <span className="auth-gallery-metric-value">
-                    Manual family builder plus PED ingestion with a live pedigree sketch.
-                  </span>
-                </div>
-                <div className="auth-gallery-metric">
                   <span className="auth-gallery-metric-label">Genome review</span>
                   <span className="auth-gallery-metric-value">
-                    Structural variants, small variants, chromosome context, and IGV from one
-                    consistent shell.
+                    Structural variants, small variants, triplet repeats, recombination events, and
+                    more in a chromosomal context from one consistent shell.
                   </span>
                 </div>
               </div>
@@ -121,7 +115,7 @@ const LoginPage: React.FC = () => {
               <p className="auth-form-note">CoGA</p>
               <p className="page-kicker">Sign In</p>
               <p className="page-subtitle">
-                Continue to the family workspace with your institutional account.
+                Continue to the family workspace with your user account.
               </p>
               {loggedOut && (
                 <p className="status-note status-note--success auth-inline-status" role="status">

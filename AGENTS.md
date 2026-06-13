@@ -3,6 +3,8 @@
 ## Repository Overview
 - CoGA is a family-based genome browser with a FastAPI backend, React frontend, Postgres metadata storage, and ClickHouse variant storage orchestrated via Docker Compose.
 - The frontend already ships canvas/SVG/D3 visualizations for coverage with segments, APCAD, structural variant and variant tracks, ideograms, and pedigrees.
+- This is a new, clean project with only dummy data. No legacy code — build from scratch.
+- All actions performed in the interface should be logged: all queries, all clicks.
 
 ## Environment & Setup
 - Requires Docker & Docker Compose, Python 3.10+, and Node.js 20+.

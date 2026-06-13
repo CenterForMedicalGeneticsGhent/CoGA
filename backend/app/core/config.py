@@ -53,7 +53,11 @@ class Settings(BaseSettings):
         alias="AUDIT_LOG_FLUSH_INTERVAL_SECONDS",
     )
     audit_log_queue_size: int = Field(default=1000, ge=1, le=100_000, alias="AUDIT_LOG_QUEUE_SIZE")
-    audit_log_query_string_mode: str = Field(default="none", alias="AUDIT_LOG_QUERY_STRING_MODE")
+    # "keys" records which query parameters a request used (e.g. the filters on a
+    # variant search) without their values, so searches are logged structurally
+    # while clinical identifiers stay out of the audit trail. Override with
+    # "none" to disable or "sanitized" to keep masked values.
+    audit_log_query_string_mode: str = Field(default="keys", alias="AUDIT_LOG_QUERY_STRING_MODE")
     cors_origins: list[str] = Field(
         default=[
             "http://localhost:3000",
@@ -232,7 +236,7 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_audit_log_query_string_mode(cls, value: object) -> object:
         if isinstance(value, str):
-            return value.strip().lower() or "none"
+            return value.strip().lower() or "keys"
         return value
 
     @model_validator(mode="after")
