@@ -40,7 +40,7 @@ vi.mock('../../../components/visualizations/VariantTrack', () => ({
   default: () => <div data-testid="variant-track" />,
 }));
 
-vi.mock('../../../components/visualizations/HaplotypeTrack', () => ({
+vi.mock('../../../components/visualizations/HaplotypePhasedTrack', () => ({
   default: () => <div data-testid="haplotype-track" />,
 }));
 

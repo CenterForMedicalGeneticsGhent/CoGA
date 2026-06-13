@@ -8,8 +8,7 @@ import ApcadChart from '../../components/visualizations/ApcadChart';
 import Ideogram from '../../components/visualizations/Ideogram';
 import ZoomedIdeogram from '../../components/visualizations/ZoomedIdeogram';
 import VariantTrack from '../../components/visualizations/VariantTrack';
-import HaplotypeTrack from '../../components/visualizations/HaplotypeTrack';
-import PhasedMarkerTrack from '../../components/visualizations/PhasedMarkerTrack';
+import HaplotypePhasedTrack from '../../components/visualizations/HaplotypePhasedTrack';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import GeneTrack from '../../components/visualizations/GeneTrack';
 import BlacklistTrack from '../../components/visualizations/BlacklistTrack';
@@ -36,8 +35,11 @@ import {
 
 const TRACK_HEIGHT = 120;
 const VARIANT_TRACK_HEIGHT = 80;
-const HAPLOTYPE_TRACK_HEIGHT = 15;
-const PHASED_MARKER_TRACK_HEIGHT = 24;
+// Combined haplotype + phased-marker track: two lanes (paternal / maternal),
+// each a thin haplotype line. Taller (room for the marker dots in both lanes)
+// when the overlay is on, a slim two-line band when it is off.
+const HAPLOTYPE_TRACK_HEIGHT = 20;
+const HAPLOTYPE_MARKERS_TRACK_HEIGHT = 40;
 const ZOOMED_IDEOGRAM_HEIGHT = 40;
 const CNV_TRACK_HEIGHT = 20;
 const DGV_TRACK_HEIGHT = 48;
@@ -606,68 +608,49 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       </ViewerTrackBlock>
                     );
                   })()}
-                {trackVisibility.haplotypes && availability[member.sample_id]?.haplotypes && (
-                  <ViewerTrackBlock
-                    label="Haplotypes"
-                    width={trackWidth}
-                    meta={
-                      highlightRiskHaplotype ? (
-                        <HaplotypeLegend inheritanceModel={resolvedHaplotypeInheritanceModel} />
-                      ) : undefined
-                    }
-                    frameClassName="h-[15px]"
-                    roiRange={regionRoiRange}
-                    roiTitle={roiTitle}
-                    viewportInteraction={viewportInteraction}
-                  >
-                    <HaplotypeTrack
-                      familyId={familyDisplayId}
-                      sampleId={member.sample_id}
-                      chrom={chrom}
-                      regionStart={region.start}
-                      regionEnd={region.end}
-                      width={trackWidth}
-                      height={HAPLOTYPE_TRACK_HEIGHT}
-                      role={member.role}
-                      affected={member.affected}
-                      sex={member.sex}
-                      carrierStatus={member.carrier_status === 'carrier'}
-                      carrierType={member.carrier_type}
-                      highlightRiskHaplotype={highlightRiskHaplotype}
-                      disorder={haplotypeDisorder}
-                      inheritanceModel={resolvedHaplotypeInheritanceModel}
-                      familyMembers={familyMembers}
-                      riskRegion={haplotypeRiskRegion}
-                    />
-                  </ViewerTrackBlock>
-                )}
-                {trackVisibility.phasedMarkers &&
-                  hasBothParents &&
-                  !parentRole(member.role) &&
-                  availability[member.sample_id]?.haplotypes && (
-                    <ViewerTrackBlock
-                      label="Phased markers"
-                      width={trackWidth}
-                      frameClassName="h-[24px]"
-                      roiRange={regionRoiRange}
-                      roiTitle={roiTitle}
-                      viewportInteraction={viewportInteraction}
-                    >
-                      <PhasedMarkerTrack
-                        familyId={familyDisplayId}
-                        sampleId={member.sample_id}
-                        chrom={chrom}
-                        regionStart={region.start}
-                        regionEnd={region.end}
+                {trackVisibility.haplotypes &&
+                  availability[member.sample_id]?.haplotypes &&
+                  (() => {
+                    // Markers are drawn for the whole family (parents included)
+                    // when both parents are present and the overlay is enabled.
+                    const showMarkers = trackVisibility.phasedMarkers && hasBothParents;
+                    return (
+                      <ViewerTrackBlock
+                        label="Haplotypes"
                         width={trackWidth}
-                        height={PHASED_MARKER_TRACK_HEIGHT}
-                        member={member}
-                        familyMembers={familyMembers}
-                        inheritanceModel={resolvedHaplotypeInheritanceModel}
-                        riskRegion={haplotypeRiskRegion}
-                      />
-                    </ViewerTrackBlock>
-                  )}
+                        meta={
+                          highlightRiskHaplotype ? (
+                            <HaplotypeLegend inheritanceModel={resolvedHaplotypeInheritanceModel} />
+                          ) : undefined
+                        }
+                        frameClassName={showMarkers ? 'h-[40px]' : 'h-[20px]'}
+                        roiRange={regionRoiRange}
+                        roiTitle={roiTitle}
+                        viewportInteraction={viewportInteraction}
+                      >
+                        <HaplotypePhasedTrack
+                          familyId={familyDisplayId}
+                          sampleId={member.sample_id}
+                          chrom={chrom}
+                          regionStart={region.start}
+                          regionEnd={region.end}
+                          width={trackWidth}
+                          height={showMarkers ? HAPLOTYPE_MARKERS_TRACK_HEIGHT : HAPLOTYPE_TRACK_HEIGHT}
+                          role={member.role}
+                          affected={member.affected}
+                          sex={member.sex}
+                          carrierStatus={member.carrier_status === 'carrier'}
+                          carrierType={member.carrier_type}
+                          highlightRiskHaplotype={highlightRiskHaplotype}
+                          disorder={haplotypeDisorder}
+                          inheritanceModel={resolvedHaplotypeInheritanceModel}
+                          familyMembers={familyMembers}
+                          riskRegion={haplotypeRiskRegion}
+                          showMarkers={showMarkers}
+                        />
+                      </ViewerTrackBlock>
+                    );
+                  })()}
                 {trackVisibility.repeatExpansions && availability[member.sample_id]?.repeatExpansions && (
                   <ViewerTrackBlock
                     label="Repeat expansions"
