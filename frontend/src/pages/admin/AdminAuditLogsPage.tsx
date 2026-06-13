@@ -13,6 +13,7 @@ type AuditLogEvent = {
   method: string;
   route_path?: string | null;
   path: string;
+  query_string?: string | null;
   status_code: number;
   duration_ms: number;
   remote_ip?: string | null;
@@ -28,10 +29,33 @@ type AuditLogPage = {
   items: AuditLogEvent[];
 };
 
+type UiEvent = {
+  id: string;
+  created_at: string;
+  user_email?: string | null;
+  user_id?: string | null;
+  event_type: string;
+  category?: string | null;
+  label?: string | null;
+  target_id?: string | null;
+  path?: string | null;
+  to_path?: string | null;
+  href?: string | null;
+};
+
+type UiEventPage = {
+  page: number;
+  page_size: number;
+  total: number;
+  items: UiEvent[];
+};
+
 type UserOption = {
   id: string;
   email: string;
 };
+
+type AuditView = 'requests' | 'interactions';
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -58,8 +82,20 @@ const summarizeDbUpdate = (dbUpdate?: Record<string, unknown> | null) => {
   return [updateType, entity, entityId].filter(Boolean).join(' ');
 };
 
+const describeLocation = (event: UiEvent): string => {
+  if (event.event_type === 'navigation') {
+    const from = event.path || '—';
+    const to = event.to_path || '—';
+    return `${from} → ${to}`;
+  }
+  return event.href || event.path || '—';
+};
+
 const AdminAuditLogsPage: React.FC = () => {
+  const [view, setView] = useState<AuditView>('requests');
   const [page, setPage] = useState(1);
+
+  // API request filters
   const [draftMethod, setDraftMethod] = useState('');
   const [draftStatusCode, setDraftStatusCode] = useState('');
   const [draftUserEmail, setDraftUserEmail] = useState('');
@@ -71,12 +107,17 @@ const AdminAuditLogsPage: React.FC = () => {
     pathContains: '',
   });
 
-  const {
-    data,
-    isLoading,
-    isFetching,
-    error,
-  } = useQuery<AuditLogPage>({
+  // UI interaction filters
+  const [draftEventType, setDraftEventType] = useState('');
+  const [draftIntUserEmail, setDraftIntUserEmail] = useState('');
+  const [draftIntSearch, setDraftIntSearch] = useState('');
+  const [appliedIntFilters, setAppliedIntFilters] = useState({
+    eventType: '',
+    userEmail: '',
+    search: '',
+  });
+
+  const requestsQuery = useQuery<AuditLogPage>({
     queryKey: [
       'admin',
       'audit-logs',
@@ -101,6 +142,32 @@ const AdminAuditLogsPage: React.FC = () => {
       });
       return response.data as AuditLogPage;
     },
+    enabled: view === 'requests',
+    retry: false,
+  });
+
+  const interactionsQuery = useQuery<UiEventPage>({
+    queryKey: [
+      'admin',
+      'ui-events',
+      page,
+      appliedIntFilters.eventType,
+      appliedIntFilters.userEmail,
+      appliedIntFilters.search,
+    ],
+    queryFn: async () => {
+      const response = await api.get('/admin/ui-events', {
+        params: {
+          page,
+          page_size: DEFAULT_PAGE_SIZE,
+          event_type: appliedIntFilters.eventType || undefined,
+          user_email: appliedIntFilters.userEmail.trim() || undefined,
+          path_contains: appliedIntFilters.search.trim() || undefined,
+        },
+      });
+      return response.data as UiEventPage;
+    },
+    enabled: view === 'interactions',
     retry: false,
   });
 
@@ -114,8 +181,8 @@ const AdminAuditLogsPage: React.FC = () => {
     retry: false,
   });
 
-  const logs = data?.items ?? [];
-  const total = data?.total ?? 0;
+  const activeQuery = view === 'requests' ? requestsQuery : interactionsQuery;
+  const total = activeQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / DEFAULT_PAGE_SIZE));
 
   const pageSummary = useMemo(() => {
@@ -125,25 +192,14 @@ const AdminAuditLogsPage: React.FC = () => {
     return `${start}-${end} of ${total}`;
   }, [page, total]);
 
-  if (isLoading) {
-    return (
-      <PageState
-        kicker="Administration"
-        title="Loading audit logs"
-        message="Preparing API request and data-change history."
-      />
-    );
-  }
+  const switchView = (next: AuditView) => {
+    if (next === view) return;
+    setView(next);
+    setPage(1);
+  };
 
-  if (error) {
-    return (
-      <PageState
-        kicker="Administration"
-        title="Could not load audit logs"
-        message={getErrorMessage(error, 'The audit log history could not be loaded.')}
-      />
-    );
-  }
+  const requestLogs = requestsQuery.data?.items ?? [];
+  const interactionLogs = interactionsQuery.data?.items ?? [];
 
   return (
     <div className="page-shell admin-compact space-y-5">
@@ -153,7 +209,7 @@ const AdminAuditLogsPage: React.FC = () => {
             <p className="page-kicker">Administration</p>
             <h1 className="catalog-card-title">Audit logs</h1>
             <p className="catalog-card-copy">
-              Browse request history, user activity, and inferred data updates.
+              Browse API request history, inferred data updates, and client-side interactions.
             </p>
           </div>
           <div className="compact-toolbar dashboard-toolbar">
@@ -174,156 +230,285 @@ const AdminAuditLogsPage: React.FC = () => {
             </Link>
           </div>
         </div>
-      </section>
-
-      <section className="surface-card space-y-4">
-        <div className="variant-search-toolbar">
-          <select
-            aria-label="Filter method"
-            value={draftMethod}
-            onChange={(event) => setDraftMethod(event.target.value)}
-          >
-            <option value="">All methods</option>
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-            <option value="PUT">PUT</option>
-            <option value="PATCH">PATCH</option>
-            <option value="DELETE">DELETE</option>
-          </select>
-          <select
-            aria-label="Filter status"
-            value={draftStatusCode}
-            onChange={(event) => setDraftStatusCode(event.target.value)}
-          >
-            <option value="">All status codes</option>
-            <option value="200">200</option>
-            <option value="201">201</option>
-            <option value="204">204</option>
-            <option value="400">400</option>
-            <option value="401">401</option>
-            <option value="403">403</option>
-            <option value="404">404</option>
-            <option value="500">500</option>
-          </select>
-          <select
-            aria-label="Filter user"
-            value={draftUserEmail}
-            onChange={(event) => setDraftUserEmail(event.target.value)}
-          >
-            <option value="">All users</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.email}>
-                {user.email}
-              </option>
-            ))}
-          </select>
-          <input
-            aria-label="Filter path"
-            placeholder="Path contains"
-            value={draftPathContains}
-            onChange={(event) => setDraftPathContains(event.target.value)}
-          />
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => {
-              setAppliedFilters({
-                method: draftMethod,
-                statusCode: draftStatusCode,
-                userEmail: draftUserEmail,
-                pathContains: draftPathContains,
-              });
-              setPage(1);
-            }}
-          >
-            Apply filters
-          </button>
-          <button
-            type="button"
-            className="button-secondary"
-            onClick={() => {
-              setDraftMethod('');
-              setDraftStatusCode('');
-              setDraftUserEmail('');
-              setDraftPathContains('');
-              setAppliedFilters({
-                method: '',
-                statusCode: '',
-                userEmail: '',
-                pathContains: '',
-              });
-              setPage(1);
-            }}
-          >
-            Clear filters
-          </button>
-        </div>
-        <p className="table-subtle">
-          {pageSummary}
-          {isFetching ? ' (refreshing...)' : ''}
-        </p>
-
-        <div className="data-table-shell">
-          <table className="analysis-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Method</th>
-                <th>Path</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>Data update</th>
-                <th>Error</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.length ? (
-                logs.map((event) => (
-                  <tr key={event.id}>
-                    <td>{formatDateTime(event.created_at)}</td>
-                    <td>{event.user_email || event.user_id || 'anonymous'}</td>
-                    <td>{event.method}</td>
-                    <td>{event.route_path || event.path}</td>
-                    <td>{event.status_code}</td>
-                    <td>{event.duration_ms} ms</td>
-                    <td>{summarizeDbUpdate(event.db_update)}</td>
-                    <td>{event.error || '—'}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={8} className="table-empty">
-                    No audit log entries found for the current filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
         <div className="compact-toolbar dashboard-toolbar">
           <button
             type="button"
-            className="button-secondary"
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-            disabled={page <= 1}
+            className={view === 'requests' ? 'button-secondary' : 'button-ghost'}
+            aria-pressed={view === 'requests'}
+            onClick={() => switchView('requests')}
           >
-            Previous
+            API requests
           </button>
-          <span className="badge-chip">
-            Page {page} / {totalPages}
-          </span>
           <button
             type="button"
-            className="button-secondary"
-            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-            disabled={page >= totalPages}
+            className={view === 'interactions' ? 'button-secondary' : 'button-ghost'}
+            aria-pressed={view === 'interactions'}
+            onClick={() => switchView('interactions')}
           >
-            Next
+            UI interactions
           </button>
         </div>
       </section>
+
+      {activeQuery.error ? (
+        <PageState
+          kicker="Administration"
+          title="Could not load audit logs"
+          message={getErrorMessage(activeQuery.error, 'The audit log history could not be loaded.')}
+        />
+      ) : (
+        <section className="surface-card space-y-4">
+          {view === 'requests' ? (
+            <div className="variant-search-toolbar">
+              <select
+                aria-label="Filter method"
+                value={draftMethod}
+                onChange={(event) => setDraftMethod(event.target.value)}
+              >
+                <option value="">All methods</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+              <select
+                aria-label="Filter status"
+                value={draftStatusCode}
+                onChange={(event) => setDraftStatusCode(event.target.value)}
+              >
+                <option value="">All status codes</option>
+                <option value="200">200</option>
+                <option value="201">201</option>
+                <option value="204">204</option>
+                <option value="400">400</option>
+                <option value="401">401</option>
+                <option value="403">403</option>
+                <option value="404">404</option>
+                <option value="500">500</option>
+              </select>
+              <select
+                aria-label="Filter user"
+                value={draftUserEmail}
+                onChange={(event) => setDraftUserEmail(event.target.value)}
+              >
+                <option value="">All users</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.email}>
+                    {user.email}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label="Filter path"
+                placeholder="Path contains"
+                value={draftPathContains}
+                onChange={(event) => setDraftPathContains(event.target.value)}
+              />
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  setAppliedFilters({
+                    method: draftMethod,
+                    statusCode: draftStatusCode,
+                    userEmail: draftUserEmail,
+                    pathContains: draftPathContains,
+                  });
+                  setPage(1);
+                }}
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  setDraftMethod('');
+                  setDraftStatusCode('');
+                  setDraftUserEmail('');
+                  setDraftPathContains('');
+                  setAppliedFilters({
+                    method: '',
+                    statusCode: '',
+                    userEmail: '',
+                    pathContains: '',
+                  });
+                  setPage(1);
+                }}
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : (
+            <div className="variant-search-toolbar">
+              <select
+                aria-label="Filter event type"
+                value={draftEventType}
+                onChange={(event) => setDraftEventType(event.target.value)}
+              >
+                <option value="">All event types</option>
+                <option value="click">click</option>
+                <option value="navigation">navigation</option>
+                <option value="submit">submit</option>
+                <option value="view">view</option>
+                <option value="query">query</option>
+              </select>
+              <select
+                aria-label="Filter user"
+                value={draftIntUserEmail}
+                onChange={(event) => setDraftIntUserEmail(event.target.value)}
+              >
+                <option value="">All users</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.email}>
+                    {user.email}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label="Filter label or path"
+                placeholder="Label or path contains"
+                value={draftIntSearch}
+                onChange={(event) => setDraftIntSearch(event.target.value)}
+              />
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  setAppliedIntFilters({
+                    eventType: draftEventType,
+                    userEmail: draftIntUserEmail,
+                    search: draftIntSearch,
+                  });
+                  setPage(1);
+                }}
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => {
+                  setDraftEventType('');
+                  setDraftIntUserEmail('');
+                  setDraftIntSearch('');
+                  setAppliedIntFilters({ eventType: '', userEmail: '', search: '' });
+                  setPage(1);
+                }}
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
+          <p className="table-subtle">
+            {activeQuery.isLoading ? 'Loading…' : pageSummary}
+            {activeQuery.isFetching && !activeQuery.isLoading ? ' (refreshing...)' : ''}
+          </p>
+
+          <div className="data-table-shell">
+            {view === 'requests' ? (
+              <table className="analysis-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Data update</th>
+                    <th>Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requestLogs.length ? (
+                    requestLogs.map((event) => (
+                      <tr key={event.id}>
+                        <td>{formatDateTime(event.created_at)}</td>
+                        <td>{event.user_email || event.user_id || 'anonymous'}</td>
+                        <td>{event.method}</td>
+                        <td>
+                          {event.route_path || event.path}
+                          {event.query_string ? (
+                            <span className="table-subtle"> ?{event.query_string}</span>
+                          ) : null}
+                        </td>
+                        <td>{event.status_code}</td>
+                        <td>{event.duration_ms} ms</td>
+                        <td>{summarizeDbUpdate(event.db_update)}</td>
+                        <td>{event.error || '—'}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="table-empty">
+                        No audit log entries found for the current filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              <table className="analysis-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>User</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Label</th>
+                    <th>Location</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {interactionLogs.length ? (
+                    interactionLogs.map((event) => (
+                      <tr key={event.id}>
+                        <td>{formatDateTime(event.created_at)}</td>
+                        <td>{event.user_email || event.user_id || 'anonymous'}</td>
+                        <td>{event.event_type}</td>
+                        <td>{event.category || '—'}</td>
+                        <td>{event.label || '—'}</td>
+                        <td>{describeLocation(event)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="table-empty">
+                        No interaction events found for the current filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="compact-toolbar dashboard-toolbar">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1}
+            >
+              Previous
+            </button>
+            <span className="badge-chip">
+              Page {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={page >= totalPages}
+            >
+              Next
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 };

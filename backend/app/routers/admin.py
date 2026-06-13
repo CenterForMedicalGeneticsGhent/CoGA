@@ -29,8 +29,10 @@ from ..schemas import (
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
+    UiEventPageOut,
 )
 from ..services.audit_log_pg import list_audit_log_events
+from ..services.ui_event_pg import list_ui_events
 from ..services.admin_service import (
     delete_family_data_by_type,
     delete_family_with_data,
@@ -385,6 +387,27 @@ async def list_audit_logs(
         page_size=page_size,
         method=method,
         status_code=status_code,
+        user_email=user_email,
+        path_contains=path_contains,
+    )
+
+
+@router.get("/ui-events", response_model=UiEventPageOut)
+async def list_ui_event_log(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    event_type: str | None = Query(default=None),
+    user_email: str | None = Query(default=None),
+    path_contains: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> UiEventPageOut:
+    del user
+    return await list_ui_events(
+        session=session,
+        page=page,
+        page_size=page_size,
+        event_type=event_type,
         user_email=user_email,
         path_contains=path_contains,
     )
