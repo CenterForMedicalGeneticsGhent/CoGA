@@ -39,7 +39,7 @@ const VARIANT_TRACK_HEIGHT = 80;
 // each a thin haplotype line. Taller (room for the marker dots in both lanes)
 // when the overlay is on, a slim two-line band when it is off.
 const HAPLOTYPE_TRACK_HEIGHT = 20;
-const HAPLOTYPE_MARKERS_TRACK_HEIGHT = 36;
+const HAPLOTYPE_MARKERS_TRACK_HEIGHT = 40;
 const ZOOMED_IDEOGRAM_HEIGHT = 40;
 const CNV_TRACK_HEIGHT = 20;
 const DGV_TRACK_HEIGHT = 48;
@@ -623,7 +623,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                             <HaplotypeLegend inheritanceModel={resolvedHaplotypeInheritanceModel} />
                           ) : undefined
                         }
-                        frameClassName={showMarkers ? 'h-[36px]' : 'h-[20px]'}
+                        frameClassName={showMarkers ? 'h-[40px]' : 'h-[20px]'}
                         roiRange={regionRoiRange}
                         roiTitle={roiTitle}
                         viewportInteraction={viewportInteraction}

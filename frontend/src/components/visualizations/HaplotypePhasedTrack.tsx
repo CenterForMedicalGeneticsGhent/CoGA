@@ -104,7 +104,10 @@ interface Props {
 }
 
 const BAND_THICKNESS = 4;
-const DOT_RADIUS = 3;
+// Markers are drawn as tall, thin vertical ellipses sitting on the haplotype
+// line — taller than wide so they read as ticks and disagreements stand out.
+const MARKER_WIDTH = 3.5;
+const MARKER_LANE_PADDING = 2;
 
 const HaplotypePhasedTrack: React.FC<Props> = ({
   familyId,
@@ -331,20 +334,17 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     };
     const paternalCy = laneCenter('hap1', false);
     const maternalCy = laneCenter('hap2', false);
+    const markerRadiusY = Math.max(half / 2 - MARKER_LANE_PADDING, MARKER_WIDTH / 2);
+    const drawMarker = (x: number, cy: number, color: string) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(x, cy, MARKER_WIDTH / 2, markerRadiusY, 0, 0, Math.PI * 2);
+      ctx.fill();
+    };
     markers.forEach((marker) => {
       const x = ((marker.pos - regionStart) / span) * width;
-      if (marker.hap1 !== null) {
-        ctx.fillStyle = dotColor(marker, 'hap1');
-        ctx.beginPath();
-        ctx.arc(x, paternalCy, DOT_RADIUS, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      if (marker.hap2 !== null) {
-        ctx.fillStyle = dotColor(marker, 'hap2');
-        ctx.beginPath();
-        ctx.arc(x, maternalCy, DOT_RADIUS, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      if (marker.hap1 !== null) drawMarker(x, paternalCy, dotColor(marker, 'hap1'));
+      if (marker.hap2 !== null) drawMarker(x, maternalCy, dotColor(marker, 'hap2'));
     });
   }, [
     segments,
