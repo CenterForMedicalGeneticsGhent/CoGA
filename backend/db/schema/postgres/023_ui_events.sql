@@ -1,9 +1,11 @@
 -- Client-side UI interaction events (button/link clicks, in-app navigation).
--- Complements audit_log_events: that table captures every HTTP request the
--- backend handles; this one captures interactions that never reach the backend,
+-- Complements audit_log_events. That table captures every HTTP request the
+-- backend handles. This one captures interactions that never reach the backend,
 -- so platform usage can be inspected and optimised. Values are masked client- and
--- server-side (identifiers reduced to :id, query strings to keys) — see
--- routers/ui_events.py.
+-- server-side (identifiers reduced to id, query strings to keys) by
+-- routers/ui_events.py before storage.
+-- NOTE: the schema runner splits files on the SQL statement separator, so no
+-- comment in this file may contain that punctuation character.
 CREATE TABLE IF NOT EXISTS ui_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
