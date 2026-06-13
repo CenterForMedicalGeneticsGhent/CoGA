@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import ChromosomeViewPage from '../ChromosomeViewPage';
@@ -383,5 +383,82 @@ describe('ChromosomeViewPage', () => {
     });
     const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
     expect(lastWorkspaceProps.availability.PROBAND.smallVariants).toBe(true);
+  });
+
+  it('keeps a sample unselected after the region changes', async () => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [
+              { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
+              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
+              { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
+            ],
+            projects: ['p1'],
+            roi: null,
+          },
+        });
+      }
+      if (url === '/chromosomes/GRCh38/1') {
+        return Promise.resolve({ data: { chr: '1', size: 1000 } });
+      }
+      if (url.startsWith('/families/F1/track-availability?')) {
+        return Promise.resolve({
+          data: {
+            samples: {
+              PROBAND: { coverage: true, apcad: true, variants: true, small_variants: true, haplotypes: true },
+              MOTHER: { coverage: true, apcad: true, variants: true, small_variants: true, haplotypes: true },
+              FATHER: { coverage: true, apcad: true, variants: true, small_variants: true, haplotypes: true },
+            },
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/chromosome/1?project_id=p1']}>
+          <Routes>
+            <Route path="/families/:familyId/chromosome/:chrom" element={<ChromosomeViewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    // No ?sample= filter → all three members start selected.
+    await waitFor(() =>
+      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: any) => m.sample_id)).toEqual([
+        'PROBAND',
+        'FATHER',
+        'MOTHER',
+      ]),
+    );
+
+    // Unselect MOTHER via the sidebar's toggle callback.
+    const toggleSample = sidebarSpy.mock.calls.at(-1)?.[0].onToggleSample as (id: string) => void;
+    await act(async () => {
+      toggleSample('MOTHER');
+    });
+    await waitFor(() =>
+      expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: any) => m.sample_id)).toEqual([
+        'PROBAND',
+        'FATHER',
+      ]),
+    );
+
+    // Change the displayed region — this rebuilds location.search.
+    fireEvent.click(screen.getByRole('button', { name: 'Select region' }));
+    await waitFor(() => expect(screen.getByTestId('chromosome-workspace')).toHaveTextContent('120:180'));
+
+    // MOTHER must stay unselected (regression: it used to be re-selected here).
+    expect(workspaceSpy.mock.calls.at(-1)?.[0].visibleMembers.map((m: any) => m.sample_id)).toEqual([
+      'PROBAND',
+      'FATHER',
+    ]);
   });
 });
