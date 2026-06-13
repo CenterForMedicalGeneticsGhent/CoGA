@@ -134,7 +134,16 @@ const ChromosomeViewPage: React.FC = () => {
     return parseExplicitSampleFilterMap(params);
   }, [location.search]);
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
-  const sampleFilters = useMemo(() => searchParams.getAll('sample'), [searchParams]);
+  // Stable by *content*: every region/chromosome navigation rebuilds location.search
+  // (and thus searchParams), but the explicit ?sample= set rarely changes. Keying on
+  // the joined values keeps the same array reference across those navigations, so the
+  // selection-seeding effect below does not re-run and re-select samples the user has
+  // unselected.
+  const sampleFilterKey = useMemo(() => searchParams.getAll('sample').join('\n'), [searchParams]);
+  const sampleFilters = useMemo(
+    () => (sampleFilterKey ? sampleFilterKey.split('\n') : []),
+    [sampleFilterKey],
+  );
 
   const variantFilters = useMemo(() => {
     const params = new URLSearchParams(location.search);
