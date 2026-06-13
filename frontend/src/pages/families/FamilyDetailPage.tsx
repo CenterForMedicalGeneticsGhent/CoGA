@@ -93,7 +93,6 @@ const SEX_OPTIONS: StructureMemberDraft['sex'][] = ['male', 'female', 'und'];
 const CLINICAL_STATUS_OPTIONS: ClinicalStatus[] = ['unknown', 'unaffected', 'affected'];
 const CARRIER_STATUS_OPTIONS: CarrierStatus[] = ['unknown', 'not_carrier', 'carrier'];
 const CARRIER_TYPE_OPTIONS: CarrierType[] = ['proven', 'obligate', 'reported', 'inferred'];
-const PARENT_ROLE_OPTIONS: ParentChildDraft['parent_role'][] = ['father', 'mother', 'parent'];
 const HPO_STATUS_OPTIONS: HpoAnnotationStatus[] = ['present', 'absent', 'unknown'];
 
 const defaultNewMember: StructureMemberDraft = {
@@ -286,12 +285,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const [parentChildDrafts, setParentChildDrafts] = useState<ParentChildDraft[]>([]);
   const [coupleDrafts, setCoupleDrafts] = useState<CoupleDraft[]>([]);
   const [newMember, setNewMember] = useState<StructureMemberDraft>(defaultNewMember);
+  const [newMemberRelations, setNewMemberRelations] = useState({ father: '', mother: '', partner: '' });
   const [structureBusy, setStructureBusy] = useState(false);
   const [structureStatus, setStructureStatus] = useState<{
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
-  const [clearExistingGenomicData, setClearExistingGenomicData] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState<MemberDetailDraft | null>(null);
   const [memberBusy, setMemberBusy] = useState(false);
@@ -562,7 +561,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setParentChildDrafts(parentChildDraftsFromRelationships(data));
     setCoupleDrafts(coupleDraftsFromRelationships(data));
     setNewMember(defaultNewMember);
-    setClearExistingGenomicData(false);
+    setNewMemberRelations({ father: '', mother: '', partner: '' });
   }, [data]);
 
   useEffect(() => {
@@ -671,6 +670,64 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     {},
   );
 
+  // Per-member relationship editing folded into the roster: father/mother are the
+  // parent_child drafts where this member is the child; partner is the couple draft
+  // involving this member. These read/write the same drafts saveStructure persists.
+  const parentValueFor = (childId: string, role: 'father' | 'mother'): string => {
+    const draft = parentChildDrafts.find(
+      (relationship) =>
+        sampleKey(relationship.child) === sampleKey(childId) && relationship.parent_role === role,
+    );
+    return draft?.parent || '';
+  };
+
+  const setParentValue = (childId: string, role: 'father' | 'mother', parentId: string) => {
+    setParentChildDrafts((relationships) => {
+      const filtered = relationships.filter(
+        (relationship) =>
+          !(sampleKey(relationship.child) === sampleKey(childId) && relationship.parent_role === role),
+      );
+      if (!parentId) return filtered;
+      return [
+        ...filtered,
+        {
+          id: `pc-${role}-${childId}-${Date.now()}`,
+          parent: parentId,
+          child: childId,
+          parent_role: role,
+        },
+      ];
+    });
+  };
+
+  const partnerValueFor = (memberId: string): string => {
+    const draft = coupleDrafts.find(
+      (relationship) =>
+        sampleKey(relationship.partnerA) === sampleKey(memberId) ||
+        sampleKey(relationship.partnerB) === sampleKey(memberId),
+    );
+    if (!draft) return '';
+    return sampleKey(draft.partnerA) === sampleKey(memberId) ? draft.partnerB : draft.partnerA;
+  };
+
+  const setPartnerValue = (memberId: string, partnerId: string) => {
+    setCoupleDrafts((relationships) => {
+      // Each person keeps at most one partner, so drop any couple involving either
+      // side before linking them.
+      const filtered = relationships.filter(
+        (relationship) =>
+          ![relationship.partnerA, relationship.partnerB].some(
+            (partner) => sampleKey(partner) === sampleKey(memberId) || sampleKey(partner) === sampleKey(partnerId),
+          ),
+      );
+      if (!partnerId) return filtered;
+      return [
+        ...filtered,
+        { id: `couple-${memberId}-${Date.now()}`, partnerA: memberId, partnerB: partnerId, context: '' },
+      ];
+    });
+  };
+
   const updateStructureMember = (
     sampleId: string,
     updates: Partial<StructureMemberDraft>,
@@ -729,34 +786,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         isNew: true,
       },
     ]);
+    // Persist the relationships chosen inline on the add-member row.
+    if (newMemberRelations.father) setParentValue(sampleId, 'father', newMemberRelations.father);
+    if (newMemberRelations.mother) setParentValue(sampleId, 'mother', newMemberRelations.mother);
+    if (newMemberRelations.partner) setPartnerValue(sampleId, newMemberRelations.partner);
     setNewMember(defaultNewMember);
+    setNewMemberRelations({ father: '', mother: '', partner: '' });
     setStructureStatus(null);
-  };
-
-  const addParentChildDraft = () => {
-    const [parent = '', child = ''] = activeSampleIds;
-    setParentChildDrafts((relationships) => [
-      ...relationships,
-      {
-        id: `parent-child-new-${Date.now()}`,
-        parent,
-        child,
-        parent_role: 'parent',
-      },
-    ]);
-  };
-
-  const addCoupleDraft = () => {
-    const [partnerA = '', partnerB = ''] = activeSampleIds;
-    setCoupleDrafts((relationships) => [
-      ...relationships,
-      {
-        id: `couple-new-${Date.now()}`,
-        partnerA,
-        partnerB,
-        context: '',
-      },
-    ]);
   };
 
   const saveStructure = async () => {
@@ -821,7 +857,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       const response = await api.put(`/families/${familyId}/structure`, {
         expected_structure_version: data.structure_version?.version ?? null,
         change_reason: 'family_detail_page',
-        clear_existing_genomic_data: clearExistingGenomicData,
+        clear_existing_genomic_data: false,
         add_members: addMembers,
         members,
         remove_members: removedExisting,
@@ -837,7 +873,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       };
       queryClient.setQueryData(['family', familyId], payload.family);
       await queryClient.invalidateQueries({ queryKey: ['families'] });
-      setClearExistingGenomicData(false);
       setStructureStatus({
         tone: 'success',
         message: payload.warnings?.length
@@ -1402,7 +1437,18 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </div>
         )}
         <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table">
+          <table className="analysis-table family-members-table">
+            <colgroup>
+              <col style={{ width: canEditFamilyDetails ? '13%' : '16%' }} />
+              <col style={{ width: canEditFamilyDetails ? '9%' : '11%' }} />
+              {canEditFamilyDetails && <col style={{ width: '7%' }} />}
+              <col style={{ width: canEditFamilyDetails ? '11%' : '13%' }} />
+              <col style={{ width: canEditFamilyDetails ? '11%' : '13%' }} />
+              <col style={{ width: canEditFamilyDetails ? '11%' : '13%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: canEditFamilyDetails ? '14%' : '18%' }} />
+              {canEditFamilyDetails && <col style={{ width: '8%' }} />}
+            </colgroup>
             <thead>
               <tr>
                 <th>Sample</th>
@@ -1410,6 +1456,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 {canEditFamilyDetails && <th>Sex</th>}
                 <th>Father</th>
                 <th>Mother</th>
+                <th>Partner</th>
                 <th>Status</th>
                 <th>HPO terms</th>
                 {canEditFamilyDetails && <th>Actions</th>}
@@ -1442,8 +1489,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 return (
                   <tr key={member.sample_id}>
                     <td>
-                      <span className="flex items-center gap-1">
-                        <span>{sexSymbol}</span>
+                      <span className="family-member-identity">
+                        <span className="family-member-sex" aria-hidden="true">
+                          {sexSymbol}
+                        </span>
                         <button
                           type="button"
                           className="button-link family-member-name-button"
@@ -1452,7 +1501,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                           {displayMember.sample_id}
                         </button>
                         {affected && (
-                          <span className="ml-1" title="Affected">
+                          <span className="family-member-affected" title="Affected">
                             *
                           </span>
                         )}
@@ -1505,83 +1554,125 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                         </select>
                       </td>
                     )}
-                    <td>{parents.father ?? '-'}</td>
-                    <td>{parents.mother ?? '-'}</td>
                     <td>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {canEditFamilyDetails ? (
-                          <>
-                            <select
-                              aria-label={`Phenotype for ${member.sample_id}`}
-                              value={clinicalStatus}
-                              onChange={(event) =>
-                                updateStructureMember(member.sample_id, {
-                                  clinical_status: event.target.value as ClinicalStatus,
-                                })
-                              }
-                              disabled={structureBusy}
-                            >
-                              {CLINICAL_STATUS_OPTIONS.map((status) => (
-                                <option key={status} value={status}>
-                                  {status}
-                                </option>
-                              ))}
-                            </select>
-                            <div className="flex items-center gap-1 border-l pl-2">
-                              <select
-                                aria-label={`Carrier status for ${member.sample_id}`}
-                                value={carrierStatus}
-                                onChange={(event) =>
-                                  updateStructureMember(member.sample_id, {
-                                    carrier_status: event.target.value as CarrierStatus,
-                                  })
-                                }
-                                disabled={structureBusy}
-                              >
-                                {CARRIER_STATUS_OPTIONS.map((status) => (
-                                  <option key={status} value={status}>
-                                    {status}
-                                  </option>
-                                ))}
-                              </select>
-                              {carrierStatus === 'carrier' && (
-                                <select
-                                  aria-label={`Carrier type for ${member.sample_id}`}
-                                  value={draftMember!.carrier_type}
-                                  onChange={(event) =>
-                                    updateStructureMember(member.sample_id, {
-                                      carrier_type: event.target.value as CarrierType,
-                                    })
-                                  }
-                                  disabled={structureBusy}
-                                >
-                                  <option value="">type</option>
-                                  {CARRIER_TYPE_OPTIONS.map((type) => (
-                                    <option key={type} value={type}>
-                                      {type}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <span
-                              className={`table-chip ${
-                                clinicalStatus === 'affected' ? 'table-chip--critical' : ''
-                              }`}
-                            >
-                              {clinicalStatus}
+                      {canEditFamilyDetails ? (
+                        <select
+                          aria-label={`Father for ${member.sample_id}`}
+                          value={parentValueFor(member.sample_id, 'father')}
+                          onChange={(event) =>
+                            setParentValue(member.sample_id, 'father', event.target.value)
+                          }
+                          disabled={structureBusy}
+                        >
+                          <option value="">—</option>
+                          {activeSampleIds
+                            .filter((sampleId) => sampleId !== member.sample_id)
+                            .map((sampleId) => (
+                              <option key={sampleId} value={sampleId}>
+                                {sampleId}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        parents.father ?? '-'
+                      )}
+                    </td>
+                    <td>
+                      {canEditFamilyDetails ? (
+                        <select
+                          aria-label={`Mother for ${member.sample_id}`}
+                          value={parentValueFor(member.sample_id, 'mother')}
+                          onChange={(event) =>
+                            setParentValue(member.sample_id, 'mother', event.target.value)
+                          }
+                          disabled={structureBusy}
+                        >
+                          <option value="">—</option>
+                          {activeSampleIds
+                            .filter((sampleId) => sampleId !== member.sample_id)
+                            .map((sampleId) => (
+                              <option key={sampleId} value={sampleId}>
+                                {sampleId}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        parents.mother ?? '-'
+                      )}
+                    </td>
+                    <td>
+                      {canEditFamilyDetails ? (
+                        <select
+                          aria-label={`Partner for ${member.sample_id}`}
+                          value={partnerValueFor(member.sample_id)}
+                          onChange={(event) => setPartnerValue(member.sample_id, event.target.value)}
+                          disabled={structureBusy}
+                        >
+                          <option value="">—</option>
+                          {activeSampleIds
+                            .filter((sampleId) => sampleId !== member.sample_id)
+                            .map((sampleId) => (
+                              <option key={sampleId} value={sampleId}>
+                                {sampleId}
+                              </option>
+                            ))}
+                        </select>
+                      ) : (
+                        partnerValueFor(member.sample_id) || '-'
+                      )}
+                    </td>
+                    <td>
+                      {canEditFamilyDetails ? (
+                        <div className="family-member-status-controls">
+                          <select
+                            aria-label={`Phenotype for ${member.sample_id}`}
+                            value={clinicalStatus}
+                            onChange={(event) =>
+                              updateStructureMember(member.sample_id, {
+                                clinical_status: event.target.value as ClinicalStatus,
+                              })
+                            }
+                            disabled={structureBusy}
+                          >
+                            {CLINICAL_STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            aria-label={`Carrier status for ${member.sample_id}`}
+                            value={carrierStatus}
+                            onChange={(event) =>
+                              updateStructureMember(member.sample_id, {
+                                carrier_status: event.target.value as CarrierStatus,
+                              })
+                            }
+                            disabled={structureBusy}
+                          >
+                            {CARRIER_STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="family-member-status-chips">
+                          <span
+                            className={`table-chip ${
+                              clinicalStatus === 'affected' ? 'table-chip--critical' : ''
+                            }`}
+                          >
+                            {clinicalStatus}
+                          </span>
+                          {carrierStatus === 'carrier' && (
+                            <span className="table-chip table-chip--warning">
+                              {displayMember.carrier_type || 'carrier'}
                             </span>
-                            {carrierStatus === 'carrier' && (
-                              <span className="table-chip table-chip--warning">
-                                {displayMember.carrier_type || 'carrier'}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td>
                       {annotations.length ? (
@@ -1625,14 +1716,28 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </table>
         </div>
         {canEditFamilyDetails && (
-          <div className="space-y-4">
+          <div className="space-y-4 family-members-editor">
+            <h3 className="family-member-subsection-title">Add member</h3>
             <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table">
+              <table className="analysis-table family-members-table">
+                <colgroup>
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '20%' }} />
+                  <col style={{ width: '14%' }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>New sample</th>
-                    <th>Sex</th>
                     <th>Role</th>
+                    <th>Sex</th>
+                    <th>Father</th>
+                    <th>Mother</th>
+                    <th>Partner</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
@@ -1649,6 +1754,25 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                         }
                         disabled={structureBusy}
                       />
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member role"
+                        value={newMember.role}
+                        onChange={(event) =>
+                          setNewMember((member) => ({
+                            ...member,
+                            role: event.target.value as StructureMemberDraft['role'],
+                          }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        {ROLE_OPTIONS.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td>
                       <select
@@ -1671,25 +1795,57 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     </td>
                     <td>
                       <select
-                        aria-label="New member role"
-                        value={newMember.role}
+                        aria-label="New member father"
+                        value={newMemberRelations.father}
                         onChange={(event) =>
-                          setNewMember((member) => ({
-                            ...member,
-                            role: event.target.value as StructureMemberDraft['role'],
-                          }))
+                          setNewMemberRelations((relations) => ({ ...relations, father: event.target.value }))
                         }
                         disabled={structureBusy}
                       >
-                        {ROLE_OPTIONS.map((role) => (
-                          <option key={role} value={role}>
-                            {role}
+                        <option value="">—</option>
+                        {activeSampleIds.map((sampleId) => (
+                          <option key={sampleId} value={sampleId}>
+                            {sampleId}
                           </option>
                         ))}
                       </select>
                     </td>
                     <td>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        aria-label="New member mother"
+                        value={newMemberRelations.mother}
+                        onChange={(event) =>
+                          setNewMemberRelations((relations) => ({ ...relations, mother: event.target.value }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        <option value="">—</option>
+                        {activeSampleIds.map((sampleId) => (
+                          <option key={sampleId} value={sampleId}>
+                            {sampleId}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member partner"
+                        value={newMemberRelations.partner}
+                        onChange={(event) =>
+                          setNewMemberRelations((relations) => ({ ...relations, partner: event.target.value }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        <option value="">—</option>
+                        {activeSampleIds.map((sampleId) => (
+                          <option key={sampleId} value={sampleId}>
+                            {sampleId}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <div className="family-member-status-controls">
                         <select
                           aria-label="New member phenotype"
                           value={newMember.clinical_status}
@@ -1707,46 +1863,24 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                             </option>
                           ))}
                         </select>
-                        <div className="flex items-center gap-1 border-l pl-2">
-                          <select
-                            aria-label="New member carrier status"
-                            value={newMember.carrier_status}
-                            onChange={(event) =>
-                              setNewMember((member) => ({
-                                ...member,
-                                carrier_status: event.target.value as CarrierStatus,
-                                carrier_type: event.target.value === 'carrier' ? member.carrier_type : '',
-                              }))
-                            }
-                            disabled={structureBusy}
-                          >
-                            {CARRIER_STATUS_OPTIONS.map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                          {newMember.carrier_status === 'carrier' && (
-                            <select
-                              aria-label="New member carrier type"
-                              value={newMember.carrier_type}
-                              onChange={(event) =>
-                                setNewMember((member) => ({
-                                  ...member,
-                                  carrier_type: event.target.value as CarrierType,
-                                }))
-                              }
-                              disabled={structureBusy}
-                            >
-                              <option value="">type</option>
-                              {CARRIER_TYPE_OPTIONS.map((type) => (
-                                <option key={type} value={type}>
-                                  {type}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
+                        <select
+                          aria-label="New member carrier status"
+                          value={newMember.carrier_status}
+                          onChange={(event) =>
+                            setNewMember((member) => ({
+                              ...member,
+                              carrier_status: event.target.value as CarrierStatus,
+                              carrier_type: event.target.value === 'carrier' ? member.carrier_type : '',
+                            }))
+                          }
+                          disabled={structureBusy}
+                        >
+                          {CARRIER_STATUS_OPTIONS.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </td>
                     <td>
@@ -1764,242 +1898,14 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               </table>
             </div>
 
-            <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table">
-                <thead>
-                  <tr>
-                    <th>Parent</th>
-                    <th>Role</th>
-                    <th>Child</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parentChildDrafts.map((relationship) => (
-                    <tr key={relationship.id}>
-                      <td>
-                        <select
-                          aria-label={`Parent for ${relationship.id}`}
-                          value={relationship.parent}
-                          onChange={(event) =>
-                            setParentChildDrafts((relationships) =>
-                              relationships.map((entry) =>
-                                entry.id === relationship.id
-                                  ? { ...entry, parent: event.target.value }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          disabled={structureBusy}
-                        >
-                          <option value="">parent</option>
-                          {activeSampleIds.map((sampleId) => (
-                            <option key={sampleId} value={sampleId}>
-                              {sampleId}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          aria-label={`Parent role for ${relationship.id}`}
-                          value={relationship.parent_role}
-                          onChange={(event) =>
-                            setParentChildDrafts((relationships) =>
-                              relationships.map((entry) =>
-                                entry.id === relationship.id
-                                  ? {
-                                      ...entry,
-                                      parent_role: event.target.value as ParentChildDraft['parent_role'],
-                                    }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          disabled={structureBusy}
-                        >
-                          {PARENT_ROLE_OPTIONS.map((role) => (
-                            <option key={role} value={role}>
-                              {role}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          aria-label={`Child for ${relationship.id}`}
-                          value={relationship.child}
-                          onChange={(event) =>
-                            setParentChildDrafts((relationships) =>
-                              relationships.map((entry) =>
-                                entry.id === relationship.id
-                                  ? { ...entry, child: event.target.value }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          disabled={structureBusy}
-                        >
-                          <option value="">child</option>
-                          {activeSampleIds.map((sampleId) => (
-                            <option key={sampleId} value={sampleId}>
-                              {sampleId}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="button-ghost"
-                          onClick={() =>
-                            setParentChildDrafts((relationships) =>
-                              relationships.filter((entry) => entry.id !== relationship.id),
-                            )
-                          }
-                          disabled={structureBusy}
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="compact-toolbar family-toolbar mt-3">
-                <button
-                  type="button"
-                  className="button-secondary"
-                  onClick={addParentChildDraft}
-                  disabled={structureBusy || activeSampleIds.length < 2}
-                >
-                  Add parent link
-                </button>
-              </div>
-            </div>
-
-            <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table">
-                <thead>
-                  <tr>
-                    <th>Partner</th>
-                    <th>Partner</th>
-                    <th>Context</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {coupleDrafts.map((relationship) => (
-                    <tr key={relationship.id}>
-                      <td>
-                        <select
-                          aria-label={`First partner for ${relationship.id}`}
-                          value={relationship.partnerA}
-                          onChange={(event) =>
-                            setCoupleDrafts((relationships) =>
-                              relationships.map((entry) =>
-                                entry.id === relationship.id
-                                  ? { ...entry, partnerA: event.target.value }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          disabled={structureBusy}
-                        >
-                          <option value="">partner</option>
-                          {activeSampleIds.map((sampleId) => (
-                            <option key={sampleId} value={sampleId}>
-                              {sampleId}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          aria-label={`Second partner for ${relationship.id}`}
-                          value={relationship.partnerB}
-                          onChange={(event) =>
-                            setCoupleDrafts((relationships) =>
-                              relationships.map((entry) =>
-                                entry.id === relationship.id
-                                  ? { ...entry, partnerB: event.target.value }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          disabled={structureBusy}
-                        >
-                          <option value="">partner</option>
-                          {activeSampleIds.map((sampleId) => (
-                            <option key={sampleId} value={sampleId}>
-                              {sampleId}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <input
-                          aria-label={`Couple context for ${relationship.id}`}
-                          type="text"
-                          value={relationship.context}
-                          onChange={(event) =>
-                            setCoupleDrafts((relationships) =>
-                              relationships.map((entry) =>
-                                entry.id === relationship.id
-                                  ? { ...entry, context: event.target.value }
-                                  : entry,
-                              ),
-                            )
-                          }
-                          disabled={structureBusy}
-                        />
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="button-ghost"
-                          onClick={() =>
-                            setCoupleDrafts((relationships) =>
-                              relationships.filter((entry) => entry.id !== relationship.id),
-                            )
-                          }
-                          disabled={structureBusy}
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="compact-toolbar family-toolbar mt-3">
-                <button
-                  type="button"
-                  className="button-secondary"
-                  onClick={addCoupleDraft}
-                  disabled={structureBusy || activeSampleIds.length < 2}
-                >
-                  Add couple
-                </button>
-              </div>
-            </div>
-
             <div className="compact-toolbar family-toolbar">
-              <label className="variant-compact-checkbox">
-                <input
-                  type="checkbox"
-                  checked={clearExistingGenomicData}
-                  onChange={(event) => setClearExistingGenomicData(event.target.checked)}
-                  disabled={structureBusy}
-                />
-                Clear imported genomic data
-              </label>
               <button
                 type="button"
+                className="family-structure-update-button"
                 onClick={saveStructure}
                 disabled={structureBusy || activeStructureMembers.length === 0}
               >
-                Save family structure
+                Update Family Structure
               </button>
               {data.structure_version?.version !== undefined && (
                 <span className="table-chip">Version {data.structure_version.version}</span>
