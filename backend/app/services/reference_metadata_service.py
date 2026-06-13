@@ -1276,7 +1276,10 @@ async def get_segmental_duplications_data(
 
 
 _DGV_LINE_CAP = 1500
-_DGV_DENSITY_BINS = 200
+# Target bin count in density mode. bin_size = span // bin_count, so a higher
+# target means smaller (finer) bins at every resolution. 400 halves the bin size
+# relative to the previous 200, showing roughly twice as many bins per view.
+_DGV_DENSITY_BINS = 400
 _DGV_CLASSES = ("gain", "loss", "mixed", "other")
 
 
