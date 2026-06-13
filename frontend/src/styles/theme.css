@@ -6929,23 +6929,26 @@ button.table-link:hover {
   gap: 0.55rem;
 }
 
+/* Flat QC card: no fill; a left + top rail carries the QC status accent. */
 .family-mtdna-sample-card {
   display: grid;
   gap: 0.5rem;
-  padding: 0.65rem;
-  border: 1px solid rgba(10, 11, 12, 0.08);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
+  padding: 0.55rem 0.6rem 0.65rem 0.65rem;
+  border: 0;
+  border-top: 2px solid var(--color-border-strong);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: 0;
+  background: transparent;
 }
 
 .family-mtdna-sample-card--warning {
-  border-color: rgba(180, 125, 45, 0.28);
-  background: rgba(255, 252, 245, 0.94);
+  border-top-color: #b47d2d;
+  border-left-color: #b47d2d;
 }
 
 .family-mtdna-sample-card--fail {
-  border-color: rgba(173, 31, 45, 0.24);
-  background: rgba(255, 247, 247, 0.94);
+  border-top-color: var(--color-signature-red);
+  border-left-color: var(--color-signature-red);
 }
 
 .family-mtdna-sample-card-head {
