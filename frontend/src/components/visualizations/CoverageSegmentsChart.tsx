@@ -423,7 +423,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
       ctx.beginPath();
       ctx.fillStyle = color;
-      ctx.arc(cx, cy, 1, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 1.4, 0, Math.PI * 2);
       ctx.fill();
     });
 

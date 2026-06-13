@@ -71,19 +71,20 @@ const hasActiveFilterValue = (value: unknown): boolean => {
   return String(value ?? '').trim().length > 0;
 };
 
-// Functional-impact colours (raw VEP/SnpEff IMPACT). Light by request; ClinVar
-// benign/pathogenic override these (see getVariantColor). Kept as literal hex so
-// the component renders without the theme stylesheet (and stays unit-testable).
+// Functional-impact colours (raw VEP/SnpEff IMPACT). Tuned for contrast against
+// the light track background; ClinVar benign/pathogenic override these (see
+// getVariantColor). Kept as literal hex so the component renders without the
+// theme stylesheet (and stays unit-testable).
 const IMPACT_COLORS = {
-  high: '#fed7aa', // light orange — HIGH
-  medium: '#bbf7d0', // light green — MODERATE / MEDIUM
-  low: '#d1d5db', // light gray — LOW / MODIFIER / unknown
+  high: '#fb923c', // orange — HIGH
+  medium: '#4ade80', // green — MODERATE / MEDIUM
+  low: '#9ca3af', // gray — LOW / MODIFIER / unknown
 } as const;
 
 // ClinVar overrides: only benign and pathogenic categories recolour the dot.
 const CLINVAR_OVERRIDE_COLORS = {
   pathogenic: '#dc2626', // red — pathogenic / likely pathogenic
-  benign: '#bfdbfe', // light blue — benign / likely benign
+  benign: '#60a5fa', // blue — benign / likely benign
 } as const;
 
 const normalizeClinvar = (clinvar?: string | null): string =>
@@ -342,7 +343,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     const g = svg.append('g');
     const rowCount = originMode ? 3 : 1;
     const rowHeight = height / rowCount;
-    const radius = Math.max(2, Math.min(3.5, rowHeight / 2 - 1));
+    const radius = Math.max(1.5, Math.min(2.5, rowHeight / 2 - 1));
     const cyForOrigin = (origin: ParentalOrigin): number => {
       if (!originMode) return height / 2;
       const row = origin === 'paternal' ? 0 : origin === 'maternal' ? 2 : 1;
