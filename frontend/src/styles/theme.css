@@ -8640,6 +8640,17 @@ a.button-danger:hover {
   overflow-wrap: anywhere;
 }
 
+.family-catalog-added-column {
+  width: 8.5rem;
+}
+
+.family-catalog-added-cell {
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .family-catalog-nested th,
 .family-catalog-nested td {
   padding: 0.6rem 0.9rem;

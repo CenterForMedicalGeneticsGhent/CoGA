@@ -6,6 +6,18 @@ import type { ApiFamilySummary } from '../lib/apiTypes';
 import { useProjectCatalog } from '../lib/reference';
 import PageState from './PageState';
 
+/** Date a family was added to the system, e.g. "Jan 15, 2024" (matches ProjectsPage). */
+const formatAddedDate = (value?: string): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+};
+
 interface ProjectCatalogWorkspaceProps {
   embedded?: boolean;
   searchTerm?: string;
@@ -278,6 +290,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
                                 <colgroup>
                                   <col className="family-catalog-family-column" />
                                   <col className="family-catalog-members-column" />
+                                  <col className="family-catalog-added-column" />
                                 </colgroup>
                                 <tbody>
                                   {project.visibleFamilies.map((family) => (
@@ -287,6 +300,12 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
                                       </td>
                                       <td className="family-catalog-members-cell">
                                         {family.members.map((member) => member.sample_id).join(', ')}
+                                      </td>
+                                      <td
+                                        className="family-catalog-added-cell"
+                                        title="Date added to the system"
+                                      >
+                                        {formatAddedDate(family.created_at)}
                                       </td>
                                     </tr>
                                   ))}
@@ -319,6 +338,9 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
                   <tr key={family.family_id}>
                     <td className="whitespace-nowrap">{renderFamilyName(family.family_id)}</td>
                     <td>{family.members.map((member) => member.sample_id).join(', ')}</td>
+                    <td className="family-catalog-added-cell" title="Date added to the system">
+                      {formatAddedDate(family.created_at)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
