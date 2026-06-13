@@ -472,6 +472,42 @@ const guideSections: GuideSection[] = [
           </li>
           <li><strong>CNV detail</strong> — focused inspection of a structural event.</li>
         </ul>
+        <h3>Small-variant track: colours and rows</h3>
+        <p>
+          In the Chromosome view, each small variant is drawn as a dot. Its colour encodes the
+          predicted consequence, with ClinVar taking precedence:
+        </p>
+        <ul>
+          <li>
+            <strong>Functional impact</strong> — high impact is <strong>light orange</strong>,
+            medium (moderate) is <strong>light green</strong>, and low / modifier is{' '}
+            <strong>light gray</strong>.
+          </li>
+          <li>
+            <strong>ClinVar overrides the impact colour</strong> — benign / likely benign is{' '}
+            <strong>light blue</strong>, and pathogenic / likely pathogenic is <strong>red</strong>.
+            Other ClinVar states (uncertain, conflicting) keep the impact colour.
+          </li>
+          <li>
+            <strong>A review tag colour</strong>, when you have tagged the variant, takes priority
+            over both of the above.
+          </li>
+        </ul>
+        <p>
+          When the displayed sample is a child with a parent in the family (or phasing is
+          available), the track splits into three rows by parental origin:
+        </p>
+        <ul>
+          <li><strong>Top row</strong> — variants on the paternal haplotype (hap1).</li>
+          <li><strong>Middle row</strong> — undetermined / unknown parental origin.</li>
+          <li><strong>Bottom row</strong> — variants on the maternal haplotype (hap2).</li>
+        </ul>
+        <p>
+          Origin is read from the parent genotypes (Mendelian inheritance) when both parents are
+          present, falling back to the phased haplotype order of the variant otherwise. Homozygous,
+          de-novo, and ambiguous variants stay in the middle row. These are the <em>raw</em> calls —
+          hover any dot to see its impact, ClinVar significance, and parental origin.
+        </p>
         <div className="user-guide-callout">
           <strong>Viewers only show what was imported.</strong> Coverage, segment, APCAD, and
           haplotype tracks appear when the corresponding sample data exists; an empty track usually

@@ -222,10 +222,10 @@ test('colors variants by review tag before ClinVar annotation', async () => {
   await waitFor(() => expect(container.querySelectorAll('circle')).toHaveLength(2));
   const [tagged, pathogenic] = Array.from(container.querySelectorAll('circle'));
   expect(tagged).toHaveAttribute('fill', '#123456');
-  expect(pathogenic).toHaveAttribute('fill', '#b42318');
+  expect(pathogenic).toHaveAttribute('fill', '#dc2626');
 });
 
-test('colors ClinVar annotations by pathogenicity category', async () => {
+test('colors ClinVar benign/pathogenic; other ClinVar falls through to impact', async () => {
   useQueryMock.mockImplementation(({ queryKey }) =>
     queryKey[0] === 'small-variant-track-tags'
       ? { data: [], isLoading: false }
@@ -279,9 +279,146 @@ test('colors ClinVar annotations by pathogenicity category', async () => {
   const [likelyPathogenic, likelyBenign, conflicting] = Array.from(
     container.querySelectorAll('circle'),
   );
-  expect(likelyPathogenic).toHaveAttribute('fill', '#ea580c');
-  expect(likelyBenign).toHaveAttribute('fill', '#2f855a');
-  expect(conflicting).toHaveAttribute('fill', '#ca8a04');
+  expect(likelyPathogenic).toHaveAttribute('fill', '#dc2626'); // red
+  expect(likelyBenign).toHaveAttribute('fill', '#bfdbfe'); // light blue
+  // "Conflicting" is not benign/pathogenic → coloured by impact (none → light gray).
+  expect(conflicting).toHaveAttribute('fill', '#d1d5db');
+});
+
+test('colors variants by functional impact when no ClinVar override applies', async () => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : {
+          data: {
+            total: 4,
+            variants: [
+              { chr: '1', start: 10, end: 10, type: 'SNV', impact: 'HIGH', genotypes: [{ sample: 'S1', gt: '0/1' }] },
+              { chr: '1', start: 20, end: 20, type: 'SNV', impact: 'MODERATE', genotypes: [{ sample: 'S1', gt: '0/1' }] },
+              { chr: '1', start: 30, end: 30, type: 'SNV', impact: 'LOW', genotypes: [{ sample: 'S1', gt: '0/1' }] },
+              { chr: '1', start: 40, end: 40, type: 'SNV', impact: 'MODIFIER', genotypes: [{ sample: 'S1', gt: '0/1' }] },
+            ],
+          },
+          isLoading: false,
+        },
+  );
+
+  const { container } = render(
+    <SmallVariantTrack familyId="F1" sampleId="S1" chrom="1" regionStart={0} regionEnd={100} width={100} height={20} />,
+  );
+
+  await waitFor(() => expect(container.querySelectorAll('circle')).toHaveLength(4));
+  const [high, moderate, low, modifier] = Array.from(container.querySelectorAll('circle'));
+  expect(high).toHaveAttribute('fill', '#fed7aa'); // light orange
+  expect(moderate).toHaveAttribute('fill', '#bbf7d0'); // light green
+  expect(low).toHaveAttribute('fill', '#d1d5db'); // light gray
+  expect(modifier).toHaveAttribute('fill', '#d1d5db'); // light gray (lowest)
+});
+
+test('ClinVar pathogenic overrides functional impact', async () => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : {
+          data: {
+            total: 1,
+            variants: [
+              {
+                chr: '1',
+                start: 10,
+                end: 10,
+                type: 'SNV',
+                impact: 'LOW',
+                clinvar: 'Pathogenic',
+                genotypes: [{ sample: 'S1', gt: '0/1' }],
+              },
+            ],
+          },
+          isLoading: false,
+        },
+  );
+
+  const { container } = render(
+    <SmallVariantTrack familyId="F1" sampleId="S1" chrom="1" regionStart={0} regionEnd={100} width={100} height={20} />,
+  );
+
+  await waitFor(() => expect(container.querySelectorAll('circle')).toHaveLength(1));
+  expect(container.querySelector('circle')).toHaveAttribute('fill', '#dc2626');
+});
+
+test('splits variants into parental-origin rows when parents are provided', async () => {
+  useQueryMock.mockImplementation(({ queryKey }) =>
+    queryKey[0] === 'small-variant-track-tags'
+      ? { data: [], isLoading: false }
+      : {
+          data: {
+            total: 4,
+            variants: [
+              {
+                // ALT only in father → paternal (top row).
+                chr: '1', start: 10, end: 10, type: 'SNV',
+                genotypes: [
+                  { sample: 'C', gt: '0/1' },
+                  { sample: 'F', gt: '0/1' },
+                  { sample: 'M', gt: '0/0' },
+                ],
+              },
+              {
+                // ALT only in mother → maternal (bottom row).
+                chr: '1', start: 20, end: 20, type: 'SNV',
+                genotypes: [
+                  { sample: 'C', gt: '0/1' },
+                  { sample: 'F', gt: '0/0' },
+                  { sample: 'M', gt: '0/1' },
+                ],
+              },
+              {
+                // Homozygous-ALT in the child → undetermined (middle row).
+                chr: '1', start: 30, end: 30, type: 'SNV',
+                genotypes: [
+                  { sample: 'C', gt: '1/1' },
+                  { sample: 'F', gt: '0/1' },
+                  { sample: 'M', gt: '0/1' },
+                ],
+              },
+              {
+                // Phased de novo with both parents present → Mendelian is
+                // authoritative (neither parent carries) → middle row, not the
+                // hap2 the phase order would otherwise imply.
+                chr: '1', start: 40, end: 40, type: 'SNV',
+                genotypes: [
+                  { sample: 'C', gt: '0|1' },
+                  { sample: 'F', gt: '0/0' },
+                  { sample: 'M', gt: '0/0' },
+                ],
+              },
+            ],
+          },
+          isLoading: false,
+        },
+  );
+
+  const { container } = render(
+    <SmallVariantTrack
+      familyId="F1"
+      sampleId="C"
+      chrom="1"
+      regionStart={0}
+      regionEnd={100}
+      width={100}
+      height={45}
+      paternalSampleId="F"
+      maternalSampleId="M"
+    />,
+  );
+
+  await waitFor(() => expect(container.querySelectorAll('circle')).toHaveLength(4));
+  const [paternal, maternal, homAlt, deNovo] = Array.from(container.querySelectorAll('circle'));
+  // 3 rows over height 45 → row centres at 7.5 / 22.5 / 37.5.
+  expect(paternal).toHaveAttribute('cy', '7.5');
+  expect(maternal).toHaveAttribute('cy', '37.5');
+  expect(homAlt).toHaveAttribute('cy', '22.5');
+  expect(deNovo).toHaveAttribute('cy', '22.5');
 });
 
 test('shows a hover tooltip with the gene and variant', async () => {
