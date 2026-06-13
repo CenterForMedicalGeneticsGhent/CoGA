@@ -1499,8 +1499,9 @@ class HaplotypeResponse(BaseModel):
 
 
 class PhasedMarker(BaseModel):
-    """One position bin: the parental homolog (0/1) the child inherited on each
-    side, oriented to match the stored haplotype blocks. null = uninformative."""
+    """One informative imputed marker (raw call): the parental homolog (0/1) the
+    child inherited on each side, oriented to match the stored haplotype blocks.
+    null = uninformative."""
 
     pos: int
     paternal: Optional[int] = None

@@ -43,6 +43,23 @@ interface PhasedMarkerResponse {
   samples: { sample: string; markers: PhasedMarker[] }[];
 }
 
+/** Nearest marker to a genomic position, by binary search over pos-sorted markers. */
+const nearestByPos = (markers: PhasedMarker[], pos: number): PhasedMarker | null => {
+  if (markers.length === 0) return null;
+  let lo = 0;
+  let hi = markers.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (markers[mid].pos < pos) lo = mid + 1;
+    else hi = mid;
+  }
+  const candidate = markers[lo];
+  if (lo > 0 && Math.abs(markers[lo - 1].pos - pos) < Math.abs(candidate.pos - pos)) {
+    return markers[lo - 1];
+  }
+  return candidate;
+};
+
 const PhasedMarkerTrack: React.FC<Props> = ({
   familyId,
   sampleId,
@@ -56,6 +73,7 @@ const PhasedMarkerTrack: React.FC<Props> = ({
   inheritanceModel,
   riskRegion,
 }) => {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const [tooltip, setTooltip] = React.useState<{
     x: number;
     y: number;
@@ -66,8 +84,11 @@ const PhasedMarkerTrack: React.FC<Props> = ({
   const hasRegion = regionEnd > regionStart;
 
   // Per-marker parent-of-origin is computed server-side (it needs every sample's
-  // phased GT across the dense imputed sites) and returned per child, density-
-  // binned/denoised and bounded. Shared cache key across the family's children.
+  // phased GT across the dense imputed sites) and returned per child as RAW calls
+  // — one point per informative site, no binning/denoising. This track is the
+  // diagnostic layer showing where the phasing is uncertain about the haplotypes;
+  // the "cleaned" view is the Haplotype block track. Shared cache key across the
+  // family's children.
   const { data: phasedData } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
@@ -98,6 +119,13 @@ const PhasedMarkerTrack: React.FC<Props> = ({
     [phasedData?.samples, sampleId],
   );
 
+  // Pos-sorted copy for tooltip hit-testing (the backend returns markers in
+  // positional order, but sort defensively so the binary search is correct).
+  const sortedMarkers = React.useMemo(
+    () => [...markers].sort((a, b) => a.pos - b.pos),
+    [markers],
+  );
+
   const diseaseModel = React.useMemo(
     () =>
       inferDiseaseHaplotypes({
@@ -109,42 +137,73 @@ const PhasedMarkerTrack: React.FC<Props> = ({
     [haplotypeData?.samples, familyMembers, inheritanceModel, riskRegion, chrom, regionStart, regionEnd],
   );
 
-  if (!hasRegion) {
-    return <svg width={width} height={height} />;
-  }
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-  const regionLength = regionEnd - regionStart;
-  const half = height / 2;
-  const fatherColors = [
-    cssVar('--color-haplotype-father-dark'),
-    cssVar('--color-haplotype-father-light'),
-  ];
-  const motherColors = [
-    cssVar('--color-haplotype-mother-dark'),
-    cssVar('--color-haplotype-mother-light'),
-  ];
-  const riskColors: Record<DiseaseHaplotypeKind, string> = {
-    dominant: cssVar('--color-haplotype-dominant'),
-    'recessive-maternal': cssVar('--color-haplotype-recessive-maternal'),
-    'recessive-paternal': cssVar('--color-haplotype-recessive-paternal'),
-    'x-linked': cssVar('--color-haplotype-x-linked'),
-  };
+    canvas.width = width;
+    canvas.height = height;
+    ctx.clearRect(0, 0, width, height);
+    if (!hasRegion) return;
 
-  const laneColor = (marker: PhasedMarker, lane: HaplotypeLane): string | null => {
-    const value = lane === 'hap1' ? marker.paternal : marker.maternal;
-    if (value === null) return null;
-    const segment = {
-      chr: chrom,
-      start: marker.pos,
-      end: marker.pos + 1,
-      hap1: marker.paternal === null ? '.' : String(marker.paternal),
-      hap2: marker.maternal === null ? '.' : String(marker.maternal),
-      ps: null,
+    const half = height / 2;
+    const regionLength = regionEnd - regionStart;
+    const fatherColors = [
+      cssVar('--color-haplotype-father-dark'),
+      cssVar('--color-haplotype-father-light'),
+    ];
+    const motherColors = [
+      cssVar('--color-haplotype-mother-dark'),
+      cssVar('--color-haplotype-mother-light'),
+    ];
+    const riskColors: Record<DiseaseHaplotypeKind, string> = {
+      dominant: cssVar('--color-haplotype-dominant'),
+      'recessive-maternal': cssVar('--color-haplotype-recessive-maternal'),
+      'recessive-paternal': cssVar('--color-haplotype-recessive-paternal'),
+      'x-linked': cssVar('--color-haplotype-x-linked'),
     };
-    const riskKind = diseaseHaplotypeKindForLane(diseaseModel, member, segment, lane, chrom);
-    if (riskKind) return riskColors[riskKind];
-    return (lane === 'hap1' ? fatherColors : motherColors)[value];
-  };
+    const unknownColor = cssVar('--color-haplotype-unknown');
+
+    const laneColor = (marker: PhasedMarker, lane: HaplotypeLane): string | null => {
+      const value = lane === 'hap1' ? marker.paternal : marker.maternal;
+      if (value === null) return null;
+      const segment = {
+        chr: chrom,
+        start: marker.pos,
+        end: marker.pos + 1,
+        hap1: marker.paternal === null ? '.' : String(marker.paternal),
+        hap2: marker.maternal === null ? '.' : String(marker.maternal),
+        ps: null,
+      };
+      const riskKind = diseaseHaplotypeKindForLane(diseaseModel, member, segment, lane, chrom);
+      if (riskKind) return riskColors[riskKind];
+      return (lane === 'hap1' ? fatherColors : motherColors)[value];
+    };
+
+    // Centre grid line.
+    ctx.strokeStyle = cssVar('--color-grid');
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, half + 0.5);
+    ctx.lineTo(width, half + 0.5);
+    ctx.stroke();
+
+    // One 1px column per raw marker — paternal lane on top, maternal below.
+    const laneHeight = Math.max(half - 1, 1);
+    markers.forEach((marker) => {
+      const x = Math.floor(((marker.pos - regionStart) / regionLength) * width);
+      if (marker.paternal !== null) {
+        ctx.fillStyle = laneColor(marker, 'hap1') ?? unknownColor;
+        ctx.fillRect(x, 0, 1, laneHeight);
+      }
+      if (marker.maternal !== null) {
+        ctx.fillStyle = laneColor(marker, 'hap2') ?? unknownColor;
+        ctx.fillRect(x, half, 1, laneHeight);
+      }
+    });
+  }, [markers, diseaseModel, member, chrom, width, height, regionStart, regionEnd, hasRegion]);
 
   const tooltipNode = (marker: PhasedMarker): React.ReactNode => (
     <div>
@@ -160,55 +219,41 @@ const PhasedMarkerTrack: React.FC<Props> = ({
     </div>
   );
 
+  const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas || sortedMarkers.length === 0) {
+      setTooltip(null);
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const regionLength = regionEnd - regionStart;
+    const pos = regionStart + (x / width) * regionLength;
+    const marker = nearestByPos(sortedMarkers, pos);
+    if (!marker) {
+      setTooltip(null);
+      return;
+    }
+    const markerX = ((marker.pos - regionStart) / regionLength) * width;
+    if (Math.abs(markerX - x) > 3) {
+      setTooltip(null);
+      return;
+    }
+    setTooltip({ x: event.clientX, y: event.clientY, node: tooltipNode(marker) });
+  };
+
+  if (!hasRegion) {
+    return <svg width={width} height={height} />;
+  }
+
   return (
     <div className="relative" style={{ width, height }}>
-      <svg width={width} height={height}>
-        <line
-          x1={0}
-          x2={width}
-          y1={half}
-          y2={half}
-          stroke={cssVar('--color-grid')}
-          strokeWidth={1}
-        />
-        {markers.map((marker, index) => {
-          const x = ((marker.pos - regionStart) / regionLength) * width;
-          return (
-            <g key={index}>
-              {marker.paternal !== null ? (
-                <rect
-                  x={x}
-                  y={0}
-                  width={1}
-                  height={Math.max(half - 1, 1)}
-                  fill={laneColor(marker, 'hap1') ?? cssVar('--color-haplotype-unknown')}
-                />
-              ) : null}
-              {marker.maternal !== null ? (
-                <rect
-                  x={x}
-                  y={half}
-                  width={1}
-                  height={Math.max(half - 1, 1)}
-                  fill={laneColor(marker, 'hap2') ?? cssVar('--color-haplotype-unknown')}
-                />
-              ) : null}
-              <rect
-                x={x - 3}
-                y={0}
-                width={6}
-                height={height}
-                fill="transparent"
-                className="cursor-pointer"
-                onMouseMove={(event) =>
-                  setTooltip({ x: event.clientX, y: event.clientY, node: tooltipNode(marker) })
-                }
-                onMouseLeave={() => setTooltip(null)}
-              />
-            </g>
-          );
-        })}
-      </svg>
+      <canvas
+        ref={canvasRef}
+        className="cursor-pointer"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setTooltip(null)}
+      />
       {markers.length === 0 ? (
         <div className="viz-empty-overlay">No informative imputed markers in this region</div>
       ) : null}
