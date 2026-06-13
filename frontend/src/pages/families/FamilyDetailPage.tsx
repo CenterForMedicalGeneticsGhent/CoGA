@@ -1402,7 +1402,17 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </div>
         )}
         <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table">
+          <table className="analysis-table family-members-table">
+            <colgroup>
+              <col style={{ width: canEditFamilyDetails ? '15%' : '18%' }} />
+              <col style={{ width: canEditFamilyDetails ? '11%' : '12%' }} />
+              {canEditFamilyDetails && <col style={{ width: '9%' }} />}
+              <col style={{ width: canEditFamilyDetails ? '11%' : '14%' }} />
+              <col style={{ width: canEditFamilyDetails ? '11%' : '14%' }} />
+              <col style={{ width: canEditFamilyDetails ? '21%' : '18%' }} />
+              <col style={{ width: canEditFamilyDetails ? '14%' : '24%' }} />
+              {canEditFamilyDetails && <col style={{ width: '8%' }} />}
+            </colgroup>
             <thead>
               <tr>
                 <th>Sample</th>
@@ -1442,8 +1452,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 return (
                   <tr key={member.sample_id}>
                     <td>
-                      <span className="flex items-center gap-1">
-                        <span>{sexSymbol}</span>
+                      <span className="family-member-identity">
+                        <span className="family-member-sex" aria-hidden="true">
+                          {sexSymbol}
+                        </span>
                         <button
                           type="button"
                           className="button-link family-member-name-button"
@@ -1452,7 +1464,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                           {displayMember.sample_id}
                         </button>
                         {affected && (
-                          <span className="ml-1" title="Affected">
+                          <span className="family-member-affected" title="Affected">
                             *
                           </span>
                         )}
@@ -1508,80 +1520,78 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     <td>{parents.father ?? '-'}</td>
                     <td>{parents.mother ?? '-'}</td>
                     <td>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {canEditFamilyDetails ? (
-                          <>
+                      {canEditFamilyDetails ? (
+                        <div className="family-member-status-controls">
+                          <select
+                            aria-label={`Phenotype for ${member.sample_id}`}
+                            value={clinicalStatus}
+                            onChange={(event) =>
+                              updateStructureMember(member.sample_id, {
+                                clinical_status: event.target.value as ClinicalStatus,
+                              })
+                            }
+                            disabled={structureBusy}
+                          >
+                            {CLINICAL_STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="family-member-status-carrier">
                             <select
-                              aria-label={`Phenotype for ${member.sample_id}`}
-                              value={clinicalStatus}
+                              aria-label={`Carrier status for ${member.sample_id}`}
+                              value={carrierStatus}
                               onChange={(event) =>
                                 updateStructureMember(member.sample_id, {
-                                  clinical_status: event.target.value as ClinicalStatus,
+                                  carrier_status: event.target.value as CarrierStatus,
                                 })
                               }
                               disabled={structureBusy}
                             >
-                              {CLINICAL_STATUS_OPTIONS.map((status) => (
+                              {CARRIER_STATUS_OPTIONS.map((status) => (
                                 <option key={status} value={status}>
                                   {status}
                                 </option>
                               ))}
                             </select>
-                            <div className="flex items-center gap-1 border-l pl-2">
+                            {carrierStatus === 'carrier' && (
                               <select
-                                aria-label={`Carrier status for ${member.sample_id}`}
-                                value={carrierStatus}
+                                aria-label={`Carrier type for ${member.sample_id}`}
+                                value={draftMember!.carrier_type}
                                 onChange={(event) =>
                                   updateStructureMember(member.sample_id, {
-                                    carrier_status: event.target.value as CarrierStatus,
+                                    carrier_type: event.target.value as CarrierType,
                                   })
                                 }
                                 disabled={structureBusy}
                               >
-                                {CARRIER_STATUS_OPTIONS.map((status) => (
-                                  <option key={status} value={status}>
-                                    {status}
+                                <option value="">type</option>
+                                {CARRIER_TYPE_OPTIONS.map((type) => (
+                                  <option key={type} value={type}>
+                                    {type}
                                   </option>
                                 ))}
                               </select>
-                              {carrierStatus === 'carrier' && (
-                                <select
-                                  aria-label={`Carrier type for ${member.sample_id}`}
-                                  value={draftMember!.carrier_type}
-                                  onChange={(event) =>
-                                    updateStructureMember(member.sample_id, {
-                                      carrier_type: event.target.value as CarrierType,
-                                    })
-                                  }
-                                  disabled={structureBusy}
-                                >
-                                  <option value="">type</option>
-                                  {CARRIER_TYPE_OPTIONS.map((type) => (
-                                    <option key={type} value={type}>
-                                      {type}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <span
-                              className={`table-chip ${
-                                clinicalStatus === 'affected' ? 'table-chip--critical' : ''
-                              }`}
-                            >
-                              {clinicalStatus}
-                            </span>
-                            {carrierStatus === 'carrier' && (
-                              <span className="table-chip table-chip--warning">
-                                {displayMember.carrier_type || 'carrier'}
-                              </span>
                             )}
-                          </>
-                        )}
-                      </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="family-member-status-chips">
+                          <span
+                            className={`table-chip ${
+                              clinicalStatus === 'affected' ? 'table-chip--critical' : ''
+                            }`}
+                          >
+                            {clinicalStatus}
+                          </span>
+                          {carrierStatus === 'carrier' && (
+                            <span className="table-chip table-chip--warning">
+                              {displayMember.carrier_type || 'carrier'}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td>
                       {annotations.length ? (
@@ -1625,9 +1635,17 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </table>
         </div>
         {canEditFamilyDetails && (
-          <div className="space-y-4">
+          <div className="space-y-4 family-members-editor">
+            <h3 className="family-member-subsection-title">Add member</h3>
             <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table">
+              <table className="analysis-table family-members-table">
+                <colgroup>
+                  <col style={{ width: '26%' }} />
+                  <col style={{ width: '12%' }} />
+                  <col style={{ width: '14%' }} />
+                  <col style={{ width: '34%' }} />
+                  <col style={{ width: '14%' }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>New sample</th>
@@ -1689,7 +1707,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       </select>
                     </td>
                     <td>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="family-member-status-controls">
                         <select
                           aria-label="New member phenotype"
                           value={newMember.clinical_status}
@@ -1707,7 +1725,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                             </option>
                           ))}
                         </select>
-                        <div className="flex items-center gap-1 border-l pl-2">
+                        <div className="family-member-status-carrier">
                           <select
                             aria-label="New member carrier status"
                             value={newMember.carrier_status}
@@ -1764,8 +1782,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               </table>
             </div>
 
+            <h3 className="family-member-subsection-title">Relationships</h3>
+            <p className="family-members-table-caption">Parent–child links</p>
             <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table">
+              <table className="analysis-table family-members-table">
+                <colgroup>
+                  <col style={{ width: '34%' }} />
+                  <col style={{ width: '18%' }} />
+                  <col style={{ width: '34%' }} />
+                  <col style={{ width: '14%' }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Parent</th>
@@ -1878,8 +1904,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               </div>
             </div>
 
+            <p className="family-members-table-caption">Couples</p>
             <div className="data-table-shell overflow-x-auto">
-              <table className="analysis-table">
+              <table className="analysis-table family-members-table">
+                <colgroup>
+                  <col style={{ width: '30%' }} />
+                  <col style={{ width: '30%' }} />
+                  <col style={{ width: '26%' }} />
+                  <col style={{ width: '14%' }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Partner</th>

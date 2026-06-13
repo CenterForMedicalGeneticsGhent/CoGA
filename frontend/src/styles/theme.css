@@ -1608,6 +1608,91 @@ tbody tr:hover {
   font-size: 0.72rem;
 }
 
+/* Family members editor: fixed column layout so the select-heavy edit cells stay
+   aligned and never overflow, with uniform full-width controls. */
+.family-members-table {
+  table-layout: fixed;
+}
+
+.family-members-table th,
+.family-members-table td {
+  vertical-align: top;
+}
+
+.family-members-table select,
+.family-members-table input[type='text'] {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.family-member-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.family-member-identity .family-member-name-button {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.family-member-sex {
+  color: var(--color-text-muted);
+}
+
+.family-member-affected {
+  color: #8f1d1d;
+  font-weight: 700;
+}
+
+/* Phenotype on top, carrier status (+ type) on a second line — far calmer than
+   cramming three selects into one row with a divider. */
+.family-member-status-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.family-member-status-carrier {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.family-member-status-carrier select {
+  flex: 1 1 0;
+}
+
+.family-member-status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.family-members-editor {
+  margin-top: 0.4rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.family-member-subsection-title {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.family-members-table-caption {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 .family-phenotypes-card {
   display: grid;
   gap: 0.8rem;
