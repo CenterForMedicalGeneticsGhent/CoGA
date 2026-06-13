@@ -658,6 +658,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                     frameClassName="h-[20px]"
                     roiRange={chromosomeRoiRange}
                     roiTitle={roiTitle}
+                    viewportInteraction={viewportInteraction}
                   >
                     <RepeatExpansionTrack
                       familyId={familyDisplayId}

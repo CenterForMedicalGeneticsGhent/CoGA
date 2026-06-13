@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import RoiMarkerOverlay from '../../components/visualizations/RoiMarkerOverlay';
 
 interface ViewerRoiRange {
@@ -53,6 +53,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   roiTitle,
   viewportInteraction,
 }) => {
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [dragCurrent, setDragCurrent] = useState<number | null>(null);
 
@@ -60,6 +61,17 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     (viewportInteraction?.regionEnd ?? 0) - (viewportInteraction?.regionStart ?? 0),
     1,
   );
+
+  // x within the track frame, derived from the frame's own bounding box rather
+  // than event.offsetX. offsetX is relative to whichever child element the event
+  // lands on (an SVG <rect>, a canvas, a tooltip hitbox, …), so drag-to-zoom only
+  // worked on tracks whose content was a single element at the frame's origin.
+  // Measuring against the frame makes zoom work uniformly on every track.
+  const frameOffsetX = (event: React.MouseEvent<HTMLDivElement>): number => {
+    const rect = frameRef.current?.getBoundingClientRect();
+    const x = rect ? event.clientX - rect.left : event.nativeEvent.offsetX;
+    return Math.max(0, Math.min(x, width));
+  };
 
   const commitViewport = (start: number, end: number) => {
     if (!viewportInteraction) return;
@@ -69,13 +81,14 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!viewportInteraction || event.button !== 0) return;
-    setDragStart(event.nativeEvent.offsetX);
-    setDragCurrent(event.nativeEvent.offsetX);
+    const x = frameOffsetX(event);
+    setDragStart(x);
+    setDragCurrent(x);
   };
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
     if (dragStart === null) return;
-    setDragCurrent(event.nativeEvent.offsetX);
+    setDragCurrent(frameOffsetX(event));
   };
 
   const clearDrag = () => {
@@ -89,7 +102,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
       return;
     }
 
-    const endX = event.nativeEvent.offsetX;
+    const endX = frameOffsetX(event);
     const x1 = Math.min(dragStart, endX);
     const x2 = Math.max(dragStart, endX);
     clearDrag();
@@ -119,6 +132,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
         {meta}
       </div>
       <div
+        ref={frameRef}
         className={[
           frameClassName ? `viz-frame ${frameClassName}` : 'viz-frame',
           interactiveClassName,

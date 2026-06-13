@@ -13,7 +13,10 @@ const dispatchMouseEvent = (
     button: options?.button ?? 0,
     shiftKey: options?.shiftKey ?? false,
   });
-  Object.defineProperty(event, 'offsetX', { value: offsetX });
+  // The block measures x from the frame's bounding box + clientX (jsdom reports a
+  // zero-origin rect, so clientX maps directly to the in-frame x). We deliberately
+  // do NOT set offsetX — the fix must not depend on it.
+  Object.defineProperty(event, 'clientX', { value: offsetX });
   fireEvent(element, event);
 };
 
@@ -40,6 +43,36 @@ describe('ViewerTrackBlock', () => {
     dispatchMouseEvent(track, 'mouseDown', 50);
     dispatchMouseEvent(track, 'mouseMove', 150);
     dispatchMouseEvent(track, 'mouseUp', 150);
+
+    expect(onChange).toHaveBeenCalledWith(150, 250);
+  });
+
+  it('zooms when the drag starts on a nested child element (e.g. an SVG feature)', () => {
+    const onChange = vi.fn();
+
+    render(
+      <ViewerTrackBlock
+        label="SVs"
+        width={200}
+        viewportInteraction={{
+          chromSize: 1000,
+          regionStart: 100,
+          regionEnd: 300,
+          onChange,
+        }}
+      >
+        <svg>
+          <rect data-testid="feature" x={120} y={0} width={8} height={20} />
+        </svg>
+      </ViewerTrackBlock>,
+    );
+
+    // Events fire on the inner <rect>, not the frame — they must still be measured
+    // relative to the frame (clientX), not the child (which broke offsetX-based zoom).
+    const feature = screen.getByTestId('feature');
+    dispatchMouseEvent(feature, 'mouseDown', 50);
+    dispatchMouseEvent(feature, 'mouseMove', 150);
+    dispatchMouseEvent(feature, 'mouseUp', 150);
 
     expect(onChange).toHaveBeenCalledWith(150, 250);
   });
