@@ -576,7 +576,7 @@ describe('FamilyDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /add member/i }));
     // Partner is now selected inline on the member row instead of a separate table.
     fireEvent.change(screen.getByLabelText('Partner for S1'), { target: { value: 'S2' } });
-    fireEvent.click(screen.getByRole('button', { name: /save family structure/i }));
+    fireEvent.click(screen.getByRole('button', { name: /update family structure/i }));
 
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(
       '/families/F1/structure',

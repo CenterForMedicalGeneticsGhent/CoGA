@@ -1600,12 +1600,13 @@ tbody tr:hover {
 
 .family-members-card .analysis-table th,
 .family-members-card .analysis-table td {
-  padding-top: 0.62rem;
-  padding-bottom: 0.62rem;
+  padding-top: 0.16rem;
+  padding-bottom: 0.16rem;
+  line-height: 1.25;
 }
 
 .family-members-card .analysis-table td {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
 }
 
 /* Family members editor: fixed column layout so the select-heavy edit cells stay
@@ -1617,7 +1618,8 @@ tbody tr:hover {
 .family-members-table th,
 .family-members-table td {
   vertical-align: middle;
-  padding: 0.28rem 0.4rem;
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
 }
 
 .family-members-table select,
@@ -1625,8 +1627,9 @@ tbody tr:hover {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  padding: 0.2rem 0.3rem;
-  font-size: 0.7rem;
+  padding: 0.1rem 0.25rem;
+  font-size: 0.68rem;
+  line-height: 1.2;
 }
 
 .family-member-identity {
@@ -1688,6 +1691,24 @@ tbody tr:hover {
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--color-text-muted);
+}
+
+/* Prominent commit action: black background, red letters. */
+.family-structure-update-button {
+  background: #000;
+  color: #e02424;
+  border: 1px solid #000;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.family-structure-update-button:hover:not(:disabled) {
+  background: #161616;
+  color: #ff3b3b;
+}
+
+.family-structure-update-button:disabled {
+  opacity: 0.55;
 }
 
 .family-phenotypes-card {

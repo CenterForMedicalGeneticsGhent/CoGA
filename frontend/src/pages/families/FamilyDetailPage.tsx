@@ -285,12 +285,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const [parentChildDrafts, setParentChildDrafts] = useState<ParentChildDraft[]>([]);
   const [coupleDrafts, setCoupleDrafts] = useState<CoupleDraft[]>([]);
   const [newMember, setNewMember] = useState<StructureMemberDraft>(defaultNewMember);
+  const [newMemberRelations, setNewMemberRelations] = useState({ father: '', mother: '', partner: '' });
   const [structureBusy, setStructureBusy] = useState(false);
   const [structureStatus, setStructureStatus] = useState<{
     tone: 'success' | 'error';
     message: string;
   } | null>(null);
-  const [clearExistingGenomicData, setClearExistingGenomicData] = useState(false);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [memberDraft, setMemberDraft] = useState<MemberDetailDraft | null>(null);
   const [memberBusy, setMemberBusy] = useState(false);
@@ -561,7 +561,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     setParentChildDrafts(parentChildDraftsFromRelationships(data));
     setCoupleDrafts(coupleDraftsFromRelationships(data));
     setNewMember(defaultNewMember);
-    setClearExistingGenomicData(false);
+    setNewMemberRelations({ father: '', mother: '', partner: '' });
   }, [data]);
 
   useEffect(() => {
@@ -786,7 +786,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         isNew: true,
       },
     ]);
+    // Persist the relationships chosen inline on the add-member row.
+    if (newMemberRelations.father) setParentValue(sampleId, 'father', newMemberRelations.father);
+    if (newMemberRelations.mother) setParentValue(sampleId, 'mother', newMemberRelations.mother);
+    if (newMemberRelations.partner) setPartnerValue(sampleId, newMemberRelations.partner);
     setNewMember(defaultNewMember);
+    setNewMemberRelations({ father: '', mother: '', partner: '' });
     setStructureStatus(null);
   };
 
@@ -852,7 +857,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       const response = await api.put(`/families/${familyId}/structure`, {
         expected_structure_version: data.structure_version?.version ?? null,
         change_reason: 'family_detail_page',
-        clear_existing_genomic_data: clearExistingGenomicData,
+        clear_existing_genomic_data: false,
         add_members: addMembers,
         members,
         remove_members: removedExisting,
@@ -868,7 +873,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       };
       queryClient.setQueryData(['family', familyId], payload.family);
       await queryClient.invalidateQueries({ queryKey: ['families'] });
-      setClearExistingGenomicData(false);
       setStructureStatus({
         tone: 'success',
         message: payload.warnings?.length
@@ -1717,17 +1721,23 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             <div className="data-table-shell overflow-x-auto">
               <table className="analysis-table family-members-table">
                 <colgroup>
-                  <col style={{ width: '26%' }} />
-                  <col style={{ width: '12%' }} />
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '34%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '8%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '20%' }} />
                   <col style={{ width: '14%' }} />
                 </colgroup>
                 <thead>
                   <tr>
                     <th>New sample</th>
-                    <th>Sex</th>
                     <th>Role</th>
+                    <th>Sex</th>
+                    <th>Father</th>
+                    <th>Mother</th>
+                    <th>Partner</th>
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
@@ -1744,6 +1754,25 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                         }
                         disabled={structureBusy}
                       />
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member role"
+                        value={newMember.role}
+                        onChange={(event) =>
+                          setNewMember((member) => ({
+                            ...member,
+                            role: event.target.value as StructureMemberDraft['role'],
+                          }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        {ROLE_OPTIONS.map((role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td>
                       <select
@@ -1766,19 +1795,51 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     </td>
                     <td>
                       <select
-                        aria-label="New member role"
-                        value={newMember.role}
+                        aria-label="New member father"
+                        value={newMemberRelations.father}
                         onChange={(event) =>
-                          setNewMember((member) => ({
-                            ...member,
-                            role: event.target.value as StructureMemberDraft['role'],
-                          }))
+                          setNewMemberRelations((relations) => ({ ...relations, father: event.target.value }))
                         }
                         disabled={structureBusy}
                       >
-                        {ROLE_OPTIONS.map((role) => (
-                          <option key={role} value={role}>
-                            {role}
+                        <option value="">—</option>
+                        {activeSampleIds.map((sampleId) => (
+                          <option key={sampleId} value={sampleId}>
+                            {sampleId}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member mother"
+                        value={newMemberRelations.mother}
+                        onChange={(event) =>
+                          setNewMemberRelations((relations) => ({ ...relations, mother: event.target.value }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        <option value="">—</option>
+                        {activeSampleIds.map((sampleId) => (
+                          <option key={sampleId} value={sampleId}>
+                            {sampleId}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        aria-label="New member partner"
+                        value={newMemberRelations.partner}
+                        onChange={(event) =>
+                          setNewMemberRelations((relations) => ({ ...relations, partner: event.target.value }))
+                        }
+                        disabled={structureBusy}
+                      >
+                        <option value="">—</option>
+                        {activeSampleIds.map((sampleId) => (
+                          <option key={sampleId} value={sampleId}>
+                            {sampleId}
                           </option>
                         ))}
                       </select>
@@ -1838,21 +1899,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             </div>
 
             <div className="compact-toolbar family-toolbar">
-              <label className="variant-compact-checkbox">
-                <input
-                  type="checkbox"
-                  checked={clearExistingGenomicData}
-                  onChange={(event) => setClearExistingGenomicData(event.target.checked)}
-                  disabled={structureBusy}
-                />
-                Clear imported genomic data
-              </label>
               <button
                 type="button"
+                className="family-structure-update-button"
                 onClick={saveStructure}
                 disabled={structureBusy || activeStructureMembers.length === 0}
               >
-                Save family structure
+                Update Family Structure
               </button>
               {data.structure_version?.version !== undefined && (
                 <span className="table-chip">Version {data.structure_version.version}</span>
