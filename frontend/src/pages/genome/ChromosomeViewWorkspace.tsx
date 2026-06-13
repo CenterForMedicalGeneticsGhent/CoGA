@@ -8,8 +8,7 @@ import ApcadChart from '../../components/visualizations/ApcadChart';
 import Ideogram from '../../components/visualizations/Ideogram';
 import ZoomedIdeogram from '../../components/visualizations/ZoomedIdeogram';
 import VariantTrack from '../../components/visualizations/VariantTrack';
-import HaplotypeTrack from '../../components/visualizations/HaplotypeTrack';
-import PhasedMarkerTrack from '../../components/visualizations/PhasedMarkerTrack';
+import HaplotypePhasedTrack from '../../components/visualizations/HaplotypePhasedTrack';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import GeneTrack from '../../components/visualizations/GeneTrack';
 import BlacklistTrack from '../../components/visualizations/BlacklistTrack';
@@ -36,8 +35,9 @@ import {
 
 const TRACK_HEIGHT = 120;
 const VARIANT_TRACK_HEIGHT = 80;
-const HAPLOTYPE_TRACK_HEIGHT = 15;
-const PHASED_MARKER_TRACK_HEIGHT = 24;
+// Combined haplotype + phased-marker track: two lanes (paternal / maternal),
+// each a haplotype block with the raw markers overlaid as dots when applicable.
+const HAPLOTYPE_COMBINED_TRACK_HEIGHT = 28;
 const ZOOMED_IDEOGRAM_HEIGHT = 40;
 const CNV_TRACK_HEIGHT = 20;
 const DGV_TRACK_HEIGHT = 48;
@@ -615,19 +615,19 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                         <HaplotypeLegend inheritanceModel={resolvedHaplotypeInheritanceModel} />
                       ) : undefined
                     }
-                    frameClassName="h-[15px]"
+                    frameClassName="h-[28px]"
                     roiRange={regionRoiRange}
                     roiTitle={roiTitle}
                     viewportInteraction={viewportInteraction}
                   >
-                    <HaplotypeTrack
+                    <HaplotypePhasedTrack
                       familyId={familyDisplayId}
                       sampleId={member.sample_id}
                       chrom={chrom}
                       regionStart={region.start}
                       regionEnd={region.end}
                       width={trackWidth}
-                      height={HAPLOTYPE_TRACK_HEIGHT}
+                      height={HAPLOTYPE_COMBINED_TRACK_HEIGHT}
                       role={member.role}
                       affected={member.affected}
                       sex={member.sex}
@@ -638,36 +638,12 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                       inheritanceModel={resolvedHaplotypeInheritanceModel}
                       familyMembers={familyMembers}
                       riskRegion={haplotypeRiskRegion}
+                      showMarkers={
+                        trackVisibility.phasedMarkers && hasBothParents && !parentRole(member.role)
+                      }
                     />
                   </ViewerTrackBlock>
                 )}
-                {trackVisibility.phasedMarkers &&
-                  hasBothParents &&
-                  !parentRole(member.role) &&
-                  availability[member.sample_id]?.haplotypes && (
-                    <ViewerTrackBlock
-                      label="Phased markers"
-                      width={trackWidth}
-                      frameClassName="h-[24px]"
-                      roiRange={regionRoiRange}
-                      roiTitle={roiTitle}
-                      viewportInteraction={viewportInteraction}
-                    >
-                      <PhasedMarkerTrack
-                        familyId={familyDisplayId}
-                        sampleId={member.sample_id}
-                        chrom={chrom}
-                        regionStart={region.start}
-                        regionEnd={region.end}
-                        width={trackWidth}
-                        height={PHASED_MARKER_TRACK_HEIGHT}
-                        member={member}
-                        familyMembers={familyMembers}
-                        inheritanceModel={resolvedHaplotypeInheritanceModel}
-                        riskRegion={haplotypeRiskRegion}
-                      />
-                    </ViewerTrackBlock>
-                  )}
                 {trackVisibility.repeatExpansions && availability[member.sample_id]?.repeatExpansions && (
                   <ViewerTrackBlock
                     label="Repeat expansions"
