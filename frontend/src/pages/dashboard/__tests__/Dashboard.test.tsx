@@ -231,8 +231,10 @@ describe('Dashboard admin section', () => {
     const nestedTable = familyLink.closest('table');
 
     expect(nestedTable).not.toBeNull();
-    expect(nestedTable?.querySelectorAll('colgroup col')).toHaveLength(2);
+    // family, members, and the "date added" column.
+    expect(nestedTable?.querySelectorAll('colgroup col')).toHaveLength(3);
     expect(nestedTable?.querySelector('.family-catalog-family-column')).not.toBeNull();
+    expect(nestedTable?.querySelector('.family-catalog-added-column')).not.toBeNull();
     expect(familyLink.closest('td')).toHaveClass('family-catalog-family-cell');
   });
 });
