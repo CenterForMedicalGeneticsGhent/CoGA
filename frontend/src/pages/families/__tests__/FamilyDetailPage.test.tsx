@@ -571,11 +571,11 @@ describe('FamilyDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText('Carrier status for S1'), { target: { value: 'carrier' } });
-    fireEvent.change(screen.getByLabelText('Carrier type for S1'), { target: { value: 'proven' } });
     fireEvent.change(screen.getByLabelText('New member sample ID'), { target: { value: 'S2' } });
     fireEvent.change(screen.getByLabelText('New member sex'), { target: { value: 'female' } });
     fireEvent.click(screen.getByRole('button', { name: /add member/i }));
-    fireEvent.click(screen.getByRole('button', { name: /add couple/i }));
+    // Partner is now selected inline on the member row instead of a separate table.
+    fireEvent.change(screen.getByLabelText('Partner for S1'), { target: { value: 'S2' } });
     fireEvent.click(screen.getByRole('button', { name: /save family structure/i }));
 
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(
@@ -592,7 +592,6 @@ describe('FamilyDetailPage', () => {
           expect.objectContaining({
             sample_id: 'S1',
             carrier_status: 'carrier',
-            carrier_type: 'proven',
           }),
         ],
         relationships: expect.objectContaining({

@@ -1616,7 +1616,8 @@ tbody tr:hover {
 
 .family-members-table th,
 .family-members-table td {
-  vertical-align: top;
+  vertical-align: middle;
+  padding: 0.28rem 0.4rem;
 }
 
 .family-members-table select,
@@ -1624,6 +1625,8 @@ tbody tr:hover {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.7rem;
 }
 
 .family-member-identity {
@@ -1648,20 +1651,14 @@ tbody tr:hover {
   font-weight: 700;
 }
 
-/* Phenotype on top, carrier status (+ type) on a second line — far calmer than
-   cramming three selects into one row with a divider. */
+/* Phenotype and carrier status sit side by side, each taking half the cell. */
 .family-member-status-controls {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.3rem;
 }
 
-.family-member-status-carrier {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.family-member-status-carrier select {
+.family-member-status-controls select {
   flex: 1 1 0;
 }
 
