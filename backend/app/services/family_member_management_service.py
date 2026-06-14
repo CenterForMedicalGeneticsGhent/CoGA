@@ -300,9 +300,13 @@ async def get_family_member_impact_for_user(
     family_id: str,
     sample_id: str,
     user: CurrentUser,
+    family_uuid: str | None = None,
 ) -> FamilyMemberImpactOut:
-    family_row = await get_accessible_family_mapping(session, family_id, user)
-    family_uuid = str(family_row["id"])
+    # When the caller has already resolved the family (and checked access) it
+    # can thread the UUID down to skip re-running the family-mapping GROUP BY.
+    if family_uuid is None:
+        family_row = await get_accessible_family_mapping(session, family_id, user)
+        family_uuid = str(family_row["id"])
     sample_uuid, resolved_sample_id = await _sample_uuid_for_member(
         session,
         family_uuid=family_uuid,
@@ -355,10 +359,13 @@ async def get_family_member_detail_for_user(
     family = await get_family_record(session, family_id, user)
     member = _find_member(family.members, sample_id)
     father_id, mother_id = _parents_for_member(family.relationships, sample_id=member.sample_id)
-    family_row = await get_accessible_family_mapping(session, family_id, user)
+    # get_family_record already resolved the family (and checked access); reuse
+    # its UUID instead of re-running the family-mapping GROUP BY for the HPO
+    # lookup and again inside the impact call.
+    family_uuid = str(family.id)
     hpo_annotations = await list_family_hpo_annotations(
         session,
-        family_uuid=str(family_row["id"]),
+        family_uuid=family_uuid,
         sample_id=member.sample_id,
     )
     impact = await get_family_member_impact_for_user(
@@ -366,6 +373,7 @@ async def get_family_member_detail_for_user(
         family_id=family_id,
         sample_id=member.sample_id,
         user=user,
+        family_uuid=family_uuid,
     )
     return FamilyMemberDetailOut(
         member=member,
