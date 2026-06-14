@@ -32,13 +32,6 @@ export interface FamilyData extends FamilySummaryData {
   samples: SampleData[];
 }
 
-export interface FamilyInventoryPage {
-  total: number;
-  page: number;
-  page_size: number;
-  items: FamilySummaryData[];
-}
-
 export interface ClickHouseVariantTableStatus {
   name: string;
   variant_type: 'small_variants' | 'structural_variants';
@@ -111,7 +104,6 @@ export interface RawFileVerifyResult {
 
 export type StatusTone = 'success' | 'error';
 
-export const EMPTY_SUMMARY_ITEMS: FamilySummaryData[] = [];
 export const EMPTY_PROJECTS: ProjectOption[] = [];
 export const DEFAULT_PAGE_SIZE = 25;
 

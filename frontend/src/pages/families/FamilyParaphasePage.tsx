@@ -44,7 +44,7 @@ const formatNullableNumber = (value?: number | null, digits = 0): string => {
 const hasCopyNumberSignal = (call?: ApiParaphaseSampleResult): boolean => {
   if (!call) return false;
   if (call.copy_number_signal) return true;
-  if (call.copy_number_metrics?.some((metric) => metric.value == null || metric.value !== 2)) {
+  if (call.copy_number_metrics?.some((metric) => metric.value !== 2)) {
     return true;
   }
   return [call.total_cn, call.gene_cn, call.highest_total_cn].some(

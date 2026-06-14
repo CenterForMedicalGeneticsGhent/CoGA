@@ -9,7 +9,7 @@ import re
 import time
 from collections import defaultdict
 from datetime import date
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 from fastapi import HTTPException
@@ -56,9 +56,11 @@ _MONTH_BY_PREFIX = {
 }
 
 
-def _raise_upstream_error(source: str, exc: Exception) -> HTTPException:
-    _ = exc
-    return HTTPException(status_code=502, detail=f"Failed to download reference data from {source}")
+def _raise_upstream_error(source: str, exc: Exception) -> NoReturn:
+    raise HTTPException(
+        status_code=502,
+        detail=f"Failed to download reference data from {source}",
+    ) from exc
 
 
 async def _get_json(
@@ -71,7 +73,7 @@ async def _get_json(
         response = await client.get(url, params=params)
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise _raise_upstream_error(url, exc)
+        _raise_upstream_error(url, exc)
     payload = response.json()
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail=f"Unexpected response from {url}")
@@ -82,13 +84,13 @@ async def _get_optional_text(client: httpx.AsyncClient, url: str) -> str | None:
     try:
         response = await client.get(url)
     except httpx.HTTPError as exc:
-        raise _raise_upstream_error(url, exc)
+        _raise_upstream_error(url, exc)
     if response.status_code == 404:
         return None
     try:
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise _raise_upstream_error(url, exc)
+        _raise_upstream_error(url, exc)
     return response.text
 
 
@@ -96,13 +98,13 @@ async def _get_optional_gzip_text(client: httpx.AsyncClient, url: str) -> str | 
     try:
         response = await client.get(url)
     except httpx.HTTPError as exc:
-        raise _raise_upstream_error(url, exc)
+        _raise_upstream_error(url, exc)
     if response.status_code == 404:
         return None
     try:
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise _raise_upstream_error(url, exc)
+        _raise_upstream_error(url, exc)
     try:
         return gzip.decompress(response.content).decode()
     except OSError as exc:

@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,7 +133,7 @@ async def _load_human_gene_groups(
     human_context = await _get_human_context(session)
     assembly_ids = [assembly["id"] for assembly in human_context.assemblies]
     species_docs = await _fetch_species_rows(session)
-    params: dict[str, Any] = {"assembly_ids": assembly_ids}
+    params: dict[str, Any] = {}
     if symbol:
         query = text(
             """

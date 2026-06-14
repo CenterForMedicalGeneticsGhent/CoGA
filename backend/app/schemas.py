@@ -86,10 +86,6 @@ class Token(BaseModel):
     role: str
 
 
-class TokenData(BaseModel):
-    email: Optional[EmailStr] = None
-
-
 class FamilyMemberOut(BaseModel):
     """Schema for a family member with a human-friendly sample ID."""
 

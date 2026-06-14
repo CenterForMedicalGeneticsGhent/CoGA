@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import SmallVariantFilterPresetTable from '../../components/SmallVariantFilterPresetTable';
 import api from '../../lib/api';
@@ -29,14 +29,6 @@ const SettingsPage: React.FC = () => {
     tone: 'error' | 'success';
     message: string;
   } | null>(null);
-
-  useEffect(() => {
-    setGenomeWindowState(getGenomeWindow());
-    setChromosomeWindowState(getChromosomeWindow());
-    setCoverageUpperState(getCoverageUpperThreshold());
-    setCoverageLowerState(getCoverageLowerThreshold());
-    setCoverageRangeState(getCoverageRange());
-  }, []);
 
   const { data: presets = [] } = useQuery<SmallVariantFilterPreset[]>({
     queryKey: ['auth', 'small-variant-filter-presets'],

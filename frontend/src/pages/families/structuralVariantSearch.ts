@@ -706,16 +706,7 @@ export const useStructuralVariantSearchState = ({
     const nextSampleFilters = cloneSampleFilters(sampleFilters);
 
     if (chip.kind === 'top') {
-      if (
-        chip.key === 'classification' ||
-        chip.key === 'review_tags' ||
-        chip.key === 'exclude_review_tags' ||
-        chip.key === 'region_flags'
-      ) {
-        nextFilters[chip.key] = '';
-      } else {
-        nextFilters[chip.key] = '';
-      }
+      nextFilters[chip.key] = '';
       if (chip.key === 'locus') {
         nextFilters.chr = '';
         nextFilters.start = '';
@@ -741,28 +732,11 @@ export const useStructuralVariantSearchState = ({
     applySearchState(filters, sampleFilters, nextPage);
   };
 
-  const buildOrderedGenotypes = (variant: StructuralVariant) => {
-    const seen = new Set<string>();
-    const ordered = orderedMembers
-      .map((member) => {
-        const genotype = variant.genotypes.find((entry) => entry.sample === member.sample_id);
-        if (!genotype) return null;
-        seen.add(member.sample_id);
-        return genotype;
-      })
-      .filter((entry): entry is StructuralVariantGenotype => Boolean(entry));
-
-    const extras = variant.genotypes.filter((entry) => !entry.sample || !seen.has(entry.sample));
-
-    return [...ordered, ...extras];
-  };
-
   return {
     activeFilterChips,
     activeFilterCount,
     applyPreset,
     applySavedPreset,
-    buildOrderedGenotypes,
     draftFilters,
     emptyFilters,
     filters,

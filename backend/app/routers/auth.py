@@ -168,7 +168,7 @@ async def token(
         session,
         email=form_data.username,
         password=form_data.password,
-        remote_ip=_request_remote_ip(request) if request is not None else None,
+        remote_ip=_request_remote_ip(request),
     )
 
 

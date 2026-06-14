@@ -3,7 +3,6 @@ import { formatGt } from '../../lib/genotypes';
 import {
   buildReviewTagTooltip,
   formatFrequency,
-  formatLocus,
   formatScore,
   getReviewClassificationTone,
   getReviewTagStyle,
