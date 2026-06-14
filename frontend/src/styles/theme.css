@@ -1371,13 +1371,14 @@ tbody tr:hover {
   display: grid;
   gap: 0.75rem;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  align-items: start;
+  /* stretch both columns so the side column matches the (taller) Variants card */
+  align-items: stretch;
 }
 
 .family-workspace-side {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.75rem;
-  align-content: start;
 }
 
 @media (max-width: 900px) {
@@ -1417,6 +1418,8 @@ tbody tr:hover {
 
 .family-workspace-card--roi {
   border-left: 3px solid rgba(176, 132, 54, 0.55);
+  /* grow to fill the side column so the card bottom aligns with the Variants card */
+  flex: 1 1 auto;
 }
 
 .family-variant-links {
@@ -1446,12 +1449,14 @@ tbody tr:hover {
   gap: 0.4rem;
 }
 
-.family-roi-edit input {
+/* Match the global input selector's specificity so the compact height wins. */
+.family-roi-edit input:not([type='checkbox']):not([type='radio']) {
   flex: 1 1 9rem;
   width: auto;
   min-width: 0;
   min-height: 0;
-  padding: 0.44rem 0.62rem;
+  padding: 0.34rem 0.6rem;
+  line-height: 1.3;
 }
 
 .family-roi-edit button {
