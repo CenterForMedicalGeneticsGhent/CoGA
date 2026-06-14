@@ -102,7 +102,7 @@ Both batch endpoints loop `for chrom in chroms` and call `_fetch_bed_records_for
 - **Effort:** M
 - **Expected impact:** **Before:** 24+ serial queries per non-windowed path, `O(N × RTT)`. **After:** 1 query, `O(1 × RTT)`. At 5-50 ms RTT this saves **100-1150 ms per batch call**; fixing the windowed paths reduces a genome-overview load from potentially hundreds of queries to a handful.
 
-#### 5. N+1 gene-symbol lookup, one Postgres query per structural-variant record
+#### 5. N+1 gene-symbol lookup, one Postgres query per structural-variant record - FIXED
 `backend/app/services/variant_upload_service.py` (`upload_structural_variant_file` / `_lookup_structural_gene_symbols`, lines 1399-1417)
 
 Inside the per-record loop over `iter_structural_variant_records()`, every parsed SV issues its own range query (`SELECT DISTINCT hgnc_symbol FROM genes WHERE assembly_id=… AND chr=… AND start<window_end AND end>window_start`). For a file with hundreds-to-thousands of records this is hundreds-to-thousands of sequential queries on one connection; the small-variant uploader does not have this per-row pattern.
