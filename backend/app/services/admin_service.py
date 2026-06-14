@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 import re
 from typing import Any
@@ -53,6 +54,9 @@ from .raw_import_files_pg import (
 )
 
 BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype")
+# Bound concurrent per-family/per-assembly ClickHouse count queries on the data
+# inventory page so they run in parallel without overwhelming the variant store.
+_INVENTORY_COUNT_CONCURRENCY = 16
 SAMPLE_TRACK_TYPES = (*BED_TRACK_TYPES, "structural_variants", "repeat_expansions")
 FAMILY_TRACK_TYPES = ("small_variants", "structural_variants", "repeat_expansions", *BED_TRACK_TYPES)
 
@@ -427,21 +431,38 @@ async def list_data_inventory_page(
     family_uuids = [row["family_uuid"] for row in family_rows]
     interval_counts = await _interval_counts_by_family(session, family_uuids)
     repeat_counts = await _repeat_counts_by_family(session, family_uuids)
-    items: list[FamilyInventorySummaryOut] = []
-    for family_row in family_rows:
-        small_variant_count = 0
-        structural_variant_count = 0
+    # Run the per-family/per-assembly variant counts concurrently (bounded)
+    # instead of serially — each is an independent ClickHouse round-trip. The
+    # queries and their per-family summing are otherwise unchanged.
+    semaphore = asyncio.Semaphore(_INVENTORY_COUNT_CONCURRENCY)
+
+    async def _count(counter, assembly_name: str, family_uuid: str, project_ids: list[str]) -> int:
+        async with semaphore:
+            return await counter(assembly_name, family_uuid, project_ids=project_ids)
+
+    count_tasks: list[tuple[int, str, Any]] = []
+    for index, family_row in enumerate(family_rows):
+        project_ids = _string_list(family_row.get("project_ids"))
+        family_uuid = family_row["family_uuid"]
         for assembly_name in _string_list(family_row.get("assembly_names")):
-            small_variant_count += await count_family_small_variants(
-                assembly_name,
-                family_row["family_uuid"],
-                project_ids=_string_list(family_row.get("project_ids")),
+            count_tasks.append(
+                (index, "small", _count(count_family_small_variants, assembly_name, family_uuid, project_ids))
             )
-            structural_variant_count += await count_family_structural_variants(
-                assembly_name,
-                family_row["family_uuid"],
-                project_ids=_string_list(family_row.get("project_ids")),
+            count_tasks.append(
+                (index, "structural", _count(count_family_structural_variants, assembly_name, family_uuid, project_ids))
             )
+
+    count_values = await asyncio.gather(*(task for _index, _kind, task in count_tasks))
+    small_counts = [0] * len(family_rows)
+    structural_counts = [0] * len(family_rows)
+    for (index, kind, _task), value in zip(count_tasks, count_values):
+        if kind == "small":
+            small_counts[index] += value
+        else:
+            structural_counts[index] += value
+
+    items: list[FamilyInventorySummaryOut] = []
+    for index, family_row in enumerate(family_rows):
         items.append(
             _build_family_inventory_summary(
                 family_row=family_row,
@@ -449,8 +470,8 @@ async def list_data_inventory_page(
                     family_row["family_uuid"],
                     _empty_track_counts(BED_TRACK_TYPES),
                 ),
-                small_variant_count=small_variant_count,
-                structural_variant_count=structural_variant_count,
+                small_variant_count=small_counts[index],
+                structural_variant_count=structural_counts[index],
                 repeat_expansion_count=repeat_counts.get(family_row["family_uuid"], 0),
             )
         )
@@ -838,7 +859,6 @@ async def delete_family_data_by_type(
         raise HTTPException(status_code=400, detail="Invalid data type")
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
-    detail = await get_family_data_inventory_detail(session, family_id=family_id)
     result = await session.execute(
         text("SELECT id::text AS family_uuid FROM families WHERE family_id = :family_id"),
         {"family_id": family_id},

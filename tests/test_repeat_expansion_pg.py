@@ -16,6 +16,9 @@ class _FakeQueryResult:
     def first(self):
         return self._rows[0] if self._rows else None
 
+    def all(self):
+        return self._rows
+
 
 class _RecordingSession:
     def __init__(self, repeat_loci_rows=None) -> None:
@@ -110,12 +113,15 @@ async def test_ingest_trgt_text_stores_triplet_interruption_details() -> None:
         metadata={"filename": "sample.trgt.vcf", "source": "trgt"},
     )
 
-    insert_params = [
+    insert_calls = [
         params
         for sql, params in session.calls
         if "INSERT INTO repeat_expansions" in sql
-    ][0]
-    alleles = json.loads(insert_params["alleles_json"])
+    ]
+    assert len(insert_calls) == 1
+    batched_records = insert_calls[0]
+    assert len(batched_records) == 1
+    alleles = json.loads(batched_records[0]["alleles_json"])
 
     assert alleles[0]["interrupted"] is False
     assert alleles[1]["interrupted"] is True
@@ -228,11 +234,12 @@ async def test_ingest_family_trgt_text_imports_all_matching_header_samples() -> 
     )
 
     delete_calls = [sql for sql, _params in session.calls if "DELETE FROM repeat_expansions" in sql]
-    insert_calls = [sql for sql, _params in session.calls if "INSERT INTO repeat_expansions" in sql]
+    insert_calls = [params for sql, params in session.calls if "INSERT INTO repeat_expansions" in sql]
     update_calls = [sql for sql, _params in session.calls if "UPDATE samples" in sql]
 
     assert len(delete_calls) == 2
-    assert len(insert_calls) == 2
+    assert len(insert_calls) == 1
+    assert len(insert_calls[0]) == 2
     assert len(update_calls) == 2
     assert session.committed is True
     assert result == {

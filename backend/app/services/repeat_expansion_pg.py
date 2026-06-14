@@ -444,41 +444,80 @@ def _normalize_x_male_alleles(
     return [first]
 
 
-async def _find_repeat_locus(session: AsyncSession, trid: str | None) -> dict[str, Any] | None:
+_REPEAT_LOCI_LOOKUP_SQL = text(
+    """
+    SELECT
+        locus_id,
+        gene,
+        display_name,
+        disease,
+        inheritance,
+        motif,
+        motif_index,
+        warning_min,
+        pathogenic_min,
+        aliases,
+        notes,
+        metadata
+    FROM repeat_loci
+    ORDER BY locus_id
+    """
+)
+
+
+def _coerce_locus_aliases(value: Any) -> list[str]:
+    """Decode a ``repeat_loci.aliases`` JSONB value (a list, or a JSON string
+    depending on the driver) into a list of strings for in-memory matching."""
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value if isinstance(item, (str, int, float))]
+    return []
+
+
+async def _build_repeat_locus_lookup(session: AsyncSession) -> dict[str, dict[str, Any]]:
+    """Load the (small, static) repeat catalog once and index it by lowercased
+    locus_id / gene / display_name / alias so TRGT ingest can resolve a locus in
+    memory instead of issuing a sequential-scan SELECT per VCF line.
+
+    On a key collision an exact field match wins in the order
+    locus_id > gene > display_name > alias; within a field the first locus in
+    catalog order keeps the key. This is at least as precise as the previous
+    per-row ``OR ... LIMIT 1`` query, which returned an arbitrary matching row.
+    """
+    result = await session.execute(_REPEAT_LOCI_LOOKUP_SQL)
+    lookup: dict[str, dict[str, Any]] = {}
+    best_priority: dict[str, int] = {}
+
+    def _register(value: Any, priority: int, row: dict[str, Any]) -> None:
+        if not isinstance(value, str) or not value:
+            return
+        key = value.lower()
+        if key not in best_priority or priority < best_priority[key]:
+            best_priority[key] = priority
+            lookup[key] = row
+
+    for row in result.mappings().all():
+        row_dict = dict(row)
+        _register(row_dict.get("locus_id"), 0, row_dict)
+        _register(row_dict.get("gene"), 1, row_dict)
+        _register(row_dict.get("display_name"), 2, row_dict)
+        for alias in _coerce_locus_aliases(row_dict.get("aliases")):
+            _register(alias, 3, row_dict)
+    return lookup
+
+
+def _lookup_repeat_locus(
+    locus_lookup: dict[str, dict[str, Any]], trid: str | None
+) -> dict[str, Any] | None:
     if not trid:
         return None
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                locus_id,
-                gene,
-                display_name,
-                disease,
-                inheritance,
-                motif,
-                motif_index,
-                warning_min,
-                pathogenic_min,
-                aliases,
-                notes,
-                metadata
-            FROM repeat_loci
-            WHERE lower(locus_id) = lower(:trid)
-               OR lower(gene) = lower(:trid)
-               OR lower(display_name) = lower(:trid)
-               OR EXISTS (
-                    SELECT 1
-                    FROM jsonb_array_elements_text(aliases) AS alias(value)
-                    WHERE lower(alias.value) = lower(:trid)
-               )
-            LIMIT 1
-            """
-        ),
-        {"trid": trid},
-    )
-    row = result.mappings().first()
-    return dict(row) if row is not None else None
+    return locus_lookup.get(trid.lower())
 
 
 def _fallback_locus_document(trid: str, motifs: list[str]) -> dict[str, Any]:
@@ -515,10 +554,80 @@ async def clear_sample_repeat_expansions(
     )
 
 
-async def _insert_trgt_record(
-    session: AsyncSession,
+_INSERT_REPEAT_EXPANSION_SQL = text(
+    """
+    INSERT INTO repeat_expansions (
+        sample_id,
+        family_id,
+        assembly_id,
+        source,
+        locus_id,
+        gene,
+        display_name,
+        disease,
+        inheritance,
+        chr,
+        start,
+        "end",
+        motif,
+        motifs,
+        motif_index,
+        genotype,
+        allele_count,
+        alleles,
+        warning_min,
+        pathogenic_min,
+        status,
+        metadata,
+        uploaded_at
+    )
+    VALUES (
+        CAST(:sample_id AS uuid),
+        CAST(:family_id AS uuid),
+        CAST(:assembly_id AS uuid),
+        :source,
+        :locus_id,
+        :gene,
+        :display_name,
+        :disease,
+        :inheritance,
+        :chr,
+        :start,
+        :end,
+        :motif,
+        CAST(:motifs_json AS jsonb),
+        :motif_index,
+        :genotype,
+        :allele_count,
+        CAST(:alleles_json AS jsonb),
+        :warning_min,
+        :pathogenic_min,
+        :status,
+        CAST(:metadata_json AS jsonb),
+        :uploaded_at
+    )
+    """
+)
+
+# Bound to keep a single executemany statement reasonable for genome-wide catalogs.
+_REPEAT_EXPANSION_INSERT_CHUNK = 500
+
+
+async def _insert_repeat_expansion_batch(
+    session: AsyncSession, records: list[dict[str, Any]]
+) -> None:
+    """Insert TRGT records with one batched (executemany) statement per chunk,
+    instead of one round-trip per VCF line."""
+    for start in range(0, len(records), _REPEAT_EXPANSION_INSERT_CHUNK):
+        chunk = records[start : start + _REPEAT_EXPANSION_INSERT_CHUNK]
+        if chunk:
+            await session.execute(_INSERT_REPEAT_EXPANSION_SQL, chunk)
+
+
+def _build_trgt_insert_params(
     *,
     sample_context: SampleMetadataContext,
+    locus_lookup: dict[str, dict[str, Any]],
     chrom: str,
     pos: str,
     ref: str,
@@ -527,14 +636,14 @@ async def _insert_trgt_record(
     sample_field: str,
     header_sample: str,
     metadata: dict[str, Any],
-) -> None:
+) -> dict[str, Any]:
     info = parse_info(info_field)
     sample_values = parse_format(format_field, sample_field)
 
     trid = info.get("TRID") or header_sample
     end = int(info.get("END", int(pos) + len(ref) - 1))
     motifs = [item for item in info.get("MOTIFS", "").split(",") if item]
-    locus_document = await _find_repeat_locus(session, trid)
+    locus_document = _lookup_repeat_locus(locus_lookup, trid)
     if locus_document is None:
         locus_document = _fallback_locus_document(trid, motifs)
 
@@ -624,94 +733,38 @@ async def _insert_trgt_record(
 
     status = summarize_repeat_status(allele["status"] for allele in alleles)
     genotype = sample_values.get("GT", "./.")
-    await session.execute(
-        text(
-            """
-            INSERT INTO repeat_expansions (
-                sample_id,
-                family_id,
-                assembly_id,
-                source,
-                locus_id,
-                gene,
-                display_name,
-                disease,
-                inheritance,
-                chr,
-                start,
-                "end",
-                motif,
-                motifs,
-                motif_index,
-                genotype,
-                allele_count,
-                alleles,
-                warning_min,
-                pathogenic_min,
-                status,
-                metadata,
-                uploaded_at
-            )
-            VALUES (
-                CAST(:sample_id AS uuid),
-                CAST(:family_id AS uuid),
-                CAST(:assembly_id AS uuid),
-                :source,
-                :locus_id,
-                :gene,
-                :display_name,
-                :disease,
-                :inheritance,
-                :chr,
-                :start,
-                :end,
-                :motif,
-                CAST(:motifs_json AS jsonb),
-                :motif_index,
-                :genotype,
-                :allele_count,
-                CAST(:alleles_json AS jsonb),
-                :warning_min,
-                :pathogenic_min,
-                :status,
-                CAST(:metadata_json AS jsonb),
-                :uploaded_at
-            )
-            """
+    return {
+        "sample_id": sample_context.sample_uuid,
+        "family_id": sample_context.family_uuid,
+        "assembly_id": sample_context.assembly_id,
+        "source": "trgt",
+        "locus_id": locus_document.get("locus_id") or trid,
+        "gene": locus_document.get("gene") or trid,
+        "display_name": locus_document.get("display_name") or trid,
+        "disease": locus_document.get("disease") or trid,
+        "inheritance": locus_document.get("inheritance"),
+        "chr": normalize_chromosome(chrom),
+        "start": int(pos),
+        "end": end,
+        "motif": locus_document.get("motif") or (motifs[0] if motifs else None),
+        "motifs_json": _json_payload(motifs),
+        "motif_index": motif_index,
+        "genotype": genotype,
+        "allele_count": len(alleles),
+        "alleles_json": _json_payload(alleles),
+        "warning_min": warning_min,
+        "pathogenic_min": pathogenic_min,
+        "status": status,
+        "metadata_json": _json_payload(
+            {
+                **metadata,
+                "trid": trid,
+                "motifs": motifs,
+                "raw_format": sample_values,
+            }
         ),
-        {
-            "sample_id": sample_context.sample_uuid,
-            "family_id": sample_context.family_uuid,
-            "assembly_id": sample_context.assembly_id,
-            "source": "trgt",
-            "locus_id": locus_document.get("locus_id") or trid,
-            "gene": locus_document.get("gene") or trid,
-            "display_name": locus_document.get("display_name") or trid,
-            "disease": locus_document.get("disease") or trid,
-            "inheritance": locus_document.get("inheritance"),
-            "chr": normalize_chromosome(chrom),
-            "start": int(pos),
-            "end": end,
-            "motif": locus_document.get("motif") or (motifs[0] if motifs else None),
-            "motifs_json": _json_payload(motifs),
-            "motif_index": motif_index,
-            "genotype": genotype,
-            "allele_count": len(alleles),
-            "alleles_json": _json_payload(alleles),
-            "warning_min": warning_min,
-            "pathogenic_min": pathogenic_min,
-            "status": status,
-            "metadata_json": _json_payload(
-                {
-                    **metadata,
-                    "trid": trid,
-                    "motifs": motifs,
-                    "raw_format": sample_values,
-                }
-            ),
-            "uploaded_at": datetime.now(timezone.utc),
-        },
-    )
+        "uploaded_at": datetime.now(timezone.utc),
+    }
 
 
 async def _update_sample_repeat_file(
@@ -751,6 +804,8 @@ async def ingest_trgt_text(
     header_samples: list[str] = []
     inserted = 0
     processed = 0
+    locus_lookup = await _build_repeat_locus_lookup(session)
+    insert_records: list[dict[str, Any]] = []
 
     for line in lines:
         if line.startswith("#CHROM"):
@@ -768,20 +823,23 @@ async def ingest_trgt_text(
         processed += 1
         chrom, pos, _vid, ref, _alt, _qual, _filter, info_field, format_field = fields[:9]
         sample_fields = fields[9:]
-        await _insert_trgt_record(
-            session,
-            sample_context=sample_context,
-            chrom=chrom,
-            pos=pos,
-            ref=ref,
-            info_field=info_field,
-            format_field=format_field,
-            sample_field=sample_fields[0],
-            header_sample=header_samples[0],
-            metadata=metadata,
+        insert_records.append(
+            _build_trgt_insert_params(
+                sample_context=sample_context,
+                locus_lookup=locus_lookup,
+                chrom=chrom,
+                pos=pos,
+                ref=ref,
+                info_field=info_field,
+                format_field=format_field,
+                sample_field=sample_fields[0],
+                header_sample=header_samples[0],
+                metadata=metadata,
+            )
         )
         inserted += 1
 
+    await _insert_repeat_expansion_batch(session, insert_records)
     await _update_sample_repeat_file(
         session,
         sample_uuid=sample_context.sample_uuid,
@@ -807,6 +865,8 @@ async def ingest_family_trgt_text(
     matched_samples: dict[str, SampleMetadataContext] = {}
     inserted = 0
     processed = 0
+    locus_lookup = await _build_repeat_locus_lookup(session)
+    insert_records: list[dict[str, Any]] = []
 
     for line in lines:
         if line.startswith("#CHROM"):
@@ -838,20 +898,23 @@ async def ingest_family_trgt_text(
             sample_context = matched_samples.get(header_sample)
             if sample_context is None:
                 continue
-            await _insert_trgt_record(
-                session,
-                sample_context=sample_context,
-                chrom=chrom,
-                pos=pos,
-                ref=ref,
-                info_field=info_field,
-                format_field=format_field,
-                sample_field=sample_field,
-                header_sample=header_sample,
-                metadata=metadata,
+            insert_records.append(
+                _build_trgt_insert_params(
+                    sample_context=sample_context,
+                    locus_lookup=locus_lookup,
+                    chrom=chrom,
+                    pos=pos,
+                    ref=ref,
+                    info_field=info_field,
+                    format_field=format_field,
+                    sample_field=sample_field,
+                    header_sample=header_sample,
+                    metadata=metadata,
+                )
             )
             inserted += 1
 
+    await _insert_repeat_expansion_batch(session, insert_records)
     filename = metadata.get("filename") or "family.trgt.vcf"
     for sample_context in matched_samples.values():
         await _update_sample_repeat_file(

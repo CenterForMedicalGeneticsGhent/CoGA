@@ -66,7 +66,7 @@ This section catalogs verified performance findings, ordered by expected impact.
 
 ### High impact
 
-#### 1. Repeat-expansion (TRGT) ingest: per-row catalog lookup + per-row INSERT against an unindexed table
+#### 1. Repeat-expansion (TRGT) ingest: per-row catalog lookup + per-row INSERT against an unindexed table - FIXED
 `backend/app/services/repeat_expansion_pg.py` (`_insert_trgt_record` / `_find_repeat_locus` / `ingest_trgt_text`, lines 453-487, 524-720, 749-874)
 
 Every VCF data line runs a separate `SELECT` against `repeat_loci` (via `_find_repeat_locus`) followed by a single-row `INSERT` into `repeat_expansions` — so an N-locus TRGT file costs `2*N` round-trips per sample. Worse, the lookup filters on `lower(locus_id)`/`lower(gene)`/`lower(display_name)` plus a `jsonb_array_elements_text(aliases)` `EXISTS` subquery, and the only index is `idx_repeat_loci_gene` on raw `gene` — so none of these predicates are index-usable and every lookup is a sequential scan. The cost is `O(rows × table_size)`.
@@ -75,7 +75,7 @@ Every VCF data line runs a separate `SELECT` against `repeat_loci` (via `_find_r
 - **Effort:** M
 - **Expected impact:** **Before:** ~100-400 sequential full-table scans + 50-200 individual INSERTs for a ~50-200-locus single-sample ingest. **After:** 1 `SELECT` + 1 batched `INSERT`. Roughly **2 orders of magnitude** fewer round-trips; on local Postgres a 200-locus ingest drops from ~200-400 ms of DB time to under ~5 ms. For genome-wide catalogs (tens of thousands of loci) the current path can take minutes.
 
-#### 2. Gene refresh loop: triple commit per symbol (~60k bookkeeping round-trips for a full-human sync)
+#### 2. Gene refresh loop: triple commit per symbol (~60k bookkeeping round-trips for a full-human sync) - FIXED
 `backend/app/services/gene_info_jobs_pg.py` (`_refresh_grouped_human_gene_info`, lines 690-757)
 
 Per gene symbol the loop issues a pre-fetch progress `UPDATE`+commit, then per-assembly upserts, then a post-symbol `UPDATE`+commit — 2 commits per symbol. The pre-fetch update (`completed_symbols = index - 1`) is almost entirely redundant with the previous iteration's post-symbol update; its only value is setting `current_symbol` slightly earlier. For an `all_human` scope (~20k symbols) this is ~40k commits purely for progress bookkeeping.
@@ -84,8 +84,8 @@ Per gene symbol the loop issues a pre-fetch progress `UPDATE`+commit, then per-a
 - **Effort:** M
 - **Expected impact:** **Before:** ~40k progress-bookkeeping commits for a 20k-symbol sync. **After:** ~200-400 batched commits — a **95%+** reduction in bookkeeping round-trips and a significant drop in WAL pressure. At 1-5 ms/commit this saves ~20-100 s of pure overhead with zero functional value.
 
-#### 3. Dead expensive inventory call on every small-variant family delete
-`backend/app/services/admin_service.py` (`delete_family_data_by_type`, line 855)
+#### 3. Dead expensive inventory call on every small-variant family delete - FIXED
+`backend/app/services/admin_service.py` (`delete_family_data_by_type`, line 855) 
 
 Line 855 assigns `detail = await get_family_data_inventory_detail(...)` but `detail` is never read again — the rest of the function only uses `family_uuid` (re-resolved at lines 856-860), `sample_rows`, and `contexts`. The discarded call runs a full inventory: ClickHouse small + structural variant counts (including per-sample SV counts) across every assembly, plus interval/repeat Postgres aggregations. The 404-on-missing-family behavior is already handled at lines 860-862.
 
@@ -93,7 +93,7 @@ Line 855 assigns `detail = await get_family_data_inventory_detail(...)` but `det
 - **Effort:** S
 - **Expected impact:** Removes several ClickHouse round-trips and multiple Postgres aggregations from every small-variant family delete. For large families (many assemblies/samples) this can eliminate **tens of seconds** of latency per delete; high impact relative to a one-line change.
 
-#### 4. Batch BED endpoints issue one ClickHouse query per chromosome (N+1)
+#### 4. Batch BED endpoints issue one ClickHouse query per chromosome (N+1) - FIXED (Phase 1: single batched query; windowed-apcad multi-chrom grouping deferred)
 `backend/app/services/bed_service.py` (`fetch_bed_batch_text` / `fetch_bed_batch_json`, lines 438-454, 478-494)
 
 Both batch endpoints loop `for chrom in chroms` and call `_fetch_bed_records_for_chrom` once per chromosome, each fanning out to `fetch_interval_track_rows(chromosomes=[chrom])`. The genome overview page passes the full chromosome list in one request, so a single batch call becomes ~24+ serial ClickHouse round-trips per sample per track type. `fetch_interval_track_rows` already supports a `chrom IN (...)` clause and accepts a sequence.
@@ -102,7 +102,7 @@ Both batch endpoints loop `for chrom in chroms` and call `_fetch_bed_records_for
 - **Effort:** M
 - **Expected impact:** **Before:** 24+ serial queries per non-windowed path, `O(N × RTT)`. **After:** 1 query, `O(1 × RTT)`. At 5-50 ms RTT this saves **100-1150 ms per batch call**; fixing the windowed paths reduces a genome-overview load from potentially hundreds of queries to a handful.
 
-#### 5. N+1 gene-symbol lookup, one Postgres query per structural-variant record
+#### 5. N+1 gene-symbol lookup, one Postgres query per structural-variant record - FIXED
 `backend/app/services/variant_upload_service.py` (`upload_structural_variant_file` / `_lookup_structural_gene_symbols`, lines 1399-1417)
 
 Inside the per-record loop over `iter_structural_variant_records()`, every parsed SV issues its own range query (`SELECT DISTINCT hgnc_symbol FROM genes WHERE assembly_id=… AND chr=… AND start<window_end AND end>window_start`). For a file with hundreds-to-thousands of records this is hundreds-to-thousands of sequential queries on one connection; the small-variant uploader does not have this per-row pattern.
@@ -111,7 +111,7 @@ Inside the per-record loop over `iter_structural_variant_records()`, every parse
 - **Effort:** S (memoize) / M (bulk query)
 - **Expected impact:** **Before:** 50-500 round-trips for a typical 50-500-record SV file. **After:** as few as 1 (bulk) or the count of unique windows (memoized). At ~1-5 ms/round-trip on loopback Postgres, upload time can drop from several seconds to under one second for large files.
 
-#### 6. Per-family/per-assembly N+1 ClickHouse counts in the admin Data → Families view
+#### 6. Per-family/per-assembly N+1 ClickHouse counts in the admin Data → Families view - FIXED (bounded-concurrency parallelization; batched GROUP BY deferred due to per-family project scope)
 `backend/app/services/admin_service.py` (`list_data_inventory_page`, lines 430-456)
 
 For each family row the loop iterates assemblies and awaits two ClickHouse queries (`count_family_small_variants`, `count_family_structural_variants`) one at a time. With `page_size` up to 100, this is up to `~2 × families × assemblies` serial round-trips per page load. Interval/repeat counts on the same page are already batched, making the variant counts the outlier; the (currently dead) `list_data_inventory` wrapper uses `page_size=10_000`, which would serialize catastrophically if ever called at scale.

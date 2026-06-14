@@ -32,6 +32,12 @@ logger = logging.getLogger(__name__)
 ACTIVE_GENE_REFERENCE_SLOT = "gene_reference"
 GENE_REFERENCE_WORKER_POLL_SECONDS = 2.0
 GENE_REFERENCE_STALE_HEARTBEAT = timedelta(minutes=5)
+# Persist job progress + refresh the heartbeat at most this often, instead of
+# twice per symbol. Both bounds stay well inside GENE_REFERENCE_STALE_HEARTBEAT,
+# so a long sync is never reclaimed as stale while ~2*N bookkeeping commits
+# collapse to ~N/100 (or one per 30s of work).
+GENE_REFERENCE_PROGRESS_COMMIT_SYMBOLS = 100
+GENE_REFERENCE_PROGRESS_COMMIT_SECONDS = 30.0
 
 
 @dataclass(slots=True)
@@ -687,7 +693,7 @@ async def _refresh_grouped_human_gene_info(
     )
     await session.commit()
 
-    for index, symbol in enumerate(sorted_symbols, start=1):
+    async def _commit_progress(current_symbol: str, completed: int) -> None:
         await session.execute(
             text(
                 """
@@ -705,14 +711,18 @@ async def _refresh_grouped_human_gene_info(
             {
                 "job_id": job_id,
                 "worker_id": worker_id,
-                "current_symbol": symbol,
-                "completed_symbols": index - 1,
+                "current_symbol": current_symbol,
+                "completed_symbols": completed,
                 "total_symbols": total_symbols,
                 "updated_records": updated_records,
                 "heartbeat_at": datetime.now(timezone.utc),
             },
         )
         await session.commit()
+
+    last_commit_at = datetime.now(timezone.utc)
+    symbols_since_commit = 0
+    for index, symbol in enumerate(sorted_symbols, start=1):
         external_bundle = await fetch_external_gene_bundle(
             symbol=symbol,
             species_document=human_context.species,
@@ -730,31 +740,20 @@ async def _refresh_grouped_human_gene_info(
                 now=now,
             )
             updated_records += 1
-        await session.execute(
-            text(
-                """
-                UPDATE gene_info_refresh_jobs
-                SET
-                    current_symbol = :current_symbol,
-                    completed_symbols = :completed_symbols,
-                    total_symbols = :total_symbols,
-                    updated_records = :updated_records,
-                    heartbeat_at = :heartbeat_at
-                WHERE id = CAST(:job_id AS uuid)
-                  AND worker_id = :worker_id
-                """
-            ),
-            {
-                "job_id": job_id,
-                "worker_id": worker_id,
-                "current_symbol": symbol,
-                "completed_symbols": index,
-                "total_symbols": total_symbols,
-                "updated_records": updated_records,
-                "heartbeat_at": datetime.now(timezone.utc),
-            },
-        )
-        await session.commit()
+
+        # The gene_info upserts above stay uncommitted in this transaction and are
+        # flushed together with the progress row on a throttle (every N symbols or
+        # T seconds), instead of one progress commit before and after every symbol.
+        symbols_since_commit += 1
+        elapsed = (datetime.now(timezone.utc) - last_commit_at).total_seconds()
+        if (
+            index == total_symbols
+            or symbols_since_commit >= GENE_REFERENCE_PROGRESS_COMMIT_SYMBOLS
+            or elapsed >= GENE_REFERENCE_PROGRESS_COMMIT_SECONDS
+        ):
+            await _commit_progress(symbol, index)
+            last_commit_at = datetime.now(timezone.utc)
+            symbols_since_commit = 0
 
     return GeneBulkRefreshOut(
         human_assemblies=len(human_context.assemblies),

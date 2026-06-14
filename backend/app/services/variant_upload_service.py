@@ -12,7 +12,7 @@ import tempfile
 from typing import Any, Awaitable, Callable, Literal
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .bed_service import get_track_presence_by_sample
@@ -1310,36 +1310,55 @@ async def upload_family_small_variant_file(
             vep_annotations.close()
 
 
-async def _lookup_structural_gene_symbols(
+async def _fetch_genes_for_chroms(
     session: AsyncSession,
     *,
     assembly_id: str | None,
+    chroms: list[str],
+) -> dict[str, list[tuple[int, int, str]]]:
+    """Load (start, end, hgnc_symbol) for every gene on the given (normalized)
+    chromosomes, grouped by chromosome, for in-memory interval overlap. One query
+    replaces the previous per-structural-variant-record range query."""
+    genes_by_chrom: dict[str, list[tuple[int, int, str]]] = {}
+    if not assembly_id or not chroms:
+        return genes_by_chrom
+    stmt = text(
+        """
+        SELECT chr, start, "end", hgnc_symbol
+        FROM genes
+        WHERE assembly_id = CAST(:assembly_id AS uuid)
+          AND chr IN :chroms
+          AND hgnc_symbol IS NOT NULL
+        """
+    ).bindparams(bindparam("chroms", expanding=True))
+    result = await session.execute(
+        stmt,
+        {"assembly_id": assembly_id, "chroms": chroms},
+    )
+    for chr_value, start, end, symbol in result.all():
+        if not symbol:
+            continue
+        genes_by_chrom.setdefault(str(chr_value), []).append((int(start), int(end), str(symbol)))
+    return genes_by_chrom
+
+
+def _gene_symbols_for_window(
+    genes_by_chrom: dict[str, list[tuple[int, int, str]]],
+    *,
     chrom: str,
     start: int,
     end: int,
 ) -> list[str]:
-    if not assembly_id:
-        return []
-    result = await session.execute(
-        text(
-            """
-            SELECT DISTINCT hgnc_symbol
-            FROM genes
-            WHERE assembly_id = CAST(:assembly_id AS uuid)
-              AND chr = :chr
-              AND start < :window_end
-              AND "end" > :window_start
-            ORDER BY hgnc_symbol
-            """
-        ),
+    """Distinct, sorted gene symbols overlapping [start, end) on ``chrom`` —
+    the in-memory equivalent of the old ``start < window_end AND end > window_start``
+    range query."""
+    return sorted(
         {
-            "assembly_id": assembly_id,
-            "chr": normalize_chromosome(chrom),
-            "window_start": start,
-            "window_end": end,
-        },
+            symbol
+            for gene_start, gene_end, symbol in genes_by_chrom.get(chrom, ())
+            if gene_start < end and gene_end > start
+        }
     )
-    return [str(row[0]) for row in result.all() if row[0]]
 
 
 def _structural_record_call(
@@ -1393,10 +1412,21 @@ async def upload_structural_variant_file(
         if remaining_calls:
             merged[existing.variant_id] = replace(existing, calls=remaining_calls)
 
+    parsed_records = list(iter_structural_variant_records(text_value, resolved_format))
+    # Resolve overlapping gene symbols up front: one query for the genes on the
+    # chromosomes this file touches, then in-memory interval overlap, instead of a
+    # per-record range query against `genes`.
+    genes_by_chrom = await _fetch_genes_for_chroms(
+        session,
+        assembly_id=sample_context.assembly_id,
+        chroms=sorted({normalize_chromosome(record.chrom) for record in parsed_records}),
+    )
+    gene_symbol_cache: dict[tuple[str, int, int], list[str]] = {}
+
     processed = 0
     created = 0
     merged_count = 0
-    for parsed in iter_structural_variant_records(text_value, resolved_format):
+    for parsed in parsed_records:
         processed += 1
         variant_id = build_structural_variant_id(
             parsed.chrom,
@@ -1408,13 +1438,16 @@ async def upload_structural_variant_file(
             remote_end=parsed.remote_end,
         )
         call = _structural_record_call(sample_context.sample_id, parsed)
-        gene_symbols = await _lookup_structural_gene_symbols(
-            session,
-            assembly_id=sample_context.assembly_id,
-            chrom=parsed.chrom,
-            start=parsed.start,
-            end=parsed.end,
-        )
+        window_key = (normalize_chromosome(parsed.chrom), int(parsed.start), int(parsed.end))
+        gene_symbols = gene_symbol_cache.get(window_key)
+        if gene_symbols is None:
+            gene_symbols = _gene_symbols_for_window(
+                genes_by_chrom,
+                chrom=window_key[0],
+                start=window_key[1],
+                end=window_key[2],
+            )
+            gene_symbol_cache[window_key] = gene_symbols
         record = merged.get(variant_id)
         if record is None:
             merged[variant_id] = StructuralVariantRecord(

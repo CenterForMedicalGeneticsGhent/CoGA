@@ -19,7 +19,7 @@ from .clickhouse_interval_tracks import (
     insert_interval_track_rows,
     upsert_interval_track_source,
 )
-from .data_scope import normalize_chromosome
+from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 
 VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
@@ -363,6 +363,80 @@ async def _fetch_bed_records_for_chrom(
     return [_serialize_bed_record(bed_type, row) for row in rows]
 
 
+async def _fetch_bed_records_for_chroms(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    bed_type: str,
+    chroms: list[str],
+    window: int | None,
+    start: int | None,
+    end: int | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Fetch and process BED records for many chromosomes with a single
+    ClickHouse query (``chrom IN (...)``) instead of one query per chromosome.
+
+    Rows are regrouped back into per-chromosome buckets so the per-chromosome
+    processing (windowed coverage/APCAD binning, or serialization with a
+    per-chromosome ``limit``) is byte-for-byte identical to the previous
+    one-query-per-chromosome path — including ``_windowed_apcad_rows``, which is
+    only ever handed a single chromosome's rows.
+    """
+    _ = session
+    # Deduplicate while preserving request order.
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for chrom in chroms:
+        chrom_clean = normalize_chromosome(chrom)
+        if chrom_clean and chrom_clean not in seen:
+            seen.add(chrom_clean)
+            ordered.append(chrom_clean)
+    if not ordered or not sample_context.assembly_name:
+        return []
+
+    # Map every chromosome alias (e.g. "chr1"/"1", "M"/"MT") back to the
+    # requested chromosome, mirroring fetch_interval_track_rows' own alias
+    # expansion, so rows can be regrouped by whichever form ClickHouse stores.
+    alias_to_chrom: dict[str, str] = {}
+    for chrom in ordered:
+        for alias in chromosome_aliases(chrom):
+            alias_to_chrom[normalize_chromosome(alias)] = chrom
+
+    origins = ["paternal", "maternal"] if bed_type in {"apcad", "apcad_pcf"} else None
+    # Windowed paths bin in Python and need every row; the non-windowed
+    # per-chromosome `limit` is re-applied after grouping, so no DB-side limit is
+    # used here (the query already orders by chrom, start).
+    rows = await fetch_interval_track_rows(
+        sample_context.assembly_name,
+        sample_uuid=sample_context.sample_uuid,
+        track_type=bed_type,
+        chromosomes=ordered,
+        origins=origins,
+        start=start,
+        end=end,
+    )
+
+    grouped: dict[str, list[dict[str, Any]]] = {chrom: [] for chrom in ordered}
+    for row in rows:
+        chrom = alias_to_chrom.get(normalize_chromosome(str(row.get("chr") or "")))
+        if chrom is not None:
+            grouped[chrom].append(row)
+
+    records: list[dict[str, Any]] = []
+    for chrom in ordered:
+        chrom_rows = grouped[chrom]
+        if not chrom_rows:
+            continue
+        if bed_type == "coverage" and window:
+            records.extend(_windowed_coverage_rows(chrom_rows, window, limit))
+        elif bed_type == "apcad" and window:
+            records.extend(_windowed_apcad_rows(chrom_rows, window, limit))
+        else:
+            records.extend(_serialize_bed_record(bed_type, row) for row in chrom_rows[:limit])
+    return records
+
+
 async def fetch_bed_text(
     session: AsyncSession,
     *,
@@ -433,25 +507,16 @@ async def fetch_bed_batch_text(
     validate_bed_type(bed_type)
     if not chroms:
         raise HTTPException(status_code=400, detail="At least one chromosome is required")
-    records: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for chrom in chroms:
-        chrom_clean = normalize_chromosome(chrom)
-        if chrom_clean in seen:
-            continue
-        seen.add(chrom_clean)
-        records.extend(
-            await _fetch_bed_records_for_chrom(
-                session,
-                sample_context=sample_context,
-                bed_type=bed_type,
-                chrom=chrom_clean,
-                window=window,
-                start=start,
-                end=end,
-                limit=limit,
-            )
-        )
+    records = await _fetch_bed_records_for_chroms(
+        session,
+        sample_context=sample_context,
+        bed_type=bed_type,
+        chroms=chroms,
+        window=window,
+        start=start,
+        end=end,
+        limit=limit,
+    )
     if not records:
         raise HTTPException(status_code=404, detail="No BED data found")
     return PlainTextResponse(
@@ -473,25 +538,16 @@ async def fetch_bed_batch_json(
     validate_bed_type(bed_type)
     if not chroms:
         raise HTTPException(status_code=400, detail="At least one chromosome is required")
-    records: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for chrom in chroms:
-        chrom_clean = normalize_chromosome(chrom)
-        if chrom_clean in seen:
-            continue
-        seen.add(chrom_clean)
-        records.extend(
-            await _fetch_bed_records_for_chrom(
-                session,
-                sample_context=sample_context,
-                bed_type=bed_type,
-                chrom=chrom_clean,
-                window=window,
-                start=start,
-                end=end,
-                limit=limit,
-            )
-        )
+    records = await _fetch_bed_records_for_chroms(
+        session,
+        sample_context=sample_context,
+        bed_type=bed_type,
+        chroms=chroms,
+        window=window,
+        start=start,
+        end=end,
+        limit=limit,
+    )
     if not records:
         raise HTTPException(status_code=404, detail="No BED data found")
     return JSONResponse({"bed_type": bed_type, "items": records})
