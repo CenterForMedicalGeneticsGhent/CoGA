@@ -119,19 +119,34 @@ def _empty_hpo_admin_summary() -> dict[str, Any]:
     }
 
 
+# Confirmed-available tables are cached so the to_regclass probe runs at most once
+# per table per process (schema is static once applied). Only positive results are
+# cached; absent tables are re-probed since they may appear after schema init.
+_pg_tables_confirmed_available: set[str] = set()
+
+
 async def _postgres_tables_available(
     session: AsyncSession,
     table_names: tuple[str, ...],
 ) -> bool:
     if not table_names:
         return True
+    to_probe = [name for name in table_names if name not in _pg_tables_confirmed_available]
+    if not to_probe:
+        return True
     select_sql = ", ".join(
         f"to_regclass('{table_name}') IS NOT NULL AS {table_name}"
-        for table_name in table_names
+        for table_name in to_probe
     )
     result = await session.execute(text(f"SELECT {select_sql}"))
     row = result.mappings().one()
-    return all(bool(row.get(table_name)) for table_name in table_names)
+    all_available = True
+    for table_name in to_probe:
+        if bool(row.get(table_name)):
+            _pg_tables_confirmed_available.add(table_name)
+        else:
+            all_available = False
+    return all_available
 
 
 async def _ensure_hpo_schema_available(session: AsyncSession) -> None:

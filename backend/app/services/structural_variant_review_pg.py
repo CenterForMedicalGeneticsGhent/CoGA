@@ -247,21 +247,24 @@ async def upsert_structural_variant_review(
     normalized_variant_id = str(variant_id).strip()
     if not normalized_variant_id:
         raise HTTPException(status_code=400, detail="Variant id is required")
-    allowed_tags = {
-        definition.key
-        for definition in await list_small_variant_tag_definitions(
-            session,
-            family_uuid=context.family_uuid,
-            project_ids=context.project_ids,
-        )
-    }
+    # Only resolve the allowed-tag set (a GROUP BY/ARRAY_AGG join) when the payload
+    # actually carries tags to validate — the common no-tag save skips the query.
     normalized_tags = _normalize_tags(payload.tags)
-    unknown_tags = [tag for tag in normalized_tags if tag not in allowed_tags]
-    if unknown_tags:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown structural-variant tag(s): {', '.join(sorted(unknown_tags))}",
-        )
+    if normalized_tags:
+        allowed_tags = {
+            definition.key
+            for definition in await list_small_variant_tag_definitions(
+                session,
+                family_uuid=context.family_uuid,
+                project_ids=context.project_ids,
+            )
+        }
+        unknown_tags = [tag for tag in normalized_tags if tag not in allowed_tags]
+        if unknown_tags:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown structural-variant tag(s): {', '.join(sorted(unknown_tags))}",
+            )
 
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None

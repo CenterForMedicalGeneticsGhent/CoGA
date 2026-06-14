@@ -26,8 +26,6 @@ from .panelapp_service import (
     panelapp_panel_url,
 )
 
-_panel_source_schema_ready = False
-
 
 def _require_panel_uuid(panel_id: str) -> None:
     try:
@@ -50,32 +48,6 @@ CASE
     ELSE 9
 END
 """.strip()
-
-
-async def _ensure_panel_source_schema(session: AsyncSession) -> None:
-    global _panel_source_schema_ready
-    if _panel_source_schema_ready:
-        return
-    for statement in (
-        "ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'local'",
-        "ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS external_id TEXT",
-        "ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS external_version TEXT",
-        "ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS external_url TEXT",
-        "ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS source_updated_at TIMESTAMPTZ",
-        "ALTER TABLE gene_panels ADD COLUMN IF NOT EXISTS source_metadata JSONB NOT NULL DEFAULT '{}'::jsonb",
-    ):
-        await session.execute(text(statement))
-    await session.execute(
-        text(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_gene_panels_source_external
-                ON gene_panels (source, external_id)
-                WHERE external_id IS NOT NULL
-            """
-        )
-    )
-    await session.commit()
-    _panel_source_schema_ready = True
 
 
 def _panel_out_from_rows(
@@ -120,7 +92,6 @@ async def _fetch_panel_rows(
     session: AsyncSession,
     panel_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    await _ensure_panel_source_schema(session)
     if panel_ids is None:
         result = await session.execute(
             text(
@@ -382,7 +353,6 @@ async def create_panel_data(
     user: CurrentUser,
 ) -> GenePanelCreateResponse:
     _ensure_admin(user)
-    await _ensure_panel_source_schema(session)
     await _ensure_panel_name_available(session, panel.name)
 
     normalized_symbols = [
@@ -455,7 +425,6 @@ async def import_panelapp_panel_data(
     user: CurrentUser,
 ) -> PanelAppImportResponse:
     _ensure_admin(user)
-    await _ensure_panel_source_schema(session)
     if not request.confidence_levels:
         raise HTTPException(status_code=400, detail="At least one PanelApp confidence level is required")
 

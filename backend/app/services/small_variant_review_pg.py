@@ -1635,21 +1635,32 @@ async def upsert_small_variant_review(
     if variant is None and not _looks_like_object_id(variant_id):
         raise HTTPException(status_code=404, detail="Variant not found")
 
-    allowed_tags = {
-        definition.key
-        for definition in await list_small_variant_tag_definitions(
-            session,
-            family_uuid=context.family_uuid,
-            project_ids=context.project_ids,
-        )
-    }
+    # Resolve the allowed-tag set lazily (a GROUP BY/ARRAY_AGG join) and only when
+    # the regular or compound-het payload actually carries tags — the common no-tag
+    # save skips the query; it runs at most once when tags are present.
+    allowed_tags: set[str] | None = None
+
+    async def _allowed_tags() -> set[str]:
+        nonlocal allowed_tags
+        if allowed_tags is None:
+            allowed_tags = {
+                definition.key
+                for definition in await list_small_variant_tag_definitions(
+                    session,
+                    family_uuid=context.family_uuid,
+                    project_ids=context.project_ids,
+                )
+            }
+        return allowed_tags
+
     normalized_tags = _normalize_tags(payload.tags)
-    unknown_tags = [tag for tag in normalized_tags if tag not in allowed_tags]
-    if unknown_tags:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown small-variant tag(s): {', '.join(sorted(unknown_tags))}",
-        )
+    if normalized_tags:
+        unknown_tags = [tag for tag in normalized_tags if tag not in await _allowed_tags()]
+        if unknown_tags:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown small-variant tag(s): {', '.join(sorted(unknown_tags))}",
+            )
 
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
@@ -1672,9 +1683,11 @@ async def upsert_small_variant_review(
         normalized_compound_het_tags = _normalize_tags(compound_het_payload.tags)
         normalized_compound_het_note = (compound_het_payload.note or "").strip() or None
         compound_het_partner_id = (compound_het_payload.partner_variant_id or "").strip() or None
-        unknown_compound_het_tags = [
-            tag for tag in normalized_compound_het_tags if tag not in allowed_tags
-        ]
+        unknown_compound_het_tags = (
+            [tag for tag in normalized_compound_het_tags if tag not in await _allowed_tags()]
+            if normalized_compound_het_tags
+            else []
+        )
         if unknown_compound_het_tags:
             raise HTTPException(
                 status_code=400,
