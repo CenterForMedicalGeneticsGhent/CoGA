@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime, timezone
@@ -16,6 +17,12 @@ from .family_metadata_context import SampleMetadataContext
 
 VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "apcad_pcf", "segments", "haplotype"}
 _VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+# Memoize which interval tables have been ensured this process so the DDL runs
+# once per assembly instead of before every read/presence call (mirrors
+# clickhouse_variant_storage._ensured_variant_table_assemblies).
+_ensured_interval_table_assemblies: set[str] = set()
+_ensure_interval_table_lock = asyncio.Lock()
 
 
 def _require_clickhouse_identifier(value: str) -> str:
@@ -43,6 +50,16 @@ async def _execute(
 
 async def ensure_clickhouse_interval_table(assembly_name: str) -> None:
     table_name = _interval_table_name(assembly_name)
+    if table_name in _ensured_interval_table_assemblies:
+        return
+    async with _ensure_interval_table_lock:
+        if table_name in _ensured_interval_table_assemblies:
+            return
+        await _ensure_clickhouse_interval_table_ddl(table_name)
+        _ensured_interval_table_assemblies.add(table_name)
+
+
+async def _ensure_clickhouse_interval_table_ddl(table_name: str) -> None:
     await _execute(
         f"""
         CREATE TABLE IF NOT EXISTS {table_name}
