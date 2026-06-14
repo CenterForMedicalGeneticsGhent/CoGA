@@ -353,59 +353,50 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
-  const buildVariantDataParams = () => {
-    const params = new URLSearchParams();
+  // Presence-only fetches: count_only returns lightweight counts instead of the
+  // full repeat/Paraphase/mtDNA table payloads (which can be tens-hundreds of KB).
+  const buildPresenceParams = () => {
+    const params = new URLSearchParams({ count_only: 'true' });
     if (projectId) {
       params.set('project_id', projectId);
     }
-    const suffix = params.toString();
-    return suffix ? `?${suffix}` : '';
+    return `?${params.toString()}`;
   };
 
-  const { data: repeatTable } = useQuery<{ loci?: unknown[] }>({
+  const { data: repeatTable } = useQuery<{ loci_count?: number }>({
     queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/repeat-expansions${buildVariantDataParams()}`);
-      return res.data as { loci?: unknown[] };
+      const res = await api.get(`/families/${familyId}/repeat-expansions${buildPresenceParams()}`);
+      return res.data as { loci_count?: number };
     },
   });
 
-  const { data: paraphaseTable } = useQuery<{ genes?: unknown[] }>({
+  const { data: paraphaseTable } = useQuery<{ genes_count?: number }>({
     queryKey: ['family', familyId, 'paraphase', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/paraphase${buildVariantDataParams()}`);
-      return res.data as { genes?: unknown[] };
+      const res = await api.get(`/families/${familyId}/paraphase${buildPresenceParams()}`);
+      return res.data as { genes_count?: number };
     },
   });
 
-  const { data: mitoTable } = useQuery<{
-    variants?: unknown[];
-    samples?: Array<{ coverage?: { mean_depth?: number | null; source?: string | null } }>;
-  }>({
+  const { data: mitoTable } = useQuery<{ variant_count?: number; has_coverage?: boolean }>({
     queryKey: ['family', familyId, 'mitochondrial-dna', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/mitochondrial-dna${buildVariantDataParams()}`);
-      return res.data as {
-        variants?: unknown[];
-        samples?: Array<{ coverage?: { mean_depth?: number | null; source?: string | null } }>;
-      };
+      const res = await api.get(`/families/${familyId}/mitochondrial-dna${buildPresenceParams()}`);
+      return res.data as { variant_count?: number; has_coverage?: boolean };
     },
   });
 
   const hasVariants = (variantPage?.total ?? 0) > 0;
   const hasSmallVariants = (familyVariantPage?.total ?? 0) > 0;
-  const hasRepeatExpansions = (repeatTable?.loci?.length ?? 0) > 0;
-  const hasParaphase = (paraphaseTable?.genes?.length ?? 0) > 0;
+  const hasRepeatExpansions = (repeatTable?.loci_count ?? 0) > 0;
+  const hasParaphase = (paraphaseTable?.genes_count ?? 0) > 0;
   // mtDNA data is present when there are chrM variants or any sample carries
   // mtDNA coverage (coverage-only families still have something to show).
-  const hasMitoDna =
-    (mitoTable?.variants?.length ?? 0) > 0 ||
-    (mitoTable?.samples ?? []).some(
-      (sample) => sample?.coverage?.source != null || sample?.coverage?.mean_depth != null,
-    );
+  const hasMitoDna = (mitoTable?.variant_count ?? 0) > 0 || (mitoTable?.has_coverage ?? false);
   const hasVariantSummary = hasVariants || hasSmallVariants;
   const hasAnyVariantData =
     hasVariants || hasSmallVariants || hasRepeatExpansions || hasParaphase || hasMitoDna;

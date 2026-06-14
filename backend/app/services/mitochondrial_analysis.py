@@ -688,12 +688,28 @@ async def get_family_mitochondrial_analysis_response(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    count_only: bool = False,
 ) -> FamilyMitoDNAAnalysisOut:
     del session
     member_by_sample = _member_meta(context)
     records = await _fetch_mt_records(context)
     coverage_map = await _coverage_by_sample(context)
     samples = _sample_outs(context, records=records, coverage_map=coverage_map)
+    # Coverage can derive from a coverage track or from variant-call depth, so it
+    # is read off the resolved sample outs (same logic the full response uses).
+    has_coverage = any(
+        sample.coverage.source is not None or sample.coverage.mean_depth is not None
+        for sample in samples
+    )
+    if count_only:
+        # Presence check only: skip building per-variant rows (and the nested
+        # per-sample call payload they carry) and serializing the full table.
+        return FamilyMitoDNAAnalysisOut(
+            variant_count=len(records),
+            has_coverage=has_coverage,
+            heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
+            homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
+        )
     variant_rows = [
         _variant_out(record, member_by_sample=member_by_sample, samples=samples)
         for record in records
@@ -701,6 +717,8 @@ async def get_family_mitochondrial_analysis_response(
     return FamilyMitoDNAAnalysisOut(
         samples=samples,
         variants=variant_rows,
+        variant_count=len(variant_rows),
+        has_coverage=has_coverage,
         qc_notes=_family_qc_notes(samples, variant_rows),
         heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
         homoplasmy_threshold=HOMOPLASMY_THRESHOLD,

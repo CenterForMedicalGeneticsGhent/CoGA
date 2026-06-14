@@ -935,10 +935,26 @@ async def get_family_repeat_expansion_table_response(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    count_only: bool = False,
 ) -> FamilyRepeatExpansionTableOut:
     sample_ids = list(context.sample_uuid_to_name)
     if not sample_ids:
         return FamilyRepeatExpansionTableOut(samples=[], loci=[])
+    if count_only:
+        # Presence check only: count distinct loci without the catalog LATERAL
+        # join, grouping, or row serialization the full table response does.
+        count_result = await session.execute(
+            text(
+                """
+                SELECT count(DISTINCT locus_id) AS loci_count
+                FROM repeat_expansions
+                WHERE family_id = CAST(:family_id AS uuid)
+                  AND sample_id IN :sample_ids
+                """
+            ).bindparams(uuid_list_bindparam("sample_ids")),
+            {"family_id": context.family_uuid, "sample_ids": uuid_values(sample_ids)},
+        )
+        return FamilyRepeatExpansionTableOut(loci_count=int(count_result.scalar() or 0))
     result = await session.execute(
         text(
             """
@@ -1074,7 +1090,9 @@ async def get_family_repeat_expansion_table_response(
         }
         for row in context.sample_rows
     ]
-    return FamilyRepeatExpansionTableOut(samples=samples, loci=ordered_rows)
+    return FamilyRepeatExpansionTableOut(
+        samples=samples, loci=ordered_rows, loci_count=len(ordered_rows)
+    )
 
 
 async def get_sample_repeat_expansion_track_response(

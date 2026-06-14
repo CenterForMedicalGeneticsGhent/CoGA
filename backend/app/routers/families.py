@@ -1118,6 +1118,7 @@ async def get_family_haplotypes_batch(
 async def get_family_repeat_expansions(
     family_id: str,
     project_id: str | None = None,
+    count_only: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyRepeatExpansionTableOut:
@@ -1130,6 +1131,7 @@ async def get_family_repeat_expansions(
     return await get_family_repeat_expansion_table_response(
         session,
         context=context,
+        count_only=count_only,
     )
 
 
@@ -1137,6 +1139,7 @@ async def get_family_repeat_expansions(
 async def get_family_paraphase(
     family_id: str,
     project_id: str | None = None,
+    count_only: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyParaphaseTableOut:
@@ -1149,6 +1152,7 @@ async def get_family_paraphase(
     return await get_family_paraphase_table_response(
         session,
         context=context,
+        count_only=count_only,
     )
 
 
@@ -1156,6 +1160,7 @@ async def get_family_paraphase(
 async def get_family_mitochondrial_dna(
     family_id: str,
     project_id: str | None = None,
+    count_only: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyMitoDNAAnalysisOut:
@@ -1168,6 +1173,7 @@ async def get_family_mitochondrial_dna(
     return await get_family_mitochondrial_analysis_response(
         session,
         context=context,
+        count_only=count_only,
     )
 
 
