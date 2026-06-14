@@ -163,7 +163,7 @@ A single detail request runs the `_fetch_family_rows` `GROUP BY` aggregation ove
 - **Effort:** S
 - **Expected impact:** Reduces 3 `GROUP BY` aggregations to 1 for the detail endpoint — saves 2 SQL round-trips per call with no behavior change. Meaningful on high-traffic deployments.
 
-#### 11. Blocking S3 / pyfaidx / pysam I/O on the async event loop
+#### 11. Blocking S3 / pyfaidx / pysam I/O on the async event loop - FIXED (manifest resolves samples concurrently via `asyncio.gather`/`to_thread`; reference routes offloaded with a cached module-level `Fasta` handle; `download_prefix` parallelized with a bounded `ThreadPoolExecutor`)
 `backend/app/routers/cram.py` (`get_alignment_manifest` / `_resolve_alignment_manifest_entry`, lines 58-84, 107-124), `backend/app/routers/reference.py` (lines 19-38), `backend/app/core/object_storage.py` (`download_prefix`, lines 106-128)
 
 Multiple async handlers call fully synchronous, blocking functions directly on the single-worker event loop:

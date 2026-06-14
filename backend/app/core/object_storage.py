@@ -15,12 +15,18 @@ role); ``boto3`` is imported lazily so local-mode deployments need not install i
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlparse
 
 from .config import settings
+
+# Worker threads used to download objects under a prefix concurrently. Package
+# staging is dominated by per-object latency, so a small pool gives a large speedup
+# without overwhelming the client connection pool.
+_DOWNLOAD_PREFIX_MAX_WORKERS = 12
 
 
 def storage_is_s3() -> bool:
@@ -112,7 +118,10 @@ def download_prefix(uri: str, dest_dir: Path) -> int:
     base_prefix = f"{base}/" if base else ""
     client = _client()
     paginator = client.get_paginator("list_objects_v2")
-    count = 0
+
+    # List first, creating parent dirs single-threaded (avoids mkdir races), then
+    # download the objects concurrently — staging is latency-bound, not CPU-bound.
+    downloads: list[tuple[str, str]] = []
     for page in paginator.paginate(Bucket=location.bucket, Prefix=base_prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
@@ -123,6 +132,18 @@ def download_prefix(uri: str, dest_dir: Path) -> int:
                 continue
             target = dest_dir / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            client.download_file(location.bucket, key, str(target))
-            count += 1
-    return count
+            downloads.append((key, str(target)))
+
+    if not downloads:
+        return 0
+
+    def _download(item: tuple[str, str]) -> None:
+        key, target = item
+        client.download_file(location.bucket, key, target)
+
+    max_workers = min(_DOWNLOAD_PREFIX_MAX_WORKERS, len(downloads))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        # Consume the iterator so any download error propagates (as it did serially).
+        for _ in pool.map(_download, downloads):
+            pass
+    return len(downloads)

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -22,7 +23,11 @@ async def get_reference_sequence(
     start: StartQuery,
     end: EndQuery,
 ) -> ReferenceSequenceOut:
-    return get_reference_sequence_data(chrom=chrom, start=start, end=end)
+    # pyfaidx access is blocking; offload so the SequenceTrack's rapid-fire
+    # requests during navigation don't stall the event loop.
+    return await asyncio.to_thread(
+        get_reference_sequence_data, chrom=chrom, start=start, end=end
+    )
 
 
 @router.get("/reads/{sample_id}", response_model=ReferenceReadsOut)
@@ -35,4 +40,7 @@ async def get_reference_reads(
     user: CurrentUser = Depends(get_current_user),
 ) -> ReferenceReadsOut:
     await get_accessible_sample_mapping(session, sample_id, user)
-    return get_reference_reads_data(sample_id=sample_id, chrom=chrom, start=start, end=end)
+    # pysam open/fetch is blocking; run it in a worker thread.
+    return await asyncio.to_thread(
+        get_reference_reads_data, sample_id=sample_id, chrom=chrom, start=start, end=end
+    )
