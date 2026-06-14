@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import Pedigree from '../../components/visualizations/Pedigree';
@@ -193,13 +193,16 @@ const FamilySmallVariantsPage: React.FC = () => {
     },
   });
 
-  const { data, isLoading, isError, error } = useQuery<SmallVariantPage>({
+  const { data, isLoading, isFetching, isError, error } = useQuery<SmallVariantPage>({
     queryKey: ['family', familyId, 'small-variants', requestQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/small-variants?${requestQueryString}`);
       return res.data as SmallVariantPage;
     },
+    // Keep the previous page's results on screen while the next page/filter loads
+    // so pagination and filter changes don't unmount and remount the whole page.
+    placeholderData: keepPreviousData,
   });
   const smallVariantSummary = data?.small_variant_summary ?? null;
   const allVariantTotal =
@@ -305,7 +308,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 100));
 
-  if (!variantQueryReady || isLoading) {
+  if (!variantQueryReady || (isLoading && !data)) {
     return (
       <PageState
         kicker="Small Variants"
@@ -379,6 +382,7 @@ const FamilySmallVariantsPage: React.FC = () => {
                       ) : null}
                       <span className="badge-chip">Active filters {activeFilterCount}</span>
                       <span className="badge-chip">Tag library {tags.length}</span>
+                      {isFetching ? <span className="badge-chip">Updating…</span> : null}
                     </div>
                   </div>
                 ) : null}
