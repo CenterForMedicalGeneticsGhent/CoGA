@@ -1333,32 +1333,32 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             )}
             {canEditRoi && (
               <div className="family-roi-admin">
-                <label className="field-label family-roi-input">
-                  {data.roi ? 'Update region' : 'Set region'} (gene symbol or genomic locus)
+                <div className="family-roi-edit">
                   <input
                     type="text"
                     value={roiInput}
                     onChange={(e) => setRoiInput(e.target.value)}
-                    placeholder="BRCA1 or chr17:43044295-43125482"
+                    placeholder="Gene or locus (e.g. BRCA1)"
                     disabled={roiBusy}
+                    aria-label="Region of interest gene or locus"
                   />
-                </label>
-                <div className="compact-toolbar family-toolbar">
                   <button
                     type="button"
                     onClick={() => saveRoi(false)}
                     disabled={roiBusy || roiInput.trim().length === 0}
                   >
-                    Save ROI
+                    Save
                   </button>
-                  <button
-                    type="button"
-                    className="button-ghost"
-                    onClick={() => saveRoi(true)}
-                    disabled={roiBusy || !data.roi}
-                  >
-                    Clear ROI
-                  </button>
+                  {data.roi && (
+                    <button
+                      type="button"
+                      className="button-ghost"
+                      onClick={() => saveRoi(true)}
+                      disabled={roiBusy}
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
                 {roiStatus && (
                   <div

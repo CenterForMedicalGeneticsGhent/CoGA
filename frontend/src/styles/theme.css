@@ -1429,9 +1429,36 @@ tbody tr:hover {
   gap: 0.4rem;
 }
 
-/* Primary variant entry points stand out as filled buttons. */
+/* Primary variant entry points stand out as filled buttons, but compact. */
 .family-variant-link {
   justify-self: start;
+  min-height: 0;
+  padding: 0.34rem 0.7rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+}
+
+/* Compact, single-line ROI editor. */
+.family-roi-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.family-roi-edit input {
+  flex: 1 1 9rem;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.44rem 0.62rem;
+}
+
+.family-roi-edit button {
+  min-height: 0;
+  padding: 0.44rem 0.72rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
 }
 
 .family-variant-curation {
@@ -1654,7 +1681,8 @@ tbody tr:hover {
 }
 
 .family-detail-page .family-workspace-card .section-title {
-  font-size: 1.02rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
 }
 
 .dashboard-page .inline-actions,
