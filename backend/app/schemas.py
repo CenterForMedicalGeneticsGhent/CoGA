@@ -1461,6 +1461,7 @@ class VariantCarriersOut(BaseModel):
     total_samples: int = 0
     het_samples: int = 0
     hom_samples: int = 0
+    truncated: bool = False
     families: List[VariantCarrierFamilyGroupOut] = Field(default_factory=list)
 
 

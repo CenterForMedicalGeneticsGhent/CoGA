@@ -74,6 +74,7 @@ export interface VariantCarriers {
   total_samples: number;
   het_samples: number;
   hom_samples: number;
+  truncated?: boolean;
   families: VariantCarrierFamilyGroup[];
 }
 
