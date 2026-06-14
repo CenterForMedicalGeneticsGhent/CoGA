@@ -665,10 +665,13 @@ const FamilyIntakePanel: React.FC = () => {
   };
 
   const validationErrors = validateManualFamily(familyId, members, couples);
-  const pedigreeRows = pedigreeRowsFor(familyId, members);
-  const pedPreview = pedPreviewFor(pedigreeRows);
-  const pedigreeMembers = pedigreeMembersFor(members);
-  const pedigreeRelationships = pedigreeRelationshipsFor(couples);
+  // Memoize the pedigree-derived arrays so unrelated panel state (status, ROI
+  // query, mode, …) changing on a keystroke doesn't hand <Pedigree> fresh array
+  // references and force a full D3 re-layout + SVG redraw.
+  const pedigreeRows = useMemo(() => pedigreeRowsFor(familyId, members), [familyId, members]);
+  const pedPreview = useMemo(() => pedPreviewFor(pedigreeRows), [pedigreeRows]);
+  const pedigreeMembers = useMemo(() => pedigreeMembersFor(members), [members]);
+  const pedigreeRelationships = useMemo(() => pedigreeRelationshipsFor(couples), [couples]);
   const selectableMembers = members.filter((member) => member.sampleId.trim());
   const namedMembersCount = members.filter((member) => member.sampleId.trim()).length;
   const affectedCount = members.filter((member) => member.affected).length;

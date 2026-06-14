@@ -1302,4 +1302,6 @@ const Pedigree: React.FC<Props> = ({
   return <svg ref={svgRef} className="pedigree-svg" />;
 };
 
-export default Pedigree;
+// Memoized: the layout effect is expensive (D3 layout + full SVG clear/redraw),
+// so skip re-rendering when callers pass referentially-stable props.
+export default React.memo(Pedigree);
