@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -233,8 +234,4 @@ async def _run_job(job_id: str) -> None:
             {"error": str(exc)[:2000]},
         )
     finally:
-        try:
-            Path(out_path).unlink(missing_ok=True)
-            os.rmdir(tmp_dir)
-        except OSError:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)

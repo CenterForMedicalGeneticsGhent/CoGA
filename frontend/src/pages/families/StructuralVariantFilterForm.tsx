@@ -9,6 +9,7 @@ import type {
   StructuralVariantTagDefinition,
   StructuralVariantSearchState,
 } from './structuralVariantSearch';
+import { STRUCTURAL_ALL_GT_GROUPS } from './structuralVariantSearch';
 import {
   ACMG_CLASSIFICATION_TAGS,
   countPresetRules,
@@ -154,7 +155,7 @@ const StructuralVariantFilterForm = ({
   const sampleFilterCount = orderedMembers.reduce((count, member) => {
     const filter = sampleDraftFilters[member.sample_id];
     if (!filter) return count;
-    const genotypeActive = filter.gt.length > 0 && filter.gt.length < 12;
+    const genotypeActive = filter.gt.length > 0 && filter.gt.length < STRUCTURAL_ALL_GT_GROUPS.length;
     const thresholdActive = Boolean(filter.qual || filter.read_support || filter.filter);
     return count + (genotypeActive || thresholdActive ? 1 : 0);
   }, 0);

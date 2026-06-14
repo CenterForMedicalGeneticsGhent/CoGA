@@ -781,7 +781,7 @@ const buildPresetState = (
     });
   } else if (preset === 'clinvar_review') {
     filters.max_gnomad_af = '0.01';
-    filters.clinvar = 'pathogenic';
+    filters.clinvar = 'Pathogenic';
     filters.classification =
       'Pathogenic - class 5, Likely Pathogenic - class 4, VUS - class 3';
     filters.has_notes = 'true';

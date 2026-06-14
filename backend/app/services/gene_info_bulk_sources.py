@@ -646,7 +646,7 @@ def _dbnsfp_constraint_metrics(row: dict[str, str]) -> dict[str, float]:
         {
             "missense_z": ("mis_z", "missense_z"),
             "shet": ("s_het", "shet"),
-            "phaplo": ("phaplo", "p_haplo", "phi", "ghis"),
+            "phaplo": ("phaplo", "p_haplo"),
             "ptriplo": ("ptriplo", "p_triplo"),
             "p_hi": ("P(HI)",),
             "hipred_score": ("HIPred_score",),

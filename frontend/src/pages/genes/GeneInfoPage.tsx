@@ -1021,12 +1021,17 @@ const GeneInfoPage: React.FC = () => {
           : /^(NM_|NR_|XM_|XR_)/i.test(transcript.transcript_id)
             ? 1
             : 2;
-        return [annotated, mane, sourceRank, transcript.transcript_id];
+        return { annotated, mane, sourceRank, transcriptId: transcript.transcript_id };
       };
 
       const leftScore = score(left);
       const rightScore = score(right);
-      return leftScore < rightScore ? -1 : leftScore > rightScore ? 1 : 0;
+      return (
+        leftScore.annotated - rightScore.annotated ||
+        leftScore.mane - rightScore.mane ||
+        leftScore.sourceRank - rightScore.sourceRank ||
+        leftScore.transcriptId.localeCompare(rightScore.transcriptId)
+      );
     });
   }, [profile, transcriptBadgeContext]);
 

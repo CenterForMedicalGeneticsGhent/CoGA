@@ -206,6 +206,7 @@ const ReferenceCatalogPage: React.FC = () => {
     enabled: userIsAdmin,
     queryFn: async () => (await api.get('/admin/clinical-cnv-kb/status')).data as ClinicalCnvKbStatus,
     refetchInterval: (query) => (query.state.data?.active_job ? 3000 : false),
+    retry: false,
   });
 
   const { data: geneMetaStatus } = useQuery<GeneMetadataStatus>({
@@ -286,7 +287,11 @@ const ReferenceCatalogPage: React.FC = () => {
     () =>
       [...assemblies]
         .filter((entry) => entry.release_date)
-        .sort((left, right) => right.release_date.localeCompare(left.release_date))[0] ?? null,
+        .sort(
+          (left, right) =>
+            right.release_date.localeCompare(left.release_date) ||
+            left.assembly_name.localeCompare(right.assembly_name)
+        )[0] ?? null,
     [assemblies]
   );
 
@@ -1069,8 +1074,8 @@ const ReferenceCatalogPage: React.FC = () => {
             )}
             <div className="dashboard-link-stack">
               <p className="dashboard-link-note">
-                <strong>{datasetCopy[referenceUpload.dataset_type].title}:</strong>{' '}
-                {datasetCopy[referenceUpload.dataset_type].description}
+                <strong>{datasetCopy[referenceUpload.dataset_type]?.title ?? 'Reference data'}:</strong>{' '}
+                {datasetCopy[referenceUpload.dataset_type]?.description ?? 'Upload a reference data file for the selected assembly.'}
               </p>
               {selectedAssemblyStatus && (
                 <p className="dashboard-link-note">

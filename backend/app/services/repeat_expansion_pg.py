@@ -24,7 +24,7 @@ from .family_metadata_context import FamilyMetadataContext, SampleMetadataContex
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
 
 
-REPO_STRCHIVE_LOCI_PATH = Path(__file__).resolve().parents[3] / "data" / "refdata" / "STRchive-loci.json"
+REPO_STRCHIVE_LOCI_PATH = Path(__file__).resolve().parents[3] / "data" / "ref-data" / "STRchive-loci.json"
 
 
 def _json_payload(value: Any) -> str:
@@ -441,12 +441,6 @@ def _normalize_x_male_alleles(
     first = alleles[0]
     if len(alleles) == 1:
         return alleles
-    second = alleles[1]
-    if (
-        first.get("repeat_count") == second.get("repeat_count")
-        and first.get("bp_length") == second.get("bp_length")
-    ):
-        return [first]
     return [first]
 
 

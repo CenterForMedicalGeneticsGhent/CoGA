@@ -3072,31 +3072,6 @@ def _page_offset(page: int, page_size: int) -> int:
     return max(page - 1, 0) * page_size
 
 
-async def _count_small_variant_rows(
-    context: FamilyMetadataContext,
-    filters: SmallVariantQueryFilters,
-) -> int:
-    if not context.assembly_name:
-        return 0
-    entries_table = _small_table_name(context.assembly_name, "entries")
-    where_clauses, params = _small_variant_where_clauses(context, filters)
-    rows = await _execute_clickhouse(
-        f"""
-        SELECT count()
-        FROM (
-            SELECT e.key, e.variantId
-            FROM {entries_table} AS e
-            WHERE {' AND '.join(where_clauses)}
-            GROUP BY e.key, e.variantId
-        )
-        """,
-        params,
-    )
-    if not rows:
-        return 0
-    return int(rows[0][0] or 0)
-
-
 async def _count_small_variant_rows_bounded(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -3772,10 +3747,6 @@ def _has_filter_values(values: Sequence[Any] | None) -> bool:
 def _can_use_small_native_page(
     filters: SmallVariantQueryFilters,
     *,
-    review_classifications: Sequence[str] | None,
-    review_tags: Sequence[str] | None,
-    exclude_review_tags: Sequence[str] | None,
-    has_notes: bool,
     track_mode: bool,
 ) -> bool:
     return not any(
@@ -4104,10 +4075,6 @@ async def get_family_small_variants_page(
         )
         if not _can_use_small_native_page(
             filters,
-            review_classifications=review_classifications,
-            review_tags=review_tags,
-            exclude_review_tags=exclude_review_tags,
-            has_notes=has_notes,
             track_mode=False,
         ):
             return _small_track_limit_response(
@@ -4171,10 +4138,6 @@ async def get_family_small_variants_page(
 
     if _can_use_small_native_page(
         filters,
-        review_classifications=review_classifications,
-        review_tags=review_tags,
-        exclude_review_tags=exclude_review_tags,
-        has_notes=has_notes,
         track_mode=track_mode,
     ):
         fetched_records = await _fetch_small_variant_rows(
@@ -4554,18 +4517,7 @@ async def get_family_compound_het_candidates(
     source_record = next((record for record in records if record.variant_id == variant_id), None)
     if source_record is None:
         return VariantPage(total=0, variants=[])
-    affected_sample_names = [
-        sample_name
-        for sample_name in context.affected_sample_names
-        if sample_name in context.sample_name_to_uuid
-    ]
-    affected_sample_set = set(affected_sample_names)
-    unaffected_sample_names = [
-        str(row.get("sample_id") or "").strip()
-        for row in context.sample_rows
-        if str(row.get("sample_id") or "").strip()
-        and str(row.get("sample_id") or "").strip() not in affected_sample_set
-    ]
+    affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
     partner_ids = _compound_het_partner_map(
         records,
         affected_samples=affected_sample_names,

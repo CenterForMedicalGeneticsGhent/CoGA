@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.sql import uuid_list_bindparam, uuid_values
 from .metadata_service import (
     CurrentUser,
+    _is_admin_user,
     get_accessible_family_mapping,
     get_accessible_sample_mapping,
 )
@@ -27,7 +28,7 @@ def _string_list(values: list[Any] | tuple[Any, ...] | None) -> list[str]:
 
 
 def _visible_project_ids(project_ids: list[str], user: CurrentUser) -> list[str]:
-    if user.role == "admin":
+    if _is_admin_user(user):
         return project_ids
     allowed_project_ids = set(_string_list(user.metadata_project_ids))
     return [project_id for project_id in project_ids if project_id in allowed_project_ids]

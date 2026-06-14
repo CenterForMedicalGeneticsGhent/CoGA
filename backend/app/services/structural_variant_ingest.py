@@ -73,6 +73,21 @@ def parse_end(end_val: str) -> int:
     return int(end_val)
 
 
+def parse_svlen(value: str | None) -> int | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if value in {"", "."}:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        try:
+            return int(float(value))
+        except ValueError:
+            return None
+
+
 def _iter_manual_records(lines: Iterable[str]) -> Iterator[StructuralVariantRecord]:
     for line in lines:
         if not line or line.startswith("#"):
@@ -137,7 +152,7 @@ def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[StructuralVariantRe
             info=info,
             qual=float(qual) if qual not in {"", "."} else None,
             filter=filt or None,
-            svlen=int(info["SVLEN"]) if info.get("SVLEN") not in (None, ".") else None,
+            svlen=parse_svlen(info.get("SVLEN")),
             remote_chr=remote_chr,
             remote_start=remote_start,
             remote_end=remote_end,
@@ -169,7 +184,7 @@ def _iter_spectre_records(lines: Iterable[str]) -> Iterator[StructuralVariantRec
             info=info,
             qual=float(qual) if qual not in {"", "."} else None,
             filter=filt or None,
-            svlen=int(info["SVLEN"]) if info.get("SVLEN") not in (None, ".") else None,
+            svlen=parse_svlen(info.get("SVLEN")),
         )
 
 

@@ -48,6 +48,7 @@ from .raw_import_files_pg import (
     get_raw_import_file,
     list_raw_import_files,
     purge_family_managed_files,
+    purge_sample_managed_files,
     verify_raw_import_file as _verify_raw_import_file,
 )
 
@@ -709,21 +710,6 @@ async def rebuild_clickhouse_small_variant_gene_index_status(
     )
 
 
-async def list_data_inventory(
-    session: AsyncSession,
-) -> list[dict[str, Any]]:
-    page = await list_data_inventory_page(session, page=1, page_size=10_000)
-    families: list[dict[str, Any]] = []
-    for summary in page.items:
-        detail = await get_family_data_inventory_detail(session, family_id=summary.family_id)
-        payload = detail.model_dump()
-        payload["data"] = _track_presence(payload["track_counts"])
-        for sample in payload["samples"]:
-            sample["data"] = _track_presence(sample["track_counts"])
-        families.append(payload)
-    return families
-
-
 async def _sample_row_or_404(session: AsyncSession, sample_id: str) -> dict[str, Any]:
     result = await session.execute(
         text(
@@ -971,6 +957,7 @@ async def delete_sample_with_data(
             project_ids=context.project_ids,
         )
 
+    raw_files_removed = await purge_sample_managed_files(session, sample_row["sample_uuid"])
     await session.execute(
         text("DELETE FROM samples WHERE id = CAST(:sample_uuid AS uuid)"),
         {"sample_uuid": sample_row["sample_uuid"]},
@@ -983,6 +970,7 @@ async def delete_sample_with_data(
             "structural_variants": max(structural_before - structural_after, 0),
             "small_variants": max(small_before - small_after, 0),
             "repeat_expansions": len(repeat_deleted_result.fetchall()),
+            "raw_import_files": raw_files_removed,
         }
     }
 

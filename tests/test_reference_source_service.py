@@ -213,6 +213,8 @@ async def test_import_reference_from_ucsc_creates_records_and_loads_cytobands_an
         text_value: str,
         overwrite: bool,
         commit: bool,
+        performed_by=None,
+        source=None,
     ):
         applied_calls.append((assembly_id, dataset_type, text_value, overwrite, commit))
         if dataset_type == "cytobands":

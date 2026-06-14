@@ -264,19 +264,19 @@ async def _fetch_raw_track_rows(
 
 
 def _windowed_coverage_rows(rows: list[dict[str, Any]], window: int, limit: int) -> list[dict[str, Any]]:
-    grouped: dict[int, list[float]] = {}
+    grouped: dict[tuple[str, int], list[float]] = {}
     for row in rows:
+        chrom = str(row["chr"])
         bin_start = (int(row["start"]) // window) * window
-        grouped.setdefault(bin_start, []).append(float(row["value"]))
+        grouped.setdefault((chrom, bin_start), []).append(float(row["value"]))
     records = [
         {
-            "chr": row_chr,
+            "chr": chrom,
             "start": bin_start,
             "end": bin_start + window,
             "value": sum(values) / len(values),
         }
-        for row_chr in {str(row["chr"]) for row in rows}
-        for bin_start, values in sorted(grouped.items())
+        for (chrom, bin_start), values in sorted(grouped.items())
     ]
     return records[:limit]
 
