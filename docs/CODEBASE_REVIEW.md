@@ -213,7 +213,7 @@ The entire `O(n)` aggregation (`allLengths`, the `data.forEach` building `byType
 - **Effort:** M
 - **Expected impact:** Avoids repeated `O(samples × segments)` work and a duplicate `buildSegmentMap` allocation on every render cycle. Small per-render for a trio (milliseconds), but accumulates for larger families and during frequent re-renders (resize/scroll/ROI hover).
 
-#### 16. Pedigree sketch re-runs the full D3 layout on every keystroke
+#### 16. Pedigree sketch re-runs the full D3 layout on every keystroke - FIXED (the three pedigree arrays + pedPreview wrapped in `useMemo` on `[familyId, members]`/`[couples]`; `Pedigree` wrapped in `React.memo` as a second line of defense)
 `frontend/src/pages/dashboard/FamilyIntakePanel.tsx` (`pedigreeRows` / `pedigreeMembers` / `pedigreeRelationships`, lines 647-654)
 
 These three derived arrays are built inline in the render body (no `useMemo`), producing new references every render. They feed `<Pedigree>`, whose layout `useEffect` depends on `[rows, members, relationships, …]` and runs `layoutPedigree()` plus a full `svg.selectAll('*').remove()` + redraw. Because the panel holds many unrelated state fields (status, familyId, mode, ROI query, …), a keystroke in **any** field forces new array identity and a full pedigree re-layout, even when pedigree data is unchanged.
