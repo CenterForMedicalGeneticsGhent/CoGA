@@ -111,7 +111,7 @@ Inside the per-record loop over `iter_structural_variant_records()`, every parse
 - **Effort:** S (memoize) / M (bulk query)
 - **Expected impact:** **Before:** 50-500 round-trips for a typical 50-500-record SV file. **After:** as few as 1 (bulk) or the count of unique windows (memoized). At ~1-5 ms/round-trip on loopback Postgres, upload time can drop from several seconds to under one second for large files.
 
-#### 6. Per-family/per-assembly N+1 ClickHouse counts in the admin Data → Families view
+#### 6. Per-family/per-assembly N+1 ClickHouse counts in the admin Data → Families view - FIXED (bounded-concurrency parallelization; batched GROUP BY deferred due to per-family project scope)
 `backend/app/services/admin_service.py` (`list_data_inventory_page`, lines 430-456)
 
 For each family row the loop iterates assemblies and awaits two ClickHouse queries (`count_family_small_variants`, `count_family_structural_variants`) one at a time. With `page_size` up to 100, this is up to `~2 × families × assemblies` serial round-trips per page load. Interval/repeat counts on the same page are already batched, making the variant counts the outlier; the (currently dead) `list_data_inventory` wrapper uses `page_size=10_000`, which would serialize catastrophically if ever called at scale.
