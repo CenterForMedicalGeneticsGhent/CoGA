@@ -698,6 +698,96 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
     assert queries[1][1]["offset"] == 1
 
 
+def _structural_del_row(idx: int) -> tuple:
+    return (
+        idx,
+        f"sv{idx}",
+        "1",
+        100 + idx,
+        250 + idx,
+        "DEL",
+        "sniffles",
+        None,
+        None,
+        None,
+        -150,
+        ["PASS"],
+        '{"annotations":[]}',
+        ["GENE2"],
+        ["PROBAND"],
+        ["0/1"],
+        [42.0],
+        [8],
+        ["PASS"],
+    )
+
+
+async def _run_non_native_structural_page(monkeypatch, *, returned_rows: int):
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        # The non-native path issues a single SV rows fetch (limit = cap + 1).
+        return [_structural_del_row(i) for i in range(1, returned_rows + 1)]
+
+    async def fake_review_ids(*_args, **_kwargs):
+        return set()
+
+    async def fake_get_review_map(*_args, **_kwargs):
+        return {}
+
+    async def fake_fetch_cytoband_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.list_matching_structural_variant_review_ids",
+        fake_review_ids,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_structural_variant_review_map",
+        fake_get_review_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_structural_cytoband_map",
+        fake_fetch_cytoband_map,
+    )
+    return await get_family_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=10,
+        type="DEL",  # any of these filters forces the non-native fetch-all path
+    )
+
+
+@pytest.mark.asyncio
+async def test_structural_page_non_native_caps_and_flags_estimated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
+        2,
+    )
+    # 3 rows returned for a cap of 2 -> fetch was truncated, total is estimated.
+    page = await _run_non_native_structural_page(monkeypatch, returned_rows=3)
+    assert page.total_is_estimated is True
+    assert page.count_limit == 2
+    assert page.total == 2
+    assert len(page.variants) == 2
+
+
+@pytest.mark.asyncio
+async def test_structural_page_non_native_exact_total_under_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
+        2,
+    )
+    # 2 rows for a cap of 2 -> nothing beyond the cap, exact total.
+    page = await _run_non_native_structural_page(monkeypatch, returned_rows=2)
+    assert page.total_is_estimated is False
+    assert page.count_limit is None
+    assert page.total == 2
+
+
 @pytest.mark.asyncio
 async def test_fetch_small_variant_rows_uses_entry_source_column(
     monkeypatch: pytest.MonkeyPatch,
@@ -1414,6 +1504,125 @@ async def test_get_family_compound_het_candidates_uses_pair_logic(
 
     assert page.total == 1
     assert [str(variant.id) for variant in page.variants] == ["v2"]
+
+
+_COMPOUND_HET_PAIR_CALLS_A = [
+    _small_call("PROBAND", "0/1"),
+    _small_call("MOM", "0/1"),
+    _small_call("DAD", "0/0"),
+    _small_call("SIB", "0/1"),
+]
+_COMPOUND_HET_PAIR_CALLS_B = [
+    _small_call("PROBAND", "0/1"),
+    _small_call("MOM", "0/0"),
+    _small_call("DAD", "0/1"),
+    _small_call("SIB", "0/0"),
+]
+
+
+@pytest.mark.asyncio
+async def test_compound_het_candidates_scopes_fetch_to_source_gene(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    v1 = _small_variant("v1", "GENE1", calls=_COMPOUND_HET_PAIR_CALLS_A)
+    v2 = _small_variant("v2", "GENE1", calls=_COMPOUND_HET_PAIR_CALLS_B)
+    # A different gene that must never be fetched for or paired with v1.
+    v_other = _small_variant("vX", "GENE2", calls=_COMPOUND_HET_PAIR_CALLS_B)
+    all_records = [v1, v2, v_other]
+    fetch_calls: list[dict] = []
+
+    async def fake_fetch(context, filters, **kwargs):
+        include = kwargs.get("include_variant_ids")
+        fetch_calls.append({"gene": filters.gene, "include": list(include) if include else None})
+        if include:
+            wanted = set(include)
+            return [r for r in all_records if r.variant_id in wanted]
+        if filters.gene:  # emulate the SQL gene filter (matches gene_symbols)
+            term = filters.gene.upper()
+            return [r for r in all_records if term in {g.upper() for g in r.gene_symbols}]
+        return all_records
+
+    async def fake_review_map(*_a, **_k):
+        return {}
+
+    async def fake_metric_map(*_a, **_k):
+        return {}
+
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants.get_small_variant_review_map", fake_review_map)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map", fake_metric_map)
+
+    page = await get_family_compound_het_candidates(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        variant_id="v1",
+        limit=10,
+    )
+
+    # Same partner a whole-family scan would return.
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    # Source variant fetched by id first, then the scan scoped to its gene only.
+    assert fetch_calls[0]["include"] == ["v1"]
+    assert any(call["gene"] == "GENE1" for call in fetch_calls[1:])
+    # The other gene was never queried (no whole-family scan).
+    assert all(call["gene"] != "GENE2" for call in fetch_calls)
+    assert all(call["include"] is not None or call["gene"] == "GENE1" for call in fetch_calls)
+
+
+@pytest.mark.asyncio
+async def test_compound_het_candidates_falls_back_without_gene_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _no_gene_name(variant_id: str, calls: list[SmallVariantCall]) -> SmallVariantRecord:
+        return SmallVariantRecord(
+            variant_key=None,
+            variant_id=variant_id,
+            chr="1",
+            start=100,
+            end=100,
+            ref="A",
+            alt="G",
+            source="clair3",
+            rsid=None,
+            filters=[],
+            gene_symbols=[],  # no gene name; only a gene_id key
+            annotations=[{"gene_id": "ENSG1"}],
+            calls=calls,
+        )
+
+    v1 = _no_gene_name("v1", _COMPOUND_HET_PAIR_CALLS_A)
+    v2 = _no_gene_name("v2", _COMPOUND_HET_PAIR_CALLS_B)
+    all_records = [v1, v2]
+    genes_seen: list[str | None] = []
+
+    async def fake_fetch(context, filters, **kwargs):
+        include = kwargs.get("include_variant_ids")
+        if include:
+            wanted = set(include)
+            return [r for r in all_records if r.variant_id in wanted]
+        genes_seen.append(filters.gene)
+        return all_records
+
+    async def fake_review_map(*_a, **_k):
+        return {}
+
+    async def fake_metric_map(*_a, **_k):
+        return {}
+
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants.get_small_variant_review_map", fake_review_map)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map", fake_metric_map)
+
+    page = await get_family_compound_het_candidates(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        variant_id="v1",
+        limit=10,
+    )
+
+    # gene_id-only source still finds the partner via the whole-family fallback.
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    assert genes_seen == [None]
 
 
 @pytest.mark.asyncio

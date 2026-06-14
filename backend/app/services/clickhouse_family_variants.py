@@ -63,6 +63,11 @@ _SMALL_INHERITANCE_MIN_CANDIDATE_ROWS = 1000
 _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS = 5000
 _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER = 25
 _SMALL_COUNT_LIMIT = 10001
+# Safety cap on the non-native structural-variant page, where every meaningful
+# filter forces a fetch-all-then-filter-in-Python path. Far above any realistic
+# per-family SV count, so results are identical below the cap; above it the total
+# is reported as estimated.
+_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP = 50000
 _SMALL_TRACK_RESULT_LIMIT = 10000
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
@@ -4463,7 +4468,12 @@ async def get_family_structural_variants_page(
         if filters.exclude_review_tags
         else set()
     )
-    records = await _fetch_structural_variant_rows(context, filters)
+    records = await _fetch_structural_variant_rows(
+        context, filters, limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1
+    )
+    total_is_estimated = len(records) > _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
+    if total_is_estimated:
+        records = records[:_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP]
     filtered = [
         record
         for record in records
@@ -4500,6 +4510,12 @@ async def get_family_structural_variants_page(
     ]
     return VariantPage(
         total=0 if track_mode else total,
+        total_is_estimated=False if track_mode else total_is_estimated,
+        count_limit=(
+            _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
+            if (not track_mode and total_is_estimated)
+            else None
+        ),
         variants=variants,
         summary=None if track_mode else summary,
     )
@@ -4512,11 +4528,34 @@ async def get_family_compound_het_candidates(
     variant_id: str,
     limit: int = 50,
 ) -> VariantPage:
-    filters = SmallVariantQueryFilters(page=1, page_size=max(limit, 1))
-    records = await _fetch_small_variant_rows(context, filters)
-    source_record = next((record for record in records if record.variant_id == variant_id), None)
+    # Compound-het partners are always within the source variant's gene, so look
+    # up the source variant first to learn its gene, then scope the partner scan
+    # to that gene instead of pulling the whole family's small-variant set. The
+    # gene filter matches a superset of records sharing the source's primary gene
+    # key, and _compound_het_partner_map below recomputes the exact partners, so
+    # the result is identical to scanning every variant.
+    source_matches = await _fetch_small_variant_rows(
+        context,
+        SmallVariantQueryFilters(page=1, page_size=1),
+        include_variant_ids=[variant_id],
+        limit=1,
+    )
+    source_record = next(
+        (record for record in source_matches if record.variant_id == variant_id), None
+    )
     if source_record is None:
         return VariantPage(total=0, variants=[])
+    source_gene, _source_gene_id = _primary_gene_keys(source_record)
+    if source_gene:
+        records = await _fetch_small_variant_rows(
+            context, SmallVariantQueryFilters(page=1, page_size=1, gene=source_gene)
+        )
+    else:
+        # No gene name to scope by (the partner key is then a bare gene_id, which
+        # the fetch cannot filter on); fall back to the whole-family scan.
+        records = await _fetch_small_variant_rows(
+            context, SmallVariantQueryFilters(page=1, page_size=1)
+        )
     affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
     partner_ids = _compound_het_partner_map(
         records,
