@@ -1449,6 +1449,85 @@ async def count_family_small_variants(
     return int(rows[0][0]) if rows else 0
 
 
+async def _count_distinct_keys_by_family(
+    *,
+    entries_table: str,
+    family_project_pairs: Sequence[tuple[str, str]],
+    families_without_project: Sequence[str],
+) -> dict[str, int]:
+    """Distinct-`key` counts grouped by family_guid in a single query, preserving
+    the exact per-family project scope of the single-family counters:
+    (family_guid, project_guid) pairs are counted within scope (variants are
+    stored replicated per project), and families_without_project are counted with
+    no project filter. Uses the same exact nested count() as the per-family path."""
+    pairs = tuple(
+        (str(family), str(project))
+        for family, project in family_project_pairs
+        if str(family).strip() and str(project).strip()
+    )
+    no_project = tuple(
+        dict.fromkeys(
+            str(family).strip() for family in families_without_project if str(family).strip()
+        )
+    )
+    if not pairs and not no_project:
+        return {}
+    scope_terms: list[str] = []
+    params: dict[str, Any] = {}
+    if pairs:
+        scope_terms.append("(family_guid, project_guid) IN %(family_project_pairs)s")
+        params["family_project_pairs"] = pairs
+    if no_project:
+        scope_terms.append("family_guid IN %(families_without_project)s")
+        params["families_without_project"] = no_project
+    rows = await _execute(
+        f"""
+        SELECT family_guid, count()
+        FROM (
+            SELECT family_guid, key
+            FROM {entries_table}
+            WHERE sign = 1 AND ({' OR '.join(scope_terms)})
+            GROUP BY family_guid, key
+        )
+        GROUP BY family_guid
+        """,
+        params,
+    )
+    return {str(family_guid): int(count) for family_guid, count in rows}
+
+
+async def count_family_small_variants_by_family(
+    assembly_name: str,
+    *,
+    family_project_pairs: Sequence[tuple[str, str]],
+    families_without_project: Sequence[str] = (),
+) -> dict[str, int]:
+    """Distinct small-variant counts per family in one GROUP BY query, preserving
+    count_family_small_variants' exact per-family project scope."""
+    await ensure_clickhouse_variant_tables(assembly_name)
+    return await _count_distinct_keys_by_family(
+        entries_table=_small_table_name(assembly_name, "entries"),
+        family_project_pairs=family_project_pairs,
+        families_without_project=families_without_project,
+    )
+
+
+async def count_family_structural_variants_by_family(
+    assembly_name: str,
+    *,
+    family_project_pairs: Sequence[tuple[str, str]],
+    families_without_project: Sequence[str] = (),
+) -> dict[str, int]:
+    """Distinct structural-variant counts per family in one GROUP BY query,
+    preserving count_family_structural_variants' exact per-family project scope."""
+    await ensure_clickhouse_variant_tables(assembly_name)
+    return await _count_distinct_keys_by_family(
+        entries_table=_structural_table_name(assembly_name, "entries"),
+        family_project_pairs=family_project_pairs,
+        families_without_project=families_without_project,
+    )
+
+
 async def count_family_small_variants_by_sample(
     assembly_name: str,
     family_uuid: str,
