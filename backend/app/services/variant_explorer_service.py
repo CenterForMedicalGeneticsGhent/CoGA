@@ -856,6 +856,12 @@ async def _fetch_annotation_display(
 # --------------------------------------------------------------------------- #
 
 
+# Cap on raw carrier rows pulled for the carrier drill-down. Far above any
+# realistic carrier count for one variant; above it the response is flagged
+# truncated so the UI can say "showing the first N carriers".
+_VARIANT_CARRIER_ROW_LIMIT = 2000
+
+
 async def get_variant_carriers(
     session: AsyncSession,
     *,
@@ -887,6 +893,7 @@ async def get_variant_carriers(
         params["imputed_sources"] = _IMPUTED_SOURCES
         source_clause = " AND lowerUTF8(source) NOT IN %(imputed_sources)s"
 
+    params["carrier_limit"] = _VARIANT_CARRIER_ROW_LIMIT + 1
     rows = await execute_clickhouse(
         f"""
         SELECT family_guid, sample_id, gt, variantId
@@ -896,9 +903,14 @@ async def get_variant_carriers(
           AND project_guid IN %(project_guids)s
           AND key = %(key)s
           AND gt NOT IN %(gt_ref_missing)s{genotype_clause}{source_clause}
+        ORDER BY family_guid, sample_id
+        LIMIT %(carrier_limit)s
         """,
         params,
     )
+    truncated = len(rows) > _VARIANT_CARRIER_ROW_LIMIT
+    if truncated:
+        rows = rows[:_VARIANT_CARRIER_ROW_LIMIT]
 
     # Dedupe to one carrier record per (family, sample); prefer hom over het.
     carriers: dict[tuple[str, str], dict[str, Any]] = {}
@@ -980,6 +992,7 @@ async def get_variant_carriers(
         total_samples=het_total + hom_total,
         het_samples=het_total,
         hom_samples=hom_total,
+        truncated=truncated,
         families=ordered_groups,
     )
 

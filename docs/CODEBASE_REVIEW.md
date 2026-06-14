@@ -136,7 +136,7 @@ Several SV/small-variant code paths call the row-fetch helpers without the `limi
 - **Effort:** M (SV page) / S (compound-het, lengths/shared-count)
 - **Expected impact:** Bounds per-request memory and ClickHouse latency to the cap rather than to family SV/variant-set size. For large SV panels or high-coverage datasets, the difference is **seconds of latency and tens of MB per request**; modest for typical small families.
 
-#### 8. `get_variant_carriers` loads every carrier row with no LIMIT
+#### 8. `get_variant_carriers` loads every carrier row with no LIMIT - FIXED (bounded at 2000 carrier rows with a `truncated` flag; modal shows a "showing first N" notice)
 `backend/app/services/variant_explorer_service.py` (`get_variant_carriers`, lines 890-901)
 
 The carrier drill-down `ARRAY JOIN`s `calls.sampleId`/`calls.gt` and returns one row per (sample, call) across all accessible projects with no LIMIT and no pagination, then materializes them all into a Python dict. For a common SNV across a large multi-project cohort this can pull a very large unbounded result set into one API worker.

@@ -98,6 +98,13 @@ const VariantCarrierModal = ({
                     ? `${families.length} famil${families.length === 1 ? 'y' : 'ies'}`
                     : `${data?.total_samples ?? 0} sample${(data?.total_samples ?? 0) === 1 ? '' : 's'} · Het: ${data?.het_samples ?? 0} · Hom: ${data?.hom_samples ?? 0} · in ${families.length} famil${families.length === 1 ? 'y' : 'ies'}`}
                 </p>
+                {data?.truncated ? (
+                  <p className="status-note status-note--warning">
+                    Showing the first {data?.total_samples ?? 0} carrier
+                    {(data?.total_samples ?? 0) === 1 ? '' : 's'} — more exist than can be listed.
+                    Filter by genotype or narrow your project access to see specific carriers.
+                  </p>
+                ) : null}
                 <ul className="variant-carrier-family-list">
                   {families.map((family) => (
                     <li key={family.family_uuid} className="variant-carrier-family">
