@@ -20,8 +20,6 @@ const Histogram: React.FC<Props> = ({
   binLabels,
   logScale = true,
 }) => {
-  if (!data.length) return <p className="analysis-count">No data available for this view.</p>;
-
   const svgRef = React.useRef<SVGSVGElement | null>(null);
 
   React.useEffect(() => {
@@ -39,8 +37,12 @@ const Histogram: React.FC<Props> = ({
         const idx = binEdges.findIndex(
           (edge, i) => i < binEdges.length - 1 && v >= edge && v < binEdges[i + 1]
         );
-        if (idx === -1) counts[counts.length - 1]++;
-        else counts[idx]++;
+        if (idx === -1) {
+          if (v < binEdges[0]) counts[0]++;
+          else counts[counts.length - 1]++;
+        } else {
+          counts[idx]++;
+        }
       });
       labels =
         binLabels && binLabels.length === counts.length
@@ -118,6 +120,10 @@ const Histogram: React.FC<Props> = ({
 
     g.append('g').call(yAxis).selectAll('text').attr('font-size', 10);
   }, [data, width, height, bins, binEdges, binLabels, logScale]);
+
+  if (!data.length) {
+    return <p className="analysis-count">No data available for this view.</p>;
+  }
 
   return <svg ref={svgRef} width={width} height={height} />;
 };

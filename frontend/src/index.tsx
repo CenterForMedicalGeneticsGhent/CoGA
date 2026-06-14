@@ -37,7 +37,6 @@ const CnvDetailsPage = lazy(() => import('./pages/genome/CnvDetailsPage'));
 const ClinicalCnvExplorerPage = lazy(
   () => import('./pages/cnv-explorer/ClinicalCnvExplorerPage'),
 );
-const PedUpload = lazy(() => import('./pages/uploads/PedUpload'));
 const SampleUpload = lazy(() => import('./pages/uploads/SampleUpload'));
 const FamilyStructuralVariantsPage = lazy(
   () => import('./pages/families/FamilyStructuralVariantsPage')
@@ -329,7 +328,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                   path="/projects"
                   element={routeElement(<ProjectsPage />)}
                 />
-                <Route path="/upload" element={routeElement(<PedUpload />)} />
                 <Route
                   path="/upload-data"
                   element={routeElement(<SampleUpload />)}

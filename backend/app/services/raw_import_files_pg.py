@@ -419,3 +419,34 @@ async def purge_family_managed_files(session: AsyncSession, family_uuid: str) ->
         return removed
 
     return await asyncio.to_thread(_unlink_all)
+
+
+async def purge_sample_managed_files(session: AsyncSession, sample_uuid: str) -> int:
+    """Delete managed file copies owned by a single sample from disk. Database rows
+    cascade away when the sample is removed. Returns the number of files unlinked."""
+    result = await session.execute(
+        text(
+            """
+            SELECT storage_path
+            FROM raw_import_files
+            WHERE sample_id = CAST(:sample_uuid AS uuid)
+              AND managed = TRUE
+            """
+        ),
+        {"sample_uuid": sample_uuid},
+    )
+    paths: Iterable[str] = [row[0] for row in result.fetchall()]
+
+    def _unlink_all() -> int:
+        removed = 0
+        for raw in paths:
+            try:
+                candidate = Path(raw)
+                if candidate.is_file():
+                    candidate.unlink()
+                    removed += 1
+            except OSError:
+                continue
+        return removed
+
+    return await asyncio.to_thread(_unlink_all)

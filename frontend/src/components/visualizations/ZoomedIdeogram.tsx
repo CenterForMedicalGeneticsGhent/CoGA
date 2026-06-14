@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
 import { getStainColor } from "../../lib/stainColors";
+import { blendHex, getAcenDirection } from "../../lib/ideogram";
 import VizTooltip from "./VizTooltip";
 
 interface IdeogramBand {
@@ -29,52 +30,6 @@ interface Props {
 
 const AXIS_HEIGHT = 20;
 const BAND_STROKE = 0.5;
-
-const getAcenDirection = (
-  band: Pick<IdeogramBand, "name" | "start" | "end">,
-  chromLength: number,
-): "p" | "q" => {
-  const bandName = `${band.name || ""}`.toLowerCase();
-  if (/(^|[^a-z])p\d/.test(bandName) || bandName.startsWith("p")) return "p";
-  if (/(^|[^a-z])q\d/.test(bandName) || bandName.startsWith("q")) return "q";
-  return band.start + band.end <= chromLength ? "p" : "q";
-};
-
-const blendHex = (hex: string, target: string, amount: number): string => {
-  const normalize = (value: string) => {
-    if (!value.startsWith("#")) return null;
-    const trimmed = value.slice(1);
-    if (trimmed.length === 3) {
-      return trimmed
-        .split("")
-        .map((char) => char + char)
-        .join("");
-    }
-    if (trimmed.length === 6) return trimmed;
-    return null;
-  };
-
-  const sourceHex = normalize(hex);
-  const targetHex = normalize(target);
-  if (!sourceHex || !targetHex) return hex;
-
-  const source = [
-    parseInt(sourceHex.slice(0, 2), 16),
-    parseInt(sourceHex.slice(2, 4), 16),
-    parseInt(sourceHex.slice(4, 6), 16),
-  ];
-  const destination = [
-    parseInt(targetHex.slice(0, 2), 16),
-    parseInt(targetHex.slice(2, 4), 16),
-    parseInt(targetHex.slice(4, 6), 16),
-  ];
-
-  const blended = source.map((component, index) =>
-    Math.round(component + (destination[index] - component) * amount),
-  );
-
-  return `#${blended.map((component) => component.toString(16).padStart(2, "0")).join("")}`;
-};
 
 const formatBp = (bp: number): string => {
   if (bp >= 1_000_000) return `${(bp / 1_000_000).toFixed(2)} Mb`;

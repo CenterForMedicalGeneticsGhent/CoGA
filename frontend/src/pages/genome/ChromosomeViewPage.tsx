@@ -16,7 +16,6 @@ import {
   getAdaptiveTrackWindow,
   getTrackBinLimit,
   getTrackSegmentLimit,
-  shouldShowSmallVariantDetails,
 } from '../../lib/trackSampling';
 import { useFamilyReference } from '../../lib/reference';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
@@ -121,7 +120,6 @@ const ChromosomeViewPage: React.FC = () => {
 
   const win = useMemo(() => getChromosomeWindow(), []);
   const regionSpan = Math.max(region.end - region.start, 1);
-  const showSmallVariantDetails = useMemo(() => shouldShowSmallVariantDetails(regionSpan), [regionSpan]);
   const detailWindow = useMemo(
     () => getAdaptiveTrackWindow(regionSpan, trackWidth, win),
     [regionSpan, trackWidth, win],
@@ -264,7 +262,7 @@ const ChromosomeViewPage: React.FC = () => {
       chrom,
       start: String(region.start),
       end: String(region.end),
-      include_small_variants: showSmallVariantDetails || hasSmallVariantUserFilters ? 'true' : 'false',
+      include_small_variants: 'true',
     });
     if (resolvedProjectId) params.set('project_id', resolvedProjectId);
     Object.entries(variantFilters).forEach(([key, value]) => params.append(key, value));
@@ -277,7 +275,6 @@ const ChromosomeViewPage: React.FC = () => {
     region.end,
     region.start,
     sampleFilterMap,
-    showSmallVariantDetails,
     variantFilters,
   ]);
 
@@ -304,7 +301,7 @@ const ChromosomeViewPage: React.FC = () => {
             apcad: entry.apcad,
             apcadPcf: !!entry.apcad_pcf,
             variants: entry.variants,
-            smallVariants: entry.small_variants || (!showSmallVariantDetails && !hasSmallVariantUserFilters),
+            smallVariants: entry.small_variants,
             haplotypes: entry.haplotypes,
             repeatExpansions: entry.repeat_expansions,
           },
@@ -321,7 +318,7 @@ const ChromosomeViewPage: React.FC = () => {
           repeatExpansions: boolean;
         }
       >,
-    [availabilityData, hasSmallVariantUserFilters, showSmallVariantDetails],
+    [availabilityData],
   );
 
   const availableTracks = useMemo(() => {

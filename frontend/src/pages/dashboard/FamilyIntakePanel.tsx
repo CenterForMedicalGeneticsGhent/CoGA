@@ -503,6 +503,11 @@ const FamilyIntakePanel: React.FC = () => {
     try {
       const response = await runUpload(false);
       const result = response.data.families[0];
+      if (!result) {
+        setStatusTone('error');
+        setStatus('No families were parsed from the PED file. Check that each row has at least six space-separated columns.');
+        return;
+      }
       setStatusTone('success');
       setStatus(
         `Imported ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
@@ -526,6 +531,11 @@ const FamilyIntakePanel: React.FC = () => {
           try {
             const response = await runUpload(true);
             const result = response.data.families[0];
+            if (!result) {
+              setStatusTone('error');
+              setStatus('No families were parsed from the PED file. Check that each row has at least six space-separated columns.');
+              return;
+            }
             setStatusTone('success');
             setStatus(
               `Replaced ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
@@ -599,6 +609,11 @@ const FamilyIntakePanel: React.FC = () => {
     try {
       const response = await runCreate(false);
       const result = response.data.families[0];
+      if (!result) {
+        setStatusTone('error');
+        setStatus('Family creation returned no family. Please try again.');
+        return;
+      }
       setStatusTone('success');
       setStatus(
         `Created ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
@@ -620,6 +635,11 @@ const FamilyIntakePanel: React.FC = () => {
           try {
             const response = await runCreate(true);
             const result = response.data.families[0];
+            if (!result) {
+              setStatusTone('error');
+              setStatus('Family creation returned no family. Please try again.');
+              return;
+            }
             setStatusTone('success');
             setStatus(
               `Replaced ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`

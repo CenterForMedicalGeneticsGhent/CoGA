@@ -106,14 +106,6 @@ export const getClinvarHighlightTone = (clinvar?: string) => {
   return 'neutral';
 };
 
-export const getFrequencyTone = (value?: number) => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 'neutral';
-  if (value === 0 || value <= 0.0001) return 'success';
-  if (value <= 0.001) return 'strong';
-  if (value <= 0.01) return 'warning';
-  return 'neutral';
-};
-
 export const getReviewClassificationTone = (classification?: string | null) => {
   const value = (classification || '').toLowerCase();
   if (value.includes('pathogenic')) return 'critical';
@@ -123,11 +115,6 @@ export const getReviewClassificationTone = (classification?: string | null) => {
   if (value.includes('reject')) return 'neutral';
   return 'strong';
 };
-
-export const getReviewTagTone = (
-  tagKey: string,
-  tagMap?: Record<string, SmallVariantTagDefinition>,
-) => (tagMap?.[tagKey]?.group === 'classification' ? 'strong' : 'neutral');
 
 const DEFAULT_TAG_COLOR = '#5b6b79';
 

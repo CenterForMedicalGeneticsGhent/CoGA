@@ -8,7 +8,7 @@ import {
 } from '../../lib/ideogram';
 import { getStainColor } from '../../lib/stainColors';
 
-export interface IdeogramBand {
+interface IdeogramBand {
   name: string;
   start: number;
   end: number;

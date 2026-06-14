@@ -193,7 +193,7 @@ const GenePanelDetailPage: React.FC = () => {
         </thead>
         <tbody>
           {regions.map((r) => (
-            <tr key={r.gene}>
+            <tr key={`${r.gene}:${r.chr}:${r.start}-${r.end}`}>
               <td>{r.gene}</td>
               <td>{r.chr}</td>
               <td>{r.start}</td>

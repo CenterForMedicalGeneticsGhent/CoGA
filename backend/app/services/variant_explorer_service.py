@@ -955,7 +955,7 @@ async def get_variant_carriers(
         group.samples.append(
             VariantCarrierSampleOut(
                 sample_id=record["sample_id"],
-                individual_name=sample_info.get("role"),
+                individual_name=sample_info.get("individual_name"),
                 role=sample_info.get("role"),
                 genotype=record["genotype"],
                 zygosity="homozygous" if is_hom else "heterozygous",
@@ -1060,7 +1060,7 @@ async def _fetch_sample_meta(
             phenotype = clinical_status
         elif row.get("affected"):
             phenotype = "affected"
-        info = {"role": row.get("role"), "phenotype_summary": phenotype}
+        info = {"individual_name": str(row["sample_name"]), "role": row.get("role"), "phenotype_summary": phenotype}
         # Key by both the human name and the UUID so either stored form resolves.
         meta[str(row["sample_name"])] = info
         meta[str(row["sample_uuid"])] = info

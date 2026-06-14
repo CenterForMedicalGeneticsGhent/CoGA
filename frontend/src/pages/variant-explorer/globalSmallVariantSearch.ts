@@ -157,17 +157,18 @@ export const useGlobalSmallVariantSearchState = () => {
     setPage(1);
   }, []);
 
-  const setSort = useCallback((nextSort: GlobalVariantSort) => {
-    setSortState((prevSort) => {
-      if (prevSort === nextSort) {
+  const setSort = useCallback(
+    (nextSort: GlobalVariantSort) => {
+      if (sort === nextSort) {
         setOrder((prevOrder) => (prevOrder === 'desc' ? 'asc' : 'desc'));
-        return prevSort;
+      } else {
+        setSortState(nextSort);
+        setOrder('desc');
       }
-      setOrder('desc');
-      return nextSort;
-    });
-    setPage(1);
-  }, []);
+      setPage(1);
+    },
+    [sort],
+  );
 
   const requestQueryString = useMemo(() => {
     const params = buildSmallVariantQueryParams(filters, EMPTY_SAMPLE_FILTERS, page);
@@ -230,5 +231,3 @@ export const useGlobalSmallVariantSearchState = () => {
     requestQueryString,
   };
 };
-
-export type GlobalSmallVariantSearchState = ReturnType<typeof useGlobalSmallVariantSearchState>;

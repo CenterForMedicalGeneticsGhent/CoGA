@@ -16,7 +16,6 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.types import Integer, String
 
 from ..core.sql import is_missing_postgres_schema_error
 
@@ -1713,32 +1712,46 @@ async def update_individual_hpo_annotation(
     if hpo_id != existing["hpo_id"] and hpo_id not in await _existing_hpo_terms(session, [hpo_id]):
         raise HTTPException(status_code=404, detail="HPO term was not found")
 
-    await session.execute(
-        text(
-            """
-            UPDATE individual_hpo
-            SET hpo_id = :hpo_id,
-                status = :status,
-                onset = :onset,
-                evidence = :evidence,
-                source = :source,
-                note = :note,
-                updated_at = timezone('utc', now())
-            WHERE family_id = CAST(:family_uuid AS uuid)
-              AND id = CAST(:annotation_id AS uuid)
-            """
-        ),
-        {
-            "family_uuid": family_uuid,
-            "annotation_id": annotation_id,
-            "hpo_id": hpo_id,
-            "status": status,
-            "onset": _payload_value(payload, "onset", existing["onset"]),
-            "evidence": _payload_value(payload, "evidence", existing["evidence"]),
-            "source": _payload_value(payload, "source", existing["source"]) or "manual",
-            "note": _payload_value(payload, "note", existing["note"]),
-        },
-    )
+    try:
+        await session.execute(
+            text(
+                """
+                UPDATE individual_hpo
+                SET hpo_id = :hpo_id,
+                    status = :status,
+                    onset = :onset,
+                    evidence = :evidence,
+                    source = :source,
+                    note = :note,
+                    updated_at = timezone('utc', now())
+                WHERE family_id = CAST(:family_uuid AS uuid)
+                  AND id = CAST(:annotation_id AS uuid)
+                """
+            ),
+            {
+                "family_uuid": family_uuid,
+                "annotation_id": annotation_id,
+                "hpo_id": hpo_id,
+                "status": status,
+                "onset": _payload_value(payload, "onset", existing["onset"]),
+                "evidence": _payload_value(payload, "evidence", existing["evidence"]),
+                "source": _payload_value(payload, "source", existing["source"]) or "manual",
+                "note": _payload_value(payload, "note", existing["note"]),
+            },
+        )
+    except DBAPIError as exc:
+        await session.rollback()
+        orig = getattr(exc, "orig", None)
+        text_repr = " ".join(
+            str(p)
+            for p in (type(exc).__name__, exc, type(orig).__name__ if orig is not None else "", orig or "")
+        ).lower()
+        if "uniqueviolation" in text_repr or "duplicate key" in text_repr:
+            raise HTTPException(
+                status_code=409,
+                detail="An annotation with this HPO term and status already exists for this sample",
+            ) from exc
+        raise
     await mark_family_hpo_annotations_stale(
         session,
         family_uuid=family_uuid,

@@ -356,7 +356,6 @@ def _member_meta(context: FamilyMetadataContext) -> dict[str, dict[str, Any]]:
             "role": row.get("role"),
             "affected": bool(row.get("affected", False)),
             "sex": row.get("sex"),
-            "metadata": _metadata_dict(row.get("sample_metadata")),
         }
         for row in context.sample_rows
         if str(row.get("sample_id") or "").strip()
@@ -412,9 +411,7 @@ def _maternal_transmission(
         return "maternal_only"
     if father_alt and not mother_alt and not child_alt:
         return "father_only"
-    if any_alt:
-        return "family_private"
-    return "unknown"
+    return "family_private"
 
 
 def _variant_out(
@@ -607,7 +604,7 @@ def _sample_qc(metadata: dict[str, Any], coverage: MitoDNACoverageOut) -> MitoDN
     notes = _qc_notes(metadata)
     contamination = _sample_contamination(metadata)
     explicit_status = _explicit_qc_status(metadata)
-    mean_depth = coverage.mean_depth or _float(
+    mean_depth = coverage.mean_depth if coverage.mean_depth is not None else _float(
         _nested(
             metadata,
             ("mtdna", "mean_depth"),
@@ -616,7 +613,7 @@ def _sample_qc(metadata: dict[str, Any], coverage: MitoDNACoverageOut) -> MitoDN
             ("package_sample_metadata", "mtdna", "mean_depth"),
         )
     )
-    min_mean_depth = coverage.min_depth or _float(
+    min_mean_depth = coverage.min_depth if coverage.min_depth is not None else _float(
         _nested(
             metadata,
             ("mtdna", "min_mean_depth"),

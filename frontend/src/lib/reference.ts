@@ -4,18 +4,7 @@ import api from './api';
 import type { ApiProjectRecord } from './apiTypes';
 import { withEntityId } from './entity';
 
-export const CURRENT_ASSEMBLY = 'GRCh38';
-export const CURRENT_SPECIES = 'Homo sapiens';
-
-export function getReferenceLabel(): string {
-  return `${CURRENT_SPECIES} • ${CURRENT_ASSEMBLY}`;
-}
-
-type ProjectReference = ApiProjectRecord & {
-  species_name?: string;
-  assembly_name?: string;
-  assembly_version?: string;
-};
+type ProjectReference = ApiProjectRecord;
 
 export interface FamilyReferenceContext {
   speciesName?: string;

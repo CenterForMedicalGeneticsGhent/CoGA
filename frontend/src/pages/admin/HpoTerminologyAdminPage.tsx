@@ -181,7 +181,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
     },
   });
 
-  if (summaryQuery.isLoading || termsQuery.isLoading) {
+  if (summaryQuery.isLoading) {
     return (
       <PageState
         kicker="Administration"

@@ -889,11 +889,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     }
   };
 
-  const selectHpoTerm = (term: ApiHpoTerm) => {
-    setSelectedHpoTerm(term);
-    setHpoSearchInput(formatHpoTermOption(term));
-  };
-
   const updateHpoSearchInput = (value: string) => {
     setHpoSearchInput(value);
     const normalizedValue = value.trim().toLowerCase();

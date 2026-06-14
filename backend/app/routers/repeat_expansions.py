@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
-from ..dependencies import get_current_admin_user, get_current_user
+from ..dependencies import get_current_admin_user
 from ..schemas import RepeatExpansionUploadResult
 from ..services.family_metadata_context import build_sample_metadata_context
 from ..services.metadata_service import CurrentUser

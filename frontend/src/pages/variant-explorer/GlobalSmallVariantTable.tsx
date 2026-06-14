@@ -126,7 +126,7 @@ const GlobalSmallVariantTable = ({
                     <button
                       type="button"
                       className="table-link variant-explorer-count-button"
-                      onClick={() => onOpenCarriers(variant, 'all')}
+                      onClick={() => onOpenCarriers(variant, 'het')}
                     >
                       {variant.het_samples}
                     </button>
@@ -139,7 +139,7 @@ const GlobalSmallVariantTable = ({
                     <button
                       type="button"
                       className="table-link variant-explorer-count-button"
-                      onClick={() => onOpenCarriers(variant, 'all')}
+                      onClick={() => onOpenCarriers(variant, 'hom')}
                     >
                       {variant.hom_samples}
                     </button>

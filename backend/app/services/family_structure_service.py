@@ -349,11 +349,7 @@ def _apply_member_update(
             raise HTTPException(status_code=400, detail="Invalid clinical status")
         status_changed = status_changed or target.get("clinical_status") != update_fields["clinical_status"]
         target["clinical_status"] = update_fields["clinical_status"]
-    if (
-        "carrier_status" in update_fields
-        or "carrier_type" in update_fields
-        or ("carrier_type" in update_fields and update_fields.get("carrier_type") is None)
-    ):
+    if "carrier_status" in update_fields or "carrier_type" in update_fields:
         carrier_status = update_fields.get("carrier_status", target.get("carrier_status"))
         carrier_type = update_fields.get("carrier_type", target.get("carrier_type"))
         if "carrier_status" in update_fields and carrier_status != "carrier" and "carrier_type" not in update_fields:

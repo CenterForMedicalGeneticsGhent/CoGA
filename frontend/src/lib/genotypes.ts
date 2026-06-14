@@ -9,4 +9,3 @@ export function formatGt(gt?: string): string {
     return 'Het';
   return 'WT';
 }
-{/* what with missing values ./. ? */}

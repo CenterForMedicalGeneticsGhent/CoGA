@@ -57,10 +57,7 @@ const buildOptimisticReview = (
     note: payload.note ?? null,
     updated_by: variant.review?.updated_by ?? null,
     updated_at: new Date().toISOString(),
-    compound_het:
-      'compound_het' in payload
-        ? variant.review?.compound_het ?? null
-        : variant.review?.compound_het ?? null,
+    compound_het: variant.review?.compound_het ?? null,
   };
 
   return hasReviewContent(nextReview) ? nextReview : null;

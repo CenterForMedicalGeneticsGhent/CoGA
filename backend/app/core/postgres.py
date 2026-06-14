@@ -29,7 +29,7 @@ def get_postgres_engine() -> AsyncEngine:
 
 
 def get_postgres_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    engine = get_postgres_engine()
+    get_postgres_engine()
     assert _sessionmaker is not None
     return _sessionmaker
 

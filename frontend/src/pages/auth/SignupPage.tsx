@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
+import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 
 const SignupPage: React.FC = () => {
   const [firstName, setFirstName] = useState('');
@@ -8,10 +9,12 @@ const SignupPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [affiliation, setAffiliation] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     try {
       await api.post('/auth/signup', {
         email,
@@ -21,8 +24,15 @@ const SignupPage: React.FC = () => {
         affiliation,
       });
       navigate('/login');
-    } catch (err) {
-      console.error(err);
+    } catch (err: unknown) {
+      if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
+        console.error(err);
+      }
+      setError(
+        getErrorMessage(err, 'Sign up failed', {
+          networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
+        })
+      );
     }
   };
 
@@ -92,6 +102,11 @@ const SignupPage: React.FC = () => {
             <button type="submit" className="form-button w-full justify-center">
               Sign Up
             </button>
+            {error && (
+              <p className="status-note status-note--error text-center" aria-live="polite">
+                {error}
+              </p>
+            )}
           </form>
           <p className="mt-6 text-center text-sm text-[var(--color-text-muted)]">
             Already registered?{' '}

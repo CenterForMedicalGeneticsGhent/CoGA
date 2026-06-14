@@ -92,7 +92,6 @@ SUPPORTED_DATASETS = (
 )
 APCAD_PCF_TRACK_TYPE = "apcad_pcf"
 APCAD_PCF_SOURCE = "pcf"
-OPTIONAL_DATASETS = set(SUPPORTED_DATASETS)
 FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
 FAMILY_IMPORT_STALE_HEARTBEAT = timedelta(minutes=10)
 
@@ -747,8 +746,7 @@ def _normalize_ped_status(value: str, numeric_status_values: dict[str, str]) -> 
     return numeric_status_values.get(token) or _PED_STATUS_VALUES.get(token)
 
 
-def _ped_numeric_status_values(rows: list[list[str]]) -> dict[str, str]:
-    del rows
+def _ped_numeric_status_values() -> dict[str, str]:
     return _PED_NUMERIC_STATUS_VALUES
 
 
@@ -1023,7 +1021,7 @@ def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[Fami
             continue
         rows.append((line_no, parts))
 
-    numeric_status_values = _ped_numeric_status_values([parts for _line_no, parts in rows])
+    numeric_status_values = _ped_numeric_status_values()
     for line_no, parts in rows:
         family_id, individual_id, father_id, mother_id, sex, phenotype = parts[:6]
         extra_columns = parts[6:]
@@ -4097,12 +4095,14 @@ async def _delete_sample_interval_source(
         sample_uuid=sample_context.sample_uuid,
         track_type=track_type,
         source=source,
+        filename=filename,
     )
     await delete_interval_track_sources(
         session,
         sample_uuid=sample_context.sample_uuid,
         track_type=track_type,
         source=source,
+        filename=filename,
     )
 
 

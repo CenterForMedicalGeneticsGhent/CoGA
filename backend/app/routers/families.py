@@ -41,7 +41,6 @@ from ..schemas import (
     VariantLengthOut,
     VariantPage,
 )
-from ..services.bed_service import validate_bed_type
 from ..services.clickhouse_family_variants import (
     get_family_compound_het_candidates as get_family_compound_het_candidates_clickhouse,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
