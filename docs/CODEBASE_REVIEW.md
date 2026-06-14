@@ -204,7 +204,7 @@ The entire `O(n)` aggregation (`allLengths`, the `data.forEach` building `byType
 - **Effort:** S
 - **Expected impact:** **Before:** an `O(n)` map+forEach+sort over up to 100k rows on every `logScale` click, blocking the main thread. **After:** aggregation runs once per data load. Likely **tens of ms saved per interaction** at the cap.
 
-#### 15. `GenomeHaplotypeTrack`: `diseaseModel` memo defeated by a fresh `analysisRegion`/`membersForRisk` each render
+#### 15. `GenomeHaplotypeTrack`: `diseaseModel` memo defeated by a fresh `analysisRegion`/`membersForRisk` each render - FIXED (memoized `analysisRegion`/`membersForRisk`/`segments`, stable empty-members default, shared `samplesArray` memo reused by `diseaseModel` and a now-memoized `riskState`)
 `frontend/src/components/visualizations/GenomeHaplotypeTrack.tsx` (lines 133-163, 257-268)
 
 `analysisRegion` (a `{chr,start,end}` literal) and `membersForRisk` (`[currentMember]` fallback) are rebuilt with new references every render in the ROI-less genome-overview path, yet both are `diseaseModel`'s `useMemo` deps — so `inferDiseaseHaplotypes()` (`O(samples × segments)`: builds a Map over every member's genome segments and intersects signature sets) recomputes on every render. Separately, `riskState` is unmemoized and re-runs `interpretSampleHaplotypeRisk()` (with a second `buildSegmentMap`) each render. The track renders once per family member across the whole genome.
