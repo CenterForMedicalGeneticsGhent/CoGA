@@ -186,7 +186,7 @@ Three queries download entire table payloads from `/families/{id}/repeat-expansi
 - **Effort:** M
 - **Expected impact:** Replaces 3 unbounded full-dataset queries with 3 minimal presence checks on every landing-page visit — eliminates **tens to hundreds of KB** of serialized JSON and the corresponding DB processing, most significant for multi-sample families with dense repeat/mtDNA data.
 
-#### 13. SV-list pagination/filtering unmounts the whole page (no `keepPreviousData`)
+#### 13. SV-list pagination/filtering unmounts the whole page (no `keepPreviousData`) - FIXED (added `placeholderData: keepPreviousData`, guard changed to `isLoading && !data`; a subtle "Updating…" chip replaces the full teardown)
 `frontend/src/pages/families/FamilyStructuralVariantsPage.tsx` (lines 165-171, 266-274)
 
 The main query is keyed on `requestQueryString`, which changes on every page turn and filter apply. With no `placeholderData`, a new key has no cached data, so `isLoading` is true on each change and the `if (isLoading)` block returns a full-page `<PageState>` spinner — tearing down and remounting the entire page (header, pedigree, filter form, results), causing layout thrash, loss of filter-form accordion state, and a jarring flash.
