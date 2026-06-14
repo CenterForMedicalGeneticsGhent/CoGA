@@ -47,7 +47,7 @@ interface CircosPlotProps {
 const BAND_STROKE = 0.3;
 const BAND_FINISH = 'glossy';
 export const TELOMERE_CORNER_RADIUS = 5.5;
-const CHROMOSOME_GAP = 0.01;
+const CHROMOSOME_GAP = 0.04; // radians of whitespace between adjacent chromosomes
 const TELOMERE_END_WHITESPACE = 0.0007;
 
 const toCartesianAngle = (angle: number) => angle - Math.PI / 2;
