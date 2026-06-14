@@ -45,7 +45,10 @@ const RepeatExpansionTrack: React.FC<Props> = ({
       chrom,
       overviewMode ? 'chromosome' : 'region',
       overviewMode ? chromosomeSize : regionStart,
-      regionEnd,
+      // In overview mode the request is chromosome-wide ({chr, project_id} only),
+      // so keep the key stable across pan/zoom instead of refetching the identical
+      // payload each time region.end changes — mirrors the regionStart guard above.
+      overviewMode ? null : regionEnd,
       projectId,
     ],
     queryFn: async () => {
