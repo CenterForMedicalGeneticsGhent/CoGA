@@ -154,7 +154,7 @@ Each accepted annotation row triggers its own `await session.execute(text(INSERT
 - **Effort:** S
 - **Expected impact:** **Before:** N round-trips for a phenotype file. **After:** 1. In async SQLAlchemy each `await` is a network round-trip, so batching can yield a **10x-100x** latency reduction for large phenotype files (dozens to low hundreds of rows).
 
-#### 10. Family detail endpoint re-runs the family-mapping aggregation 3× per request
+#### 10. Family detail endpoint re-runs the family-mapping aggregation 3× per request - FIXED (redundant direct call dropped via `family.id`; resolved UUID threaded into `get_family_member_impact_for_user`, leaving 1 aggregation)
 `backend/app/services/family_member_management_service.py` (`get_family_member_detail_for_user`, lines 348-376)
 
 A single detail request runs the `_fetch_family_rows` `GROUP BY` aggregation over `families LEFT JOIN family_projects` three times: inside `get_family_record` (355), again directly (358, only to read `family_row["id"]` — already available as `family.id`), and a third time inside `get_family_member_impact_for_user` (364).
