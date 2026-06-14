@@ -1506,6 +1506,125 @@ async def test_get_family_compound_het_candidates_uses_pair_logic(
     assert [str(variant.id) for variant in page.variants] == ["v2"]
 
 
+_COMPOUND_HET_PAIR_CALLS_A = [
+    _small_call("PROBAND", "0/1"),
+    _small_call("MOM", "0/1"),
+    _small_call("DAD", "0/0"),
+    _small_call("SIB", "0/1"),
+]
+_COMPOUND_HET_PAIR_CALLS_B = [
+    _small_call("PROBAND", "0/1"),
+    _small_call("MOM", "0/0"),
+    _small_call("DAD", "0/1"),
+    _small_call("SIB", "0/0"),
+]
+
+
+@pytest.mark.asyncio
+async def test_compound_het_candidates_scopes_fetch_to_source_gene(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    v1 = _small_variant("v1", "GENE1", calls=_COMPOUND_HET_PAIR_CALLS_A)
+    v2 = _small_variant("v2", "GENE1", calls=_COMPOUND_HET_PAIR_CALLS_B)
+    # A different gene that must never be fetched for or paired with v1.
+    v_other = _small_variant("vX", "GENE2", calls=_COMPOUND_HET_PAIR_CALLS_B)
+    all_records = [v1, v2, v_other]
+    fetch_calls: list[dict] = []
+
+    async def fake_fetch(context, filters, **kwargs):
+        include = kwargs.get("include_variant_ids")
+        fetch_calls.append({"gene": filters.gene, "include": list(include) if include else None})
+        if include:
+            wanted = set(include)
+            return [r for r in all_records if r.variant_id in wanted]
+        if filters.gene:  # emulate the SQL gene filter (matches gene_symbols)
+            term = filters.gene.upper()
+            return [r for r in all_records if term in {g.upper() for g in r.gene_symbols}]
+        return all_records
+
+    async def fake_review_map(*_a, **_k):
+        return {}
+
+    async def fake_metric_map(*_a, **_k):
+        return {}
+
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants.get_small_variant_review_map", fake_review_map)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map", fake_metric_map)
+
+    page = await get_family_compound_het_candidates(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        variant_id="v1",
+        limit=10,
+    )
+
+    # Same partner a whole-family scan would return.
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    # Source variant fetched by id first, then the scan scoped to its gene only.
+    assert fetch_calls[0]["include"] == ["v1"]
+    assert any(call["gene"] == "GENE1" for call in fetch_calls[1:])
+    # The other gene was never queried (no whole-family scan).
+    assert all(call["gene"] != "GENE2" for call in fetch_calls)
+    assert all(call["include"] is not None or call["gene"] == "GENE1" for call in fetch_calls)
+
+
+@pytest.mark.asyncio
+async def test_compound_het_candidates_falls_back_without_gene_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _no_gene_name(variant_id: str, calls: list[SmallVariantCall]) -> SmallVariantRecord:
+        return SmallVariantRecord(
+            variant_key=None,
+            variant_id=variant_id,
+            chr="1",
+            start=100,
+            end=100,
+            ref="A",
+            alt="G",
+            source="clair3",
+            rsid=None,
+            filters=[],
+            gene_symbols=[],  # no gene name; only a gene_id key
+            annotations=[{"gene_id": "ENSG1"}],
+            calls=calls,
+        )
+
+    v1 = _no_gene_name("v1", _COMPOUND_HET_PAIR_CALLS_A)
+    v2 = _no_gene_name("v2", _COMPOUND_HET_PAIR_CALLS_B)
+    all_records = [v1, v2]
+    genes_seen: list[str | None] = []
+
+    async def fake_fetch(context, filters, **kwargs):
+        include = kwargs.get("include_variant_ids")
+        if include:
+            wanted = set(include)
+            return [r for r in all_records if r.variant_id in wanted]
+        genes_seen.append(filters.gene)
+        return all_records
+
+    async def fake_review_map(*_a, **_k):
+        return {}
+
+    async def fake_metric_map(*_a, **_k):
+        return {}
+
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants.get_small_variant_review_map", fake_review_map)
+    monkeypatch.setattr("backend.app.services.clickhouse_family_variants._fetch_gene_constraint_metric_map", fake_metric_map)
+
+    page = await get_family_compound_het_candidates(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        variant_id="v1",
+        limit=10,
+    )
+
+    # gene_id-only source still finds the partner via the whole-family fallback.
+    assert [str(variant.id) for variant in page.variants] == ["v2"]
+    assert genes_seen == [None]
+
+
 @pytest.mark.asyncio
 async def test_get_family_small_variants_page_excludes_review_tags(
     monkeypatch: pytest.MonkeyPatch,

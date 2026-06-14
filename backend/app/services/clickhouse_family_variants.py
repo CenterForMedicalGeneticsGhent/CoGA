@@ -4528,11 +4528,34 @@ async def get_family_compound_het_candidates(
     variant_id: str,
     limit: int = 50,
 ) -> VariantPage:
-    filters = SmallVariantQueryFilters(page=1, page_size=max(limit, 1))
-    records = await _fetch_small_variant_rows(context, filters)
-    source_record = next((record for record in records if record.variant_id == variant_id), None)
+    # Compound-het partners are always within the source variant's gene, so look
+    # up the source variant first to learn its gene, then scope the partner scan
+    # to that gene instead of pulling the whole family's small-variant set. The
+    # gene filter matches a superset of records sharing the source's primary gene
+    # key, and _compound_het_partner_map below recomputes the exact partners, so
+    # the result is identical to scanning every variant.
+    source_matches = await _fetch_small_variant_rows(
+        context,
+        SmallVariantQueryFilters(page=1, page_size=1),
+        include_variant_ids=[variant_id],
+        limit=1,
+    )
+    source_record = next(
+        (record for record in source_matches if record.variant_id == variant_id), None
+    )
     if source_record is None:
         return VariantPage(total=0, variants=[])
+    source_gene, _source_gene_id = _primary_gene_keys(source_record)
+    if source_gene:
+        records = await _fetch_small_variant_rows(
+            context, SmallVariantQueryFilters(page=1, page_size=1, gene=source_gene)
+        )
+    else:
+        # No gene name to scope by (the partner key is then a bare gene_id, which
+        # the fetch cannot filter on); fall back to the whole-family scan.
+        records = await _fetch_small_variant_rows(
+            context, SmallVariantQueryFilters(page=1, page_size=1)
+        )
     affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
     partner_ids = _compound_het_partner_map(
         records,
