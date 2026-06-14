@@ -190,14 +190,17 @@ def _gene_transcript_priority(row: dict[str, object]) -> tuple[int, int, int, st
 
 
 def _select_preferred_gene_rows(rows: Iterable[dict[str, object]]) -> list[dict[str, object]]:
-    preferred_by_gene: dict[tuple[str, str], dict[str, object]] = {}
+    # Cache each gene's winning priority tuple so the stored winner is not
+    # re-scored against every later candidate (priority is computed once per row).
+    preferred_by_gene: dict[tuple[str, str], tuple[tuple, dict[str, object]]] = {}
     for row in rows:
         gene_key = (str(row.get("chr") or ""), str(row.get("hgnc_symbol") or "").upper())
+        priority = _gene_transcript_priority(row)
         current = preferred_by_gene.get(gene_key)
-        if current is None or _gene_transcript_priority(row) < _gene_transcript_priority(current):
-            preferred_by_gene[gene_key] = row
+        if current is None or priority < current[0]:
+            preferred_by_gene[gene_key] = (priority, row)
     return sorted(
-        preferred_by_gene.values(),
+        (row for _priority, row in preferred_by_gene.values()),
         key=lambda row: (int(row.get("start") or 0), int(row.get("end") or 0), str(row.get("hgnc_symbol") or "")),
     )
 

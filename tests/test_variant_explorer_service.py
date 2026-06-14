@@ -70,3 +70,30 @@ async def test_get_variant_carriers_exact_under_cap(monkeypatch) -> None:
     assert result.het_samples == 1
     assert result.hom_samples == 1
     assert result.total_families == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_annotation_display_maps_columns_without_gene_symbols(monkeypatch) -> None:
+    captured: dict = {}
+
+    async def fake_execute(query, params):
+        captured["query"] = query
+        # key, gene_ids, impacts, effects, clinvar_terms, hgvsc_values, hgvsp_values
+        return [(1, ["ENSG1"], ["HIGH"], ["missense_variant"], ["Pathogenic"], ["c.1A>T"], ["p.Met1?"])]
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_small_table_name", lambda assembly, suffix: "db.annotation_index")
+
+    result = await ves._fetch_annotation_display("GRCh38", [1])
+
+    # The never-read gene_symbols aggregate is no longer selected, and the
+    # remaining columns map to the shifted indices.
+    assert "gene_symbols" not in captured["query"]
+    assert result[1] == {
+        "gene_ids": ["ENSG1"],
+        "impacts": ["HIGH"],
+        "effects": ["missense_variant"],
+        "clinvar_terms": ["Pathogenic"],
+        "hgvsc_values": ["c.1A>T"],
+        "hgvsp_values": ["p.Met1?"],
+    }
