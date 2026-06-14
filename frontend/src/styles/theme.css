@@ -1370,7 +1370,21 @@ tbody tr:hover {
 .family-workspace-grid {
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  /* stretch both columns so the side column matches the (taller) Variants card */
+  align-items: stretch;
+}
+
+.family-workspace-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .family-workspace-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .family-workspace-card {
@@ -1385,6 +1399,99 @@ tbody tr:hover {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.6rem;
+}
+
+.family-workspace-card-subtitle {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+/* Left-accent colours distinguish the workspace cards at a glance. */
+.family-workspace-card--variants {
+  border-left: 3px solid rgba(82, 111, 161, 0.65);
+}
+
+.family-workspace-card--viz {
+  border-left: 3px solid rgba(56, 142, 122, 0.6);
+}
+
+.family-workspace-card--roi {
+  border-left: 3px solid rgba(176, 132, 54, 0.55);
+  /* grow to fill the side column so the card bottom aligns with the Variants card */
+  flex: 1 1 auto;
+}
+
+.family-variant-links {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.family-variant-row {
+  display: grid;
+  gap: 0.4rem;
+}
+
+/* Primary variant entry points stand out as filled buttons, but compact. */
+.family-variant-link {
+  justify-self: start;
+  min-height: 0;
+  padding: 0.34rem 0.7rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+}
+
+/* Compact, single-line ROI editor. */
+.family-roi-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Match the global input selector's specificity so the compact height wins. */
+.family-roi-edit input:not([type='checkbox']):not([type='radio']) {
+  flex: 1 1 9rem;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.34rem 0.6rem;
+  line-height: 1.3;
+}
+
+.family-roi-edit button {
+  min-height: 0;
+  padding: 0.44rem 0.72rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+}
+
+.family-variant-curation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.32rem;
+}
+
+.family-variant-secondary {
+  margin-top: 0.1rem;
+}
+
+/* The ROI value itself is the link to the chromosome view. */
+.family-roi-link {
+  color: var(--color-heading);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.family-roi-link:hover {
+  text-decoration: underline;
+}
+
+.family-roi-region {
+  color: var(--color-text-muted);
+  font-weight: 400;
 }
 
 .family-review-summary {
@@ -1446,7 +1553,9 @@ tbody tr:hover {
   margin: 0;
 }
 
-.family-workspace-pedigree .mono-panel {
+/* Borderless frame: the outer page-top-card is the only rectangle around the
+   pedigree drawing (no inner box). */
+.family-workspace-pedigree-frame {
   min-height: 150px;
 }
 
@@ -1590,7 +1699,8 @@ tbody tr:hover {
 }
 
 .family-detail-page .family-workspace-card .section-title {
-  font-size: 1.02rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
 }
 
 .dashboard-page .inline-actions,
