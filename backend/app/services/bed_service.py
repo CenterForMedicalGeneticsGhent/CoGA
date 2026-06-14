@@ -282,15 +282,19 @@ def _windowed_coverage_rows(rows: list[dict[str, Any]], window: int, limit: int)
 
 
 def _windowed_apcad_rows(rows: list[dict[str, Any]], window: int, limit: int) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, int], list[float]] = {}
+    # Bin per (chromosome, origin, window) and carry each row's own chromosome so
+    # the function is correct for multi-chromosome input. For the single-chromosome
+    # input it actually receives today this is byte-for-byte identical to binning
+    # by (origin, window) and stamping rows[0]'s chromosome.
+    grouped: dict[tuple[str, str, int], list[float]] = {}
     extremes: list[dict[str, Any]] = []
-    chrom = str(rows[0]["chr"]) if rows else ""
     for row in rows:
+        chrom = str(row["chr"])
         value = float(row["value"])
         origin = str(row.get("origin") or "und")
         if 0.05 <= value <= 0.95:
             bin_start = (int(row["start"]) // window) * window
-            grouped.setdefault((origin, bin_start), []).append(value)
+            grouped.setdefault((chrom, origin, bin_start), []).append(value)
         else:
             extremes.append(
                 {
@@ -309,7 +313,9 @@ def _windowed_apcad_rows(rows: list[dict[str, Any]], window: int, limit: int) ->
             "value": sum(values) / len(values),
             "origin": origin,
         }
-        for (origin, bin_start), values in sorted(grouped.items(), key=lambda item: (item[0][1], item[0][0]))
+        for (chrom, origin, bin_start), values in sorted(
+            grouped.items(), key=lambda item: (item[0][2], item[0][1], item[0][0])
+        )
     ][:limit]
     return sorted([*binned, *extremes], key=lambda item: (item["start"], item.get("origin") or "und"))
 

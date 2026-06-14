@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 import re
 from typing import Any
@@ -31,7 +30,9 @@ from .clickhouse_interval_tracks import (
 )
 from .clickhouse_variant_storage import (
     count_family_small_variants,
+    count_family_small_variants_by_family,
     count_family_structural_variants,
+    count_family_structural_variants_by_family,
     count_family_structural_variants_by_sample,
     delete_family_small_variants,
     delete_family_structural_variants,
@@ -54,9 +55,6 @@ from .raw_import_files_pg import (
 )
 
 BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype")
-# Bound concurrent per-family/per-assembly ClickHouse count queries on the data
-# inventory page so they run in parallel without overwhelming the variant store.
-_INVENTORY_COUNT_CONCURRENCY = 16
 SAMPLE_TRACK_TYPES = (*BED_TRACK_TYPES, "structural_variants", "repeat_expansions")
 FAMILY_TRACK_TYPES = ("small_variants", "structural_variants", "repeat_expansions", *BED_TRACK_TYPES)
 
@@ -431,50 +429,53 @@ async def list_data_inventory_page(
     family_uuids = [row["family_uuid"] for row in family_rows]
     interval_counts = await _interval_counts_by_family(session, family_uuids)
     repeat_counts = await _repeat_counts_by_family(session, family_uuids)
-    # Run the per-family/per-assembly variant counts concurrently (bounded)
-    # instead of serially — each is an independent ClickHouse round-trip. The
-    # queries and their per-family summing are otherwise unchanged.
-    semaphore = asyncio.Semaphore(_INVENTORY_COUNT_CONCURRENCY)
-
-    async def _count(counter, assembly_name: str, family_uuid: str, project_ids: list[str]) -> int:
-        async with semaphore:
-            return await counter(assembly_name, family_uuid, project_ids=project_ids)
-
-    count_tasks: list[tuple[int, str, Any]] = []
-    for index, family_row in enumerate(family_rows):
-        project_ids = _string_list(family_row.get("project_ids"))
+    # Count small + structural variants for every family with one GROUP BY query
+    # per assembly, instead of a query per (family, assembly). Each family's
+    # project scope is preserved exactly via (family_guid, project_guid) pairs
+    # (variants are stored replicated per project); project-less families are
+    # counted unscoped.
+    assembly_pairs: dict[str, list[tuple[str, str]]] = {}
+    assembly_no_project: dict[str, list[str]] = {}
+    for family_row in family_rows:
         family_uuid = family_row["family_uuid"]
+        project_ids = list(dict.fromkeys(_string_list(family_row.get("project_ids"))))
         for assembly_name in _string_list(family_row.get("assembly_names")):
-            count_tasks.append(
-                (index, "small", _count(count_family_small_variants, assembly_name, family_uuid, project_ids))
-            )
-            count_tasks.append(
-                (index, "structural", _count(count_family_structural_variants, assembly_name, family_uuid, project_ids))
-            )
+            if project_ids:
+                assembly_pairs.setdefault(assembly_name, []).extend(
+                    (family_uuid, project_id) for project_id in project_ids
+                )
+            else:
+                assembly_no_project.setdefault(assembly_name, []).append(family_uuid)
 
-    count_values = await asyncio.gather(*(task for _index, _kind, task in count_tasks))
-    small_counts = [0] * len(family_rows)
-    structural_counts = [0] * len(family_rows)
-    for (index, kind, _task), value in zip(count_tasks, count_values):
-        if kind == "small":
-            small_counts[index] += value
-        else:
-            structural_counts[index] += value
-
-    items: list[FamilyInventorySummaryOut] = []
-    for index, family_row in enumerate(family_rows):
-        items.append(
-            _build_family_inventory_summary(
-                family_row=family_row,
-                bed_track_counts=interval_counts.get(
-                    family_row["family_uuid"],
-                    _empty_track_counts(BED_TRACK_TYPES),
-                ),
-                small_variant_count=small_counts[index],
-                structural_variant_count=structural_counts[index],
-                repeat_expansion_count=repeat_counts.get(family_row["family_uuid"], 0),
-            )
+    small_by_family: dict[str, int] = {}
+    structural_by_family: dict[str, int] = {}
+    for assembly_name in set(assembly_pairs) | set(assembly_no_project):
+        pairs = assembly_pairs.get(assembly_name, [])
+        no_project = assembly_no_project.get(assembly_name, [])
+        small = await count_family_small_variants_by_family(
+            assembly_name, family_project_pairs=pairs, families_without_project=no_project
         )
+        structural = await count_family_structural_variants_by_family(
+            assembly_name, family_project_pairs=pairs, families_without_project=no_project
+        )
+        for family_uuid, count in small.items():
+            small_by_family[family_uuid] = small_by_family.get(family_uuid, 0) + count
+        for family_uuid, count in structural.items():
+            structural_by_family[family_uuid] = structural_by_family.get(family_uuid, 0) + count
+
+    items: list[FamilyInventorySummaryOut] = [
+        _build_family_inventory_summary(
+            family_row=family_row,
+            bed_track_counts=interval_counts.get(
+                family_row["family_uuid"],
+                _empty_track_counts(BED_TRACK_TYPES),
+            ),
+            small_variant_count=small_by_family.get(family_row["family_uuid"], 0),
+            structural_variant_count=structural_by_family.get(family_row["family_uuid"], 0),
+            repeat_expansion_count=repeat_counts.get(family_row["family_uuid"], 0),
+        )
+        for family_row in family_rows
+    ]
     return FamilyInventoryPageOut(total=total, page=page, page_size=page_size, items=items)
 
 

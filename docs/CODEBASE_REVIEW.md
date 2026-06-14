@@ -93,7 +93,7 @@ Line 855 assigns `detail = await get_family_data_inventory_detail(...)` but `det
 - **Effort:** S
 - **Expected impact:** Removes several ClickHouse round-trips and multiple Postgres aggregations from every small-variant family delete. For large families (many assemblies/samples) this can eliminate **tens of seconds** of latency per delete; high impact relative to a one-line change.
 
-#### 4. Batch BED endpoints issue one ClickHouse query per chromosome (N+1) - FIXED (Phase 1: single batched query; windowed-apcad multi-chrom grouping deferred)
+#### 4. Batch BED endpoints issue one ClickHouse query per chromosome (N+1) - FIXED (single batched query + chromosome-aware `_windowed_apcad_rows`)
 `backend/app/services/bed_service.py` (`fetch_bed_batch_text` / `fetch_bed_batch_json`, lines 438-454, 478-494)
 
 Both batch endpoints loop `for chrom in chroms` and call `_fetch_bed_records_for_chrom` once per chromosome, each fanning out to `fetch_interval_track_rows(chromosomes=[chrom])`. The genome overview page passes the full chromosome list in one request, so a single batch call becomes ~24+ serial ClickHouse round-trips per sample per track type. `fetch_interval_track_rows` already supports a `chrom IN (...)` clause and accepts a sequence.
@@ -111,7 +111,7 @@ Inside the per-record loop over `iter_structural_variant_records()`, every parse
 - **Effort:** S (memoize) / M (bulk query)
 - **Expected impact:** **Before:** 50-500 round-trips for a typical 50-500-record SV file. **After:** as few as 1 (bulk) or the count of unique windows (memoized). At ~1-5 ms/round-trip on loopback Postgres, upload time can drop from several seconds to under one second for large files.
 
-#### 6. Per-family/per-assembly N+1 ClickHouse counts in the admin Data → Families view - FIXED (bounded-concurrency parallelization; batched GROUP BY deferred due to per-family project scope)
+#### 6. Per-family/per-assembly N+1 ClickHouse counts in the admin Data → Families view - FIXED (one GROUP BY query per assembly with exact per-family project scope via `(family_guid, project_guid)` tuple-IN)
 `backend/app/services/admin_service.py` (`list_data_inventory_page`, lines 430-456)
 
 For each family row the loop iterates assemblies and awaits two ClickHouse queries (`count_family_small_variants`, `count_family_structural_variants`) one at a time. With `page_size` up to 100, this is up to `~2 × families × assemblies` serial round-trips per page load. Interval/repeat counts on the same page are already batched, making the variant counts the outlier; the (currently dead) `list_data_inventory` wrapper uses `page_size=10_000`, which would serialize catastrophically if ever called at scale.
