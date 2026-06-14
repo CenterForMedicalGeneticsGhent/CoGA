@@ -838,7 +838,6 @@ async def delete_family_data_by_type(
         raise HTTPException(status_code=400, detail="Invalid data type")
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
-    detail = await get_family_data_inventory_detail(session, family_id=family_id)
     result = await session.execute(
         text("SELECT id::text AS family_uuid FROM families WHERE family_id = :family_id"),
         {"family_id": family_id},
