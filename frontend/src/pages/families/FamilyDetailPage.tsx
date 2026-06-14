@@ -1120,15 +1120,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <strong className="family-workspace-stat-copy">{assemblyLabel}</strong>
               </div>
               <div className="family-workspace-stat">
-                <span className="stat-label">ROI</span>
-                <strong className="family-workspace-stat-copy">
-                  {data.roi ? data.roi.label : 'Not set'}
-                </strong>
-                {data.roi && (
-                  <span className="family-workspace-stat-note">{formatRegion(data.roi)}</span>
-                )}
-              </div>
-              <div className="family-workspace-stat">
                 <span className="stat-label">Projects</span>
                 {familyProjects.length > 0 ? (
                   <div className="family-workspace-projects">
@@ -1143,14 +1134,46 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 )}
               </div>
             </div>
-            {hasSmallVariants || hasVariants ? (
-              <div className="family-review-summary" aria-label="Variant curation summary">
-                <span className="family-review-summary-label">Curation</span>
-                {hasSmallVariants ? (
-                  <div className="family-review-summary-group" aria-label="Small variant review summary">
-                    <span className="table-chip family-review-summary-chip family-review-summary-chip--scope">
-                      Small variants
-                    </span>
+          </div>
+          {pedRows.length > 0 && (
+            <div className="page-top-card-visual">
+              <div className="page-top-card-pedigree family-workspace-pedigree">
+                <p className="stat-label">Pedigree</p>
+                <div className="family-workspace-pedigree-frame overflow-x-auto">
+                  <Pedigree
+                    rows={pedRows}
+                    members={data.members}
+                    relationships={data.relationships}
+                    inheritanceModel={(data.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
+                    phenotypeSampleIds={phenotypeSampleIds}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="family-workspace-grid">
+        <article className="surface-card-flat family-workspace-card family-workspace-card--variants">
+          <div className="family-workspace-card-head">
+            <div className="space-y-1">
+              <h2 className="section-title">Variants</h2>
+              <p className="family-workspace-card-subtitle">Filter, review and curate variant calls</p>
+            </div>
+          </div>
+          {hasAnyVariantData && (
+            <div className="family-variant-links">
+              {hasSmallVariants && (
+                <div className="family-variant-row">
+                  <Link
+                    to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
+                    className="form-button family-variant-link hover:no-underline"
+                  >
+                    Small variants
+                  </Link>
+                  <div className="family-variant-curation" aria-label="Small variant curation">
+                    <span className="family-review-summary-label">Curation</span>
                     <span className="table-chip family-review-summary-chip">
                       Reviewed <strong>{reviewSummary?.reviewed_variant_count ?? 0}</strong>
                     </span>
@@ -1168,12 +1191,18 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       </span>
                     ))}
                   </div>
-                ) : null}
-                {hasVariants ? (
-                  <div className="family-review-summary-group" aria-label="Structural variant review summary">
-                    <span className="table-chip family-review-summary-chip family-review-summary-chip--scope">
-                      Structural variants
-                    </span>
+                </div>
+              )}
+              {hasVariants && (
+                <div className="family-variant-row">
+                  <Link
+                    to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
+                    className="form-button family-variant-link hover:no-underline"
+                  >
+                    Structural variants
+                  </Link>
+                  <div className="family-variant-curation" aria-label="Structural variant curation">
+                    <span className="family-review-summary-label">Curation</span>
                     <span className="table-chip family-review-summary-chip">
                       Reviewed <strong>{structuralReviewSummary?.reviewed_variant_count ?? 0}</strong>
                     </span>
@@ -1191,83 +1220,43 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       </span>
                     ))}
                   </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-          {pedRows.length > 0 && (
-            <div className="page-top-card-visual">
-              <div className="page-top-card-pedigree family-workspace-pedigree">
-                <p className="stat-label">Pedigree</p>
-                <div className="mono-panel overflow-x-auto !bg-[rgba(255,255,255,0.92)]">
-                  <Pedigree
-                    rows={pedRows}
-                    members={data.members}
-                    relationships={data.relationships}
-                    inheritanceModel={(data.metadata?.pgt as { inheritance_model?: string } | undefined)?.inheritance_model}
-                    phenotypeSampleIds={phenotypeSampleIds}
-                  />
                 </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="family-workspace-grid">
-        <article className="surface-card-flat family-workspace-card">
-          <div className="family-workspace-card-head">
-            <h2 className="section-title">Variants</h2>
-          </div>
-          {hasAnyVariantData && (
-            <div className="compact-toolbar family-toolbar">
-              {hasVariants && (
-                <Link
-                  to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
-                  className="button-secondary hover:no-underline"
-                >
-                  Structural variants
-                </Link>
               )}
-              {hasSmallVariants && (
-                <Link
-                  to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
-                  className="button-secondary hover:no-underline"
-                >
-                  Small variants
-                </Link>
-              )}
-              {hasVariantSummary && (
-                <Link
-                  to={`/families/${data.family_id}/variant-summary`}
-                  className="button-secondary hover:no-underline"
-                >
-                  Variant summary
-                </Link>
-              )}
-              {hasRepeatExpansions && (
-                <Link
-                  to={`/families/${data.family_id}/repeat-expansions`}
-                  className="button-secondary hover:no-underline"
-                >
-                  Repeat expansions
-                </Link>
-              )}
-              {hasParaphase && (
-                <Link
-                  to={`/families/${data.family_id}/paraphase`}
-                  className="button-secondary hover:no-underline"
-                >
-                  Paraphase
-                </Link>
-              )}
-              {hasMitoDna && (
-                <Link
-                  to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
-                  className="button-secondary hover:no-underline"
-                >
-                  mtDNA analysis
-                </Link>
+              {(hasVariantSummary || hasRepeatExpansions || hasParaphase || hasMitoDna) && (
+                <div className="compact-toolbar family-toolbar family-variant-secondary">
+                  {hasVariantSummary && (
+                    <Link
+                      to={`/families/${data.family_id}/variant-summary`}
+                      className="button-secondary hover:no-underline"
+                    >
+                      Variant summary
+                    </Link>
+                  )}
+                  {hasRepeatExpansions && (
+                    <Link
+                      to={`/families/${data.family_id}/repeat-expansions`}
+                      className="button-secondary hover:no-underline"
+                    >
+                      Repeat expansions
+                    </Link>
+                  )}
+                  {hasParaphase && (
+                    <Link
+                      to={`/families/${data.family_id}/paraphase`}
+                      className="button-secondary hover:no-underline"
+                    >
+                      Paraphase
+                    </Link>
+                  )}
+                  {hasMitoDna && (
+                    <Link
+                      to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
+                      className="button-secondary hover:no-underline"
+                    >
+                      mtDNA analysis
+                    </Link>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -1279,101 +1268,111 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           )}
         </article>
 
-        <article className="surface-card-flat family-workspace-card">
-          <div className="family-workspace-card-head">
-            <h2 className="section-title">Visualization</h2>
-          </div>
-          <div className="compact-toolbar family-toolbar">
-            <Link
-              to={`/families/${data.family_id}/genome`}
-              className="button-secondary hover:no-underline"
-            >
-              Genome view
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/chromosome/1`}
-              className="button-secondary hover:no-underline"
-            >
-              Chromosome view
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/circos`}
-              className="button-secondary hover:no-underline"
-            >
-              Circos plot
-            </Link>
-            <Link
-              to={`/families/${data.family_id}/igv`}
-              className="button-secondary hover:no-underline"
-            >
-              IGV viewer
-            </Link>
-          </div>
-        </article>
-
-        <article className="surface-card-flat family-workspace-card">
-          <div className="family-workspace-card-head">
-            <h2 className="section-title">ROI</h2>
-          </div>
-          {data.roi && (
+        <div className="family-workspace-side">
+          <article className="surface-card-flat family-workspace-card family-workspace-card--viz">
+            <div className="family-workspace-card-head">
+              <div className="space-y-1">
+                <h2 className="section-title">Visualization</h2>
+                <p className="family-workspace-card-subtitle">Browse the data across the genome</p>
+              </div>
+            </div>
             <div className="compact-toolbar family-toolbar">
               <Link
-                to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
-                  0,
-                  data.roi.start - 1_000_000,
-                )}&end=${data.roi.end + 1_000_000}${
-                  projectId ? `&project_id=${projectId}` : ''
-                }`}
+                to={`/families/${data.family_id}/genome`}
                 className="button-secondary hover:no-underline"
               >
-                Open ROI in chromosome view
+                Genome view
+              </Link>
+              <Link
+                to={`/families/${data.family_id}/chromosome/1`}
+                className="button-secondary hover:no-underline"
+              >
+                Chromosome view
+              </Link>
+              <Link
+                to={`/families/${data.family_id}/circos`}
+                className="button-secondary hover:no-underline"
+              >
+                Circos plot
+              </Link>
+              <Link
+                to={`/families/${data.family_id}/igv`}
+                className="button-secondary hover:no-underline"
+              >
+                IGV viewer
               </Link>
             </div>
-          )}
-          {!data.roi && !canEditRoi && (
-            <p className="dashboard-link-note">No family region of interest is defined.</p>
-          )}
-          {canEditRoi && (
-            <div className="family-roi-admin">
-              <label className="field-label family-roi-input">
-                Gene symbol or genomic locus
-                <input
-                  type="text"
-                  value={roiInput}
-                  onChange={(e) => setRoiInput(e.target.value)}
-                  placeholder="BRCA1 or chr17:43044295-43125482"
-                  disabled={roiBusy}
-                />
-              </label>
-              <div className="compact-toolbar family-toolbar">
-                <button
-                  type="button"
-                  onClick={() => saveRoi(false)}
-                  disabled={roiBusy || roiInput.trim().length === 0}
-                >
-                  Save ROI
-                </button>
-                <button
-                  type="button"
-                  className="button-ghost"
-                  onClick={() => saveRoi(true)}
-                  disabled={roiBusy || !data.roi}
-                >
-                  Clear ROI
-                </button>
+          </article>
+
+          <article className="surface-card-flat family-workspace-card family-workspace-card--roi">
+            <div className="family-workspace-card-head">
+              <div className="space-y-1">
+                <h2 className="section-title">Region of interest</h2>
+                <p className="family-workspace-card-subtitle">
+                  {data.roi ? data.roi.label : 'No region of interest set'}
+                  {data.roi && (
+                    <span className="family-roi-region"> · {formatRegion(data.roi)}</span>
+                  )}
+                </p>
               </div>
-              {roiStatus && (
-                <div
-                  className={`status-note ${
-                    roiStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
-                  }`}
-                >
-                  {roiStatus.message}
-                </div>
-              )}
             </div>
-          )}
-        </article>
+            {data.roi && (
+              <div className="compact-toolbar family-toolbar">
+                <Link
+                  to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
+                    0,
+                    data.roi.start - 1_000_000,
+                  )}&end=${data.roi.end + 1_000_000}${
+                    projectId ? `&project_id=${projectId}` : ''
+                  }`}
+                  className="button-secondary hover:no-underline"
+                >
+                  Open in chromosome view
+                </Link>
+              </div>
+            )}
+            {canEditRoi && (
+              <div className="family-roi-admin">
+                <label className="field-label family-roi-input">
+                  {data.roi ? 'Update region' : 'Set region'} (gene symbol or genomic locus)
+                  <input
+                    type="text"
+                    value={roiInput}
+                    onChange={(e) => setRoiInput(e.target.value)}
+                    placeholder="BRCA1 or chr17:43044295-43125482"
+                    disabled={roiBusy}
+                  />
+                </label>
+                <div className="compact-toolbar family-toolbar">
+                  <button
+                    type="button"
+                    onClick={() => saveRoi(false)}
+                    disabled={roiBusy || roiInput.trim().length === 0}
+                  >
+                    Save ROI
+                  </button>
+                  <button
+                    type="button"
+                    className="button-ghost"
+                    onClick={() => saveRoi(true)}
+                    disabled={roiBusy || !data.roi}
+                  >
+                    Clear ROI
+                  </button>
+                </div>
+                {roiStatus && (
+                  <div
+                    className={`status-note ${
+                      roiStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+                    }`}
+                  >
+                    {roiStatus.message}
+                  </div>
+                )}
+              </div>
+            )}
+          </article>
+        </div>
       </section>
 
       <section className="surface-card family-members-card space-y-3">
