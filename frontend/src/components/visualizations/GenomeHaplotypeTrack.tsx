@@ -18,6 +18,10 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 
 const DEFAULT_CHROMS = [...Array.from({ length: 22 }, (_, i) => String(i + 1)), 'X', 'Y'];
 
+// Stable fallback for the optional familyMembers prop. An inline `= []` default
+// is a fresh array every render, which would defeat the memos that depend on it.
+const EMPTY_MEMBERS: HaplotypeMemberLike[] = [];
+
 interface Segment {
   chr: string;
   start: number;
@@ -78,7 +82,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
   height = 40,
   disorder = 'dominant',
   inheritanceModel,
-  familyMembers = [],
+  familyMembers = EMPTY_MEMBERS,
   riskRegion,
   chroms = DEFAULT_CHROMS,
 }) => {
@@ -117,7 +121,16 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     gcTime: Infinity,
   });
 
-  const segments = segmentMap[sampleId] || [];
+  const segments = useMemo(() => segmentMap[sampleId] || [], [segmentMap, sampleId]);
+  // Shared once-per-segmentMap projection reused by both diseaseModel and riskState.
+  const samplesArray = useMemo(
+    () =>
+      Object.entries(segmentMap).map(([sample, sampleSegments]) => ({
+        sample,
+        segments: sampleSegments,
+      })),
+    [segmentMap],
+  );
   const effectiveInheritanceModel = inheritanceModel || (disorder === 'recessive' ? 'AR' : 'AD');
   const currentMember: HaplotypeMemberLike = useMemo(
     () => ({
@@ -130,26 +143,28 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     }),
     [affected, carrierStatus, carrierType, role, sampleId, sex],
   );
-  const membersForRisk = familyMembers.length > 0 ? familyMembers : [currentMember];
-  const analysisRegion =
-    riskRegion ||
-    (layout
-      ? {
-          chr: chroms[0],
-          start: 0,
-          end: layout.lengths[chroms[0]] || 1,
-        }
-      : { chr: chroms[0], start: 0, end: 1 });
+  const membersForRisk = useMemo(
+    () => (familyMembers.length > 0 ? familyMembers : [currentMember]),
+    [familyMembers, currentMember],
+  );
+  const analysisRegion = useMemo(
+    () =>
+      riskRegion ||
+      (layout
+        ? {
+            chr: chroms[0],
+            start: 0,
+            end: layout.lengths[chroms[0]] || 1,
+          }
+        : { chr: chroms[0], start: 0, end: 1 }),
+    [riskRegion, layout, chroms],
+  );
   const riskEnabled =
     highlightRiskHaplotype ?? membersForRisk.some((member) => member.affected || member.carrier_status === 'carrier');
   const diseaseModel = useMemo(() => {
-    const samples = Object.entries(segmentMap).map(([sample, sampleSegments]) => ({
-      sample,
-      segments: sampleSegments,
-    }));
     return riskEnabled
       ? inferDiseaseHaplotypes({
-          samples,
+          samples: samplesArray,
           members: membersForRisk,
           inheritanceModel: resolveHaplotypeInheritanceModel(effectiveInheritanceModel, membersForRisk),
           region: analysisRegion,
@@ -160,7 +175,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           inheritanceModel: effectiveInheritanceModel,
           region: analysisRegion,
         });
-  }, [analysisRegion, effectiveInheritanceModel, membersForRisk, riskEnabled, segmentMap]);
+  }, [analysisRegion, effectiveInheritanceModel, membersForRisk, riskEnabled, samplesArray]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -254,18 +269,18 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     chroms,
     isLoading,
   ]);
-  const riskState =
-    segments.length > 0
-      ? interpretSampleHaplotypeRisk({
-          model: diseaseModel,
-          samples: Object.entries(segmentMap).map(([sample, sampleSegments]) => ({
-            sample,
-            segments: sampleSegments,
-          })),
-          member: currentMember,
-          region: analysisRegion,
-        })
-      : 'uninformative';
+  const riskState = useMemo(
+    () =>
+      segments.length > 0
+        ? interpretSampleHaplotypeRisk({
+            model: diseaseModel,
+            samples: samplesArray,
+            member: currentMember,
+            region: analysisRegion,
+          })
+        : 'uninformative',
+    [segments, diseaseModel, samplesArray, currentMember, analysisRegion],
+  );
 
   return (
     <div
