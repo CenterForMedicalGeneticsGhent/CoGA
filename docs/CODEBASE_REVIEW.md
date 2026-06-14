@@ -177,7 +177,7 @@ The codebase already uses `asyncio.to_thread` elsewhere (e.g. `family_imports.py
 - **Effort:** S (reference handlers) / M (manifest gather, Fasta cache) / S (download_prefix)
 - **Expected impact:** Manifest: for a 4-sample family at 50 ms/HEAD, total latency drops from ~800 ms (serial) to ~200 ms (concurrent), and the event loop stops stalling other requests. Reference: eliminates event-loop stalls for the duration of each BAM/CRAM fetch plus per-call `.fai` re-open overhead. `download_prefix`: roughly **8-16x** faster staging for packages with many small files.
 
-#### 12. Family landing page fetches full repeat/Paraphase/mtDNA table payloads just for presence booleans
+#### 12. Family landing page fetches full repeat/Paraphase/mtDNA table payloads just for presence booleans - FIXED (added `count_only=true` mode returning `{loci_count}`/`{genes_count}`/`{variant_count, has_coverage}`; landing page derives the nav-link booleans from those counts)
 `frontend/src/pages/families/FamilyDetailPage.tsx` (`repeatTable` / `paraphaseTable` / `mitoTable` queries, lines 365-418)
 
 Three queries download entire table payloads from `/families/{id}/repeat-expansions`, `/paraphase`, and `/mitochondrial-dna`, but the results are consumed only as `hasRepeatExpansions`/`hasParaphase`/`hasMitoDna` booleans to decide whether to render a nav link. The SV and small-variant presence checks on the same page correctly use `page=1&page_size=1`; the three table endpoints have no count/limit mode and return every locus/gene/variant (mtDNA up to `MAX_MTDNA_VARIANTS = 5000`) plus per-sample data. The `has-data` query keys also differ from the data pages' keys, so the fetches don't even prime the cache for navigation.

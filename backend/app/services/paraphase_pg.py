@@ -399,6 +399,7 @@ async def get_family_paraphase_table_response(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    count_only: bool = False,
 ) -> FamilyParaphaseTableOut:
     sample_ids = list(context.sample_uuid_to_name)
     samples = [
@@ -412,6 +413,22 @@ async def get_family_paraphase_table_response(
     ]
     if not sample_ids:
         return FamilyParaphaseTableOut(samples=samples, genes=[])
+
+    if count_only:
+        # Presence check only: count distinct genes without building per-gene
+        # results or the per-sample payload the full response serializes.
+        count_result = await session.execute(
+            text(
+                """
+                SELECT count(DISTINCT gene_symbol) AS genes_count
+                FROM sample_paraphase_results
+                WHERE family_id = CAST(:family_id AS uuid)
+                  AND sample_id IN :sample_ids
+                """
+            ).bindparams(uuid_list_bindparam("sample_ids")),
+            {"family_id": context.family_uuid, "sample_ids": uuid_values(sample_ids)},
+        )
+        return FamilyParaphaseTableOut(genes_count=int(count_result.scalar() or 0))
 
     result = await session.execute(
         text(
@@ -526,4 +543,4 @@ async def get_family_paraphase_table_response(
             row.gene_symbol.lower(),
         )
     )
-    return FamilyParaphaseTableOut(samples=samples, genes=genes)
+    return FamilyParaphaseTableOut(samples=samples, genes=genes, genes_count=len(genes))

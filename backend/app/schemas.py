@@ -1589,6 +1589,9 @@ class RepeatExpansionRowOut(BaseModel):
 class FamilyRepeatExpansionTableOut(BaseModel):
     samples: List[FamilyMemberOut] = Field(default_factory=list)
     loci: List[RepeatExpansionRowOut] = Field(default_factory=list)
+    # Number of loci with data. Always populated; with ``count_only`` the heavy
+    # ``loci`` payload is skipped and only this presence count is returned.
+    loci_count: int = 0
 
 
 class ParaphaseMetricOut(BaseModel):
@@ -1683,6 +1686,8 @@ class ParaphaseGeneResultOut(BaseModel):
 class FamilyParaphaseTableOut(BaseModel):
     samples: List[FamilyMemberOut] = Field(default_factory=list)
     genes: List[ParaphaseGeneResultOut] = Field(default_factory=list)
+    # Number of genes with data; with ``count_only`` only this count is returned.
+    genes_count: int = 0
 
 
 class MitoDNACoverageOut(BaseModel):
@@ -1771,6 +1776,10 @@ class MitoDNAVariantOut(BaseModel):
 class FamilyMitoDNAAnalysisOut(BaseModel):
     samples: List[MitoDNASampleOut] = Field(default_factory=list)
     variants: List[MitoDNAVariantOut] = Field(default_factory=list)
+    # Presence summary; with ``count_only`` the heavy ``variants``/``samples``
+    # payload is skipped and only these two fields are returned.
+    variant_count: int = 0
+    has_coverage: bool = False
     qc_notes: List[str] = Field(default_factory=list)
     heteroplasmy_threshold: float = 0.02
     homoplasmy_threshold: float = 0.95

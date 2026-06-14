@@ -130,3 +130,63 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
     assert response.variants[0].calls["PROBAND"].display == "46.0%"
     assert response.variants[0].calls["MOM"].zygosity == "heteroplasmic"
     assert response.variants[0].calls["DAD"].zygosity == "reference"
+    # The full response also carries the presence summary.
+    assert response.variant_count == 1
+    assert response.has_coverage is True
+
+
+@pytest.mark.asyncio
+async def test_family_mitochondrial_analysis_count_only_skips_variant_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_mt_records(_context):
+        return [_mt_record()]
+
+    async def fake_coverage_by_sample(_context):
+        return {
+            "PROBAND": mitochondrial_analysis.MitoDNACoverageOut(
+                mean_depth=418.5, source="coverage", regions=4
+            )
+        }
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+
+    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        count_only=True,
+    )
+
+    assert response.variant_count == 1
+    assert response.has_coverage is True
+    # The heavy per-variant / per-sample payload is omitted in count_only mode.
+    assert response.variants == []
+    assert response.samples == []
+    assert response.qc_notes == []
+
+
+@pytest.mark.asyncio
+async def test_family_mitochondrial_analysis_count_only_coverage_without_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_mt_records(_context):
+        return []  # no chrM variants
+
+    async def fake_coverage_by_sample(_context):
+        return {
+            "PROBAND": mitochondrial_analysis.MitoDNACoverageOut(mean_depth=400.0, source="coverage")
+        }
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+
+    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        count_only=True,
+    )
+
+    # Coverage-only families still register as present via has_coverage.
+    assert response.variant_count == 0
+    assert response.has_coverage is True
