@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Sequence
 
@@ -10,6 +11,26 @@ from pyfaidx import Fasta
 from ..core.config import settings
 from ..schemas import ReferenceReadOut, ReferenceReadsOut, ReferenceSequenceOut
 from .data_scope import chromosome_aliases
+
+# Reference FASTAs are opened once and reused: re-instantiating Fasta() per call
+# re-reads and re-validates the .fai index every time. pyfaidx serialises the
+# actual seek/read with its own internal lock, so a cached handle is safe to share
+# across the worker threads the reference routes are offloaded onto; the lock here
+# only guards opening so concurrent first-callers don't each open a handle.
+_fasta_cache: dict[str, Fasta] = {}
+_fasta_cache_lock = threading.Lock()
+
+
+def _reference_fasta(fasta_path: str) -> Fasta:
+    fasta = _fasta_cache.get(fasta_path)
+    if fasta is not None:
+        return fasta
+    with _fasta_cache_lock:
+        fasta = _fasta_cache.get(fasta_path)
+        if fasta is None:
+            fasta = Fasta(fasta_path)
+            _fasta_cache[fasta_path] = fasta
+        return fasta
 
 
 def _chromosome_options(chrom: str) -> list[str]:
@@ -35,12 +56,9 @@ def get_reference_sequence_data(chrom: str, start: int, end: int) -> ReferenceSe
     if not fasta_path:
         raise HTTPException(status_code=503, detail="Reference FASTA path is not configured")
 
-    fasta = Fasta(fasta_path)
-    try:
-        reference_name = _resolve_matching_name(list(fasta.keys()), chrom)
-        sequence = fasta[reference_name][start:end].seq
-    finally:
-        fasta.close()
+    fasta = _reference_fasta(fasta_path)
+    reference_name = _resolve_matching_name(list(fasta.keys()), chrom)
+    sequence = fasta[reference_name][start:end].seq
 
     return ReferenceSequenceOut(sequence=sequence)
 

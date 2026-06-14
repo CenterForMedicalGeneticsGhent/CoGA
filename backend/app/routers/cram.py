@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -112,16 +113,23 @@ async def get_alignment_manifest(
     user: CurrentUser = Depends(get_current_user),
 ):
     family_sample_ids = await _get_accessible_family_sample_ids(session, family_id, user)
-    manifest: list[AlignmentManifestEntryOut] = []
     seen: set[str] = set()
+    ordered_samples: list[str] = []
     for sample_id in sample_ids:
         if sample_id in seen or sample_id not in family_sample_ids:
             continue
         seen.add(sample_id)
-        entry = _resolve_alignment_manifest_entry(family_id, sample_id)
-        if entry is not None:
-            manifest.append(entry)
-    return manifest
+        ordered_samples.append(sample_id)
+    # Resolving each sample does several blocking S3 HEAD + presign calls; run them
+    # in worker threads concurrently instead of serially stalling the event loop.
+    # asyncio.gather preserves input order, so the manifest order is unchanged.
+    entries = await asyncio.gather(
+        *(
+            asyncio.to_thread(_resolve_alignment_manifest_entry, family_id, sample_id)
+            for sample_id in ordered_samples
+        )
+    )
+    return [entry for entry in entries if entry is not None]
 
 
 @router.get("/{family_id}/{sample_id}.cram")
