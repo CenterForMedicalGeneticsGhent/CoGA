@@ -222,7 +222,7 @@ These three derived arrays are built inline in the render body (no `useMemo`), p
 - **Effort:** S
 - **Expected impact:** Eliminates the redundant D3 layout + full SVG clear/redraw on every unrelated keystroke. The block-ordering layout is `O(n²)` for larger pedigrees (5+ generations); the fix limits re-layout to when `familyId`/`members`/`couples` actually change.
 
-#### 17. `RepeatExpansionTrack` refetches chromosome-wide data on every pan/zoom in overview mode
+#### 17. `RepeatExpansionTrack` refetches chromosome-wide data on every pan/zoom in overview mode - FIXED (queryKey `regionEnd` → `overviewMode ? null : regionEnd`, so the overview key is stable across pan/zoom)
 `frontend/src/components/visualizations/RepeatExpansionTrack.tsx` (`useQuery` queryKey, lines 40-69)
 
 In overview mode (the default in `ChromosomeViewWorkspace`), the server request params are only `{chr, project_id}` (start/end deliberately omitted), but the React Query `queryKey` unconditionally includes `regionEnd`. Since `region.end` changes on every pan/zoom, the key changes and React Query issues a brand-new request for the identical chromosome-wide payload each time — wasted bandwidth and re-render churn for an interaction that should be served entirely from cache.
