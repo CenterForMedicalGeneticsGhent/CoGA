@@ -1472,8 +1472,21 @@ tbody tr:hover {
   margin-top: 0.1rem;
 }
 
+/* The ROI value itself is the link to the chromosome view. */
+.family-roi-link {
+  color: var(--color-heading);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.family-roi-link:hover {
+  text-decoration: underline;
+}
+
 .family-roi-region {
   color: var(--color-text-muted);
+  font-weight: 400;
 }
 
 .family-review-summary {

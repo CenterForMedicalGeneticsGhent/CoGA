@@ -1309,28 +1309,26 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               <div className="space-y-1">
                 <h2 className="section-title">Region of interest</h2>
                 <p className="family-workspace-card-subtitle">
-                  {data.roi ? data.roi.label : 'No region of interest set'}
-                  {data.roi && (
-                    <span className="family-roi-region"> · {formatRegion(data.roi)}</span>
+                  {data.roi ? (
+                    <Link
+                      to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
+                        0,
+                        data.roi.start - 1_000_000,
+                      )}&end=${data.roi.end + 1_000_000}${
+                        projectId ? `&project_id=${projectId}` : ''
+                      }`}
+                      className="family-roi-link"
+                      title={`Open ${data.roi.label} in chromosome view`}
+                    >
+                      {data.roi.label}
+                      <span className="family-roi-region"> · {formatRegion(data.roi)}</span>
+                    </Link>
+                  ) : (
+                    'No region of interest set'
                   )}
                 </p>
               </div>
             </div>
-            {data.roi && (
-              <div className="compact-toolbar family-toolbar">
-                <Link
-                  to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
-                    0,
-                    data.roi.start - 1_000_000,
-                  )}&end=${data.roi.end + 1_000_000}${
-                    projectId ? `&project_id=${projectId}` : ''
-                  }`}
-                  className="button-secondary hover:no-underline"
-                >
-                  Open in chromosome view
-                </Link>
-              </div>
-            )}
             {canEditRoi && (
               <div className="family-roi-admin">
                 <div className="family-roi-edit">
