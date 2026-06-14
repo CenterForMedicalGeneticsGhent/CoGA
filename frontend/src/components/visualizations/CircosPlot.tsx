@@ -247,6 +247,35 @@ const buildAcenBandPath = ({
   return `M ${outer.x} ${outer.y} L ${tip.x} ${tip.y} L ${inner.x} ${inner.y} Z`;
 };
 
+interface AcenContext {
+  pinchAngle: number;
+  pBand: IdeogramBand;
+  qBand: IdeogramBand;
+  pAcenStartAngle: number;
+  qAcenEndAngle: number;
+}
+
+interface ChromLayout {
+  chrom: Chromosome;
+  chromAngle: number;
+  startAngle: number;
+  endAngle: number;
+  renderBands: IdeogramBand[];
+  scale: d3.ScaleLinear<number, number>;
+  acenContext: AcenContext | null;
+  outlinePath: string;
+}
+
+interface VariantRender {
+  key: string;
+  d: string | null;
+  stroke: string;
+  strokeWidth: number;
+  type: string;
+  clickable: boolean;
+  variant: Variant;
+}
+
 const CircosPlot: FC<CircosPlotProps> = ({
   chromData,
   variants,
@@ -255,6 +284,13 @@ const CircosPlot: FC<CircosPlotProps> = ({
   onVariantClick,
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
+  // Keep the latest click callbacks in refs so they don't have to be effect deps
+  // (a fresh callback identity would otherwise re-run the whole render).
+  const onChromosomeClickRef = useRef(onChromosomeClick);
+  const onVariantClickRef = useRef(onVariantClick);
+  onChromosomeClickRef.current = onChromosomeClick;
+  onVariantClickRef.current = onVariantClick;
+
   const typeColors = useMemo<Record<string, string>>(
     () => ({
       DEL: cssVar('--color-variant-del'),
@@ -266,7 +302,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
     [],
   );
 
-  const sortedChroms = useMemo(
+  const sortedChroms = useMemo<Chromosome[]>(
     () =>
       chromData.map((chrom) => ({
         ...chrom,
@@ -276,11 +312,38 @@ const CircosPlot: FC<CircosPlotProps> = ({
   );
 
   useEffect(() => {
+    if (!svgRef.current) return;
     const selectedChroms = sortedChroms.filter((d) => selected[d.chr]);
     const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
 
-    // remove any existing tooltips from previous renders
+    const width = 560;
+    const height = 580;
+    const outerRadius = 240;
+    const innerRadius = outerRadius - 20;
+    const centerRadius = (innerRadius + outerRadius) / 2;
+    const centerX = width / 2 + 20;
+    const centerY = height / 2;
+    const black = cssVar('--color-black');
+
+    svg.attr('width', width).attr('height', height);
+
+    // Persistent containers: keyed joins below mutate only the chromosomes /
+    // variants that actually changed instead of tearing the whole SVG down and
+    // rebuilding it (which the previous svg.selectAll('*').remove() did on every
+    // selection toggle, regenerating hundreds of nodes for every chromosome).
+    let root = svg.select<SVGGElement>('g.circos-root');
+    if (root.empty()) {
+      root = svg
+        .append('g')
+        .attr('class', 'circos-root')
+        .attr('transform', `translate(${centerX},${centerY})`);
+      root.append('g').attr('class', 'circos-chromosomes');
+      root.append('g').attr('class', 'circos-variants');
+    }
+    const chromContainer = root.select<SVGGElement>('g.circos-chromosomes');
+    const variantContainer = root.select<SVGGElement>('g.circos-variants');
+
+    // Fresh tooltip per run (single cheap node); removed on cleanup.
     d3.select('body').selectAll('.circos-tooltip').remove();
     const tooltip = d3
       .select('body')
@@ -290,32 +353,20 @@ const CircosPlot: FC<CircosPlotProps> = ({
       )
       .style('opacity', 0);
 
-    const width = 560;
-    const height = 580;
-    const outerRadius = 240;
-    const innerRadius = outerRadius - 20;
-    const centerRadius = (innerRadius + outerRadius) / 2;
-    const centerX = width / 2 + 20;
-    const centerY = height / 2;
-    const g = svg
-      .attr('width', width)
-      .attr('height', height)
-      .append('g')
-      .attr('transform', `translate(${centerX},${centerY})`);
-    const defs = svg.append('defs');
-
+    // --- angle layout (unchanged math); also populates angleScales for variants ---
     const gap = CHROMOSOME_GAP; // radians of spacing between chromosomes
     const totalSize = d3.sum(selectedChroms, (d) => d.size);
     const totalGap = gap * selectedChroms.length;
     const scaleFactor = (2 * Math.PI - totalGap) / totalSize;
-    let currentAngle = 0;
     const angleScales: Record<string, d3.ScaleLinear<number, number>> = {};
-    const black = cssVar('--color-black');
+    let currentAngle = 0;
 
-    selectedChroms.forEach((chrom) => {
+    const layouts: ChromLayout[] = selectedChroms.map((chrom) => {
       const chromAngle = chrom.size * scaleFactor;
       const startAngle = currentAngle;
       const endAngle = startAngle + chromAngle;
+      currentAngle += chromAngle + gap;
+
       const ideogramInset = Math.min(
         TELOMERE_END_WHITESPACE,
         Math.max(chromAngle / 2 - 0.002, 0),
@@ -332,26 +383,26 @@ const CircosPlot: FC<CircosPlotProps> = ({
         ? compactBands
         : [{ name: chrom.chr, start: 0, end: chrom.size, stain: 'gneg' }];
 
-      angleScales[chrom.chr] = d3
+      const scale = d3
         .scaleLinear()
         .domain([0, chrom.size])
         .range([visualStartAngle, visualEndAngle]);
+      angleScales[chrom.chr] = scale;
       const acenBands = renderBands.filter((band) => band.stain === 'acen');
       const sortedAcenBands = [...acenBands].sort((a, b) => a.start - b.start);
       const [firstAcen, secondAcen] = sortedAcenBands;
-      const acenContext =
+      const acenContext: AcenContext | null =
         sortedAcenBands.length === 2 &&
         getAcenDirection(firstAcen, chrom.size) === 'p' &&
         getAcenDirection(secondAcen, chrom.size) === 'q'
           ? {
-              pinchAngle: angleScales[chrom.chr]((firstAcen.end + secondAcen.start) / 2),
+              pinchAngle: scale((firstAcen.end + secondAcen.start) / 2),
               pBand: firstAcen,
               qBand: secondAcen,
-              pAcenStartAngle: angleScales[chrom.chr](firstAcen.start),
-              qAcenEndAngle: angleScales[chrom.chr](secondAcen.end),
+              pAcenStartAngle: scale(firstAcen.start),
+              qAcenEndAngle: scale(secondAcen.end),
             }
           : null;
-      const clipId = `circos-clip-${chrom.chr}`;
       const outlinePath = buildChromosomeOutlinePath({
         startAngle: visualStartAngle,
         endAngle: visualEndAngle,
@@ -363,175 +414,212 @@ const CircosPlot: FC<CircosPlotProps> = ({
         pinchAngle: acenContext?.pinchAngle,
       });
 
-      defs
-        .append('clipPath')
-        .attr('id', clipId)
-        .append('path')
-        .attr('class', 'circos-chromosome-clip')
-        .attr('d', outlinePath);
+      return { chrom, chromAngle, startAngle, endAngle, renderBands, scale, acenContext, outlinePath };
+    });
 
-      const bandGroup = g
-        .append('g')
-        .attr('class', 'circos-chromosome-bands')
-        .attr('data-chrom', chrom.chr)
-        .attr('clip-path', `url(#${clipId})`);
+    const renderChromosome = (
+      grp: d3.Selection<SVGGElement, ChromLayout, null, undefined>,
+      layout: ChromLayout,
+    ) => {
+      const { chrom, chromAngle, startAngle, endAngle, renderBands, scale, acenContext, outlinePath } =
+        layout;
+      const defsSel = grp.select<SVGDefsElement>('defs.circos-chromosome-defs');
 
-      renderBands.forEach((band, index) => {
-        const bandMidAngle = angleScales[chrom.chr]((band.start + band.end) / 2);
-        const innerPoint = polarPoint(innerRadius, bandMidAngle);
-        const outerPoint = polarPoint(outerRadius, bandMidAngle);
-        const gradientId = `circos-band-gradient-${chrom.chr}-${index}`;
-        const gradient = defs
-          .append('linearGradient')
-          .attr('id', gradientId)
-          .attr('class', 'circos-band-gradient')
-          .attr('gradientUnits', 'userSpaceOnUse')
-          .attr('x1', innerPoint.x)
-          .attr('y1', innerPoint.y)
-          .attr('x2', outerPoint.x)
-          .attr('y2', outerPoint.y);
+      grp.select('.circos-chromosome-clip').attr('d', outlinePath);
 
-        getBandGradientStops(getStainColor(band.stain), BAND_FINISH).forEach((stop) => {
-          gradient
-            .append('stop')
-            .attr('offset', stop.offset)
-            .attr('stop-color', stop.stopColor)
-            .attr('stop-opacity', stop.stopOpacity ?? 1);
+      // Per-band gradients (keyed by band start position).
+      defsSel
+        .selectAll<SVGLinearGradientElement, IdeogramBand>('linearGradient.circos-band-gradient')
+        .data(renderBands, (band) => String(band.start))
+        .join((enter) =>
+          enter
+            .append('linearGradient')
+            .attr('class', 'circos-band-gradient')
+            .attr('gradientUnits', 'userSpaceOnUse'),
+        )
+        .attr('id', (band) => `circos-band-gradient-${chrom.chr}-${band.start}`)
+        .attr('x1', (band) => polarPoint(innerRadius, scale((band.start + band.end) / 2)).x)
+        .attr('y1', (band) => polarPoint(innerRadius, scale((band.start + band.end) / 2)).y)
+        .attr('x2', (band) => polarPoint(outerRadius, scale((band.start + band.end) / 2)).x)
+        .attr('y2', (band) => polarPoint(outerRadius, scale((band.start + band.end) / 2)).y)
+        .each(function (band) {
+          d3.select(this)
+            .selectAll<SVGStopElement, ReturnType<typeof getBandGradientStops>[number]>('stop')
+            .data(getBandGradientStops(getStainColor(band.stain), BAND_FINISH))
+            .join('stop')
+            .attr('offset', (stop) => stop.offset)
+            .attr('stop-color', (stop) => stop.stopColor)
+            .attr('stop-opacity', (stop) => stop.stopOpacity ?? 1);
         });
 
-        if (band.stain === 'acen' && acenContext) {
-          const isPBand = band.start === acenContext.pBand.start && band.end === acenContext.pBand.end;
-          const acenPath = buildAcenBandPath({
-            baseAngle: angleScales[chrom.chr](isPBand ? band.start : band.end),
-            tipAngle: angleScales[chrom.chr](isPBand ? band.end : band.start),
-            innerRadius,
-            outerRadius,
-          });
+      const fillGroup = grp.select<SVGGElement>('g.circos-band-fills');
+      const boundaryGroup = grp.select<SVGGElement>('g.circos-band-boundaries');
 
-          bandGroup
-            .append('path')
-            .attr('class', 'circos-band circos-band--acen')
+      // Band paths (keyed by band start), branching on the acen special case.
+      fillGroup
+        .selectAll<SVGPathElement, IdeogramBand>('path.circos-band')
+        .data(renderBands, (band) => String(band.start))
+        .join((enter) => {
+          const path = enter.append('path').attr('class', 'circos-band');
+          path.append('title');
+          return path;
+        })
+        .each(function (band) {
+          const sel = d3.select(this);
+          let dStr: string;
+          if (band.stain === 'acen' && acenContext) {
+            const isPBand =
+              band.start === acenContext.pBand.start && band.end === acenContext.pBand.end;
+            dStr = buildAcenBandPath({
+              baseAngle: scale(isPBand ? band.start : band.end),
+              tipAngle: scale(isPBand ? band.end : band.start),
+              innerRadius,
+              outerRadius,
+            });
+            sel
+              .attr('class', 'circos-band circos-band--acen')
+              .attr('stroke', black)
+              .attr('stroke-width', BAND_STROKE)
+              .attr('stroke-linejoin', 'round');
+          } else {
+            dStr = buildBandSectorPath(innerRadius, outerRadius, scale(band.start), scale(band.end));
+            sel
+              .attr('class', 'circos-band circos-band--sector')
+              .attr('stroke', 'none')
+              .attr('stroke-width', null)
+              .attr('stroke-linejoin', null);
+          }
+          sel
             .attr('data-chrom', chrom.chr)
-            .attr('d', acenPath)
-            .attr('fill', `url(#${gradientId})`)
+            .attr('d', dStr)
+            .attr('fill', `url(#circos-band-gradient-${chrom.chr}-${band.start})`);
+          sel.select('title').text(band.name);
+        });
+
+      // Boundary lines between consecutive non-acen bands (keyed by band start).
+      const boundaryData = renderBands
+        .slice(1)
+        .map((band, index) => ({ band, prev: renderBands[index] }))
+        .filter(({ band, prev }) => prev.stain !== 'acen' && band.stain !== 'acen');
+      boundaryGroup
+        .selectAll<SVGLineElement, { band: IdeogramBand; prev: IdeogramBand }>('line.circos-band-boundary')
+        .data(boundaryData, (d) => String(d.band.start))
+        .join((enter) =>
+          enter
+            .append('line')
+            .attr('class', 'circos-band-boundary')
             .attr('stroke', black)
             .attr('stroke-width', BAND_STROKE)
-            .attr('stroke-linejoin', 'round')
-            .append('title')
-            .text(band.name);
-          return;
-        }
-
-        const bandPath = buildBandSectorPath(
-          innerRadius,
-          outerRadius,
-          angleScales[chrom.chr](band.start),
-          angleScales[chrom.chr](band.end),
-        );
-
-        bandGroup
-          .append('path')
-          .attr('class', 'circos-band circos-band--sector')
-          .attr('data-chrom', chrom.chr)
-          .attr('d', bandPath)
-          .attr('fill', `url(#${gradientId})`)
-          .attr('stroke', 'none')
-          .append('title')
-          .text(band.name);
-      });
-
-      renderBands.slice(1).forEach((band, index) => {
-        const previousBand = renderBands[index];
-        if (previousBand.stain === 'acen' || band.stain === 'acen') {
-          return;
-        }
-
-        const boundaryAngle = angleScales[chrom.chr](band.start);
-        const boundaryInner = polarPoint(innerRadius, boundaryAngle);
-        const boundaryOuter = polarPoint(outerRadius, boundaryAngle);
-
-        bandGroup
-          .append('line')
-          .attr('class', 'circos-band-boundary')
-          .attr('data-chrom', chrom.chr)
-          .attr('x1', boundaryInner.x)
-          .attr('y1', boundaryInner.y)
-          .attr('x2', boundaryOuter.x)
-          .attr('y2', boundaryOuter.y)
-          .attr('stroke', black)
-          .attr('stroke-width', BAND_STROKE)
-          .attr('stroke-linecap', 'round');
-      });
-
-      g.append('path')
-        .attr('class', 'circos-chromosome-outline')
+            .attr('stroke-linecap', 'round'),
+        )
         .attr('data-chrom', chrom.chr)
-        .attr('d', outlinePath)
-        .attr('fill', 'none')
-        .attr('stroke', 'none')
-        .attr('stroke-width', BAND_STROKE)
-        .attr('stroke-linejoin', 'round');
+        .attr('x1', (d) => polarPoint(innerRadius, scale(d.band.start)).x)
+        .attr('y1', (d) => polarPoint(innerRadius, scale(d.band.start)).y)
+        .attr('x2', (d) => polarPoint(outerRadius, scale(d.band.start)).x)
+        .attr('y2', (d) => polarPoint(outerRadius, scale(d.band.start)).y);
 
+      grp.select('path.circos-chromosome-outline').attr('data-chrom', chrom.chr).attr('d', outlinePath);
+
+      // Curved label.
       const labelAngle = (startAngle + endAngle) / 2;
       const labelRadius = outerRadius + 12;
-
       let labelStartAngle = startAngle;
       let labelEndAngle = endAngle;
       if (labelAngle > Math.PI / 2 && labelAngle < (3 * Math.PI) / 2) {
-        [labelStartAngle, labelEndAngle] = [endAngle, startAngle];
+        labelStartAngle = endAngle;
+        labelEndAngle = startAngle;
       }
-
       const labelArc = d3
         .arc<d3.DefaultArcObject>()
         .innerRadius(labelRadius)
         .outerRadius(labelRadius)
         .startAngle(labelStartAngle)
         .endAngle(labelEndAngle);
-      const labelArcPath = labelArc({} as d3.DefaultArcObject);
-
       const labelId = `chrom-label-${chrom.chr}`;
-
-      g.append('path')
+      grp
+        .select('path.circos-chromosome-label-arc')
         .attr('id', labelId)
-        .attr('d', labelArcPath)
-        .attr('fill', 'none');
-
-      g.append('text')
-        .attr('text-anchor', 'middle')
-        .attr('fill', 'currentColor')
-        .style('font-size', '12px')
-        .append('textPath')
+        .attr('d', labelArc({} as d3.DefaultArcObject));
+      grp
+        .select('text.circos-chromosome-label')
+        .select('textPath')
         .attr('href', `#${labelId}`)
-        .attr('startOffset', '20%')
-        .text(`${chrom.chr}`);
+        .text(chrom.chr);
 
+      // Invisible click target.
       const clickPath = d3.arc()({
         innerRadius,
         outerRadius,
         startAngle,
         endAngle: startAngle + chromAngle,
       });
-      g.append('path')
+      grp
+        .select('path.circos-chromosome-click')
         .attr('d', clickPath ?? null)
-        .attr('fill', 'transparent')
-        .style('cursor', onChromosomeClick ? 'pointer' : 'default')
-        .on('click', () => onChromosomeClick?.(chrom.chr));
+        .style('cursor', onChromosomeClickRef.current ? 'pointer' : 'default')
+        .on('click', () => onChromosomeClickRef.current?.(chrom.chr));
+    };
 
-      currentAngle += chromAngle + gap;
-    });
+    // --- chromosome keyed join: only added/removed chromosomes touch the DOM
+    // structure; retained ones have their geometry attributes updated in place ---
+    chromContainer
+      .selectAll<SVGGElement, ChromLayout>('g.circos-chromosome')
+      .data(layouts, (d) => d.chrom.chr)
+      .join((enter) => {
+        const grp = enter
+          .append('g')
+          .attr('class', 'circos-chromosome')
+          .attr('data-chrom', (d) => d.chrom.chr);
+        const enterDefs = grp.append('defs').attr('class', 'circos-chromosome-defs');
+        enterDefs
+          .append('clipPath')
+          .attr('id', (d) => `circos-clip-${d.chrom.chr}`)
+          .append('path')
+          .attr('class', 'circos-chromosome-clip');
+        const bandsGroup = grp
+          .append('g')
+          .attr('class', 'circos-chromosome-bands')
+          .attr('clip-path', (d) => `url(#circos-clip-${d.chrom.chr})`);
+        // Separate sub-groups so boundary lines always paint above band fills,
+        // regardless of which bands enter/exit when the resolution changes.
+        bandsGroup.append('g').attr('class', 'circos-band-fills');
+        bandsGroup.append('g').attr('class', 'circos-band-boundaries');
+        grp
+          .append('path')
+          .attr('class', 'circos-chromosome-outline')
+          .attr('fill', 'none')
+          .attr('stroke', 'none')
+          .attr('stroke-width', BAND_STROKE)
+          .attr('stroke-linejoin', 'round');
+        grp.append('path').attr('class', 'circos-chromosome-label-arc').attr('fill', 'none');
+        grp
+          .append('text')
+          .attr('class', 'circos-chromosome-label')
+          .attr('text-anchor', 'middle')
+          .attr('fill', 'currentColor')
+          .style('font-size', '12px')
+          .append('textPath')
+          .attr('startOffset', '20%');
+        grp.append('path').attr('class', 'circos-chromosome-click').attr('fill', 'transparent');
+        return grp;
+      })
+      .order()
+      .each(function (layout) {
+        renderChromosome(d3.select(this), layout);
+      });
 
-    if (variants) {
-      const link = d3
-        .linkRadial<any, any>()
-        .angle((d: any) => d.angle)
-        .radius((d: any) => d.radius);
+    // --- variant links (computed once, then keyed-joined) ---
+    const link = d3
+      .linkRadial<any, any>()
+      .angle((d: any) => d.angle)
+      .radius((d: any) => d.radius);
+    const getScale = (chr?: string) => {
+      if (!chr) return undefined;
+      return angleScales[chr] || angleScales[chr.replace(/^chr/i, '')];
+    };
 
-      const getScale = (chr?: string) => {
-        if (!chr) return undefined;
-        return angleScales[chr] || angleScales[chr.replace(/^chr/i, '')];
-      };
-
-      variants.forEach((v) => {
+    const variantRenders: VariantRender[] = (variants ?? [])
+      .map((v, index): VariantRender | null => {
         const sourceScale = getScale(v.chr);
         // default to the same chromosome when remote_chr is undefined so
         // intra-chromosomal variants like DEL, DUP and INS are still drawn
@@ -539,108 +627,88 @@ const CircosPlot: FC<CircosPlotProps> = ({
         const sourcePos = v.start;
         const targetPos = v.remote_start ?? v.end ?? v.start;
         const type = v.type?.toUpperCase();
-
-        if (!sourceScale || !targetScale || !type) return;
+        if (!sourceScale || !targetScale || !type) return null;
 
         const sourceAngle = sourceScale(sourcePos);
         let targetAngle = targetScale(targetPos);
-
         const minAngle = 0.015;
         if (Math.abs(targetAngle - sourceAngle) < minAngle) {
           targetAngle =
-            targetAngle >= sourceAngle
-              ? sourceAngle + minAngle
-              : sourceAngle - minAngle;
+            targetAngle >= sourceAngle ? sourceAngle + minAngle : sourceAngle - minAngle;
         }
         const isIntrachrom = !v.remote_chr || v.remote_chr === v.chr;
 
         let strokeWidth = 1;
-        let pathEl:
-          | d3.Selection<SVGPathElement | SVGLineElement, unknown, null, undefined>
-          | null = null;
-
+        let d: string | null = null;
         if (type === 'INS') {
           const insertionOuter = innerRadius - 20;
           const insertionInner = innerRadius - 40;
-          const path = link({
+          d = link({
             source: { angle: sourceAngle, radius: insertionOuter },
             target: { angle: sourceAngle, radius: insertionInner },
           } as any);
-          pathEl = g
-            .append('path')
-            .attr('d', path ?? null)
-            .attr('fill', 'none')
-            .attr('stroke', typeColors[type] || cssVar('--color-variant-default'))
-            .attr('stroke-width', strokeWidth);
         } else if (type === 'INV') {
           const invRadius = innerRadius - 45;
           const midAngle = (sourceAngle + targetAngle) / 2;
           const controlRadius = invRadius * 0.75;
           const p = d3.path();
-          p.moveTo(
-            invRadius * Math.sin(sourceAngle),
-            -invRadius * Math.cos(sourceAngle)
-          );
+          p.moveTo(invRadius * Math.sin(sourceAngle), -invRadius * Math.cos(sourceAngle));
           p.quadraticCurveTo(
             controlRadius * Math.sin(midAngle),
             -controlRadius * Math.cos(midAngle),
             invRadius * Math.sin(targetAngle),
-            -invRadius * Math.cos(targetAngle)
+            -invRadius * Math.cos(targetAngle),
           );
-          strokeWidth = 1;
-          pathEl = g
-            .append('path')
-            .attr('d', p.toString())
-            .attr('fill', 'none')
-            .attr('stroke', typeColors[type] || cssVar('--color-variant-default'))
-            .attr('stroke-width', strokeWidth);
+          d = p.toString();
         } else if (type === 'BND') {
           const radius = innerRadius - 45;
           const midAngle = (sourceAngle + targetAngle) / 2;
           const controlRadius = radius * 0.6;
           const p = d3.path();
-          p.moveTo(
-            radius * Math.sin(sourceAngle),
-            -radius * Math.cos(sourceAngle)
-          );
+          p.moveTo(radius * Math.sin(sourceAngle), -radius * Math.cos(sourceAngle));
           p.quadraticCurveTo(
             controlRadius * Math.sin(midAngle),
             -controlRadius * Math.cos(midAngle),
             radius * Math.sin(targetAngle),
-            -radius * Math.cos(targetAngle)
+            -radius * Math.cos(targetAngle),
           );
-          pathEl = g
-            .append('path')
-            .attr('d', p.toString())
-            .attr('fill', 'none')
-            .attr('stroke', typeColors[type] || cssVar('--color-variant-default'))
-            .attr('stroke-width', strokeWidth);
+          d = p.toString();
         } else {
           const radius = isIntrachrom ? innerRadius - 10 : innerRadius;
-          const path = link({
+          d = link({
             source: { angle: sourceAngle, radius },
             target: { angle: targetAngle, radius },
           } as any);
           if (type === 'DEL' || type === 'DUP') {
             strokeWidth = 15;
           }
-          pathEl = g
-            .append('path')
-            .attr('d', path ?? null)
-            .attr('fill', 'none')
-            .attr('stroke', typeColors[type] || cssVar('--color-variant-default'))
-            .attr('stroke-width', strokeWidth);
         }
 
-        if (!pathEl) return;
+        return {
+          key: String(index),
+          d,
+          stroke: typeColors[type] || cssVar('--color-variant-default'),
+          strokeWidth,
+          type,
+          clickable: type === 'BND',
+          variant: v,
+        };
+      })
+      .filter((r): r is VariantRender => r !== null);
 
-        if (type === 'BND') {
-          pathEl
-            .style('cursor', onVariantClick ? 'pointer' : 'default')
-            .on('click', () => onVariantClick?.(v));
-        }
-
-        pathEl
+    variantContainer
+      .selectAll<SVGPathElement, VariantRender>('path.circos-variant')
+      .data(variantRenders, (d) => d.key)
+      .join((enter) => enter.append('path').attr('class', 'circos-variant').attr('fill', 'none'))
+      .order()
+      .each(function (render) {
+        const sel = d3.select(this);
+        const v = render.variant;
+        sel
+          .attr('d', render.d ?? null)
+          .attr('stroke', render.stroke)
+          .attr('stroke-width', render.strokeWidth)
+          .style('cursor', render.clickable && onVariantClickRef.current ? 'pointer' : 'default')
           .on('mouseover', (event) => {
             const endChr = v.remote_chr || v.chr;
             const endPos = v.remote_start ?? v.end ?? v.start;
@@ -652,9 +720,9 @@ const CircosPlot: FC<CircosPlotProps> = ({
               .style('opacity', 1)
               .style('left', `${event.pageX + 8}px`)
               .style('top', `${event.pageY + 8}px`)
-              .html(`<strong>${type}</strong><br/>${coords}`);
+              .html(`<strong>${render.type}</strong><br/>${coords}`);
             d3.select(event.currentTarget)
-              .attr('stroke-width', strokeWidth + 2)
+              .attr('stroke-width', render.strokeWidth + 2)
               .raise();
           })
           .on('mousemove', (event) => {
@@ -664,14 +732,19 @@ const CircosPlot: FC<CircosPlotProps> = ({
           })
           .on('mouseout', (event) => {
             tooltip.style('opacity', 0);
-            d3.select(event.currentTarget).attr('stroke-width', strokeWidth);
+            d3.select(event.currentTarget).attr('stroke-width', render.strokeWidth);
           });
+        if (render.clickable) {
+          sel.on('click', () => onVariantClickRef.current?.(v));
+        } else {
+          sel.on('click', null);
+        }
       });
-    }
+
     return () => {
       tooltip.remove();
     };
-  }, [chromData, selected, variants, onChromosomeClick, onVariantClick]);
+  }, [sortedChroms, selected, variants, typeColors]);
 
   return (
     <div className="flex flex-col items-center">

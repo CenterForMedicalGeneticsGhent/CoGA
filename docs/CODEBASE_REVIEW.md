@@ -231,7 +231,7 @@ In overview mode (the default in `ChromosomeViewWorkspace`), the server request 
 - **Effort:** S
 - **Expected impact:** One fetch per (family, sample, chrom, project) for the whole chromosome-view session instead of one per pan/zoom. Moderate bandwidth saving and reduced re-render churn, scaling with interaction frequency.
 
-#### 18. `CircosPlot` tears down and rebuilds the entire SVG on every selection toggle
+#### 18. `CircosPlot` tears down and rebuilds the entire SVG on every selection toggle - FIXED (keyed D3 data-joins for chromosomes/bands/gradients/boundaries/variants on persistent containers; only added/removed chromosomes mutate DOM structure, retained ones update attrs in place; callbacks moved to refs. Geometry unchanged — needs a visual QA pass)
 `frontend/src/components/visualizations/CircosPlot.tsx` (lines 278-281, 315-521, 674)
 
 A single `useEffect` with `selected` in its dep array runs `svg.selectAll('*').remove()` and rebuilds, for each of 24 chromosomes (all selected by default), a clipPath, a `linearGradient` per band (30+), band paths, boundary lines, a label arc/textPath, an invisible click arc, plus all variant links. Toggling one chromosome checkbox regenerates hundreds of SVG/def nodes for **all** chromosomes.
