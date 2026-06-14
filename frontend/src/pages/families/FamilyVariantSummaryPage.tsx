@@ -8,6 +8,30 @@ import PageState from '../../components/PageState';
 
 const VARIANT_LIMIT = 100000;
 
+// Static histogram bins — hoisted out of the component so they are not
+// re-allocated on every render.
+const variantBinEdges = [
+  -0.5,
+  0.5,
+  10.5,
+  100,
+  1000,
+  10000,
+  100000,
+  1000000,
+  Number.POSITIVE_INFINITY,
+];
+const variantBinLabels = [
+  '0',
+  '1-10',
+  '10-100',
+  '100-1k',
+  '1k-10k',
+  '10k-100k',
+  '100k-1M',
+  '>1M',
+];
+
 interface VariantLength {
   length: number;
   type: string;
@@ -41,6 +65,60 @@ const FamilyVariantSummaryPage: React.FC = () => {
     });
   const [logScale, setLogScale] = React.useState(true);
 
+  // The O(n) aggregation over up to VARIANT_LIMIT (100k) rows runs once per data
+  // load — not on every render. logScale only affects histogram rendering, so it
+  // is intentionally not a dependency here.
+  const summary = React.useMemo(() => {
+    const rows = data ?? [];
+    const allLengths = rows.map((v) => Math.abs(v.length));
+    const byType: Record<string, number[]> = {};
+    const bySource: Record<string, number[]> = {};
+    const byTypeChrom: Record<string, Record<string, number>> = {};
+    const byChromType: Record<string, Record<string, number>> = {};
+    const chromosomes = Array.from(
+      new Set(rows.map((v) => v.chr || 'unknown'))
+    ).sort(compareChromosomes);
+    rows.forEach((v) => {
+      const t = v.type || 'unknown';
+      const c = v.chr || 'unknown';
+      byType[t] = byType[t] || [];
+      byType[t].push(Math.abs(v.length));
+      bySource[v.source || 'unknown'] = bySource[v.source || 'unknown'] || [];
+      bySource[v.source || 'unknown'].push(Math.abs(v.length));
+      byTypeChrom[t] = byTypeChrom[t] || {};
+      byTypeChrom[t][c] = (byTypeChrom[t][c] || 0) + 1;
+      byChromType[c] = byChromType[c] || {};
+      byChromType[c][t] = (byChromType[c][t] || 0) + 1;
+    });
+    const variantTypes = Object.keys(byTypeChrom).sort();
+    const totalsByChrom: Record<string, number> = {};
+    chromosomes.forEach((chr) => {
+      totalsByChrom[chr] = Object.values(byChromType[chr] || {}).reduce(
+        (sum, v) => sum + v,
+        0
+      );
+    });
+    return { allLengths, byType, bySource, byChromType, chromosomes, variantTypes, totalsByChrom };
+  }, [data]);
+
+  // Sharing matrix totals depend only on sharedCounts.
+  const sharing = React.useMemo(() => {
+    const counts = sharedCounts ?? {};
+    const sampleNames = Object.keys(counts).sort();
+    const rowTotals: Record<string, number> = {};
+    const columnTotals: Record<string, number> = {};
+    sampleNames.forEach((row) => {
+      rowTotals[row] = 0;
+      sampleNames.forEach((col) => {
+        const val = counts[row][col] ?? 0;
+        rowTotals[row] += val;
+        columnTotals[col] = (columnTotals[col] || 0) + val;
+      });
+    });
+    const grandTotal = Object.values(rowTotals).reduce((s, v) => s + v, 0);
+    return { sampleNames, rowTotals, columnTotals, grandTotal };
+  }, [sharedCounts]);
+
   if (isLoading || isLoadingShared) {
     return (
       <PageState
@@ -60,57 +138,9 @@ const FamilyVariantSummaryPage: React.FC = () => {
     );
   }
 
-  const allLengths = data.map((v) => Math.abs(v.length));
-  const byType: Record<string, number[]> = {};
-  const bySource: Record<string, number[]> = {};
-  const byTypeChrom: Record<string, Record<string, number>> = {};
-  const byChromType: Record<string, Record<string, number>> = {};
-  const chromosomes = Array.from(
-    new Set(data.map((v) => v.chr || 'unknown'))
-  ).sort(compareChromosomes);
-  const sampleNames = Object.keys(sharedCounts).sort();
-  data.forEach((v) => {
-    const t = v.type || 'unknown';
-    const c = v.chr || 'unknown';
-    byType[t] = byType[t] || [];
-    byType[t].push(Math.abs(v.length));
-    bySource[v.source || 'unknown'] = bySource[v.source || 'unknown'] || [];
-    bySource[v.source || 'unknown'].push(Math.abs(v.length));
-    byTypeChrom[t] = byTypeChrom[t] || {};
-    byTypeChrom[t][c] = (byTypeChrom[t][c] || 0) + 1;
-    byChromType[c] = byChromType[c] || {};
-    byChromType[c][t] = (byChromType[c][t] || 0) + 1;
-  });
-  const variantTypes = Object.keys(byTypeChrom).sort();
-  const totalsByChrom: Record<string, number> = {};
-  chromosomes.forEach((chr) => {
-    totalsByChrom[chr] = Object.values(byChromType[chr] || {}).reduce(
-      (sum, v) => sum + v,
-      0
-    );
-  });
-
-  const variantBinEdges = [
-    -0.5,
-    0.5,
-    10.5,
-    100,
-    1000,
-    10000,
-    100000,
-    1000000,
-    Number.POSITIVE_INFINITY,
-  ];
-  const variantBinLabels = [
-    '0',
-    '1-10',
-    '10-100',
-    '100-1k',
-    '1k-10k',
-    '10k-100k',
-    '100k-1M',
-    '>1M',
-  ];
+  const { allLengths, byType, bySource, byChromType, chromosomes, variantTypes, totalsByChrom } =
+    summary;
+  const { sampleNames, rowTotals, columnTotals, grandTotal } = sharing;
 
   return (
     <div className="page-shell analysis-shell">
@@ -197,63 +227,45 @@ const FamilyVariantSummaryPage: React.FC = () => {
 
       <section id="sharing" className="analysis-panel space-y-4">
         <h2 className="section-title">Shared and unique variants</h2>
-        {(() => {
-          const rowTotals: Record<string, number> = {};
-          const columnTotals: Record<string, number> = {};
-          sampleNames.forEach((row) => {
-            rowTotals[row] = 0;
-            sampleNames.forEach((col) => {
-              const val = sharedCounts[row][col] ?? 0;
-              rowTotals[row] += val;
-              columnTotals[col] = (columnTotals[col] || 0) + val;
-            });
-          });
-          const grandTotal = Object.values(rowTotals).reduce(
-            (s, v) => s + v,
-            0
-          );
-          return (
-            <div className="analysis-results-card overflow-x-auto">
-              <table className="analysis-table table-sticky">
-                <thead>
-                  <tr>
-                    <th>Sample</th>
-                    {sampleNames.map((name) => (
-                      <th key={name} className="text-center">
-                        {name}
-                      </th>
-                    ))}
-                    <th className="text-center">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sampleNames.map((row) => (
-                    <tr key={row}>
-                      <td>{row}</td>
-                      {sampleNames.map((col) => (
-                        <td key={col} className="text-center">
-                          {sharedCounts[row][col] ?? 0}
-                        </td>
-                      ))}
-                      <td className="text-center">
-                        {rowTotals[row]}
-                      </td>
-                    </tr>
+        <div className="analysis-results-card overflow-x-auto">
+          <table className="analysis-table table-sticky">
+            <thead>
+              <tr>
+                <th>Sample</th>
+                {sampleNames.map((name) => (
+                  <th key={name} className="text-center">
+                    {name}
+                  </th>
+                ))}
+                <th className="text-center">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sampleNames.map((row) => (
+                <tr key={row}>
+                  <td>{row}</td>
+                  {sampleNames.map((col) => (
+                    <td key={col} className="text-center">
+                      {sharedCounts[row][col] ?? 0}
+                    </td>
                   ))}
-                  <tr>
-                    <td>Total</td>
-                    {sampleNames.map((col) => (
-                      <td key={col} className="text-center">
-                        {columnTotals[col] || 0}
-                      </td>
-                    ))}
-                    <td className="text-center">{grandTotal}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          );
-        })()}
+                  <td className="text-center">
+                    {rowTotals[row]}
+                  </td>
+                </tr>
+              ))}
+              <tr>
+                <td>Total</td>
+                {sampleNames.map((col) => (
+                  <td key={col} className="text-center">
+                    {columnTotals[col] || 0}
+                  </td>
+                ))}
+                <td className="text-center">{grandTotal}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <p className="analysis-count">
           Diagonal counts denote variants unique to the individual; off-diagonal
           counts show shared variants.

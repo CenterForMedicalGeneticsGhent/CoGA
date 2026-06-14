@@ -195,7 +195,7 @@ The main query is keyed on `requestQueryString`, which changes on every page tur
 - **Effort:** S
 - **Expected impact:** Eliminates the full page unmount/remount on every pagination/filter step — previous results stay visible until the next page arrives, removing the per-interaction flash and preserving filter-form state.
 
-#### 14. Variant-summary aggregation re-runs over up to 100k variants on every render (including log-scale toggle)
+#### 14. Variant-summary aggregation re-runs over up to 100k variants on every render (including log-scale toggle) - FIXED (aggregation moved into a `useMemo` keyed on `[data]`, sharing totals into a `useMemo` keyed on `[sharedCounts]`, bin edges/labels hoisted to module scope; `logScale` toggle now only re-renders the histograms)
 `frontend/src/pages/families/FamilyVariantSummaryPage.tsx` (lines 63-113)
 
 The entire `O(n)` aggregation (`allLengths`, the `data.forEach` building `byType`/`bySource`/`byTypeChrom`/`byChromType`, chromosome sort, totals) lives directly in the render body with no `useMemo`. `VARIANT_LIMIT` is 100000 (backend-capped at 100000), so up to 100k variants are reprocessed on every render. The only interactive state is `logScale`; toggling it re-runs the full aggregation even though none of the aggregated structures depend on it (only the histogram rendering does). The file has zero `useMemo`/`useCallback`.
