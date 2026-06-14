@@ -1869,6 +1869,11 @@ async def import_family_hpo_annotations(
     imported = 0
     skipped = 0
     imported_by_sample: dict[str, int] = {}
+    # Accumulate validated rows and upsert them in a single batched statement
+    # instead of one round-trip per row. Keyed by the ON CONFLICT target so a
+    # duplicate within one import collapses to the last value (matching the
+    # per-row upsert order) and the batch never touches the same row twice.
+    insert_rows: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in row_list:
         if row.family_id and row.family_id != family_id:
             skipped += 1
@@ -1907,6 +1912,19 @@ async def import_family_hpo_annotations(
                 )
             )
             continue
+        insert_rows[(sample_uuid, row.hpo_id, row.status)] = {
+            "family_uuid": family_uuid,
+            "sample_uuid": sample_uuid,
+            "hpo_id": row.hpo_id,
+            "status": row.status,
+            "onset": row.onset,
+            "evidence": row.evidence,
+            "source": row.source or "family_package",
+            "note": row.note,
+        }
+        imported += 1
+        imported_by_sample[row.individual_id] = imported_by_sample.get(row.individual_id, 0) + 1
+    if insert_rows:
         await session.execute(
             text(
                 """
@@ -1925,19 +1943,8 @@ async def import_family_hpo_annotations(
                     updated_at = timezone('utc', now())
                 """
             ),
-            {
-                "family_uuid": family_uuid,
-                "sample_uuid": sample_uuid,
-                "hpo_id": row.hpo_id,
-                "status": row.status,
-                "onset": row.onset,
-                "evidence": row.evidence,
-                "source": row.source or "family_package",
-                "note": row.note,
-            },
+            list(insert_rows.values()),
         )
-        imported += 1
-        imported_by_sample[row.individual_id] = imported_by_sample.get(row.individual_id, 0) + 1
     if commit:
         await session.commit()
     return {

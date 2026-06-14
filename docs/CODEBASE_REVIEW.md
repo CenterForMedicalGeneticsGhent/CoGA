@@ -145,7 +145,7 @@ The carrier drill-down `ARRAY JOIN`s `calls.sampleId`/`calls.gt` and returns one
 - **Effort:** M
 - **Expected impact:** Bounds worst-case memory and response time. Negligible for rare-disease cohorts (tens-to-hundreds of carriers); at scale a single request could otherwise pull tens of thousands of rows into memory.
 
-#### 9. Per-row INSERT loop when importing family HPO annotations
+#### 9. Per-row INSERT loop when importing family HPO annotations - FIXED (validated rows accumulated and upserted in one batched `session.execute`; duplicate conflict keys collapse last-wins)
 `backend/app/services/hpo_service.py` (`import_family_hpo_annotations`, lines 1859-1927)
 
 Each accepted annotation row triggers its own `await session.execute(text(INSERT …), {…})`. All INSERT parameters are computable up front, and the same module already demonstrates the batched form in `import_hpo_ontology` (one `session.execute` over a list of param dicts).
