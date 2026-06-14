@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import Pedigree from '../../components/visualizations/Pedigree';
@@ -162,12 +162,15 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     },
   });
 
-  const { data, isLoading } = useQuery<StructuralVariantPage>({
+  const { data, isLoading, isFetching } = useQuery<StructuralVariantPage>({
     queryKey: ['family', familyId, 'structural-variants', requestQueryString],
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/structural-variants?${requestQueryString}`);
       return res.data as StructuralVariantPage;
     },
+    // Keep the previous page's results on screen while the next page/filter loads
+    // so pagination and filter changes don't unmount and remount the whole page.
+    placeholderData: keepPreviousData,
   });
 
   const { data: allData } = useQuery<{ total: number }>({
@@ -263,7 +266,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     },
   });
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <PageState
         kicker="Structural Variants"
@@ -288,6 +291,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
                   <span className="badge-chip">All variants {overallTotal}</span>
                   <span className="badge-chip">Active filters {activeFilterCount}</span>
                   <span className="badge-chip">Tag library {tags.length}</span>
+                  {isFetching ? <span className="badge-chip">Updating…</span> : null}
                 </div>
               </div>
               <div className="inline-actions">
