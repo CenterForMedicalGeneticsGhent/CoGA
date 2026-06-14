@@ -698,6 +698,96 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
     assert queries[1][1]["offset"] == 1
 
 
+def _structural_del_row(idx: int) -> tuple:
+    return (
+        idx,
+        f"sv{idx}",
+        "1",
+        100 + idx,
+        250 + idx,
+        "DEL",
+        "sniffles",
+        None,
+        None,
+        None,
+        -150,
+        ["PASS"],
+        '{"annotations":[]}',
+        ["GENE2"],
+        ["PROBAND"],
+        ["0/1"],
+        [42.0],
+        [8],
+        ["PASS"],
+    )
+
+
+async def _run_non_native_structural_page(monkeypatch, *, returned_rows: int):
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        # The non-native path issues a single SV rows fetch (limit = cap + 1).
+        return [_structural_del_row(i) for i in range(1, returned_rows + 1)]
+
+    async def fake_review_ids(*_args, **_kwargs):
+        return set()
+
+    async def fake_get_review_map(*_args, **_kwargs):
+        return {}
+
+    async def fake_fetch_cytoband_map(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.list_matching_structural_variant_review_ids",
+        fake_review_ids,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.get_structural_variant_review_map",
+        fake_get_review_map,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_structural_cytoband_map",
+        fake_fetch_cytoband_map,
+    )
+    return await get_family_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=10,
+        type="DEL",  # any of these filters forces the non-native fetch-all path
+    )
+
+
+@pytest.mark.asyncio
+async def test_structural_page_non_native_caps_and_flags_estimated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
+        2,
+    )
+    # 3 rows returned for a cap of 2 -> fetch was truncated, total is estimated.
+    page = await _run_non_native_structural_page(monkeypatch, returned_rows=3)
+    assert page.total_is_estimated is True
+    assert page.count_limit == 2
+    assert page.total == 2
+    assert len(page.variants) == 2
+
+
+@pytest.mark.asyncio
+async def test_structural_page_non_native_exact_total_under_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP",
+        2,
+    )
+    # 2 rows for a cap of 2 -> nothing beyond the cap, exact total.
+    page = await _run_non_native_structural_page(monkeypatch, returned_rows=2)
+    assert page.total_is_estimated is False
+    assert page.count_limit is None
+    assert page.total == 2
+
+
 @pytest.mark.asyncio
 async def test_fetch_small_variant_rows_uses_entry_source_column(
     monkeypatch: pytest.MonkeyPatch,

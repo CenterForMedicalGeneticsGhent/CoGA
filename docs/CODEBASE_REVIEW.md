@@ -124,7 +124,7 @@ For each family row the loop iterates assemblies and awaits two ClickHouse queri
 
 ### Medium impact
 
-#### 7. Unbounded structural-variant fetches — non-native page, compound-het candidates, and list/shared-count helpers
+#### 7. Unbounded structural-variant fetches — non-native page, compound-het candidates, and list/shared-count helpers - MOSTLY FIXED (non-native SV page candidate cap + estimated-total, lengths helper bounded, shared-counts documented; compound-het still fetches all — deferred: needs a gene-restricted fetch with verified annotation-key equivalence)
 `backend/app/services/clickhouse_family_variants.py` (`get_family_structural_variants_page` 4503-4518; `get_family_compound_het_candidates` 4552-4580) and `backend/app/services/family_service.py` (`get_family_structural_variant_lengths_for_user` / `get_shared_family_structural_variant_counts_for_user`, lines 544-602)
 
 Several SV/small-variant code paths call the row-fetch helpers without the `limit=` keyword. Because `_append_limit_offset` short-circuits when `limit is None`, ClickHouse returns the **entire** matching result set (with a LEFT JOIN to details and per-row JSON decode), which is then materialized and paginated in Python:

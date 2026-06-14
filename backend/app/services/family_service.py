@@ -556,6 +556,7 @@ async def get_family_structural_variant_lengths_for_user(
     records = await _fetch_structural_variant_rows(
         context,
         StructuralVariantQueryFilters(page=1, page_size=limit),
+        limit=limit,
     )
     return [
         VariantLengthOut(
@@ -581,6 +582,9 @@ async def get_shared_family_structural_variant_counts_for_user(
     )
     names = [row["sample_id"] for row in context.sample_rows]
     counts: dict[str, dict[str, int]] = {name: {other: 0 for other in names} for name in names}
+    # No limit: the shared-variant co-occurrence matrix is built from every
+    # structural variant in the family, so all rows are required here. (The
+    # page_size below is unused by _fetch_structural_variant_rows.)
     records = await _fetch_structural_variant_rows(
         context,
         StructuralVariantQueryFilters(page=1, page_size=1),

@@ -63,6 +63,11 @@ _SMALL_INHERITANCE_MIN_CANDIDATE_ROWS = 1000
 _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS = 5000
 _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER = 25
 _SMALL_COUNT_LIMIT = 10001
+# Safety cap on the non-native structural-variant page, where every meaningful
+# filter forces a fetch-all-then-filter-in-Python path. Far above any realistic
+# per-family SV count, so results are identical below the cap; above it the total
+# is reported as estimated.
+_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP = 50000
 _SMALL_TRACK_RESULT_LIMIT = 10000
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
@@ -4463,7 +4468,12 @@ async def get_family_structural_variants_page(
         if filters.exclude_review_tags
         else set()
     )
-    records = await _fetch_structural_variant_rows(context, filters)
+    records = await _fetch_structural_variant_rows(
+        context, filters, limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1
+    )
+    total_is_estimated = len(records) > _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
+    if total_is_estimated:
+        records = records[:_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP]
     filtered = [
         record
         for record in records
@@ -4500,6 +4510,12 @@ async def get_family_structural_variants_page(
     ]
     return VariantPage(
         total=0 if track_mode else total,
+        total_is_estimated=False if track_mode else total_is_estimated,
+        count_limit=(
+            _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
+            if (not track_mode and total_is_estimated)
+            else None
+        ),
         variants=variants,
         summary=None if track_mode else summary,
     )
