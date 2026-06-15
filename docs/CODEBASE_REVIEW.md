@@ -294,7 +294,7 @@ These are confirmed-real defects that were not auto-applied because the correct 
 - **Effort:** M
 - **Expected impact:** Admins get loading/error feedback instead of a silently empty table on fetch failure; missing names/affiliation render a consistent `'—'`; the disabled toggle prevents duplicate/racing PATCH requests. Brings the page in line with the rest of the admin surface.
 
-### 3. `ingest_ui_events` silently truncates oversized telemetry batches
+### 3. `ingest_ui_events` silently truncates oversized telemetry batches — FIXED
 
 - **File:** [`backend/app/routers/ui_events.py`](backend/app/routers/ui_events.py) (lines 143-156); schema in [`backend/app/schemas.py`](backend/app/schemas.py) (1888-1889); client in [`frontend/src/lib/telemetry.ts`](frontend/src/lib/telemetry.ts) (115).
 - **Problem & impact:** `_MAX_EVENTS_PER_BATCH=100` is enforced only as `payload.events[:100]` during iteration; `UiEventBatchIn.events` has no `max_length`, so events past 100 are silently dropped with no signal (the `202` response's `accepted` counts only processed events). This is reachable by a legitimate client: `telemetry.ts` `flushKeepalive` POSTs the entire queue (up to `MAX_QUEUE=200`) on page-hide, so a real keepalive batch can lose ~100 events.

@@ -1891,8 +1891,16 @@ class UiEventIn(BaseModel):
     detail: Optional[Dict[str, Any]] = None
 
 
+# Max events accepted per /ui-events batch. Oversize batches are rejected with
+# 422 rather than silently truncated; the telemetry client chunks keepalive
+# flushes to stay within this cap.
+UI_EVENT_BATCH_MAX_EVENTS = 100
+
+
 class UiEventBatchIn(BaseModel):
-    events: List[UiEventIn] = Field(default_factory=list)
+    events: List[UiEventIn] = Field(
+        default_factory=list, max_length=UI_EVENT_BATCH_MAX_EVENTS
+    )
 
 
 class UiEventOut(BaseModel):

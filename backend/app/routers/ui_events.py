@@ -6,7 +6,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from ..dependencies import get_current_user
-from ..schemas import UiEventBatchIn, UiEventIn, UiEventIngestResult
+from ..schemas import (
+    UI_EVENT_BATCH_MAX_EVENTS,
+    UiEventBatchIn,
+    UiEventIn,
+    UiEventIngestResult,
+)
 from ..services.metadata_service import CurrentUser
 from ..services.ui_event_pg import UiEventPayload, write_ui_event
 
@@ -15,7 +20,9 @@ router = APIRouter(prefix="/ui-events", tags=["ui-events"])
 # Interactions the client is allowed to record. Anything else is dropped so a
 # misbehaving or tampered client cannot store arbitrary event types.
 _ALLOWED_EVENT_TYPES = {"click", "navigation", "submit", "view", "query"}
-_MAX_EVENTS_PER_BATCH = 100
+# Single source of truth lives on the schema, which now rejects oversize
+# batches with 422; this slice stays as a defensive backstop.
+_MAX_EVENTS_PER_BATCH = UI_EVENT_BATCH_MAX_EVENTS
 _MAX_LABEL_LEN = 200
 _MAX_SHORT_LEN = 128
 _MAX_PATH_LEN = 512

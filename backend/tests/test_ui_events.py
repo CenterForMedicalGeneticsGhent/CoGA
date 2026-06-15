@@ -1,12 +1,15 @@
 from types import SimpleNamespace
 
+import pytest
+from pydantic import ValidationError
+
 from app.routers.ui_events import (
     _clean_label,
     _mask_path,
     _payload_from_event,
     _sanitize_detail,
 )
-from app.schemas import UiEventIn
+from app.schemas import UI_EVENT_BATCH_MAX_EVENTS, UiEventBatchIn, UiEventIn
 from app.services.ui_event_pg import UiEventPayload, _ui_event_insert_params
 
 
@@ -60,6 +63,22 @@ def test_payload_takes_actor_from_user_not_body_and_drops_unknown_type() -> None
     assert payload.user_email == "analyst@example.com"
     assert payload.user_role == "viewer"
     assert payload.to_path == "/families/:id/small-variants"
+
+
+def test_event_batch_accepts_up_to_the_cap() -> None:
+    batch = UiEventBatchIn(
+        events=[UiEventIn(event_type="click")] * UI_EVENT_BATCH_MAX_EVENTS
+    )
+    assert len(batch.events) == UI_EVENT_BATCH_MAX_EVENTS
+
+
+def test_event_batch_rejects_oversize_batch() -> None:
+    # An over-cap batch is now an explicit validation error (HTTP 422 at the
+    # route) rather than a silently truncated 202.
+    with pytest.raises(ValidationError):
+        UiEventBatchIn(
+            events=[UiEventIn(event_type="click")] * (UI_EVENT_BATCH_MAX_EVENTS + 1)
+        )
 
 
 def test_insert_params_serializes_detail_to_json_string() -> None:
