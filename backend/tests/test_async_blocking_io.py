@@ -51,6 +51,42 @@ async def test_get_alignment_manifest_dedups_preserves_order_and_filters(monkeyp
     assert len(resolved) == 3
 
 
+@pytest.mark.asyncio
+async def test_get_cram_header_offloads_blocking_read(monkeypatch):
+    async def fake_ensure(*_args, **_kwargs):
+        return None
+
+    read_args: dict[str, tuple[str, str]] = {}
+
+    def fake_read(family_id, sample_id):
+        read_args["args"] = (family_id, sample_id)
+        return {"SQ": [{"SN": "chr1", "LN": 1000}]}
+
+    offloaded: list[str] = []
+    real_to_thread = cram.asyncio.to_thread
+
+    async def spy_to_thread(func, *args, **kwargs):
+        offloaded.append(getattr(func, "__name__", repr(func)))
+        return await real_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(cram, "_ensure_accessible_alignment_sample", fake_ensure)
+    monkeypatch.setattr(cram, "_read_alignment_header", fake_read)
+    monkeypatch.setattr(cram.asyncio, "to_thread", spy_to_thread)
+
+    header = await cram.get_cram_header(
+        family_id="F1",
+        sample_id="S1",
+        session=object(),
+        user=object(),
+    )
+
+    assert header == {"SQ": [{"SN": "chr1", "LN": 1000}]}
+    assert read_args["args"] == ("F1", "S1")
+    # The blocking pysam read is offloaded off the event loop via asyncio.to_thread,
+    # not awaited inline (the offloaded callable is the patched _read_alignment_header).
+    assert offloaded == ["fake_read"]
+
+
 # --------------------------------------------------------------------------- #
 # reference FASTA caching                                                      #
 # --------------------------------------------------------------------------- #

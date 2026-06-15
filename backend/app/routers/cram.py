@@ -220,15 +220,12 @@ async def head_bai(
     return _head_alignment(family_id, sample_id, "bam", ".bai", "BAI file not found")
 
 
-@router.get("/{family_id}/{sample_id}.cram.header")
-async def get_cram_header(
-    family_id: str,
-    sample_id: str,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-):
-    """Return alignment header for quick M5/SN/LN inspection."""
-    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+def _read_alignment_header(family_id: str, sample_id: str) -> dict:
+    """Open the sample's CRAM/BAM and return its header dict.
+
+    Blocking work (pysam open + S3/htslib byte-range I/O), so callers must run
+    it via ``asyncio.to_thread`` to avoid stalling the event loop.
+    """
     if storage_is_s3():
         for ext, mode in (("cram", "rc"), ("bam", "rb")):
             key = _alignment_key(family_id, sample_id, ext)
@@ -246,3 +243,17 @@ async def get_cram_header(
         with pysam.AlignmentFile(str(bam_path), "rb") as af:
             return af.header.to_dict()
     raise HTTPException(status_code=404, detail="No CRAM/BAM found for sample")
+
+
+@router.get("/{family_id}/{sample_id}.cram.header")
+async def get_cram_header(
+    family_id: str,
+    sample_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Return alignment header for quick M5/SN/LN inspection."""
+    await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
+    # Offload the blocking pysam open + header parse so a slow S3/htslib read
+    # cannot stall the event loop (matches the manifest handler's pattern).
+    return await asyncio.to_thread(_read_alignment_header, family_id, sample_id)
