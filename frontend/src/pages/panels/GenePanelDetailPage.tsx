@@ -3,30 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
-
-interface GeneRegion {
-  gene: string;
-  chr: string;
-  start: number;
-  end: number;
-}
-
-interface GenePanel {
-  _id: string;
-  name: string;
-  genes: string[];
-  gene_count?: number;
-  regions: GeneRegion[];
-  created_by: string;
-  created_by_email?: string | null;
-  created_at: string;
-  description?: string | null;
-  source?: string;
-  external_id?: string | null;
-  external_version?: string | null;
-  external_url?: string | null;
-  source_updated_at?: string | null;
-}
+import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
 
 const GenePanelDetailPage: React.FC = () => {
   const { panelId } = useParams();
@@ -38,7 +15,7 @@ const GenePanelDetailPage: React.FC = () => {
     },
   });
 
-  const [sortKey, setSortKey] = useState<keyof GeneRegion>('gene');
+  const [sortKey, setSortKey] = useState<keyof GeneLocation>('gene');
   const [sortAsc, setSortAsc] = useState(true);
   const [filters, setFilters] = useState({
     gene: '',
@@ -53,7 +30,7 @@ const GenePanelDetailPage: React.FC = () => {
     }
     return parsed.toLocaleString();
   };
-  const handleSort = (key: keyof GeneRegion) => {
+  const handleSort = (key: keyof GeneLocation) => {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
     } else {
@@ -64,7 +41,7 @@ const GenePanelDetailPage: React.FC = () => {
 
   const handleFilterChange = (
     e: React.ChangeEvent<HTMLInputElement>,
-    key: keyof GeneRegion,
+    key: keyof GeneLocation,
   ) => {
     const { value } = e.target;
     setFilters((f) => ({ ...f, [key]: value }));
