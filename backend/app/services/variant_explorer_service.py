@@ -824,7 +824,6 @@ async def _fetch_annotation_display(
         f"""
         SELECT
             key,
-            arrayDistinct(arrayFlatten(groupArray(gene_symbols))) AS gene_symbols,
             arrayDistinct(arrayFlatten(groupArray(gene_ids))) AS gene_ids,
             arrayDistinct(arrayFlatten(groupArray(impacts))) AS impacts,
             arrayDistinct(arrayFlatten(groupArray(effects))) AS effects,
@@ -837,16 +836,18 @@ async def _fetch_annotation_display(
         """,
         {"keys": tuple(keys)},
     )
+    # gene_symbols are taken from the entries side (original case); the annotation
+    # index casefolds them and the row loop never reads them here, so they are not
+    # aggregated.
     result: dict[int, dict[str, list[str]]] = {}
     for row in rows:
         result[int(row[0])] = {
-            "gene_symbols": [str(value) for value in (row[1] or [])],
-            "gene_ids": [str(value) for value in (row[2] or [])],
-            "impacts": [str(value) for value in (row[3] or [])],
-            "effects": [str(value) for value in (row[4] or [])],
-            "clinvar_terms": [str(value) for value in (row[5] or [])],
-            "hgvsc_values": [str(value) for value in (row[6] or [])],
-            "hgvsp_values": [str(value) for value in (row[7] or [])],
+            "gene_ids": [str(value) for value in (row[1] or [])],
+            "impacts": [str(value) for value in (row[2] or [])],
+            "effects": [str(value) for value in (row[3] or [])],
+            "clinvar_terms": [str(value) for value in (row[4] or [])],
+            "hgvsc_values": [str(value) for value in (row[5] or [])],
+            "hgvsp_values": [str(value) for value in (row[6] or [])],
         }
     return result
 

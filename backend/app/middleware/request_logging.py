@@ -92,8 +92,11 @@ def _query_string_for_logging(request: Request) -> str | None:
     return urlencode(sanitized_items) or None
 
 
-def _request_url_for_logging(request: Request) -> str:
-    query_string = _query_string_for_logging(request)
+def _request_url_for_logging(request: Request, query_string: str | None = None) -> str:
+    # The middleware threads in the already-sanitized query_string so it is not
+    # parsed/sorted a second time on the hot path; standalone callers compute it.
+    if query_string is None:
+        query_string = _query_string_for_logging(request)
     if not query_string:
         return request.url.path
     return f"{request.url.path}?{query_string}"
@@ -224,7 +227,7 @@ async def log_request_response(request: Request, call_next) -> Response:
 
         http_request_json = {
             "requestMethod": request.method,
-            "requestUrl": _request_url_for_logging(request),
+            "requestUrl": _request_url_for_logging(request, query_string),
             "status": status_code,
             "responseSize": response_size,
             "userAgent": request.headers.get("user-agent"),
