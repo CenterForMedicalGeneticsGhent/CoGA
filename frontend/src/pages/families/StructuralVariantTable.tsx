@@ -19,6 +19,7 @@ import type {
   StructuralVariantFamilyMember,
   StructuralVariantGenotype,
 } from './structuralVariantSearch';
+import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
 
 interface StructuralVariantTableProps {
   familyId?: string;
@@ -380,17 +381,13 @@ export default function StructuralVariantTable({
                 )}
                 <td className="whitespace-nowrap">
                   {(() => {
-                    const chr = variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`;
-                    const locusA = `${chr}:${Math.max(1, variant.start)}-${Math.max(
-                      variant.start,
-                      variant.end,
-                    )}`;
+                    const { locus: locusA, igvHref: hrefA } = buildStructuralVariantNavigation({
+                      familyId,
+                      linkSearch,
+                      projectId,
+                      variant,
+                    });
                     const backPath = `/families/${familyId}/structural-variants${linkSearch}`;
-                    const hrefA = `/families/${familyId}/igv?locus=${encodeURIComponent(
-                      locusA,
-                    )}${projectId ? `&project_id=${projectId}` : ''}&back_path=${encodeURIComponent(
-                      backPath,
-                    )}`;
                     const hasRemote = !!variant.remote_chr && !!variant.remote_start;
                     const remoteChr = variant.remote_chr?.startsWith('chr')
                       ? variant.remote_chr
@@ -426,12 +423,7 @@ export default function StructuralVariantTable({
                 <td className="whitespace-nowrap">
                   <Link
                     className="table-link"
-                    to={`/families/${familyId}/chromosome/${variant.chr.replace(/^chr/, '')}?start=${Math.max(
-                      0,
-                      variant.start - 1_000_000,
-                    )}&end=${variant.end + 1_000_000}${linkSearch ? `&${linkSearch.slice(1)}` : ''}${
-                      projectId ? `&project_id=${projectId}` : ''
-                    }`}
+                    to={buildStructuralVariantNavigation({ familyId, linkSearch, projectId, variant }).viewHref}
                   >
                     View
                   </Link>

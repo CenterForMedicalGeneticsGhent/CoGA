@@ -9,7 +9,12 @@ import type {
   StructuralVariantTagDefinition,
   StructuralVariantSearchState,
 } from './structuralVariantSearch';
-import { STRUCTURAL_ALL_GT_GROUPS } from './structuralVariantSearch';
+import {
+  STRUCTURAL_ALL_GT_GROUPS,
+  STRUCTURAL_HET_GT_GROUP,
+  STRUCTURAL_HOM_GT_GROUP,
+  STRUCTURAL_REF_GT_GROUP,
+} from './structuralVariantSearch';
 import {
   ACMG_CLASSIFICATION_TAGS,
   countPresetRules,
@@ -385,9 +390,9 @@ const StructuralVariantFilterForm = ({
                       <div className="variant-sample-controls">
                         <div className="variant-gt-toggle-row">
                           {[
-                            { value: 'hom-group', label: 'Hom', group: ['1/1', '1|1'] },
-                            { value: 'het-group', label: 'Het', group: ['0/1', '1/0', '0|1', '1|0'] },
-                            { value: 'ref-group', label: 'WT', group: ['0/0', '0|0', './.', 'absent'] },
+                            { value: 'hom-group', label: 'Hom', group: STRUCTURAL_HOM_GT_GROUP },
+                            { value: 'het-group', label: 'Het', group: STRUCTURAL_HET_GT_GROUP },
+                            { value: 'ref-group', label: 'WT', group: STRUCTURAL_REF_GT_GROUP },
                           ].map((option) => (
                             <label key={option.value} className="analysis-checkbox">
                               <input
