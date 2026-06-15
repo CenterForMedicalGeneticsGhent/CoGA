@@ -120,13 +120,13 @@ describe('GenomeOverviewWorkspace', () => {
           }}
           variantFilters={{}}
           sampleFilterMap={{}}
-          baseVariantParams={new URLSearchParams()}
           urlMaps={{
             coverage: { PROBAND: ['http://test/coverage'] },
             segments: {},
             apcad: {},
             apcadPcf: {},
             haplotypes: { PROBAND: ['http://test/haplotype'] },
+            sv: { PROBAND: 'http://test/sv' },
           }}
           layout={{
             chroms: ['1'],

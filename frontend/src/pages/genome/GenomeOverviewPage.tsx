@@ -205,6 +205,7 @@ const GenomeOverviewPage: React.FC = () => {
         apcad: {},
         apcadPcf: {},
         haplotypes: {},
+        sv: {},
       };
     }
 
@@ -225,6 +226,7 @@ const GenomeOverviewPage: React.FC = () => {
     const apcad: Record<string, string[]> = {};
     const apcadPcf: Record<string, string[]> = {};
     const haplotypes: Record<string, string[]> = {};
+    const sv: Record<string, string> = {};
 
     orderedMembers.forEach((member) => {
       coverage[member.sample_id] = [
@@ -250,10 +252,30 @@ const GenomeOverviewPage: React.FC = () => {
         }),
       ];
       haplotypes[member.sample_id] = haplotypeUrls;
+
+      const svParams = new URLSearchParams(baseVariantParams);
+      svParams.set('page_size', '0');
+      svParams.set('track_mode', 'true');
+      svParams.append('sample', member.sample_id);
+      const svSampleFilter = sampleFilterMap[member.sample_id];
+      if (svSampleFilter) svParams.append('sample_filter', svSampleFilter);
+      sv[member.sample_id] =
+        `${api.defaults.baseURL}/families/${familyId}/structural-variants?${svParams.toString()}`;
     });
 
-    return { coverage, segments, apcad, apcadPcf, haplotypes };
-  }, [binLimit, chroms, data, genomeTrackWindow, haplotypeUrls, orderedMembers, segmentLimit]);
+    return { coverage, segments, apcad, apcadPcf, haplotypes, sv };
+  }, [
+    baseVariantParams,
+    binLimit,
+    chroms,
+    data,
+    familyId,
+    genomeTrackWindow,
+    haplotypeUrls,
+    orderedMembers,
+    sampleFilterMap,
+    segmentLimit,
+  ]);
 
   useEffect(() => {
     if (!orderedMembers.length) return;
@@ -469,7 +491,6 @@ const GenomeOverviewPage: React.FC = () => {
         availability={availability}
         variantFilters={variantFilters}
         sampleFilterMap={sampleFilterMap}
-        baseVariantParams={baseVariantParams}
         urlMaps={urlMaps}
         layout={layout}
         trackWidth={trackWidth}
