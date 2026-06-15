@@ -62,31 +62,25 @@ SMALL_VARIANT_PROGRESS_INTERVAL = 10_000
 
 @dataclass(slots=True)
 class VepAnnotationLookup:
-    by_variant_id: dict[str, list[dict[str, Any]]] | None
-    by_locus_allele: dict[tuple[str, int, str], list[dict[str, Any]]] | None
     row_count: int
     conn: sqlite3.Connection | None = None
     temp_path: str | None = None
 
     def get(self, variant_id: str, chrom: str, start: int, alt: str) -> list[dict[str, Any]] | None:
-        if self.conn is not None:
-            rows = self.conn.execute(
-                "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
-                ("variant_id", variant_id),
-            ).fetchall()
-            if rows:
-                return [json.loads(row[0]) for row in rows]
-            locus_key = f"{chrom}:{start}:{alt}"
-            rows = self.conn.execute(
-                "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
-                ("locus_allele", locus_key),
-            ).fetchall()
-            return [json.loads(row[0]) for row in rows] or None
-
-        exact = (self.by_variant_id or {}).get(variant_id)
-        if exact:
-            return exact
-        return (self.by_locus_allele or {}).get((chrom, start, alt))
+        if self.conn is None:
+            return None
+        rows = self.conn.execute(
+            "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
+            ("variant_id", variant_id),
+        ).fetchall()
+        if rows:
+            return [json.loads(row[0]) for row in rows]
+        locus_key = f"{chrom}:{start}:{alt}"
+        rows = self.conn.execute(
+            "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
+            ("locus_allele", locus_key),
+        ).fetchall()
+        return [json.loads(row[0]) for row in rows] or None
 
     def close(self) -> None:
         if self.conn is not None:
@@ -190,16 +184,6 @@ def _parse_vep_location(value: str) -> tuple[str, int] | None:
         return None
 
 
-def _append_annotation(
-    mapping: dict[Any, list[dict[str, Any]]],
-    key: Any,
-    annotation: dict[str, Any],
-) -> None:
-    if not annotation:
-        return
-    mapping.setdefault(key, []).append(annotation)
-
-
 def _sqlite_annotation_lookup() -> VepAnnotationLookup:
     temp_file = tempfile.NamedTemporaryFile(prefix="coga-vep-", suffix=".sqlite3", delete=False)
     temp_file.close()
@@ -209,8 +193,6 @@ def _sqlite_annotation_lookup() -> VepAnnotationLookup:
     )
     conn.execute("CREATE INDEX idx_annotations_key ON annotations (key_type, key_value)")
     return VepAnnotationLookup(
-        by_variant_id=None,
-        by_locus_allele=None,
         row_count=0,
         conn=conn,
         temp_path=temp_file.name,
@@ -224,28 +206,17 @@ def _store_vep_annotation(
     key_value: str,
     annotation: dict[str, Any],
 ) -> None:
-    if lookup.conn is not None:
-        lookup.conn.execute(
-            "INSERT INTO annotations (key_type, key_value, annotation_json) VALUES (?, ?, ?)",
-            (key_type, key_value, json.dumps(annotation)),
-        )
+    if lookup.conn is None:
         return
-    if key_type == "variant_id":
-        target = lookup.by_variant_id if lookup.by_variant_id is not None else {}
-        _append_annotation(target, key_value, annotation)
-
-
-def _parse_vep_tsv_annotation_lines(
-    lines: Any,
-    *,
-    sqlite_backed: bool,
-) -> VepAnnotationLookup:
-    header: list[str] | None = None
-    lookup = (
-        _sqlite_annotation_lookup()
-        if sqlite_backed
-        else VepAnnotationLookup(by_variant_id={}, by_locus_allele={}, row_count=0)
+    lookup.conn.execute(
+        "INSERT INTO annotations (key_type, key_value, annotation_json) VALUES (?, ?, ?)",
+        (key_type, key_value, json.dumps(annotation)),
     )
+
+
+def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
+    header: list[str] | None = None
+    lookup = _sqlite_annotation_lookup()
     row_count = 0
 
     for raw_line in lines:
@@ -278,42 +249,30 @@ def _parse_vep_tsv_annotation_lines(
                     annotation=annotation,
                 )
             if allele:
-                if lookup.conn is not None:
-                    _store_vep_annotation(
-                        lookup,
-                        key_type="locus_allele",
-                        key_value=f"{chrom}:{start}:{allele}",
-                        annotation=annotation,
-                    )
-                else:
-                    target = lookup.by_locus_allele if lookup.by_locus_allele is not None else {}
-                    _append_annotation(target, (chrom, start, allele), annotation)
-            elif alt:
-                if lookup.conn is not None:
-                    _store_vep_annotation(
-                        lookup,
-                        key_type="locus_allele",
-                        key_value=f"{chrom}:{start}:{alt}",
-                        annotation=annotation,
-                    )
-                else:
-                    target = lookup.by_locus_allele if lookup.by_locus_allele is not None else {}
-                    _append_annotation(target, (chrom, start, alt), annotation)
-            continue
-
-        location = _parse_vep_location(row.get("Location", ""))
-        if location is not None and allele:
-            chrom, start = location
-            if lookup.conn is not None:
                 _store_vep_annotation(
                     lookup,
                     key_type="locus_allele",
                     key_value=f"{chrom}:{start}:{allele}",
                     annotation=annotation,
                 )
-            else:
-                target = lookup.by_locus_allele if lookup.by_locus_allele is not None else {}
-                _append_annotation(target, (chrom, start, allele), annotation)
+            elif alt:
+                _store_vep_annotation(
+                    lookup,
+                    key_type="locus_allele",
+                    key_value=f"{chrom}:{start}:{alt}",
+                    annotation=annotation,
+                )
+            continue
+
+        location = _parse_vep_location(row.get("Location", ""))
+        if location is not None and allele:
+            chrom, start = location
+            _store_vep_annotation(
+                lookup,
+                key_type="locus_allele",
+                key_value=f"{chrom}:{start}:{allele}",
+                annotation=annotation,
+            )
 
     if header is None:
         lookup.close()
@@ -324,14 +283,9 @@ def _parse_vep_tsv_annotation_lines(
     return lookup
 
 
-def _parse_vep_tsv_annotations(text_value: str) -> VepAnnotationLookup:
-    return _parse_vep_tsv_annotation_lines(text_value.splitlines(), sqlite_backed=False)
-
-
 def _parse_vep_tsv_annotation_upload(file: UploadFile) -> VepAnnotationLookup:
     return _parse_vep_tsv_annotation_lines(
         _iter_upload_text_lines(file, kind="VEP TSV annotation"),
-        sqlite_backed=True,
     )
 
 

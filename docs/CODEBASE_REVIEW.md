@@ -352,7 +352,7 @@ The column is SELECTed, carried through merge dicts, and written on insert/updat
 
 ### Backend — test-only / unreferenced surfaces
 
-**In-memory VEP annotation path is reachable only from tests; one branch is fully unreachable**
+**In-memory VEP annotation path is reachable only from tests; one branch is fully unreachable** — FIXED (removed the in-memory path: dropped `_parse_vep_tsv_annotations`, `_append_annotation`, the `by_variant_id`/`by_locus_allele` dicts on `VepAnnotationLookup`, the unreachable `_store_vep_annotation` in-memory branch, and the in-memory `else` branches in `_parse_vep_tsv_annotation_lines` — which is now unconditionally sqlite-backed. The sqlite path is byte-for-byte unchanged. The two tests were migrated to drive `_parse_vep_tsv_annotation_upload` (real `UploadFile`) and assert via `lookup.get(...)`)
 `backend/app/services/variant_upload_service.py` (220-236, 280-301, 327-329)
 
 Two findings: (1) the `locus_allele` branch of `_store_vep_annotation` is **provably unreachable** — sqlite callers take the `conn is not None` branch and in-memory callers handle `locus_allele` inline via `_append_annotation`, so this branch is a silent no-op. (2) The entire non-sqlite (in-memory) `VepAnnotationLookup` path, including `_parse_vep_tsv_annotations`, has **no production caller** (production uses the sqlite-backed `_parse_vep_tsv_annotation_upload` at line 952); it is kept alive only by `test_variant_upload_service.py`. `_parse_vep_tsv_annotation_lines`, `_parse_vep_tsv_annotation_upload`, and `VepAnnotationLookup.get/close` are **not** dead.
