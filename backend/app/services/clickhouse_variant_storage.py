@@ -231,17 +231,14 @@ def _annotation_gnomad_over_5_percent(annotations: Sequence[dict[str, Any]]) -> 
     return any(value > 0.05 for annotation in annotations for value in _candidate_values(annotation))
 
 
-def _first_float(*values: float | None) -> float | None:
-    candidates = [value for value in values if value is not None]
-    return max(candidates) if candidates else None
-
-
 def _population_float(annotation: dict[str, Any], *keys: str) -> float | None:
     values = [_annotation_float(annotation, *keys)]
     population_frequencies = _annotation_population_frequencies(annotation)
     for key in keys:
         values.append(population_frequencies.get(key))
-    return _first_float(*values)
+    # Highest frequency across the direct annotation value and all population
+    # fallbacks (conservative for rare-variant filtering); _max_or_none ignores Nones.
+    return _max_or_none(values)
 
 
 def _clean_text(value: Any) -> str:
