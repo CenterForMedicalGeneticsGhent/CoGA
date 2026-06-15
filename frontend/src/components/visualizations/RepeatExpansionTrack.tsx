@@ -88,6 +88,20 @@ const RepeatExpansionTrack: React.FC<Props> = ({
     y: number;
   } | null>(null);
 
+  // Resolve the status palette once: STATUS_COLORS values call cssVar()
+  // (getComputedStyle), so they must not run per locus inside the render map —
+  // which re-runs on every mousemove tooltip update.
+  const statusColors = useMemo(
+    () => ({
+      normal: STATUS_COLORS.normal(),
+      intermediate: STATUS_COLORS.intermediate(),
+      pathogenic: STATUS_COLORS.pathogenic(),
+      unknown: STATUS_COLORS.unknown(),
+      grid: cssVar('--color-grid'),
+    }),
+    [],
+  );
+
   const trackY = Math.max(2, Math.floor(height * 0.28));
   const trackHeight = Math.max(height - trackY * 2, 6);
 
@@ -99,7 +113,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
           x2={width}
           y1={trackY + trackHeight / 2}
           y2={trackY + trackHeight / 2}
-          stroke={cssVar('--color-grid')}
+          stroke={statusColors.grid}
           strokeWidth={1}
         />
         {visibleItems.map((item) => {
@@ -108,7 +122,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
             : ((Math.max(item.start, regionStart) + Math.min(item.end, regionEnd)) / 2 - regionStart) /
               regionLength;
           const x = Math.min(Math.max(center * width, 3), width - 3);
-          const color = STATUS_COLORS[item.status]?.() || cssVar('--color-repeat-unknown');
+          const color = statusColors[item.status] || statusColors.unknown;
           return (
             <rect
               key={`${item.locus_id}-${item.start}-${item.end}`}

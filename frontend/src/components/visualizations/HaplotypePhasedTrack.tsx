@@ -108,6 +108,9 @@ const BAND_THICKNESS = 4;
 // sharp (no anti-alias blur) and taller than the band so disagreements stand out.
 const MARKER_WIDTH = 1;
 const MARKER_LANE_PADDING = 2;
+// Stable empty fallback so the optional familyMembers prop keeps one reference
+// across renders (an inline `= []` default would defeat the memos below).
+const EMPTY_MEMBERS: HaplotypeMemberLike[] = [];
 
 const HaplotypePhasedTrack: React.FC<Props> = ({
   familyId,
@@ -125,7 +128,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   highlightRiskHaplotype,
   disorder = 'dominant',
   inheritanceModel,
-  familyMembers = [],
+  familyMembers = EMPTY_MEMBERS,
   riskRegion,
   showMarkers = false,
 }) => {
@@ -174,8 +177,14 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     }),
     [affected, carrierStatus, carrierType, role, sampleId, sex],
   );
-  const membersForRisk = familyMembers.length > 0 ? familyMembers : [currentMember];
-  const analysisRegion = riskRegion || defaultHaplotypeRiskRegion(chrom, regionStart, regionEnd);
+  const membersForRisk = useMemo(
+    () => (familyMembers.length > 0 ? familyMembers : [currentMember]),
+    [familyMembers, currentMember],
+  );
+  const analysisRegion = useMemo(
+    () => riskRegion || defaultHaplotypeRiskRegion(chrom, regionStart, regionEnd),
+    [riskRegion, chrom, regionStart, regionEnd],
+  );
   const riskEnabled =
     highlightRiskHaplotype ??
     membersForRisk.some((member) => member.affected || member.carrier_status === 'carrier');
@@ -360,14 +369,18 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   ]);
 
   const hasSegments = segments.length > 0;
-  const riskState = hasSegments
-    ? interpretSampleHaplotypeRisk({
-        model: diseaseModel,
-        samples: haplotypeData?.samples || [],
-        member: currentMember,
-        region: analysisRegion,
-      })
-    : 'uninformative';
+  const riskState = useMemo(
+    () =>
+      hasSegments
+        ? interpretSampleHaplotypeRisk({
+            model: diseaseModel,
+            samples: haplotypeData?.samples || [],
+            member: currentMember,
+            region: analysisRegion,
+          })
+        : 'uninformative',
+    [hasSegments, diseaseModel, haplotypeData?.samples, currentMember, analysisRegion],
+  );
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
     if (!showMarkers || sortedMarkers.length === 0) {

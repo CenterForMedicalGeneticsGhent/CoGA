@@ -58,6 +58,19 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
     y: number;
   } | null>(null);
 
+  // Resolve the status palette once: STATUS_COLORS values call cssVar()
+  // (getComputedStyle), so they must not run per locus inside the render map.
+  const statusColors = useMemo(
+    () => ({
+      normal: STATUS_COLORS.normal(),
+      intermediate: STATUS_COLORS.intermediate(),
+      pathogenic: STATUS_COLORS.pathogenic(),
+      unknown: STATUS_COLORS.unknown(),
+      grid: cssVar('--color-grid'),
+    }),
+    [],
+  );
+
   const items = useMemo(() => {
     if (!layout) return [];
     return (data?.items || []).filter((item) => layout.offsets[item.chr.replace(/^chr/i, '')] !== undefined);
@@ -74,7 +87,7 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
           x2={width}
           y1={trackY + trackHeight / 2}
           y2={trackY + trackHeight / 2}
-          stroke={cssVar('--color-grid')}
+          stroke={statusColors.grid}
           strokeWidth={1}
         />
         {items.map((item) => {
@@ -83,7 +96,7 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
           const offset = layout.offsets[chrom];
           const centerBp = offset + (item.start + item.end) / 2;
           const x = Math.min(Math.max((centerBp / Math.max(layout.total, 1)) * width, 3), width - 3);
-          const color = STATUS_COLORS[item.status]?.() || cssVar('--color-repeat-unknown');
+          const color = statusColors[item.status] || statusColors.unknown;
           return (
             <rect
               key={`${item.sample}-${item.locus_id}-${item.chr}-${item.start}`}

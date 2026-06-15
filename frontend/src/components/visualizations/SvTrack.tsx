@@ -157,22 +157,27 @@ const SvTrack: React.FC<Props> = ({
     if (!canvas || !ctx) return;
     ctx.clearRect(0, 0, width, height);
 
+    // Hoisted out of the per-row / per-variant loops: cssVar() runs
+    // getComputedStyle (a style flush), so resolve each colour once per draw.
+    const defaultColor = cssVar('--color-variant-default');
+    const mutedColor = cssVar('--color-text-muted');
+    const whiteColor = cssVar('--color-white');
+
     TYPE_ORDER.forEach((typeKey, index) => {
       const rowTop = index * rowHeight;
-      const rowFill =
-        typeColors[typeKey] || cssVar('--color-variant-default');
+      const rowFill = typeColors[typeKey] || defaultColor;
       ctx.globalAlpha = 0.06;
       ctx.fillStyle = rowFill;
       ctx.fillRect(0, rowTop + 1, width, Math.max(rowHeight - 2, 1));
       ctx.globalAlpha = 1;
-      ctx.fillStyle = cssVar('--color-text-muted');
+      ctx.fillStyle = mutedColor;
       ctx.font = '10px var(--font-sans, sans-serif)';
       ctx.textBaseline = 'top';
       ctx.fillText(typeKey, 4, rowTop + 3);
     });
 
     items.forEach((v) => {
-      const color = typeColors[v.typeKey] || cssVar('--color-variant-default');
+      const color = typeColors[v.typeKey] || defaultColor;
       const itemHeight = Math.max(v.y2 - v.y1, 2);
       const itemWidth = Math.max(v.x2 - v.x1, 1);
       const isInv = v.typeKey === 'INV';
@@ -194,7 +199,7 @@ const SvTrack: React.FC<Props> = ({
         ctx.fill();
       } else {
         ctx.globalAlpha = 0.82;
-        ctx.fillStyle = isInv ? cssVar('--color-white') : color;
+        ctx.fillStyle = isInv ? whiteColor : color;
         ctx.fillRect(v.x1, v.y1, itemWidth, itemHeight);
         ctx.globalAlpha = 1;
         if (isInv) {
