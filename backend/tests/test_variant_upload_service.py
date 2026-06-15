@@ -12,7 +12,7 @@ from backend.app.services.variant_upload_service import (
     _haplotype_state_end,
     _haplotype_state_matches_block,
     _new_haplotype_state,
-    _parse_vep_tsv_annotations,
+    _parse_vep_tsv_annotation_upload,
     _phased_haplotype_alleles,
 )
 
@@ -448,27 +448,42 @@ async def test_glimpse2_upload_derives_child_haplotype_blocks_from_parental_segr
     assert rows_by_uuid["mother-uuid"][0]["hap2"] == "1"
 
 
-def test_parse_vep_tsv_annotations_indexes_by_variant_id_and_locus_allele() -> None:
-    lookup = _parse_vep_tsv_annotations(
-        "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\tCANONICAL\n"
-        "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tTranscript\tmissense_variant\tMODERATE\tGENE1\tYES\n"
+def _vep_upload(text: str) -> UploadFile:
+    return UploadFile(file=BytesIO(text.encode()), filename="vep.tsv")
+
+
+def test_parse_vep_tsv_annotation_upload_indexes_by_variant_id_and_locus_allele() -> None:
+    lookup = _parse_vep_tsv_annotation_upload(
+        _vep_upload(
+            "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\tCANONICAL\n"
+            "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tTranscript\tmissense_variant\tMODERATE\tGENE1\tYES\n"
+        )
     )
+    try:
+        variant_id = build_small_variant_id("1", 101, "A", "G")
+        assert lookup.row_count == 1
+        by_id = lookup.get(variant_id, "1", 101, "G")
+        assert by_id is not None and by_id[0]["gene"] == "GENE1"
+        # A non-matching variant_id falls back to the (chrom, start, allele) index.
+        by_locus = lookup.get("no-such-variant", "1", 101, "G")
+        assert by_locus is not None and by_locus[0]["effect"] == "missense_variant"
+    finally:
+        lookup.close()
 
-    variant_id = build_small_variant_id("1", 101, "A", "G")
-    assert lookup.row_count == 1
-    assert lookup.by_variant_id[variant_id][0]["gene"] == "GENE1"
-    assert lookup.by_locus_allele[("1", 101, "G")][0]["effect"] == "missense_variant"
 
-
-def test_parse_vep_tsv_annotations_only_marks_true_mane_flags() -> None:
-    lookup = _parse_vep_tsv_annotations(
-        "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\tMANE_SELECT\n"
-        "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tTranscript\tmissense_variant\tMODERATE\tGENE1\tNM_000001.1\n"
-        "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST2\tTranscript\tsynonymous_variant\tLOW\tGENE1\t-\n"
+def test_parse_vep_tsv_annotation_upload_only_marks_true_mane_flags() -> None:
+    lookup = _parse_vep_tsv_annotation_upload(
+        _vep_upload(
+            "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\tMANE_SELECT\n"
+            "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tTranscript\tmissense_variant\tMODERATE\tGENE1\tNM_000001.1\n"
+            "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST2\tTranscript\tsynonymous_variant\tLOW\tGENE1\t-\n"
+        )
     )
-
-    variant_id = build_small_variant_id("1", 101, "A", "G")
-    annotations = lookup.by_variant_id[variant_id]
-    assert len(annotations) == 2
-    assert annotations[0].get("mane_select") is True
-    assert "mane_select" not in annotations[1]
+    try:
+        variant_id = build_small_variant_id("1", 101, "A", "G")
+        annotations = lookup.get(variant_id, "1", 101, "G")
+        assert annotations is not None and len(annotations) == 2
+        assert annotations[0].get("mane_select") is True
+        assert "mane_select" not in annotations[1]
+    finally:
+        lookup.close()
