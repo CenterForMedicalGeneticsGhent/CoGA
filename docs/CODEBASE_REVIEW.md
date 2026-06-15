@@ -340,7 +340,7 @@ These are dead-code candidates that verification confirmed as unreachable or unu
 - **Recommendation:** Remove the pattern and helper, and simplify 1635 to `if variant is None: raise HTTPException(404, ...)`. **Caveat:** this changes a conditional on the `{variant_id:path}` HTTP parameter — a raw API client POSTing a literal 24-hex string would flip from accepted-write to 404. Unreachable via the documented scheme but observable on the public API surface, so a reviewer should confirm no external/legacy upload tool POSTs ObjectId-style ids before deleting (grep found none).
 - **Effort:** S — **Impact:** Removes ~5 lines of unreachable legacy code; clarifies the 404 path. No change for any real `chr-pos-ref-alt` id.
 
-**`compound_het_partner_variant_keys` is written/persisted but never read**
+**`compound_het_partner_variant_keys` is written/persisted but never read** — FIXED (stage 1: dropped from all write payloads / SQL / SELECTs; column kept with a deprecation note, drop-column migration still pending as stage 2)
 `backend/app/services/small_variant_review_pg.py` (239, 463, 507, 556-579, 611-659, 1754, 1759) and `backend/db/schema/postgres/001_metadata.sql:290`
 
 The column is SELECTed, carried through merge dicts, and written on insert/update, but **no path reads it**: the serializer `_serialize_compound_het`, the `SmallVariantCompoundHetReviewOut` schema, and the frontend all use `compound_het_partner_variant_ids` exclusively, and no tests reference the keys.
