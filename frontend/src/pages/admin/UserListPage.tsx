@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import PageState from '../../components/PageState';
 
 interface User {
   id: string;
@@ -17,31 +19,80 @@ interface Project {
   name: string;
 }
 
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (typeof error !== 'object' || error === null) return fallback;
+  const responseDetail = (
+    error as { response?: { data?: { detail?: string } } }
+  )?.response?.data?.detail;
+  return responseDetail || (error as { message?: string }).message || fallback;
+};
+
 const UserListPage: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    api
-      .get('/auth/users')
-      .then((res) => setUsers(res.data))
-      .catch((err) => console.error(err));
-    api
-      .get('/projects')
-      .then((res) =>
-        setProjects(res.data.map((p: any) => ({ id: p.id, name: p.name })))
-      )
-      .catch((err) => console.error(err));
-  }, []);
+  const {
+    data: users = [],
+    isLoading: usersLoading,
+    error: usersError,
+  } = useQuery<User[]>({
+    queryKey: ['admin', 'users'],
+    queryFn: async () => {
+      const response = await api.get('/auth/users');
+      return response.data as User[];
+    },
+    retry: false,
+  });
 
-  const toggleActive = (user: User) => {
-    api
-      .patch(`/auth/users/${user.id}`, { is_active: !user.is_active })
-      .then((res) =>
-        setUsers((prev) => prev.map((u) => (u.id === user.id ? res.data : u)))
-      )
-      .catch((err) => console.error(err));
-  };
+  const {
+    data: projects = [],
+    isLoading: projectsLoading,
+    error: projectsError,
+  } = useQuery<Project[]>({
+    queryKey: ['admin', 'projects'],
+    queryFn: async () => {
+      const response = await api.get('/projects');
+      return (response.data as Array<{ id: string; name: string }>).map((p) => ({
+        id: p.id,
+        name: p.name,
+      }));
+    },
+    retry: false,
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (user: User) => {
+      const response = await api.patch(`/auth/users/${user.id}`, {
+        is_active: !user.is_active,
+      });
+      return response.data as User;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+
+  if (usersLoading || projectsLoading) {
+    return (
+      <PageState
+        kicker="Administration"
+        title="Loading users"
+        message="Preparing user activation state and project access."
+      />
+    );
+  }
+
+  if (usersError || projectsError) {
+    return (
+      <PageState
+        kicker="Administration"
+        title="Could not load users"
+        message={getErrorMessage(
+          usersError ?? projectsError,
+          'The user list could not be loaded.'
+        )}
+      />
+    );
+  }
 
   return (
     <div className="page-shell admin-compact space-y-5">
@@ -74,8 +125,8 @@ const UserListPage: React.FC = () => {
             {users.map((u) => (
               <tr key={u.id}>
                 <td>{u.email}</td>
-                <td>{`${u.first_name ?? ''} ${u.last_name ?? ''}`}</td>
-                <td>{u.affiliation}</td>
+                <td>{`${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || '—'}</td>
+                <td>{u.affiliation || '—'}</td>
                 <td>
                   <span className="table-chip">{u.role}</span>
                 </td>
@@ -83,7 +134,11 @@ const UserListPage: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={u.is_active}
-                    onChange={() => toggleActive(u)}
+                    disabled={
+                      toggleActiveMutation.isPending &&
+                      toggleActiveMutation.variables?.id === u.id
+                    }
+                    onChange={() => toggleActiveMutation.mutate(u)}
                   />
                 </td>
                 <td>

@@ -286,7 +286,7 @@ These are confirmed-real defects that were not auto-applied because the correct 
 - **Effort:** M
 - **Expected impact:** No-call samples are no longer mislabeled as confident wild-type in tooltips/tables/cards, removing a clinical-misinterpretation risk — without altering which variants appear on the tracks.
 
-### 2. `UserListPage` lacks loading/error states and renders blank/stray-space cells
+### 2. `UserListPage` lacks loading/error states and renders blank/stray-space cells — FIXED
 
 - **File:** [`frontend/src/pages/admin/UserListPage.tsx`](frontend/src/pages/admin/UserListPage.tsx) (lines 24-44, 77, 78).
 - **Problem & impact:** Unlike every other admin page (which uses react-query + `PageState`), this page fetches `/auth/users` and `/projects` via raw `.then/.catch(console.error)`, so a failed call leaves a silently empty table with no loading or error feedback. The Name cell (`${first_name ?? ''} ${last_name ?? ''}`, line 77) always emits at least a stray space, the affiliation cell (line 78) renders `{u.affiliation}` with no `'—'` fallback used elsewhere, and the activation toggle (lines 37-44) has no in-flight disable, so rapid clicks can race.
