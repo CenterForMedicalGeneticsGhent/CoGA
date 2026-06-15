@@ -30,6 +30,14 @@ from .clickhouse_small_variants import (
 )
 from .family_metadata_context import FamilyMetadataContext
 from .metadata_service import CurrentUser
+# Re-exported here so existing `from ...small_variant_review_pg import _json_payload`
+# imports (and a test) keep working.
+from .review_pg_utils import (
+    _json_payload,
+    _merge_tag_metadata,
+    _normalize_tags,
+    _require_uuid,
+)
 
 
 DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
@@ -135,14 +143,6 @@ POSTGRES_BIGINT_MIN = -(2**63)
 POSTGRES_BIGINT_MAX = (2**63) - 1
 
 
-def _require_uuid(value: str, detail: str) -> str:
-    try:
-        UUID(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=detail) from exc
-    return value
-
-
 def _postgres_bigint_or_none(value: Any) -> int | None:
     if value is None:
         return None
@@ -153,10 +153,6 @@ def _postgres_bigint_or_none(value: Any) -> int | None:
     if POSTGRES_BIGINT_MIN <= int_value <= POSTGRES_BIGINT_MAX:
         return int_value
     return None
-
-
-def _normalize_tags(tags: Iterable[str]) -> list[str]:
-    return sorted({str(tag).strip() for tag in tags if str(tag).strip()})
 
 
 def _slugify_tag(label: str) -> str:
@@ -171,10 +167,6 @@ def _normalize_hex_color(color: str | None) -> str:
     if not re.fullmatch(r"#[0-9a-f]{6}", value):
         raise HTTPException(status_code=400, detail="Tag color must be a 6-digit hex code")
     return value
-
-
-def _json_payload(value: Any) -> str:
-    return json.dumps(jsonable_encoder(value if value is not None else {}))
 
 
 def _serialize_tag_metadata(
@@ -202,30 +194,6 @@ def _serialize_tag_metadata(
                 "updated_at": fallback_time,
             }
     return serialized
-
-
-def _merge_tag_metadata(
-    *,
-    existing_metadata: dict[str, Any] | None,
-    previous_tags: Sequence[str],
-    next_tags: Sequence[str],
-    username: str,
-    timestamp: datetime,
-) -> dict[str, dict[str, Any]]:
-    previous = set(_normalize_tags(previous_tags))
-    merged: dict[str, dict[str, Any]] = {}
-    for tag in _normalize_tags(next_tags):
-        if tag in previous and isinstance((existing_metadata or {}).get(tag), dict):
-            merged[tag] = {
-                "updated_by": (existing_metadata or {})[tag].get("updated_by"),
-                "updated_at": (existing_metadata or {})[tag].get("updated_at"),
-            }
-        else:
-            merged[tag] = {
-                "updated_by": username,
-                "updated_at": timestamp,
-            }
-    return merged
 
 
 def _compound_het_clear_payload() -> dict[str, Any]:
