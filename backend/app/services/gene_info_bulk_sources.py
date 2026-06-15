@@ -267,13 +267,18 @@ def _finalize_gene_records(records_by_symbol: dict[str, dict[str, Any]]) -> dict
     return finalized
 
 
-def parse_clingen_validity_rows(text_value: str) -> dict[str, dict[str, Any]]:
+def parse_clingen_validity_rows(
+    text_value: str, *, symbols: Iterable[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    symbol_filter = {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
     reader = csv.DictReader(io.StringIO(text_value))
     records_by_symbol: dict[str, dict[str, Any]] = {}
     for raw_row in reader:
         row = _normalized_row(raw_row)
         symbol = _normalize_symbol(_row_value(row, "gene_symbol"))
         if not symbol:
+            continue
+        if symbol_filter and symbol not in symbol_filter:
             continue
         assertion = {
             "disease_label": _row_value(row, "disease_label"),
@@ -302,13 +307,18 @@ def parse_clingen_validity_rows(text_value: str) -> dict[str, dict[str, Any]]:
     return _finalize_gene_records(records_by_symbol)
 
 
-def parse_clingen_dosage_rows(text_value: str) -> dict[str, dict[str, Any]]:
+def parse_clingen_dosage_rows(
+    text_value: str, *, symbols: Iterable[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    symbol_filter = {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
     reader = csv.DictReader(io.StringIO(text_value))
     records_by_symbol: dict[str, dict[str, Any]] = {}
     for raw_row in reader:
         row = _normalized_row(raw_row)
         symbol = _normalize_symbol(_row_value(row, "gene_symbol"))
         if not symbol:
+            continue
+        if symbol_filter and symbol not in symbol_filter:
             continue
         assertion = {
             "hgnc_id": _row_value(row, "hgnc_id"),
@@ -334,13 +344,18 @@ def parse_clingen_dosage_rows(text_value: str) -> dict[str, dict[str, Any]]:
     return _finalize_gene_records(records_by_symbol)
 
 
-def parse_gencc_rows(text_value: str) -> dict[str, dict[str, Any]]:
+def parse_gencc_rows(
+    text_value: str, *, symbols: Iterable[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    symbol_filter = {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
     reader = csv.DictReader(io.StringIO(text_value))
     records_by_symbol: dict[str, dict[str, Any]] = {}
     for raw_row in reader:
         row = _normalized_row(raw_row)
         symbol = _normalize_symbol(_row_value(row, "gene_symbol"))
         if not symbol:
+            continue
+        if symbol_filter and symbol not in symbol_filter:
             continue
         classification = _row_value(row, "classification_title")
         assertion = {
@@ -373,7 +388,10 @@ def parse_gencc_rows(text_value: str) -> dict[str, dict[str, Any]]:
     return _finalize_gene_records(records_by_symbol)
 
 
-def parse_clinvar_gene_condition_rows(text_value: str) -> dict[str, dict[str, Any]]:
+def parse_clinvar_gene_condition_rows(
+    text_value: str, *, symbols: Iterable[str] | None = None
+) -> dict[str, dict[str, Any]]:
+    symbol_filter = {_normalize_symbol(symbol) for symbol in (symbols or []) if _normalize_symbol(symbol)}
     reader = csv.DictReader(io.StringIO(text_value), delimiter="\t")
     records_by_symbol: dict[str, dict[str, Any]] = {}
     for raw_row in reader:
@@ -382,7 +400,11 @@ def parse_clinvar_gene_condition_rows(text_value: str) -> dict[str, dict[str, An
             _normalize_symbol(candidate)
             for candidate in _split_gene_list(_row_value(row, "associatedgenes"))
         ]
-        related_symbols = [symbol for symbol in related_symbols if symbol]
+        related_symbols = [
+            symbol
+            for symbol in related_symbols
+            if symbol and (not symbol_filter or symbol in symbol_filter)
+        ]
         if not related_symbols:
             continue
         disease_name = _row_value(row, "diseasename")
@@ -960,10 +982,11 @@ async def _load_csv_dataset(
     name: str,
     url: str,
     parser,
+    symbols: Iterable[str] | None = None,
 ) -> GeneBulkSourceDataset:
     try:
         text_value = await _download_text(url)
-        records_by_symbol = parser(text_value)
+        records_by_symbol = parser(text_value, symbols=symbols)
         return GeneBulkSourceDataset(
             name=name,
             source_url=url,
@@ -989,21 +1012,25 @@ async def _load_online_gene_bulk_datasets(
             name="ClinGen gene validity",
             url=settings.gene_reference_clingen_validity_url,
             parser=parse_clingen_validity_rows,
+            symbols=symbols,
         ),
         _load_csv_dataset(
             name="ClinGen dosage",
             url=settings.gene_reference_clingen_dosage_url,
             parser=parse_clingen_dosage_rows,
+            symbols=symbols,
         ),
         _load_csv_dataset(
             name="GenCC",
             url=settings.gene_reference_gencc_url,
             parser=parse_gencc_rows,
+            symbols=symbols,
         ),
         _load_csv_dataset(
             name="ClinVar gene-condition",
             url=settings.gene_reference_clinvar_gene_condition_url,
             parser=parse_clinvar_gene_condition_rows,
+            symbols=symbols,
         ),
     )
     return {

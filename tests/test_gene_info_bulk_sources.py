@@ -33,6 +33,19 @@ BRCA1,HGNC:1100,Breast-ovarian cancer,MONDO:0012934,AD,SOP v1,Definitive,https:/
     ]
 
 
+def test_parse_clingen_validity_rows_filters_to_requested_symbols() -> None:
+    csv_text = """GENE SYMBOL,GENE ID (HGNC),DISEASE LABEL,DISEASE ID (MONDO),MOI,SOP,CLASSIFICATION,ONLINE REPORT,CLASSIFICATION DATE,GCEP
+BRCA1,HGNC:1100,Breast-ovarian cancer,MONDO:0012934,AD,SOP v1,Definitive,https://example.test/1,2026-01-01,GCEP
+TP53,HGNC:11998,Li-Fraumeni syndrome,MONDO:0018875,AD,SOP v1,Definitive,https://example.test/2,2026-01-02,GCEP
+"""
+
+    only_brca = gene_info_bulk_sources.parse_clingen_validity_rows(csv_text, symbols=["BRCA1"])
+    assert set(only_brca) == {"BRCA1"}  # TP53 not built/retained
+
+    both = gene_info_bulk_sources.parse_clingen_validity_rows(csv_text)
+    assert set(both) == {"BRCA1", "TP53"}  # no filter -> all symbols
+
+
 def test_parse_gencc_rows_counts_classifications_once_per_unique_row() -> None:
     csv_text = """gene_curie,gene_symbol,disease_curie,disease_title,classification_title,moi_title,submitter_title,submitted_as_public_report_url
 HGNC:1100,BRCA1,MONDO:0012934,Breast-ovarian cancer,Definitive,AD,Genomics England,https://example.test/1

@@ -1136,6 +1136,16 @@ async def apply_reference_dataset_text(
     )
 
 
+def _require_region_window(start: int, end: int) -> None:
+    """Region queries must be bounded by a genomic window; a missing window
+    (start >= end) would otherwise materialize a whole chromosome's rows."""
+    if end <= start:
+        raise HTTPException(
+            status_code=400,
+            detail="A genomic window with start < end is required for region queries.",
+        )
+
+
 async def get_gene_region_records(
     session: AsyncSession,
     *,
@@ -1144,6 +1154,7 @@ async def get_gene_region_records(
     start: int,
     end: int,
 ) -> list[GeneOut]:
+    _require_region_window(start, end)
     assembly_row = await _get_assembly_by_name(session, assembly)
     stmt = text(
         """
@@ -1203,6 +1214,7 @@ async def get_blacklist_regions_data(
     start: int,
     end: int,
 ) -> list[BlacklistRegionOut]:
+    _require_region_window(start, end)
     assembly_row = await _get_assembly_by_name(session, assembly)
     stmt = text(
         """
@@ -1244,6 +1256,7 @@ async def get_segmental_duplications_data(
     start: int,
     end: int,
 ) -> list[SegmentalDuplicationOut]:
+    _require_region_window(start, end)
     assembly_row = await _get_assembly_by_name(session, assembly)
     stmt = text(
         """

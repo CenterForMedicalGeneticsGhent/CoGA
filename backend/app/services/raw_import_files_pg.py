@@ -351,6 +351,14 @@ async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, 
     return _row_to_dict(row) if row else None
 
 
+# Inline checksum verification is bounded so a multi-GB CRAM/BAM can't tie up a
+# worker (and the synchronous Verify response) for minutes. Above the size cap the
+# hash is skipped and reported as `too_large`; the wait_for is a backstop for slow
+# storage on sub-cap files.
+_VERIFY_MAX_BYTES = 2 * 1024**3  # 2 GiB
+_VERIFY_TIMEOUT_SECONDS = 30
+
+
 async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
     """Recompute the SHA-256 of the stored file and compare to the recorded value."""
     storage_path = record.get("storage_path") or ""
@@ -364,7 +372,37 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
             "computed_sha256": None,
             "message": "The source file is no longer present at its storage path.",
         }
-    computed_sha, computed_size = await asyncio.to_thread(_hash_and_size, path)
+    try:
+        file_size: int | None = path.stat().st_size
+    except OSError:
+        file_size = None
+    if file_size is not None and file_size > _VERIFY_MAX_BYTES:
+        return {
+            "file_id": record["id"],
+            "status": "too_large",
+            "expected_sha256": expected,
+            "computed_sha256": None,
+            "message": (
+                f"File is {file_size / 1024**3:.1f} GB; inline checksum verification is "
+                f"skipped above {_VERIFY_MAX_BYTES // 1024**3} GB to avoid blocking the request."
+            ),
+        }
+    try:
+        computed_sha, computed_size = await asyncio.wait_for(
+            asyncio.to_thread(_hash_and_size, path),
+            timeout=_VERIFY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return {
+            "file_id": record["id"],
+            "status": "too_large",
+            "expected_sha256": expected,
+            "computed_sha256": None,
+            "message": (
+                f"Checksum verification timed out after {_VERIFY_TIMEOUT_SECONDS}s; "
+                "the file is too large to verify inline."
+            ),
+        }
     if not expected:
         return {
             "file_id": record["id"],

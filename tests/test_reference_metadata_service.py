@@ -68,3 +68,16 @@ def test_gene_region_keeps_one_transcript_per_gene() -> None:
     selected = reference_metadata_service._select_preferred_gene_rows(rows)
 
     assert [row["gene_id"] for row in selected] == ["GENE1_TX2", "GENE2_TX1"]
+
+
+def test_require_region_window_rejects_missing_window() -> None:
+    import pytest
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        reference_metadata_service._require_region_window(0, 0)
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException):
+        reference_metadata_service._require_region_window(500, 100)
+    # A real window (start < end) is accepted.
+    reference_metadata_service._require_region_window(100, 200)

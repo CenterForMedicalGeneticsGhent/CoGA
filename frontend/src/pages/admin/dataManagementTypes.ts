@@ -92,7 +92,8 @@ export type RawFileVerifyStatus =
   | 'verified'
   | 'mismatch'
   | 'missing'
-  | 'unverifiable';
+  | 'unverifiable'
+  | 'too_large';
 
 export interface RawFileVerifyResult {
   file_id: string;
