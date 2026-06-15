@@ -54,9 +54,6 @@ class CoGALogger:
     def _log(self, level: int, message: str, user: Any = None, **kwargs: Any) -> None:
         self._logger.log(level, message, extra={"user": user, **kwargs})
 
-    def debug(self, message: str, user: Any = None, **kwargs: Any) -> None:
-        self._log(logging.DEBUG, message, user, **kwargs)
-
     def info(self, message: str, user: Any = None, **kwargs: Any) -> None:
         self._log(logging.INFO, message, user, **kwargs)
 
