@@ -304,11 +304,9 @@ async def _existing_family_rows(
     return [dict(row) for row in result.mappings().all()]
 
 
-def _ensure_user_can_replace_existing_families(
-    existing_rows: list[dict[str, Any]],
-    user: CurrentUser,
-) -> None:
-    del existing_rows
+def _ensure_user_can_replace_existing_families(user: CurrentUser) -> None:
+    # Replacing existing families/samples is admin-only — a role-based policy,
+    # not a per-project one.
     if user.role == "admin":
         return
     raise HTTPException(
@@ -332,7 +330,7 @@ async def _replace_existing_families(
             status_code=409,
             detail=f"Family id already exists: {', '.join(existing_family_ids)}",
         )
-    _ensure_user_can_replace_existing_families(existing_rows, user)
+    _ensure_user_can_replace_existing_families(user)
     assembly_rows_by_family: dict[str, set[str]] = {}
     family_uuid_by_id: dict[str, str] = {}
     for row in existing_rows:

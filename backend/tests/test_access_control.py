@@ -81,17 +81,15 @@ def test_viewer_family_project_ids_are_filtered_to_visible_projects() -> None:
     ) == [visible_project_id]
 
 
-def test_viewer_cannot_replace_family_linked_to_hidden_project() -> None:
-    visible_project_id = str(uuid4())
-    hidden_project_id = str(uuid4())
-
+def test_non_admin_cannot_replace_existing_families() -> None:
+    # Replacing existing families/samples is admin-only. This is a role-based
+    # policy, not a per-project check — the function does not inspect rows.
     with pytest.raises(HTTPException) as exc_info:
-        _ensure_user_can_replace_existing_families(
-            [
-                {"family_id": "F1", "project_id": visible_project_id},
-                {"family_id": "F1", "project_id": hidden_project_id},
-            ],
-            _user("viewer", [visible_project_id]),
-        )
+        _ensure_user_can_replace_existing_families(_user("viewer", []))
 
     assert exc_info.value.status_code == 403
+
+
+def test_admin_can_replace_existing_families() -> None:
+    # An admin is permitted (no exception raised).
+    _ensure_user_can_replace_existing_families(_user("admin", []))
