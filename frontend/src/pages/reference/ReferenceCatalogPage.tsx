@@ -135,6 +135,39 @@ const formatDateTime = (value: string) => {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 };
 
+// Static copy table — hoisted to module scope so it is not reallocated on every
+// render (two 3 s polling queries re-render this page while jobs run).
+const datasetCopy: Record<string, { title: string; description: string }> = {
+  cytobands: {
+    title: 'Cytobands',
+    description: 'Upload a cytoband file with chrom, start, end, band, and stain columns.',
+  },
+  genes: {
+    title: 'Genes',
+    description:
+      'Upload the tab-delimited reference gene format used by the import script, including exon and intron interval columns.',
+  },
+  blacklist: {
+    title: 'Blacklist regions',
+    description: 'Upload a BED-like file with chrom, start, end, and label columns.',
+  },
+  clinical_cnvs: {
+    title: 'Clinical CNVs',
+    description:
+      'Upload a UCSC bedDetail-style file with at least 11 columns for curated CNV syndromes.',
+  },
+  segmental_duplications: {
+    title: 'Segmental duplications/LCRs',
+    description:
+      'Upload a BED-like file with segmental duplication/LCR intervals; ClinGen recurrent CNV BED keeps black LCR bars.',
+  },
+  dgv: {
+    title: 'DGV variants',
+    description:
+      'Upload the Database of Genomic Variants TSV (variantaccession, chr, start, end, varianttype, variantsubtype, …). Large files load in the background.',
+  },
+};
+
 const ReferenceCatalogPage: React.FC = () => {
   const userIsAdmin = isAdmin();
   const queryClient = useQueryClient();
@@ -304,37 +337,6 @@ const ReferenceCatalogPage: React.FC = () => {
     () => sourceAssemblies.find((entry) => entry.ucsc_genome === autoImportForm.ucsc_genome) ?? null,
     [autoImportForm.ucsc_genome, sourceAssemblies]
   );
-
-  const datasetCopy: Record<string, { title: string; description: string }> = {
-    cytobands: {
-      title: 'Cytobands',
-      description: 'Upload a cytoband file with chrom, start, end, band, and stain columns.',
-    },
-    genes: {
-      title: 'Genes',
-      description:
-        'Upload the tab-delimited reference gene format used by the import script, including exon and intron interval columns.',
-    },
-    blacklist: {
-      title: 'Blacklist regions',
-      description: 'Upload a BED-like file with chrom, start, end, and label columns.',
-    },
-    clinical_cnvs: {
-      title: 'Clinical CNVs',
-      description:
-        'Upload a UCSC bedDetail-style file with at least 11 columns for curated CNV syndromes.',
-    },
-    segmental_duplications: {
-      title: 'Segmental duplications/LCRs',
-      description:
-        'Upload a BED-like file with segmental duplication/LCR intervals; ClinGen recurrent CNV BED keeps black LCR bars.',
-    },
-    dgv: {
-      title: 'DGV variants',
-      description:
-        'Upload the Database of Genomic Variants TSV (variantaccession, chr, start, end, varianttype, variantsubtype, …). Large files load in the background.',
-    },
-  };
 
   const handleSpeciesSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

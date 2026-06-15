@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
@@ -77,8 +77,10 @@ const GlobalSmallVariantExplorerPage = () => {
     setGenotypeRows((rows) => rows.filter((row) => row.sample !== sample));
   };
 
-  const genotypeFilterDirty =
-    JSON.stringify(genotypeRows) !== JSON.stringify(genotypeFilters);
+  const genotypeFilterDirty = useMemo(
+    () => JSON.stringify(genotypeRows) !== JSON.stringify(genotypeFilters),
+    [genotypeRows, genotypeFilters],
+  );
 
   const { data: assemblies } = useQuery<VariantExplorerAssembly[]>({
     queryKey: ['variant-explorer', 'assemblies'],

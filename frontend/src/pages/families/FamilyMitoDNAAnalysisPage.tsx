@@ -262,10 +262,15 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     'Not linked',
   );
   const orderedSamples = useMemo(() => orderedByFamilyRole(mtDNA?.samples || []), [mtDNA?.samples]);
-  const mothers = orderedSamples.filter((sample) => sample.role === 'mother');
-  const fathers = orderedSamples.filter((sample) => sample.role === 'father');
-  const maternalLine = orderedSamples.filter((sample) => sample.role !== 'father');
-  const children = maternalLine.filter((sample) => sample.role !== 'mother');
+  const { mothers, fathers, maternalLine, children } = useMemo(() => {
+    const maternal = orderedSamples.filter((sample) => sample.role !== 'father');
+    return {
+      mothers: orderedSamples.filter((sample) => sample.role === 'mother'),
+      fathers: orderedSamples.filter((sample) => sample.role === 'father'),
+      maternalLine: maternal,
+      children: maternal.filter((sample) => sample.role !== 'mother'),
+    };
+  }, [orderedSamples]);
 
   const filteredVariants = useMemo(() => {
     const query = searchText.trim().toLowerCase();

@@ -833,11 +833,13 @@ const describeGenotypeSelection = (selection: string[]) => {
   return labels.length ? labels.join(' / ') : 'No genotype';
 };
 
+// `members` is expected proband-first (the search-state hook sorts it once via
+// useMemo); this intentionally does not re-sort per variant row.
 export const buildCompactGenotypeSummary = (
   variant: SmallVariant,
   members: FamilyMember[],
 ) =>
-  sortFamilyMembersProbandFirst(members)
+  members
     .map((member) => {
       const genotype = variant.genotypes.find((entry) => entry.sample === member.sample_id);
       return {

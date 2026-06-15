@@ -664,7 +664,10 @@ const FamilyIntakePanel: React.FC = () => {
     }
   };
 
-  const validationErrors = validateManualFamily(familyId, members, couples);
+  const validationErrors = useMemo(
+    () => validateManualFamily(familyId, members, couples),
+    [familyId, members, couples],
+  );
   // Memoize the pedigree-derived arrays so unrelated panel state (status, ROI
   // query, mode, …) changing on a keystroke doesn't hand <Pedigree> fresh array
   // references and force a full D3 re-layout + SVG redraw.

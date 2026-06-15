@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import api from '../../lib/api';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
@@ -67,13 +66,13 @@ interface GenomeOverviewWorkspaceProps {
   availability: Record<string, GenomeTrackAvailability>;
   variantFilters: Record<string, string>;
   sampleFilterMap: Record<string, string>;
-  baseVariantParams: URLSearchParams;
   urlMaps: {
     coverage: Record<string, string[]>;
     segments: Record<string, string[]>;
     apcad: Record<string, string[]>;
     apcadPcf: Record<string, string[]>;
     haplotypes: Record<string, string[]>;
+    sv: Record<string, string>;
   };
   layout: Layout | null;
   trackWidth: number;
@@ -245,7 +244,6 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   availability,
   variantFilters,
   sampleFilterMap,
-  baseVariantParams,
   urlMaps,
   layout,
   trackWidth,
@@ -395,15 +393,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                         testId={`genome-region-select-sv-${member.sample_id}`}
                       >
                         <SvTrack
-                          url={`${api.defaults.baseURL}/families/${familyId}/structural-variants?${(() => {
-                            const params = new URLSearchParams(baseVariantParams);
-                            params.set('page_size', '0');
-                            params.set('track_mode', 'true');
-                            params.append('sample', member.sample_id);
-                            const sampleFilter = sampleFilterMap[member.sample_id];
-                            if (sampleFilter) params.append('sample_filter', sampleFilter);
-                            return params.toString();
-                          })()}`}
+                          url={urlMaps.sv[member.sample_id]}
                           layout={layout}
                           sampleId={member.sample_id}
                           width={trackWidth}
