@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import { getErrorMessage } from '../../lib/errorMessage';
 import ProjectCatalogWorkspace from '../../components/ProjectCatalogWorkspace';
 import { withEntityId } from '../../lib/entity';
 import DataInventoryDetail from './DataInventoryDetail';
@@ -16,21 +17,6 @@ type StatusTone = 'success' | 'error';
 
 const normalizeProjectIds = (projectIds: string[]) =>
   Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right));
-
-const getErrorMessage = (error: unknown, fallback: string): string => {
-  if (typeof error !== 'object' || error === null) {
-    return fallback;
-  }
-
-  const responseDetail = (
-    error as { response?: { data?: { detail?: string } } }
-  )?.response?.data?.detail;
-  if (responseDetail) {
-    return responseDetail;
-  }
-
-  return (error as { message?: string }).message || fallback;
-};
 
 const DataManagementPage: React.FC = () => {
   const queryClient = useQueryClient();

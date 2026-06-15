@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { formatCount } from './dataManagementTypes';
 
 interface GeneInfoRefreshJob {
   _id: string;
@@ -50,7 +51,6 @@ const formatTimestamp = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 };
 
-const formatNumber = (value: number) => new Intl.NumberFormat().format(value);
 
 const progressPercent = (job: GeneInfoRefreshJob) => {
   if (!job.total_symbols) return 0;
@@ -165,7 +165,7 @@ const GeneReferenceAdminPage: React.FC = () => {
             <span className="gene-profile-status-label">Last completed sync</span>
             <strong>{formatTimestamp(data.last_completed_at)}</strong>
             <span className="dashboard-link-note">
-              {formatNumber(data.human_gene_symbols)} human genes across {data.human_assemblies} assemblies
+              {formatCount(data.human_gene_symbols)} human genes across {data.human_assemblies} assemblies
             </span>
           </div>
         </div>
@@ -173,11 +173,11 @@ const GeneReferenceAdminPage: React.FC = () => {
         <div className="gene-sync-summary-grid">
           <div className="gene-profile-stat">
             <span className="gene-profile-stat-label">Cached records</span>
-            <strong>{formatNumber(data.total_cached_records)}</strong>
+            <strong>{formatCount(data.total_cached_records)}</strong>
           </div>
           <div className="gene-profile-stat">
             <span className="gene-profile-stat-label">Imported human genes</span>
-            <strong>{formatNumber(data.human_gene_symbols)}</strong>
+            <strong>{formatCount(data.human_gene_symbols)}</strong>
           </div>
           <div className="gene-profile-stat">
             <span className="gene-profile-stat-label">Assemblies</span>
@@ -264,9 +264,9 @@ const GeneReferenceAdminPage: React.FC = () => {
               <div className="gene-sync-job-metrics">
                 <span>{progressPercent(activeJob)}%</span>
                 <span>
-                  {formatNumber(activeJob.completed_symbols)} / {formatNumber(activeJob.total_symbols || 0)} genes
+                  {formatCount(activeJob.completed_symbols)} / {formatCount(activeJob.total_symbols || 0)} genes
                 </span>
-                <span>{formatNumber(activeJob.updated_records)} cached records</span>
+                <span>{formatCount(activeJob.updated_records)} cached records</span>
               </div>
               <p className="dashboard-link-note">
                 {activeJob.current_symbol ? `Current gene: ${activeJob.current_symbol}` : 'Waiting for the next update tick.'}
@@ -305,10 +305,10 @@ const GeneReferenceAdminPage: React.FC = () => {
                   <tr key={source.source}>
                     <td>{source.source.toUpperCase()}</td>
                     <td>{formatTimestamp(source.latest_fetched_at)}</td>
-                    <td>{formatNumber(source.success_count)}</td>
-                    <td>{formatNumber(source.missing_count)}</td>
-                    <td>{formatNumber(source.error_count)}</td>
-                    <td>{formatNumber(source.record_count)}</td>
+                    <td>{formatCount(source.success_count)}</td>
+                    <td>{formatCount(source.missing_count)}</td>
+                    <td>{formatCount(source.error_count)}</td>
+                    <td>{formatCount(source.record_count)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -346,9 +346,9 @@ const GeneReferenceAdminPage: React.FC = () => {
                   <td>{job.symbol || 'All human genes'}</td>
                   <td>{job.status}</td>
                   <td>
-                    {formatNumber(job.completed_symbols)} / {formatNumber(job.total_symbols || 0)}
+                    {formatCount(job.completed_symbols)} / {formatCount(job.total_symbols || 0)}
                   </td>
-                  <td>{formatNumber(job.updated_records)}</td>
+                  <td>{formatCount(job.updated_records)}</td>
                   <td>{formatTimestamp(job.completed_at)}</td>
                 </tr>
               ))}
