@@ -21,7 +21,7 @@ class PanelAppImportContent:
     metadata: dict[str, Any]
 
 
-def _panelapp_url(panelapp_id: int) -> str:
+def panelapp_panel_url(panelapp_id: int) -> str:
     return f"{PANELAPP_WEB_ROOT}/panels/{panelapp_id}/"
 
 
@@ -45,7 +45,7 @@ def panelapp_summary(payload: dict[str, Any]) -> PanelAppPanelSummaryOut:
             for entry in payload.get("types") or []
             if isinstance(entry, dict) and entry.get("name")
         ],
-        url=_panelapp_url(panelapp_id),
+        url=panelapp_panel_url(panelapp_id),
     )
 
 
@@ -263,7 +263,7 @@ def extract_panelapp_import_content(
                 "assembly": assembly,
             },
             "selected_counts": source_counts,
-            "source_url": _panelapp_url(summary.panelapp_id),
+            "source_url": panelapp_panel_url(summary.panelapp_id),
         },
     )
 
@@ -271,7 +271,3 @@ def extract_panelapp_import_content(
 def panelapp_default_panel_name(payload: dict[str, Any]) -> str:
     summary = panelapp_summary(payload)
     return f"PanelApp {summary.panelapp_id}: {summary.name}"
-
-
-def panelapp_panel_url(panelapp_id: int) -> str:
-    return _panelapp_url(panelapp_id)

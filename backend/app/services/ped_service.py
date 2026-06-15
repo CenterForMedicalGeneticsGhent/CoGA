@@ -228,23 +228,18 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
         sample_id = member.sample_id.strip()
         if not sample_id:
             raise HTTPException(status_code=400, detail="Sample id is required for every member")
+        clinical_status = _manual_clinical_status(member)
+        carrier_status = _normalize_carrier_status(member.carrier_status, member.carrier_type)
         normalized_members.append(
             member.model_copy(
                 update={
                     "sample_id": sample_id,
                     "father_id": _normalize_parent_id(member.father_id),
                     "mother_id": _normalize_parent_id(member.mother_id),
-                    "clinical_status": _manual_clinical_status(member),
-                    "affected": _manual_clinical_status(member) == "affected",
-                    "carrier_status": _normalize_carrier_status(
-                        member.carrier_status,
-                        member.carrier_type,
-                    ),
-                    "carrier_type": (
-                        member.carrier_type
-                        if _normalize_carrier_status(member.carrier_status, member.carrier_type) == "carrier"
-                        else None
-                    ),
+                    "clinical_status": clinical_status,
+                    "affected": clinical_status == "affected",
+                    "carrier_status": carrier_status,
+                    "carrier_type": member.carrier_type if carrier_status == "carrier" else None,
                 }
             )
         )

@@ -135,11 +135,11 @@ def _split_local_assembly_identity(
 ) -> tuple[str, str]:
     normalized_name = assembly_name.strip() or ucsc_genome
     normalized_alias = (alias or "").strip()
-    if normalized_alias and normalized_alias.startswith(f"{normalized_name}."):
-        suffix = normalized_alias[len(normalized_name) + 1 :].strip()
-        if suffix:
-            return normalized_name, suffix
-    if normalized_alias and normalized_alias.startswith(f"{normalized_name}_"):
+    if normalized_alias and (
+        normalized_alias.startswith(f"{normalized_name}.")
+        or normalized_alias.startswith(f"{normalized_name}_")
+    ):
+        # +1 skips the single-char separator ("." or "_").
         suffix = normalized_alias[len(normalized_name) + 1 :].strip()
         if suffix:
             return normalized_name, suffix

@@ -197,12 +197,16 @@ class FamilyStructureUpdate(BaseModel):
     relationships: Optional[FamilyStructureRelationshipsUpdate] = None
 
 
-class FamilyStructureUpdateOut(BaseModel):
+class _FamilyMutationResultOut(BaseModel):
     family: FamilyOut
     warnings: List[str] = Field(default_factory=list)
     stale_analysis_scopes: List[str] = Field(default_factory=list)
     data_counts: Dict[str, int] = Field(default_factory=dict)
     cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
+
+
+class FamilyStructureUpdateOut(_FamilyMutationResultOut):
+    pass
 
 
 class FamilyMemberImpactOut(BaseModel):
@@ -258,33 +262,19 @@ class FamilyMemberBatchUpdate(BaseModel):
     updates: List[FamilyMemberBatchUpdateItem] = Field(default_factory=list)
 
 
-class FamilyMemberUpdateOut(BaseModel):
-    family: FamilyOut
+class FamilyMemberUpdateOut(_FamilyMutationResultOut):
     member: FamilyMemberOut
     father_id: Optional[str] = None
     mother_id: Optional[str] = None
     impact: FamilyMemberImpactOut
-    warnings: List[str] = Field(default_factory=list)
-    stale_analysis_scopes: List[str] = Field(default_factory=list)
-    data_counts: Dict[str, int] = Field(default_factory=dict)
-    cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
 
 
-class FamilyMemberDeleteOut(BaseModel):
-    family: FamilyOut
+class FamilyMemberDeleteOut(_FamilyMutationResultOut):
     impact: FamilyMemberImpactOut
-    warnings: List[str] = Field(default_factory=list)
-    stale_analysis_scopes: List[str] = Field(default_factory=list)
-    data_counts: Dict[str, int] = Field(default_factory=dict)
-    cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
 
 
-class FamilyMemberBatchUpdateOut(BaseModel):
-    family: FamilyOut
-    warnings: List[str] = Field(default_factory=list)
-    stale_analysis_scopes: List[str] = Field(default_factory=list)
-    data_counts: Dict[str, int] = Field(default_factory=dict)
-    cleared_data_counts: Dict[str, int] = Field(default_factory=dict)
+class FamilyMemberBatchUpdateOut(_FamilyMutationResultOut):
+    pass
 
 
 class HpoTermOut(BaseModel):
