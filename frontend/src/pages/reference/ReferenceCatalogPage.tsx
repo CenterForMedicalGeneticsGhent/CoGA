@@ -1270,7 +1270,7 @@ const ReferenceCatalogPage: React.FC = () => {
                     </td>
                     <td>{datasetCopy[event.dataset_type]?.title ?? event.dataset_type}</td>
                     <td className="table-mono">
-                      {event.inserted.toLocaleString()}
+                      {formatCatalogCount(event.inserted)}
                       <span className="dashboard-link-note">
                         {' '}
                         {event.replaced ? 'replaced' : 'added'}
