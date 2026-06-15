@@ -219,35 +219,35 @@ describe('FamilyDetailPage', () => {
       screen.getByRole('link', { name: /small variants/i })
     ).toHaveAttribute('href', '/families/F1/small-variants?project_id=p1');
     // ROI is editable from the family dashboard for admins.
-    expect(
-      screen.getByPlaceholderText(/BRCA1 or chr17:43044295-43125482/i),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /save roi/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Gene or locus/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^save$/i })).toBeInTheDocument();
     // Structure editing stays gated on the editable structure view only.
     expect(screen.queryByLabelText('Carrier status for S1')).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/variant curation summary/i)).toBeInTheDocument();
-    const smallVariantCuration = screen.getByLabelText(/small variant review summary/i);
-    const structuralVariantCuration = screen.getByLabelText(/structural variant review summary/i);
-    expect(within(smallVariantCuration).getByText('Small variants')).toBeInTheDocument();
-    expect(within(structuralVariantCuration).getByText('Structural variants')).toBeInTheDocument();
+    // Curation is shown beneath each variant type's link, scoped to that type.
     await waitFor(() => {
+      const smallVariantCuration = screen.getByLabelText(/small variant curation/i);
       expect(
-        screen.getByText((_, element) => element?.textContent?.trim() === 'Reviewed 3'),
+        within(smallVariantCuration).getByText((_, element) => element?.textContent?.trim() === 'Reviewed 3'),
       ).toBeInTheDocument();
       expect(
-        screen.getByText((_, element) => element?.textContent?.trim() === 'Notes 2'),
+        within(smallVariantCuration).getByText((_, element) => element?.textContent?.trim() === 'Notes 2'),
       ).toBeInTheDocument();
       expect(
-        screen.getByText((_, element) => element?.textContent?.trim() === 'Review 2'),
+        within(smallVariantCuration).getByText((_, element) => element?.textContent?.trim() === 'Review 2'),
       ).toBeInTheDocument();
       expect(
-        screen.getByText((_, element) => element?.textContent?.trim() === 'Send for validation 1'),
+        within(smallVariantCuration).getByText(
+          (_, element) => element?.textContent?.trim() === 'Send for validation 1',
+        ),
+      ).toBeInTheDocument();
+      const structuralVariantCuration = screen.getByLabelText(/structural variant curation/i);
+      expect(
+        within(structuralVariantCuration).getByText((_, element) => element?.textContent?.trim() === 'Reviewed 2'),
       ).toBeInTheDocument();
       expect(
-        screen.getByText((_, element) => element?.textContent?.trim() === 'Reviewed 2'),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText((_, element) => element?.textContent?.trim() === 'Needs segmentation review 1'),
+        within(structuralVariantCuration).getByText(
+          (_, element) => element?.textContent?.trim() === 'Needs segmentation review 1',
+        ),
       ).toBeInTheDocument();
     });
   });
