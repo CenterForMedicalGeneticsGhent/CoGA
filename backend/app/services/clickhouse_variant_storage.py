@@ -445,10 +445,6 @@ def _small_call_ps(call: SmallVariantCall) -> int | None:
     return None if call.ps is None else int(call.ps)
 
 
-def _structural_call_gq(call: StructuralVariantCall) -> int | None:
-    return None
-
-
 def _structural_call_qual(call: StructuralVariantCall) -> float | None:
     return None if call.qual is None else float(call.qual)
 
@@ -630,7 +626,6 @@ def _structural_variant_entry_rows(
         lookup_rows.append((family_uuid, variant_id, variant_key))
         sample_ids = [call.sample for call in record.calls]
         sample_gts = [call.gt for call in record.calls]
-        sample_gqs = [_structural_call_gq(call) for call in record.calls]
         sample_quals = [_structural_call_qual(call) for call in record.calls]
         sample_read_supports = [_structural_call_read_support(call) for call in record.calls]
         sample_filters = [call.filter for call in record.calls]
@@ -650,7 +645,6 @@ def _structural_variant_entry_rows(
                     gene_symbols,
                     sample_ids,
                     sample_gts,
-                    sample_gqs,
                     sample_quals,
                     sample_read_supports,
                     sample_filters,
@@ -1398,7 +1392,6 @@ async def insert_structural_variant_records(
                 gene_symbols,
                 `calls.sampleId`,
                 `calls.gt`,
-                `calls.gq`,
                 `calls.qual`,
                 `calls.readSupport`,
                 `calls.filter`,

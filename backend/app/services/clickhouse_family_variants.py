@@ -221,6 +221,9 @@ class StructuralVariantRecord:
     source: str | None
     remote_chr: str | None
     remote_start: int | None
+    # Populated only by the write path (upload/import → storage writes the
+    # details-table remoteEnd). The read path does not fetch it (never
+    # surfaced by _structural_variant_out), so read-built records leave it None.
     remote_end: int | None
     sv_len: int | None
     filters: list[str]
@@ -3657,7 +3660,6 @@ async def _fetch_structural_variant_rows(
             any(e.source) AS source,
             any(d.remoteChrom) AS remote_chr,
             any(d.remoteStart) AS remote_start,
-            any(d.remoteEnd) AS remote_end,
             any(d.svLen) AS sv_len,
             any(d.filters) AS filters,
             any(d.annotationsJson) AS annotations_json,
@@ -3687,7 +3689,6 @@ async def _fetch_structural_variant_rows(
             source,
             remote_chr,
             remote_start,
-            remote_end,
             sv_len,
             filters_raw,
             annotations_json,
@@ -3726,7 +3727,7 @@ async def _fetch_structural_variant_rows(
                 source=str(source) if source is not None else None,
                 remote_chr=normalize_chromosome(str(remote_chr)) if remote_chr not in (None, "") else None,
                 remote_start=_coerce_int(remote_start),
-                remote_end=_coerce_int(remote_end),
+                remote_end=None,
                 sv_len=_coerce_int(sv_len),
                 filters=_string_list(filters_raw),
                 gene_symbols=_string_list(gene_symbols),

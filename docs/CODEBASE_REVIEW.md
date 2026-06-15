@@ -302,7 +302,9 @@ These are confirmed-real defects that were not auto-applied because the correct 
 - **Effort:** S
 - **Expected impact:** Eliminates silent loss of up to ~100 telemetry events per keepalive batch and bounds parse/allocation cost for oversized payloads. Low overall impact since telemetry is best-effort and the endpoint is auth-gated, but it improves data completeness and makes the cap explicit.
 
-### 4. `StructuralVariantRecord.remote_end` is fetched and parsed but never surfaced
+### 4. `StructuralVariantRecord.remote_end` is fetched and parsed but never surfaced — FIXED (dead READ removed; field kept — see note)
+
+> **Correction to the finding:** option (A) "remove the field" is **unsafe**. The read-path `StructuralVariantRecord` is the _same_ class the write path (upload/import → `clickhouse_variant_storage._structural_variant_rows`) uses to build the variant id and write the details-table `remoteEnd`. So the field is load-bearing on write; only its _read-path_ population was dead. Applied the safe form of "drop the dead read": removed the `any(d.remoteEnd)` SELECT + its positional unpack (the per-row column read + coerce), and read-built records now set `remote_end=None`. The field, the write-path constructions, and the details-table `remoteEnd` column are all retained.
 
 - **File:** [`backend/app/services/clickhouse_family_variants.py`](backend/app/services/clickhouse_family_variants.py) (field at 219; `SELECT` at 3674; positional unpack at 3704; record construction at 3743; `_structural_variant_out` at 2210-2251); schema in [`backend/app/schemas.py`](backend/app/schemas.py) (1303-1304).
 - **Problem & impact:** `remote_end` is `SELECT`ed (`any(d.remoteEnd)`), positionally unpacked, and coerced/stored on the file-local `StructuralVariantRecord`, but `_structural_variant_out` emits only `remote_chr`/`remote_start` and `VariantOut` has no `remote_end` field. The value is dead in the read path — one nullable column read and one `_coerce_int` per SV row with nothing surfaced. (The separate ingest/storage path's use of `remote_end` is legitimate and out of scope.)
@@ -322,7 +324,7 @@ These are dead-code candidates that verification confirmed as unreachable or unu
 
 ### Backend — write-only / unreachable storage paths
 
-**`_structural_call_gq` writes an all-NULL SV column that is never read back**
+**`_structural_call_gq` writes an all-NULL SV column that is never read back** — FIXED (removed the function and stopped writing `calls.gq` in the SV insert; verified the entry-tuple/column-list positions stay aligned. The column is left in the table DDL — dropping it is the noted follow-up migration. Needs a real-ClickHouse SV insert/read smoke test, since the unit suite mocks ClickHouse.)
 `backend/app/services/clickhouse_variant_storage.py` (448-449, 633)
 
 `_structural_call_gq` ignores its argument and always returns `None`; its only consumer is the SV `calls.gq` array, which is filled entirely with NULLs and never read by any SV query (the SV read path reads `calls.qual`/`readSupport`/`filter`; the `calls.gq` read at `clickhouse_family_variants.py:3509` belongs to the *small-variant* path). `_structural_call_qual` / `_structural_call_read_support` **are** read and must be kept.
