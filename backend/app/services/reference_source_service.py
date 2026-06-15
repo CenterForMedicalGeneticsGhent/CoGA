@@ -22,7 +22,7 @@ from ..schemas import (
     ReferenceImportSourceAssemblyOut,
     ReferenceImportSourceOrganismOut,
 )
-from .reference_metadata_service import apply_reference_dataset_text
+from .reference_metadata_service import _assembly_dataset_count, apply_reference_dataset_text
 
 UCSC_API_ROOT = "https://api.genome.ucsc.edu"
 UCSC_DOWNLOAD_ROOT = "https://hgdownload.soe.ucsc.edu/goldenPath"
@@ -615,20 +615,6 @@ async def _find_human_grch38_assembly(
     return dict(row) if row is not None else None
 
 
-async def _count_reference_dataset_rows(
-    session: AsyncSession,
-    *,
-    assembly_id: str,
-    dataset_type: str,
-) -> int:
-    count_query = {
-        "cytobands": "SELECT COUNT(*) FROM chromosomes WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "genes": "SELECT COUNT(*) FROM genes WHERE assembly_id = CAST(:assembly_id AS uuid)",
-    }[dataset_type]
-    result = await session.execute(text(count_query), {"assembly_id": assembly_id})
-    return int(result.scalar_one() or 0)
-
-
 async def ensure_human_grch38_species_assembly(
     session: AsyncSession,
 ) -> dict[str, Any]:
@@ -718,7 +704,7 @@ async def import_reference_from_ucsc(
         )
 
     cytobands_existing = (
-        await _count_reference_dataset_rows(
+        await _assembly_dataset_count(
             session,
             assembly_id=assembly_id,
             dataset_type="cytobands",
@@ -727,7 +713,7 @@ async def import_reference_from_ucsc(
         else 0
     )
     genes_existing = (
-        await _count_reference_dataset_rows(
+        await _assembly_dataset_count(
             session,
             assembly_id=assembly_id,
             dataset_type="genes",
@@ -814,12 +800,12 @@ async def ensure_human_grch38_reference_on_startup(
     existing = await _find_human_grch38_assembly(session)
     if existing is not None:
         assembly_id = str(existing["assembly_id"])
-        cytobands_existing = await _count_reference_dataset_rows(
+        cytobands_existing = await _assembly_dataset_count(
             session,
             assembly_id=assembly_id,
             dataset_type="cytobands",
         )
-        genes_existing = await _count_reference_dataset_rows(
+        genes_existing = await _assembly_dataset_count(
             session,
             assembly_id=assembly_id,
             dataset_type="genes",

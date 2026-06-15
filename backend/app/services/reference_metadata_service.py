@@ -307,21 +307,28 @@ def _read_reference_text(path: Path) -> str:
         return gzip.decompress(raw).decode()
 
 
+# Per-dataset row-count queries by assembly — single source of truth shared by
+# _assembly_dataset_count, apply_reference_dataset_text, and (imported) by
+# reference_source_service.
+_DATASET_COUNT_QUERY: dict[str, str] = {
+    "cytobands": "SELECT COUNT(*) FROM chromosomes WHERE assembly_id = CAST(:assembly_id AS uuid)",
+    "genes": "SELECT COUNT(*) FROM genes WHERE assembly_id = CAST(:assembly_id AS uuid)",
+    "blacklist": "SELECT COUNT(*) FROM blacklist WHERE assembly_id = CAST(:assembly_id AS uuid)",
+    "clinical_cnvs": "SELECT COUNT(*) FROM clinical_cnvs WHERE assembly_id = CAST(:assembly_id AS uuid)",
+    "segmental_duplications": "SELECT COUNT(*) FROM segmental_duplications WHERE assembly_id = CAST(:assembly_id AS uuid)",
+    "dgv": "SELECT COUNT(*) FROM dgv_variants WHERE assembly_id = CAST(:assembly_id AS uuid)",
+}
+
+
 async def _assembly_dataset_count(
     session: AsyncSession,
     *,
     assembly_id: str,
     dataset_type: ReferenceDatasetType,
 ) -> int:
-    count_query = {
-        "cytobands": "SELECT COUNT(*) FROM chromosomes WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "genes": "SELECT COUNT(*) FROM genes WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "blacklist": "SELECT COUNT(*) FROM blacklist WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "clinical_cnvs": "SELECT COUNT(*) FROM clinical_cnvs WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "segmental_duplications": "SELECT COUNT(*) FROM segmental_duplications WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "dgv": "SELECT COUNT(*) FROM dgv_variants WHERE assembly_id = CAST(:assembly_id AS uuid)",
-    }[dataset_type]
-    result = await session.execute(text(count_query), {"assembly_id": assembly_id})
+    result = await session.execute(
+        text(_DATASET_COUNT_QUERY[dataset_type]), {"assembly_id": assembly_id}
+    )
     return int(result.scalar_one() or 0)
 
 
@@ -684,16 +691,9 @@ async def apply_reference_dataset_text(
 ) -> ReferenceUploadResult:
     assembly = await _get_assembly_by_id(session, assembly_id)
 
-    count_query = {
-        "cytobands": "SELECT COUNT(*) FROM chromosomes WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "genes": "SELECT COUNT(*) FROM genes WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "blacklist": "SELECT COUNT(*) FROM blacklist WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "clinical_cnvs": "SELECT COUNT(*) FROM clinical_cnvs WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "segmental_duplications": "SELECT COUNT(*) FROM segmental_duplications WHERE assembly_id = CAST(:assembly_id AS uuid)",
-        "dgv": "SELECT COUNT(*) FROM dgv_variants WHERE assembly_id = CAST(:assembly_id AS uuid)",
-    }[dataset_type]
-    existing = await session.execute(text(count_query), {"assembly_id": assembly_id})
-    existing_count = int(existing.scalar_one() or 0)
+    existing_count = await _assembly_dataset_count(
+        session, assembly_id=assembly_id, dataset_type=dataset_type
+    )
     replaced = existing_count > 0
     if replaced and not overwrite:
         raise HTTPException(
