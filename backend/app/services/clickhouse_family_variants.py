@@ -1659,90 +1659,6 @@ def _compound_het_partner_map(
     return partner_map
 
 
-def _apply_small_inheritance_filter(
-    records: Sequence[SmallVariantRecord],
-    *,
-    inheritance: str | None,
-    affected_samples: Sequence[str],
-    unaffected_samples: Sequence[str],
-    sample_rows: Sequence[dict[str, Any]] | None = None,
-) -> list[SmallVariantRecord]:
-    if not inheritance:
-        return list(records)
-
-    compound_het_ids = set(
-        _compound_het_partner_map(
-            records,
-            affected_samples=affected_samples,
-            unaffected_samples=unaffected_samples,
-        )
-    )
-
-    if inheritance == _COMPOUND_HET_INHERITANCE:
-        return [record for record in records if record.variant_id in compound_het_ids]
-
-    if inheritance == _DE_NOVO_DOMINANT_INHERITANCE:
-        return [
-            record
-            for record in records
-            if _record_matches_de_novo_dominant(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-            )
-        ]
-
-    sample_sex = _sample_sex_map(sample_rows or [])
-
-    if inheritance == _RECESSIVE_HOMOZYGOUS_INHERITANCE:
-        return [
-            record
-            for record in records
-            if _record_matches_homozygous_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-            )
-        ]
-
-    if inheritance == _X_LINKED_INHERITANCE:
-        return [
-            record
-            for record in records
-            if _record_matches_x_linked_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-                sample_sex=sample_sex,
-            )
-        ]
-
-    if inheritance == _RECESSIVE_INHERITANCE:
-        homozygous_ids = {
-            record.variant_id
-            for record in records
-            if _record_matches_homozygous_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-            )
-        }
-        x_linked_ids = {
-            record.variant_id
-            for record in records
-            if _record_matches_x_linked_recessive(
-                record,
-                affected_samples=affected_samples,
-                unaffected_samples=unaffected_samples,
-                sample_sex=sample_sex,
-            )
-        }
-        qualifying_ids = compound_het_ids.union(homozygous_ids).union(x_linked_ids)
-        return [record for record in records if record.variant_id in qualifying_ids]
-
-    return list(records)
-
-
 def _normalize_small_variant_inheritance(value: str | None) -> str | None:
     normalized = _casefold(value).replace("-", "_").replace(" ", "_").replace("/", "_")
     if not normalized:
@@ -2975,13 +2891,6 @@ def _small_annotation_row_membership_condition(
     )
 
 
-def _small_sample_filter_native_supported(sample_filter: str) -> bool:
-    parsed = parse_small_variant_sample_filter(sample_filter)
-    if parsed is None:
-        return True
-    return True
-
-
 def _small_native_sample_filter_clauses(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -2991,8 +2900,6 @@ def _small_native_sample_filter_clauses(
     for index, entry in enumerate(filters.sample_filters):
         parsed = parse_small_variant_sample_filter(entry)
         if parsed is None:
-            continue
-        if not _small_sample_filter_native_supported(entry):
             continue
         sample_param = f"sample_filter_{index}_samples"
         sample_ids = _clickhouse_ids_for_sample(context, parsed.sample_name)
@@ -3040,14 +2947,6 @@ def _small_native_sample_filter_clauses(
         else:
             clauses.append(present_clause)
     return clauses, params
-
-
-def _small_sample_filters_native_supported(filters: SmallVariantQueryFilters) -> bool:
-    return all(
-        _small_sample_filter_native_supported(entry)
-        for entry in filters.sample_filters
-        if str(entry).strip()
-    )
 
 
 def _structural_variant_where_clauses(
@@ -3767,7 +3666,6 @@ def _can_use_small_native_page(
             filters.page_size <= 0,
             not _small_native_inheritance_supported(filters.inheritance),
             filters.expanded_carrier_screening,
-            not _small_sample_filters_native_supported(filters),
         )
     )
 

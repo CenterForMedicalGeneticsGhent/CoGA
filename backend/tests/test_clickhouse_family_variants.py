@@ -8,9 +8,9 @@ from backend.app.services.clickhouse_family_variants import (
     Region,
     SmallVariantCall,
     SmallVariantRecord,
-    _apply_small_inheritance_filter,
     _compound_het_partner_map,
     _chromosome_options,
+    _inheritance_result_items,
     _fetch_small_variant_rows,
     _flexible_status_match,
     _small_detail_filter_clauses,
@@ -35,6 +35,39 @@ def _stub_small_variant_summary(monkeypatch: pytest.MonkeyPatch) -> None:
         "backend.app.services.clickhouse_family_variants._fetch_small_variant_summary",
         fake_fetch_small_variant_summary,
     )
+
+
+def _inheritance_filter_records(
+    records,
+    *,
+    inheritance,
+    affected_samples,
+    unaffected_samples,
+    sample_rows=None,
+):
+    """Adapt the production inheritance selector (_inheritance_result_items, which
+    returns kind-tagged items / compound-het pairs) back to the flat,
+    original-order record list the (removed) _apply_small_inheritance_filter
+    returned, so these tests exercise the live code path. The matched-id union
+    is faithful: _compound_het_partner_map is itself built from
+    _compound_het_pairs, so a pair's {left, right} ids equal the old partner-map
+    keys."""
+    if not inheritance:
+        return list(records)
+    matched_ids: set[str] = set()
+    for kind, payload in _inheritance_result_items(
+        inheritance=inheritance,
+        records=records,
+        affected_samples=affected_samples,
+        unaffected_samples=unaffected_samples,
+        sample_rows=sample_rows or [],
+    ):
+        if kind == "group":
+            matched_ids.add(payload.left.variant_id)
+            matched_ids.add(payload.right.variant_id)
+        else:
+            matched_ids.add(payload.variant_id)
+    return [record for record in records if record.variant_id in matched_ids]
 
 
 def _small_call(sample: str, gt: str) -> SmallVariantCall:
@@ -1071,7 +1104,7 @@ def test_recessive_inheritance_keeps_homozygous_and_compound_het_variants() -> N
         ),
     ]
 
-    filtered = _apply_small_inheritance_filter(
+    filtered = _inheritance_filter_records(
         records,
         inheritance="recessive",
         affected_samples=["PROBAND"],
@@ -1139,7 +1172,7 @@ def test_de_novo_dominant_and_x_linked_inheritance_filters() -> None:
         {"sample_id": "SIB", "role": "sibling", "affected": False, "sex": "female"},
     ]
 
-    dominant_filtered = _apply_small_inheritance_filter(
+    dominant_filtered = _inheritance_filter_records(
         records,
         inheritance="de_novo_dominant",
         affected_samples=["PROBAND"],
@@ -1148,7 +1181,7 @@ def test_de_novo_dominant_and_x_linked_inheritance_filters() -> None:
     )
     assert [record.variant_id for record in dominant_filtered] == ["dom-1"]
 
-    x_linked_filtered = _apply_small_inheritance_filter(
+    x_linked_filtered = _inheritance_filter_records(
         records,
         inheritance="x_linked",
         affected_samples=["PROBAND"],
@@ -1198,7 +1231,7 @@ async def test_get_family_small_variants_page_applies_compound_het_inheritance(
 
     async def fake_fetch_small_variant_rows(_context, filters, **_kwargs):
         fetch_kwargs.append(dict(_kwargs))
-        return _apply_small_inheritance_filter(
+        return _inheritance_filter_records(
             records,
             inheritance=filters.inheritance,
             affected_samples=["PROBAND"],
@@ -1364,7 +1397,7 @@ async def test_get_family_small_variants_page_supports_coga_like_inheritance_mod
     ]
 
     async def fake_fetch_small_variant_rows(_context, filters, **_kwargs):
-        return _apply_small_inheritance_filter(
+        return _inheritance_filter_records(
             records,
             inheritance=filters.inheritance,
             affected_samples=["PROBAND"],
