@@ -277,6 +277,68 @@ const TranscriptPopup = ({
   );
 };
 
+// Detail-disclosure annotations, built only when a card's "More annotations"
+// section is open (see openCardIds) so collapsed cards skip this per-render work.
+const buildVariantDetailData = (
+  variant: SmallVariant,
+  ctx: { locus: string; transcripts: SmallVariantTranscript[]; transcriptLabel: string },
+) => {
+  const { locus, transcripts, transcriptLabel } = ctx;
+  const populationFrequencies = Object.entries(variant.population_frequencies || {}).filter(
+    ([, value]) => typeof value === 'number' && Number.isFinite(value),
+  );
+  const additionalAnnotations = Object.entries(variant.annotation_extra || {}).filter(
+    ([, value]) => value !== null && value !== '',
+  );
+  const scoreItems = [
+    typeof variant.gene_pli === 'number'
+      ? { label: 'pLI', value: formatScore(variant.gene_pli, 3) }
+      : null,
+    typeof variant.gene_missense_z === 'number'
+      ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z) }
+      : null,
+    variant.cadd_phred ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
+    variant.revel ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
+    variant.spliceai_max ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) } : null,
+    variant.sift ? { label: 'SIFT', value: variant.sift } : null,
+    variant.polyphen ? { label: 'PolyPhen', value: variant.polyphen } : null,
+    variant.lof_filter ? { label: 'LoF filter', value: variant.lof_filter } : null,
+    variant.lof_flags ? { label: 'LoF flags', value: variant.lof_flags } : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+  const frequencyItems = [
+    typeof variant.gnomad_hom_count === 'number'
+      ? { label: 'gnomAD hom', value: String(variant.gnomad_hom_count) }
+      : null,
+    ...populationFrequencies
+      .filter(([label]) => label !== 'gnomad_af')
+      .map(([label, value]) => ({
+        label: label.replace(/_/g, ' '),
+        value: formatFrequency(value),
+      })),
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+  const transcriptItems = [
+    { label: 'Transcript', value: transcripts.length ? transcriptLabel : '—' },
+    { label: 'Gene ID', value: variant.gene_id || '—' },
+    { label: 'Biotype', value: variant.transcript_biotype || '—' },
+    { label: 'Feature', value: variant.feature_type || '—' },
+    { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
+  ];
+  const changeItems = [
+    { label: 'Consequence', value: formatTokenLabel(variant.effect) },
+    { label: 'HGVS.c', value: variant.hgvsc || '—' },
+    { label: 'HGVS.p', value: variant.hgvsp || '—' },
+    { label: 'Locus', value: locus },
+    { label: 'dbSNP', value: variant.rsid || '—' },
+    { label: 'Alleles', value: `${variant.ref || '—'} → ${variant.alt || '—'}` },
+    {
+      label: 'Type / source',
+      value: `${variant.type}${variant.source ? ` · ${variant.source}` : ''}`,
+    },
+    { label: 'Phase set', value: String(variant.ps ?? '—') },
+  ];
+  return { scoreItems, frequencyItems, transcriptItems, changeItems, additionalAnnotations };
+};
+
 export default function SmallVariantCards({
   variants,
   members,
@@ -293,6 +355,18 @@ export default function SmallVariantCards({
 }: SmallVariantCardsProps) {
   const tagMap = getTagDefinitionMap(tags);
   const [transcriptPopupVariant, setTranscriptPopupVariant] = useState<SmallVariant | null>(null);
+  // Tracks which cards have the "More annotations" disclosure open, so the heavy
+  // detail arrays are built only for those (collapsed is the default).
+  const [openCardIds, setOpenCardIds] = useState<Set<string>>(() => new Set());
+  const handleCardToggle = (variantId: string, open: boolean) => {
+    setOpenCardIds((prev) => {
+      if (open === prev.has(variantId)) return prev;
+      const next = new Set(prev);
+      if (open) next.add(variantId);
+      else next.delete(variantId);
+      return next;
+    });
+  };
 
   return (
     <div className="variant-card-list">
@@ -310,62 +384,19 @@ export default function SmallVariantCards({
           assemblyName,
           assemblyVersion,
         });
-        const populationFrequencies = Object.entries(variant.population_frequencies || {}).filter(
-          ([, value]) => typeof value === 'number' && Number.isFinite(value),
-        );
-        const additionalAnnotations = Object.entries(variant.annotation_extra || {}).filter(
-          ([, value]) => value !== null && value !== '',
-        );
         const transcripts = getVariantTranscripts(variant);
         const transcriptLabel = variant.transcript_id || transcripts[0]?.transcript_id || 'View transcripts';
-        const scoreItems = [
-          typeof variant.gene_pli === 'number'
-            ? { label: 'pLI', value: formatScore(variant.gene_pli, 3) }
-            : null,
-          typeof variant.gene_missense_z === 'number'
-            ? { label: 'Missense Z', value: formatScore(variant.gene_missense_z) }
-            : null,
-          variant.cadd_phred ? { label: 'CADD', value: formatScore(variant.cadd_phred) } : null,
-          variant.revel ? { label: 'REVEL', value: formatScore(variant.revel) } : null,
-          variant.spliceai_max
-            ? { label: 'SpliceAI', value: formatScore(variant.spliceai_max) }
-            : null,
-          variant.sift ? { label: 'SIFT', value: variant.sift } : null,
-          variant.polyphen ? { label: 'PolyPhen', value: variant.polyphen } : null,
-          variant.lof_filter ? { label: 'LoF filter', value: variant.lof_filter } : null,
-          variant.lof_flags ? { label: 'LoF flags', value: variant.lof_flags } : null,
-        ].filter((item): item is { label: string; value: string } => Boolean(item));
-        const frequencyItems = [
-          typeof variant.gnomad_hom_count === 'number'
-            ? { label: 'gnomAD hom', value: String(variant.gnomad_hom_count) }
-            : null,
-          ...populationFrequencies
-            .filter(([label]) => label !== 'gnomad_af')
-            .map(([label, value]) => ({
-              label: label.replace(/_/g, ' '),
-              value: formatFrequency(value),
-            })),
-        ].filter((item): item is { label: string; value: string } => Boolean(item));
-        const transcriptItems = [
-          { label: 'Transcript', value: transcripts.length ? transcriptLabel : '—' },
-          { label: 'Gene ID', value: variant.gene_id || '—' },
-          { label: 'Biotype', value: variant.transcript_biotype || '—' },
-          { label: 'Feature', value: variant.feature_type || '—' },
-          { label: 'Exon / intron', value: variant.exon || variant.intron || '—' },
-        ];
-        const changeItems = [
-          { label: 'Consequence', value: formatTokenLabel(variant.effect) },
-          { label: 'HGVS.c', value: variant.hgvsc || '—' },
-          { label: 'HGVS.p', value: variant.hgvsp || '—' },
-          { label: 'Locus', value: locus },
-          { label: 'dbSNP', value: variant.rsid || '—' },
-          { label: 'Alleles', value: `${variant.ref || '—'} → ${variant.alt || '—'}` },
-          {
-            label: 'Type / source',
-            value: `${variant.type}${variant.source ? ` · ${variant.source}` : ''}`,
-          },
-          { label: 'Phase set', value: String(variant.ps ?? '—') },
-        ];
+        const detailsOpen = openCardIds.has(variant._id);
+        const detailData = detailsOpen
+          ? buildVariantDetailData(variant, { locus, transcripts, transcriptLabel })
+          : null;
+        const {
+          scoreItems = [],
+          frequencyItems = [],
+          transcriptItems = [],
+          changeItems = [],
+          additionalAnnotations = [],
+        } = detailData ?? {};
         const clinvarSummary = formatTokenLabel(variant.clinvar);
         const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
@@ -764,8 +795,12 @@ export default function SmallVariantCards({
               </div>
             </div>
 
-            <details className="variant-card-more">
+            <details
+              className="variant-card-more"
+              onToggle={(event) => handleCardToggle(variant._id, event.currentTarget.open)}
+            >
               <summary>More annotations &amp; detail</summary>
+              {detailsOpen && (
               <div className="variant-card-more-grid">
                 <div className="variant-card-section">
                   <p className="variant-card-section-title">Variant summary</p>
@@ -860,6 +895,7 @@ export default function SmallVariantCards({
                   </div>
                 ) : null}
               </div>
+              )}
             </details>
           </article>
         );

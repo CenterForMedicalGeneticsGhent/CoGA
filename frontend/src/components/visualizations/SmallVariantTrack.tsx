@@ -366,29 +366,44 @@ const SmallVariantTrack: React.FC<Props> = ({
       });
     }
 
-    withPos.forEach((v) => {
-      const cy = cyForOrigin(v.origin);
-      g
-        .append('circle')
-        .attr('cx', v.x)
-        .attr('cy', cy)
-        .attr('r', radius)
-        .attr('fill', getVariantColor(v));
-      // Wider transparent hitbox so the dot is easy to hover.
-      g
-        .append('rect')
-        .attr('x', v.x - 4)
-        .attr('y', 0)
-        .attr('width', 8)
-        .attr('height', height)
-        .attr('fill', 'transparent')
-        .attr('pointer-events', 'all')
-        .style('cursor', 'pointer')
-        .on('mousemove', (event: MouseEvent) =>
-          setTooltip({ x: event.clientX, y: event.clientY, variant: v }),
-        )
-        .on('mouseout', () => setTooltip(null));
-    });
+    // One data-join for all dots instead of an append per variant.
+    g.selectAll<SVGCircleElement, PositionedVariant>('circle')
+      .data(withPos)
+      .join('circle')
+      .attr('cx', (v) => v.x)
+      .attr('cy', (v) => cyForOrigin(v.origin))
+      .attr('r', radius)
+      .attr('fill', (v) => getVariantColor(v));
+
+    // A single delegated hit layer + quadtree replaces the per-variant transparent
+    // hitbox rects (up to ~N extra DOM nodes at the 10k cap). On hover we look up
+    // the nearest dot within a small radius instead of relying on N rects.
+    const hitRadius = Math.max(8, radius + 6);
+    const locator = d3
+      .quadtree<PositionedVariant>()
+      .x((v) => v.x)
+      .y((v) => cyForOrigin(v.origin))
+      .addAll(withPos);
+    g.append('rect')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', width)
+      .attr('height', height)
+      .attr('fill', 'transparent')
+      .attr('pointer-events', 'all')
+      .style('cursor', 'pointer')
+      .on('mousemove', (event: MouseEvent) => {
+        const bounds = svgRef.current?.getBoundingClientRect();
+        const localX = event.clientX - (bounds?.left ?? 0);
+        const localY = event.clientY - (bounds?.top ?? 0);
+        const found = locator.find(localX, localY, hitRadius);
+        if (found) {
+          setTooltip({ x: event.clientX, y: event.clientY, variant: found });
+        } else {
+          setTooltip(null);
+        }
+      })
+      .on('mouseout', () => setTooltip(null));
   }, [withPos, height, originMode, width, getVariantColor, emptyMessage, isLoading]);
 
   return (
