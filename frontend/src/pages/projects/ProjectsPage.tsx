@@ -10,6 +10,7 @@ import type {
   ApiUserRecord,
 } from '../../lib/apiTypes';
 import { withEntityId } from '../../lib/entity';
+import { getErrorMessage } from '../../lib/errorMessage';
 import { isAdmin } from '../../lib/auth';
 
 type Project = ApiProjectRecord<ApiFamilyBase<ApiFamilyMemberRef>>;
@@ -91,16 +92,6 @@ const formatUploadedDate = (value?: string) => {
 
 const familySampleIds = (family: Project['families'][number]) =>
   family.members.map((member) => member.sample_id);
-
-const getErrorMessage = (error: unknown, fallback: string) => {
-  if (typeof error === 'object' && error && 'response' in error) {
-    const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
-    if (typeof detail === 'string') {
-      return detail;
-    }
-  }
-  return fallback;
-};
 
 const ProjectsPage: React.FC = () => {
   const userIsAdmin = isAdmin();

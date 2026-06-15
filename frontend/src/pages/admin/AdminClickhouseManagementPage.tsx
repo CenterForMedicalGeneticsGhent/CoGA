@@ -3,19 +3,12 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import { getErrorMessage } from '../../lib/errorMessage';
 import ClickhouseVariantOperationsSection from './ClickhouseVariantOperationsSection';
 import type {
   ClickHouseVariantAssemblyList,
   StatusTone,
 } from './dataManagementTypes';
-
-const getErrorMessage = (error: unknown, fallback: string): string => {
-  if (typeof error !== 'object' || error === null) return fallback;
-  const responseDetail = (
-    error as { response?: { data?: { detail?: string } } }
-  )?.response?.data?.detail;
-  return responseDetail || (error as { message?: string }).message || fallback;
-};
 
 const AdminClickhouseManagementPage: React.FC = () => {
   const queryClient = useQueryClient();

@@ -4,15 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import SmallVariantFilterPresetTable from '../../components/SmallVariantFilterPresetTable';
+import { getErrorMessage } from '../../lib/errorMessage';
 import type { SmallVariantFilterPreset } from '../families/smallVariantSearch';
-
-const getErrorMessage = (error: unknown, fallback: string): string => {
-  if (typeof error !== 'object' || error === null) return fallback;
-  const responseDetail = (
-    error as { response?: { data?: { detail?: string } } }
-  )?.response?.data?.detail;
-  return responseDetail || (error as { message?: string }).message || fallback;
-};
 
 const AdminPresetFiltersPage: React.FC = () => {
   const {
