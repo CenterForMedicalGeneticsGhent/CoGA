@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
-import { formatGt } from '../../lib/genotypes';
+import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
 import VizLoadingOverlay from './VizLoadingOverlay';
@@ -103,7 +103,7 @@ const SvTrack: React.FC<Props> = ({
             (v: Variant) =>
               v.genotypes &&
               v.genotypes.length > 0 &&
-              formatGt(v.genotypes[0].gt) !== 'WT'
+              hasAltAllele(v.genotypes[0].gt)
           );
         if (active) {
           setVariants(vars);

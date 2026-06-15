@@ -2,7 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiVariantPage } from '../../lib/apiTypes';
-import { formatGt } from '../../lib/genotypes';
+import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { getTrackVariantLimit } from '../../lib/trackSampling';
 import VizLoadingOverlay from './VizLoadingOverlay';
@@ -120,7 +120,7 @@ const VariantTrack: React.FC<Props> = ({
         const typeKey = v.type?.toUpperCase() ?? '';
         return (
           isSupportedVariantType(typeKey) &&
-          v.genotypes?.some((g) => g.sample === sampleId && formatGt(g.gt) !== 'WT')
+          v.genotypes?.some((g) => g.sample === sampleId && hasAltAllele(g.gt))
         );
       }),
     [data?.variants, sampleId],
