@@ -920,6 +920,10 @@ async def update_family_structure_for_admin(
     current_members = await _fetch_family_member_rows(session, family_uuid=family_uuid)
     current_relationships = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
     target_members = {key: dict(row) for key, row in current_members.items()}
+    # Track which members actually changed so only they are re-written below —
+    # avoids re-UPDATEing every member (2 UPDATEs each) and bumping updated_at on
+    # unchanged rows for a single-field edit.
+    dirty_member_keys: set[str] = set()
 
     new_member_payloads = [_member_payload(member, family_uuid=family_uuid) for member in update.add_members]
     true_new_members: list[dict[str, Any]] = []
@@ -935,10 +939,12 @@ async def update_family_structure_for_admin(
             member["is_new"] = False
             target_members[key] = {**existing, **member, "active": True}
             reactivated_sample_ids.append(member["sample_id"])
+            dirty_member_keys.add(key)
         else:
             target_members[key] = member
             true_new_members.append(member)
             added_sample_ids.append(member["sample_id"])
+            dirty_member_keys.add(key)
 
     conflicts = await _sample_id_conflicts(
         session,
@@ -961,6 +967,8 @@ async def update_family_structure_for_admin(
         changed_status, changed_structure = _apply_member_update(target, update_fields)
         status_changed = status_changed or changed_status
         structure_changed = structure_changed or changed_structure
+        if changed_status or changed_structure:
+            dirty_member_keys.add(key)
         if was_active and not target.get("active"):
             removed_sample_ids.append(str(target["sample_id"]))
 
@@ -969,9 +977,11 @@ async def update_family_structure_for_admin(
         target = target_members.get(key)
         if target is None:
             raise HTTPException(status_code=404, detail=f"Family member '{sample_id}' not found")
-        if target.get("active") and str(target["sample_id"]) not in removed_sample_ids:
-            removed_sample_ids.append(str(target["sample_id"]))
-            structure_changed = True
+        if target.get("active"):
+            dirty_member_keys.add(key)
+            if str(target["sample_id"]) not in removed_sample_ids:
+                removed_sample_ids.append(str(target["sample_id"]))
+                structure_changed = True
         target["active"] = False
 
     active_members = [row for row in target_members.values() if row.get("active")]
@@ -1004,7 +1014,9 @@ async def update_family_structure_for_admin(
 
     for member in true_new_members:
         await _insert_new_member(session, family_uuid=family_uuid, member=member)
-    for member in target_members.values():
+    for key, member in target_members.items():
+        if key not in dirty_member_keys:
+            continue
         if member.get("sample_uuid") is None:
             raise HTTPException(status_code=500, detail=f"Missing sample id for '{member['sample_id']}'")
         await _update_member_row(session, member=member)
