@@ -740,32 +740,14 @@ async def _fetch_project_family_rows(
     for row in family_project_rows:
         family_project_ids[row["family_uuid"]].append(row["project_id"])
 
-    member_stmt = text(
-        """
-        SELECT
-            fm.family_id::text AS family_uuid,
-            s.sample_id,
-            fm.role,
-            fm.affected,
-            fm.clinical_status,
-            fm.carrier_status,
-            fm.carrier_type,
-            fm.carrier_evidence,
-            fm.active,
-            s.sex,
-            s.metadata AS sample_metadata
-        FROM family_members fm
-        JOIN samples s ON s.id = fm.sample_id
-        WHERE fm.family_id IN :family_ids
-          AND fm.active
-        ORDER BY lower(s.sample_id)
-        """
-    ).bindparams(uuid_list_bindparam("family_ids"))
-    member_result = await session.execute(member_stmt, {"family_ids": uuid_values(family_ids)})
-    member_rows = [dict(row) for row in member_result.mappings().all()]
+    # Same active-member-with-sample query as _fetch_family_sample_rows (which
+    # also selects the harmless sample_uuid); reuse it instead of duplicating.
+    member_rows_by_family = await _fetch_family_sample_rows(session, family_ids)
     members_by_family: dict[str, list[FamilyMemberOut]] = defaultdict(list)
-    for row in member_rows:
-        members_by_family[row["family_uuid"]].append(_family_member_out_from_row(row))
+    for family_uuid, member_rows in member_rows_by_family.items():
+        members_by_family[family_uuid] = [
+            _family_member_out_from_row(row) for row in member_rows
+        ]
 
     relationships_by_family = await _fetch_family_relationship_rows(session, family_ids)
     structure_versions_by_family = await _fetch_family_structure_version_rows(session, family_ids)

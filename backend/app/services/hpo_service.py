@@ -1271,61 +1271,54 @@ async def get_hpo_term_details(
     normalized_id = normalize_hpo_id(hpo_id)
     if not normalized_id:
         raise HTTPException(status_code=400, detail="Invalid HPO identifier")
-    term_result = await session.execute(
+    # Single round-trip via LATERAL/jsonb_agg (same pattern as list_hpo_admin_terms)
+    # instead of four sequential queries.
+    result = await session.execute(
         text(
             """
-            SELECT hpo_id, label, definition, is_obsolete, replaced_by,
-                   release_version, release_date
-            FROM hpo_term
-            WHERE hpo_id = :hpo_id
+            SELECT
+                t.hpo_id, t.label, t.definition, t.is_obsolete, t.replaced_by,
+                t.release_version, t.release_date,
+                COALESCE(s.synonyms, '[]'::jsonb) AS synonyms,
+                COALESCE(p.parents, '[]'::jsonb) AS parents,
+                COALESCE(c.children, '[]'::jsonb) AS children
+            FROM hpo_term t
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(to_jsonb(synonym) ORDER BY synonym) AS synonyms
+                FROM hpo_synonym
+                WHERE hpo_id = t.hpo_id
+            ) s ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(
+                    jsonb_build_object('hpo_id', e.parent_id, 'label', parent.label, 'relation', e.relation)
+                    ORDER BY parent.label
+                ) AS parents
+                FROM hpo_edge e
+                JOIN hpo_term parent ON parent.hpo_id = e.parent_id
+                WHERE e.child_id = t.hpo_id
+            ) p ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(
+                    jsonb_build_object('hpo_id', e.child_id, 'label', child.label, 'relation', e.relation)
+                    ORDER BY child.label
+                ) AS children
+                FROM hpo_edge e
+                JOIN hpo_term child ON child.hpo_id = e.child_id
+                WHERE e.parent_id = t.hpo_id
+            ) c ON TRUE
+            WHERE t.hpo_id = :hpo_id
             """
         ),
         {"hpo_id": normalized_id},
     )
-    term = term_result.mappings().first()
-    if term is None:
+    row = result.mappings().first()
+    if row is None:
         raise HTTPException(status_code=404, detail="HPO term was not found")
-    synonym_result = await session.execute(
-        text(
-            """
-            SELECT synonym
-            FROM hpo_synonym
-            WHERE hpo_id = :hpo_id
-            ORDER BY synonym
-            """
-        ),
-        {"hpo_id": normalized_id},
-    )
-    parent_result = await session.execute(
-        text(
-            """
-            SELECT e.parent_id AS hpo_id, t.label AS label, e.relation AS relation
-            FROM hpo_edge e
-            JOIN hpo_term t ON t.hpo_id = e.parent_id
-            WHERE e.child_id = :hpo_id
-            ORDER BY t.label
-            """
-        ),
-        {"hpo_id": normalized_id},
-    )
-    child_result = await session.execute(
-        text(
-            """
-            SELECT e.child_id AS hpo_id, t.label AS label, e.relation AS relation
-            FROM hpo_edge e
-            JOIN hpo_term t ON t.hpo_id = e.child_id
-            WHERE e.parent_id = :hpo_id
-            ORDER BY t.label
-            """
-        ),
-        {"hpo_id": normalized_id},
-    )
-    return {
-        **dict(term),
-        "synonyms": [str(row[0]) for row in synonym_result.all()],
-        "parents": [dict(row) for row in parent_result.mappings().all()],
-        "children": [dict(row) for row in child_result.mappings().all()],
-    }
+    term = dict(row)
+    term["synonyms"] = _text_list(term.get("synonyms"))
+    term["parents"] = _relation_list(term.get("parents"))
+    term["children"] = _relation_list(term.get("children"))
+    return term
 
 
 async def get_hpo_admin_summary(session: AsyncSession) -> dict[str, Any]:
