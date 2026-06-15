@@ -588,7 +588,10 @@ def _find_manifest(root: Path) -> Path | None:
     return next((candidate for candidate in _manifest_candidates(root) if candidate.is_file()), None)
 
 
-def _parse_manifest(path: Path) -> PackageManifest:
+def _parse_manifest(path: Path) -> tuple[dict[str, Any], PackageManifest]:
+    """Return both the raw parsed payload and the validated model so callers can
+    inspect the original keys (e.g. schema_version presence) without re-reading
+    and re-parsing the file from disk."""
     raw_text = path.read_text(encoding="utf-8")
     if path.suffix.lower() == ".json":
         payload = json.loads(raw_text)
@@ -596,7 +599,7 @@ def _parse_manifest(path: Path) -> PackageManifest:
         payload = yaml.safe_load(raw_text)
     if not isinstance(payload, dict):
         raise ValueError("Manifest must contain a mapping/object at the top level")
-    return PackageManifest.model_validate(payload)
+    return payload, PackageManifest.model_validate(payload)
 
 
 def _resolve_package_path(root: Path, value: str | None) -> Path | None:
@@ -2011,7 +2014,7 @@ def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackag
         return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
 
     try:
-        manifest = _parse_manifest(manifest_path)
+        manifest_payload, manifest = _parse_manifest(manifest_path)
     except (OSError, json.JSONDecodeError, ValueError, ValidationError, yaml.YAMLError) as exc:
         errors.append(_issue("manifest_parse_failed", f"Manifest could not be parsed: {exc}", path=manifest_path))
         return (
@@ -2035,7 +2038,7 @@ def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackag
     pgt_metadata = _manifest_pgt_metadata(manifest)
     if pgt_metadata:
         metadata["pgt"] = pgt_metadata
-    if "schema_version" not in _json_dict(yaml.safe_load(manifest_path.read_text(encoding="utf-8")) if manifest_path.suffix.lower() != ".json" else json.loads(manifest_path.read_text(encoding="utf-8"))):
+    if "schema_version" not in manifest_payload:
         warnings.append(
             _issue(
                 "manifest_schema_version_missing",
@@ -2321,6 +2324,9 @@ def _per_sample_dataset_availability(
 ) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
     files: list[FamilyManifestFileAvailability] = []
     per_sample: dict[str, dict[str, str]] = {}
+    # Every sample's resolved role->path entry, kept so the incomplete-dataset
+    # display below can reuse it instead of re-stat'ing each candidate path.
+    all_sample_entries: dict[str, dict[str, str]] = {}
     complete_samples: list[str] = []
     for sample_id in sample_ids:
         sample_entry: dict[str, str] = {}
@@ -2342,6 +2348,7 @@ def _per_sample_dataset_availability(
             )
             sample_complete = sample_complete and exists
             sample_entry[role] = path_value
+        all_sample_entries[sample_id] = sample_entry
         if sample_complete:
             complete_samples.append(sample_id)
             per_sample[sample_id] = sample_entry
@@ -2349,18 +2356,7 @@ def _per_sample_dataset_availability(
     complete = bool(complete_samples)
     display_entry: dict[str, Any] = {
         "enabled": complete,
-        "per_sample": per_sample if complete else {
-            sample_id: {
-                role: _choose_candidate_path(
-                    root,
-                    patterns[role],
-                    family_id=family_id,
-                    sample_id=sample_id,
-                )[0]
-                for role in required_roles
-            }
-            for sample_id in sample_ids
-        },
+        "per_sample": per_sample if complete else all_sample_entries,
     }
     return (
         FamilyManifestDatasetAvailability(
