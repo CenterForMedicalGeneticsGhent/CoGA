@@ -136,14 +136,9 @@ const TrackMeta: React.FC<{
   return <span className="viewer-track-meta">{summary}</span>;
 };
 
-const normalizeChromosomeTarget = (value: string): string => {
-  const normalized = normalizeChrom(value.trim());
-  if (!normalized) return '';
-  if (/^\d+$/.test(normalized)) {
-    return String(Number(normalized));
-  }
-  return normalized.toUpperCase();
-};
+// normalizeChrom already trims, strips `chr`, maps m/mt→MT, collapses numeric
+// strings, and uppercases — so no further post-processing is needed here.
+const normalizeChromosomeTarget = (value: string): string => normalizeChrom(value.trim());
 
 const parseJumpRegion = (value: string): { chrom: string; start: number; end: number } | null => {
   const match = value.trim().match(/^([^:]+)\s*:\s*([\d,]+)(?:\s*[-–]\s*([\d,]+))?$/i);

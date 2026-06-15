@@ -3,29 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
-
-interface GeneLocation {
-  chr: string;
-  start: number;
-  end: number;
-}
-
-interface GenePanel {
-  _id: string;
-  name: string;
-  genes: string[];
-  gene_count?: number;
-  regions: GeneLocation[];
-  created_by: string;
-  created_by_email?: string | null;
-  created_at: string;
-  description?: string | null;
-  source?: string;
-  external_id?: string | null;
-  external_version?: string | null;
-  external_url?: string | null;
-  source_updated_at?: string | null;
-}
+import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
 
 interface PanelAppPanelSummary {
   panelapp_id: number;

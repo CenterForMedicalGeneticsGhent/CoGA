@@ -541,3 +541,30 @@ export interface ApiGithubReleaseCatalog {
   fetched_at?: string | null;
   releases: ApiGithubRelease[];
 }
+
+// Shared shape for the /panels payload, consumed by GenePanelsPage and
+// GenePanelDetailPage. (The narrower GenePanel stubs in smallVariantSearch.ts /
+// GeneTrack.tsx are intentionally separate.)
+export interface GeneLocation {
+  gene: string;
+  chr: string;
+  start: number;
+  end: number;
+}
+
+export interface GenePanel {
+  _id: string;
+  name: string;
+  genes: string[];
+  gene_count?: number;
+  regions: GeneLocation[];
+  created_by: string;
+  created_by_email?: string | null;
+  created_at: string;
+  description?: string | null;
+  source?: string;
+  external_id?: string | null;
+  external_version?: string | null;
+  external_url?: string | null;
+  source_updated_at?: string | null;
+}
