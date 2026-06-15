@@ -379,7 +379,7 @@ Two findings: (1) the `locus_allele` branch of `_store_vep_annotation` is **prov
 
 ### Backend — encodes an unresolved authorization-design question
 
-**`_ensure_user_can_replace_existing_families` discards its `existing_rows` argument**
+**`_ensure_user_can_replace_existing_families` discards its `existing_rows` argument** — FIXED via option (A): admin-only is the intended policy. Dropped the dead `existing_rows` param + the `del`, updated the call site, and replaced the misleading `test_viewer_cannot_replace_family_linked_to_hidden_project` with role-based tests (`test_non_admin_cannot_replace_existing_families` + `test_admin_can_replace_existing_families`) that no longer imply a per-project check.
 `backend/app/services/ped_service.py` (307-317)
 
 The function takes `existing_rows`, immediately `del`s it, and decides purely on `user.role == 'admin'` — the parameter is dead inside the body. **Important correction to the raw finding:** line 335 is **not** the sole caller. `backend/tests/test_access_control.py:89` (`test_viewer_cannot_replace_family_linked_to_hidden_project`) also calls it, feeding rows tagged with visible vs hidden `project_id` and asserting 403. That test name and payload encode an intended **per-project authorization** check the implementation never performs (it passes only because a viewer is non-admin). Blindly dropping the parameter would break the test and silently erase the encoded design intent.
