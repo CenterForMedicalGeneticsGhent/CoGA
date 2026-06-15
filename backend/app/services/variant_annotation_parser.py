@@ -247,6 +247,74 @@ def _annotation_entries(
     return [], []
 
 
+def _apply_numeric_and_population_aliases(
+    source: Dict[str, str],
+    annotation: Dict[str, Any],
+    *,
+    extra_seed: Dict[str, Any],
+    population_seed: Dict[str, float],
+) -> None:
+    """Apply the score/count/extra-count/splice/population alias loops, the
+    gnomad_af derivation, and the spliceai_max computation to `annotation`
+    (mutated in place). Shared by _base_info_annotation (empty seeds) and
+    _normalize_annotation_entry (seeds carry the base annotation's extra and
+    population_frequencies). The per-caller _ANN_ALIASES handling and final
+    pruning stay with each caller."""
+    for key, aliases in _SCORE_ALIASES.items():
+        value = _parse_float(_first_value(source, aliases))
+        if value is not None:
+            annotation[key] = value
+
+    for key, aliases in _COUNT_ALIASES.items():
+        value = _parse_int(_first_value(source, aliases))
+        if value is not None:
+            annotation[key] = value
+
+    extra = dict(extra_seed)
+    for key, aliases in _EXTRA_COUNT_ALIASES.items():
+        value = _parse_int(_first_value(source, aliases))
+        if value is not None:
+            extra[key] = value
+    if extra:
+        annotation["extra"] = extra
+
+    for key, aliases in _SPLICE_ALIASES.items():
+        value = _parse_float(_first_value(source, aliases))
+        if value is not None:
+            annotation[key] = value
+    annotation.update(_parse_spliceai_pred(source.get("SpliceAI_pred")))
+
+    population_frequencies = dict(population_seed)
+    for key, aliases in _POPULATION_ALIASES.items():
+        value = _parse_float(_first_value(source, aliases))
+        if value is not None:
+            population_frequencies[key] = value
+    if "gnomad_af" not in population_frequencies:
+        derived_gnomad = max(
+            [
+                population_frequencies[field]
+                for field in ("gnomad_exomes_af", "gnomad_genomes_af")
+                if field in population_frequencies
+            ],
+            default=None,
+        )
+        if derived_gnomad is not None:
+            population_frequencies["gnomad_af"] = derived_gnomad
+    if population_frequencies:
+        annotation["population_frequencies"] = population_frequencies
+        annotation["gnomad_af"] = population_frequencies.get("gnomad_af")
+
+    splice_values = [
+        annotation.get("spliceai_ds_ag"),
+        annotation.get("spliceai_ds_al"),
+        annotation.get("spliceai_ds_dg"),
+        annotation.get("spliceai_ds_dl"),
+    ]
+    splice_values = [value for value in splice_values if value is not None]
+    if splice_values:
+        annotation["spliceai_max"] = max(splice_values)
+
+
 def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
     annotation: Dict[str, Any] = {}
 
@@ -263,61 +331,7 @@ def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
         elif value is not None:
             annotation[key] = value
 
-    for key, aliases in _SCORE_ALIASES.items():
-        value = _parse_float(_first_value(info, aliases))
-        if value is not None:
-            annotation[key] = value
-
-    for key, aliases in _COUNT_ALIASES.items():
-        value = _parse_int(_first_value(info, aliases))
-        if value is not None:
-            annotation[key] = value
-
-    extra: Dict[str, Any] = {}
-    for key, aliases in _EXTRA_COUNT_ALIASES.items():
-        value = _parse_int(_first_value(info, aliases))
-        if value is not None:
-            extra[key] = value
-    if extra:
-        annotation["extra"] = extra
-
-    for key, aliases in _SPLICE_ALIASES.items():
-        value = _parse_float(_first_value(info, aliases))
-        if value is not None:
-            annotation[key] = value
-    annotation.update(_parse_spliceai_pred(info.get("SpliceAI_pred")))
-
-    population_frequencies: Dict[str, float] = {}
-    for key, aliases in _POPULATION_ALIASES.items():
-        value = _parse_float(_first_value(info, aliases))
-        if value is not None:
-            population_frequencies[key] = value
-
-    if "gnomad_af" not in population_frequencies:
-        derived_gnomad = max(
-            [
-                population_frequencies[field]
-                for field in ("gnomad_exomes_af", "gnomad_genomes_af")
-                if field in population_frequencies
-            ],
-            default=None,
-        )
-        if derived_gnomad is not None:
-            population_frequencies["gnomad_af"] = derived_gnomad
-
-    if population_frequencies:
-        annotation["population_frequencies"] = population_frequencies
-        annotation["gnomad_af"] = population_frequencies.get("gnomad_af")
-
-    splice_values = [
-        annotation.get("spliceai_ds_ag"),
-        annotation.get("spliceai_ds_al"),
-        annotation.get("spliceai_ds_dg"),
-        annotation.get("spliceai_ds_dl"),
-    ]
-    splice_values = [value for value in splice_values if value is not None]
-    if splice_values:
-        annotation["spliceai_max"] = max(splice_values)
+    _apply_numeric_and_population_aliases(info, annotation, extra_seed={}, population_seed={})
 
     if not annotation:
         return {}
@@ -347,59 +361,12 @@ def _normalize_annotation_entry(
         elif value is not None:
             annotation[key] = value
 
-    for key, aliases in _SCORE_ALIASES.items():
-        value = _parse_float(_first_value(raw_entry, aliases))
-        if value is not None:
-            annotation[key] = value
-
-    for key, aliases in _COUNT_ALIASES.items():
-        value = _parse_int(_first_value(raw_entry, aliases))
-        if value is not None:
-            annotation[key] = value
-
-    extra = dict(annotation.get("extra", {}))
-    for key, aliases in _EXTRA_COUNT_ALIASES.items():
-        value = _parse_int(_first_value(raw_entry, aliases))
-        if value is not None:
-            extra[key] = value
-    if extra:
-        annotation["extra"] = extra
-
-    for key, aliases in _SPLICE_ALIASES.items():
-        value = _parse_float(_first_value(raw_entry, aliases))
-        if value is not None:
-            annotation[key] = value
-    annotation.update(_parse_spliceai_pred(raw_entry.get("SpliceAI_pred")))
-
-    population_frequencies = dict(base_annotation.get("population_frequencies", {}))
-    for key, aliases in _POPULATION_ALIASES.items():
-        value = _parse_float(_first_value(raw_entry, aliases))
-        if value is not None:
-            population_frequencies[key] = value
-    if "gnomad_af" not in population_frequencies:
-        derived_gnomad = max(
-            [
-                population_frequencies[field]
-                for field in ("gnomad_exomes_af", "gnomad_genomes_af")
-                if field in population_frequencies
-            ],
-            default=None,
-        )
-        if derived_gnomad is not None:
-            population_frequencies["gnomad_af"] = derived_gnomad
-    if population_frequencies:
-        annotation["population_frequencies"] = population_frequencies
-        annotation["gnomad_af"] = population_frequencies.get("gnomad_af")
-
-    splice_values = [
-        annotation.get("spliceai_ds_ag"),
-        annotation.get("spliceai_ds_al"),
-        annotation.get("spliceai_ds_dg"),
-        annotation.get("spliceai_ds_dl"),
-    ]
-    splice_values = [value for value in splice_values if value is not None]
-    if splice_values:
-        annotation["spliceai_max"] = max(splice_values)
+    _apply_numeric_and_population_aliases(
+        raw_entry,
+        annotation,
+        extra_seed=annotation.get("extra", {}),
+        population_seed=base_annotation.get("population_frequencies", {}),
+    )
 
     return {key: value for key, value in annotation.items() if value not in (None, {}, [])}
 
