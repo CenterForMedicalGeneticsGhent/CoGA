@@ -75,7 +75,7 @@ def test_mitochondrial_chromosome_options_include_common_aliases() -> None:
     assert _chromosome_options("chrM") == ("M", "chrM", "MT", "chrMT")
 
 
-def test_small_variant_out_includes_all_transcript_annotations() -> None:
+def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> None:
     record = SmallVariantRecord(
         variant_key=None,
         variant_id="v-transcripts",
@@ -119,16 +119,19 @@ def test_small_variant_out_includes_all_transcript_annotations() -> None:
 
     variant = _small_variant_out(record)
 
+    # The primary transcript (MANE select NM_000059.4) is carried by the flat
+    # fields and not duplicated in `transcripts`.
+    assert variant.transcript_id == "NM_000059.4"
+    assert variant.hgvsc == "NM_000059.4:c.7007G>A"
+    assert variant.mane_select is True
+    # `transcripts` holds only the non-primary transcripts.
     assert [transcript.transcript_id for transcript in variant.transcripts] == [
-        "NM_000059.4",
         "ENST00000380152.8",
     ]
-    assert variant.transcripts[0].transcript_source == "RefSeq"
-    assert variant.transcripts[0].mane_select is True
-    assert variant.transcripts[0].primary is True
-    assert variant.transcripts[1].transcript_source == "Ensembl"
-    assert variant.transcripts[1].canonical is True
-    assert variant.transcripts[1].hgvsc == "ENST00000380152.8:c.7007G>A"
+    assert variant.transcripts[0].transcript_source == "Ensembl"
+    assert variant.transcripts[0].canonical is True
+    assert variant.transcripts[0].hgvsc == "ENST00000380152.8:c.7007G>A"
+    assert variant.transcripts[0].primary is False
 
 
 def _family_context() -> FamilyMetadataContext:

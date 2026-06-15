@@ -578,6 +578,12 @@ def _small_transcript_annotations(
         if key in seen:
             continue
         seen.add(key)
+        # The primary annotation's fields are already carried by the flat VariantOut
+        # fields (transcript_id / hgvsc / hgvsp / effect / ...), so omit it here
+        # instead of serializing it twice per variant. The frontend reconstructs the
+        # primary entry from those flat fields.
+        if annotation is primary_annotation:
+            continue
         transcripts.append(
             SmallVariantTranscriptOut(
                 gene=_annotation_gene(annotation),
@@ -595,7 +601,7 @@ def _small_transcript_annotations(
                 canonical=_annotation_bool(annotation, "canonical"),
                 mane_select=_annotation_bool(annotation, "mane_select", "maneSelect"),
                 mane_plus_clinical=_annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical"),
-                primary=annotation is primary_annotation,
+                primary=False,
             )
         )
     return transcripts

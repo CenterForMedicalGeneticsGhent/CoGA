@@ -111,7 +111,7 @@ const normalizeTranscriptFlags = (transcripts: SmallVariantTranscript[]) => {
 };
 
 const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] => {
-  const transcripts = (variant.transcripts || []).filter(
+  const listed = (variant.transcripts || []).filter(
     (transcript) =>
       transcript.transcript_id ||
       transcript.hgvsc ||
@@ -119,36 +119,42 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
       transcript.effect ||
       transcript.impact,
   );
-  if (transcripts.length) return normalizeTranscriptFlags(transcripts);
-  if (
-    !variant.transcript_id &&
-    !variant.hgvsc &&
-    !variant.hgvsp &&
-    !variant.effect &&
-    !variant.impact
-  ) {
-    return [];
+  const hasPrimaryFields = Boolean(
+    variant.transcript_id ||
+      variant.hgvsc ||
+      variant.hgvsp ||
+      variant.effect ||
+      variant.impact,
+  );
+  if (!hasPrimaryFields) {
+    return listed.length ? normalizeTranscriptFlags(listed) : [];
   }
-  return normalizeTranscriptFlags([
-    {
-      gene: variant.gene,
-      gene_id: variant.gene_id,
-      transcript_id: variant.transcript_id,
-      transcript_source: transcriptSourceFor(variant.transcript_id),
-      feature_type: variant.feature_type,
-      transcript_biotype: variant.transcript_biotype,
-      impact: variant.impact,
-      effect: variant.effect,
-      hgvsc: variant.hgvsc,
-      hgvsp: variant.hgvsp,
-      exon: variant.exon,
-      intron: variant.intron,
-      canonical: variant.canonical,
-      mane_select: variant.mane_select,
-      mane_plus_clinical: variant.mane_plus_clinical,
-      primary: true,
-    },
-  ]);
+  // The primary transcript is delivered as the flat variant fields and omitted
+  // from `transcripts` (so it isn't serialized twice); reconstruct it and lead the
+  // list with it, dropping any listed entry that duplicates it (older payloads
+  // still included the primary inline).
+  const primary: SmallVariantTranscript = {
+    gene: variant.gene,
+    gene_id: variant.gene_id,
+    transcript_id: variant.transcript_id,
+    transcript_source: transcriptSourceFor(variant.transcript_id),
+    feature_type: variant.feature_type,
+    transcript_biotype: variant.transcript_biotype,
+    impact: variant.impact,
+    effect: variant.effect,
+    hgvsc: variant.hgvsc,
+    hgvsp: variant.hgvsp,
+    exon: variant.exon,
+    intron: variant.intron,
+    canonical: variant.canonical,
+    mane_select: variant.mane_select,
+    mane_plus_clinical: variant.mane_plus_clinical,
+    primary: true,
+  };
+  const others = listed.filter(
+    (transcript) => !transcript.primary && transcript.transcript_id !== variant.transcript_id,
+  );
+  return normalizeTranscriptFlags([primary, ...others]);
 };
 
 const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
