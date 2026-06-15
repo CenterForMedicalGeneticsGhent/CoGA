@@ -214,22 +214,26 @@ const Ideogram: React.FC<Props> = ({
     [data?.bands, chromLength, width, bandResolution],
   );
 
-  const bandGradients = renderBands.map((band, i) => {
-    const color = getStainColor(band.stain);
-    const id = `ideogram-gradient-${chrom}-${bandResolution}-${bandFinish}-${i}`;
-    return (
-      <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-        {getBandGradientStops(color, bandFinish).map((stop) => (
-          <stop
-            key={`${id}-${stop.offset}`}
-            offset={stop.offset}
-            stopColor={stop.stopColor}
-            stopOpacity={stop.stopOpacity}
-          />
-        ))}
-      </linearGradient>
-    );
-  });
+  const bandGradients = useMemo(
+    () =>
+      renderBands.map((band, i) => {
+        const color = getStainColor(band.stain);
+        const id = `ideogram-gradient-${chrom}-${bandResolution}-${bandFinish}-${i}`;
+        return (
+          <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
+            {getBandGradientStops(color, bandFinish).map((stop) => (
+              <stop
+                key={`${id}-${stop.offset}`}
+                offset={stop.offset}
+                stopColor={stop.stopColor}
+                stopOpacity={stop.stopOpacity}
+              />
+            ))}
+          </linearGradient>
+        );
+      }),
+    [renderBands, chrom, bandResolution, bandFinish],
+  );
   const outlinePath = useMemo(
     () =>
       buildChromosomeOutlinePath({

@@ -75,6 +75,16 @@ const VariantTrack: React.FC<Props> = ({
     }),
     [],
   );
+  // Fallback palette resolved once: cssVar() runs getComputedStyle, so it should
+  // not be called per item inside the render map below.
+  const fallbackColors = React.useMemo(
+    () => ({
+      default: cssVar('--color-variant-default'),
+      white: cssVar('--color-white'),
+      muted: cssVar('--color-text-muted'),
+    }),
+    [],
+  );
   const pageSize = React.useMemo(() => getTrackVariantLimit(width), [width]);
   const { data, isLoading } = useQuery<ApiVariantPage<Variant>>({
     queryKey: [
@@ -153,7 +163,7 @@ const VariantTrack: React.FC<Props> = ({
       <svg width={width} height={height}>
         {TYPE_ORDER.map((typeKey, index) => {
           const rowTop = index * rowHeight;
-          const rowFill = typeColors[typeKey] || cssVar('--color-variant-default');
+          const rowFill = typeColors[typeKey] || fallbackColors.default;
           return (
             <g key={typeKey}>
               <rect
@@ -167,7 +177,7 @@ const VariantTrack: React.FC<Props> = ({
               <text
                 x={4}
                 y={rowTop + 3}
-                fill={cssVar('--color-text-muted')}
+                fill={fallbackColors.muted}
                 fontSize={10}
                 dominantBaseline="hanging"
               >
@@ -181,13 +191,13 @@ const VariantTrack: React.FC<Props> = ({
             x={4}
             y={height / 2 + 4}
             fontSize={12}
-            fill={cssVar('--color-variant-default')}
+            fill={fallbackColors.default}
           >
             no SVs for this region / sample
           </text>
         )}
         {items.map((v, index) => {
-          const color = typeColors[v.typeKey] || cssVar('--color-variant-default');
+          const color = typeColors[v.typeKey] || fallbackColors.default;
           const itemHeight = Math.max(v.y2 - v.y1, 2);
           const itemWidth = Math.max(v.x2 - v.x1, 1);
           const markerWidth = Math.max(itemWidth, 3);
@@ -232,7 +242,7 @@ const VariantTrack: React.FC<Props> = ({
               y={v.y1}
               width={itemWidth}
               height={itemHeight}
-              fill={v.typeKey === 'INV' ? cssVar('--color-white') : color}
+              fill={v.typeKey === 'INV' ? fallbackColors.white : color}
               fillOpacity={v.typeKey === 'INV' ? 1 : 0.82}
               stroke={v.typeKey === 'INV' ? color : undefined}
               strokeWidth={v.typeKey === 'INV' ? 2 : undefined}
