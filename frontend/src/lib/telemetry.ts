@@ -30,6 +30,10 @@ type QueuedUiEvent = UiEventInput & {
 
 const MAX_QUEUE = 200;
 const MAX_BATCH = 50;
+// Keepalive flushes the whole queue at once; chunk it so no single POST exceeds
+// the backend per-batch cap (_MAX_EVENTS_PER_BATCH = 100), which now rejects
+// oversize batches with 422 instead of silently dropping the overflow.
+const MAX_KEEPALIVE_BATCH = 100;
 const FLUSH_INTERVAL_MS = 5000;
 const MAX_LABEL_LEN = 120;
 
@@ -112,17 +116,20 @@ const flushKeepalive = (): void => {
     queue = [];
     return;
   }
-  const events = queue.splice(0, queue.length);
+  const pending = queue.splice(0, queue.length);
   try {
-    void fetch(`${apiBaseUrl}/ui-events`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ events }),
-      keepalive: true,
-    });
+    for (let i = 0; i < pending.length; i += MAX_KEEPALIVE_BATCH) {
+      const events = pending.slice(i, i + MAX_KEEPALIVE_BATCH);
+      void fetch(`${apiBaseUrl}/ui-events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ events }),
+        keepalive: true,
+      });
+    }
   } catch {
     // ignore — telemetry is best-effort
   }
