@@ -435,15 +435,9 @@ async def _ensure_projects_visible(
     return normalized
 
 
-async def _fetch_review_row(
-    session: AsyncSession,
-    *,
-    family_uuid: str,
-    variant_id: str,
-) -> dict[str, Any] | None:
-    result = await session.execute(
-        text(
-            """
+# Shared column list for small_variant_reviews fetches; the single-row and
+# compound-het-group queries differ only in their WHERE clause.
+_SMALL_VARIANT_REVIEW_SELECT = """
             SELECT
                 id::text AS id,
                 family_id::text AS family_id,
@@ -468,14 +462,36 @@ async def _fetch_review_row(
                 created_at,
                 updated_at
             FROM small_variant_reviews
-            WHERE family_id = CAST(:family_id AS uuid)
-              AND variant_id = :variant_id
-            """
-        ),
-        {"family_id": family_uuid, "variant_id": variant_id},
+"""
+
+
+async def _fetch_review_rows(
+    session: AsyncSession,
+    *,
+    where_clause: str,
+    params: dict[str, Any],
+) -> list[dict[str, Any]]:
+    # where_clause is a hardcoded predicate string (never user input); the
+    # values are bound via params.
+    result = await session.execute(
+        text(f"{_SMALL_VARIANT_REVIEW_SELECT}            WHERE {where_clause}"),
+        params,
     )
-    row = result.mappings().first()
-    return dict(row) if row is not None else None
+    return [dict(row) for row in result.mappings().all()]
+
+
+async def _fetch_review_row(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    variant_id: str,
+) -> dict[str, Any] | None:
+    rows = await _fetch_review_rows(
+        session,
+        where_clause="family_id = CAST(:family_id AS uuid) AND variant_id = :variant_id",
+        params={"family_id": family_uuid, "variant_id": variant_id},
+    )
+    return rows[0] if rows else None
 
 
 async def _fetch_compound_het_group_rows(
@@ -484,40 +500,11 @@ async def _fetch_compound_het_group_rows(
     family_uuid: str,
     group_id: str,
 ) -> list[dict[str, Any]]:
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                id::text AS id,
-                family_id::text AS family_id,
-                variant_key,
-                variant_id,
-                classification,
-                tags,
-                tag_metadata,
-                note,
-                compound_het_group_id,
-                compound_het_partner_variant_ids,
-                compound_het_gene,
-                compound_het_gene_id,
-                compound_het_classification,
-                compound_het_tags,
-                compound_het_tag_metadata,
-                compound_het_note,
-                compound_het_phase_status,
-                compound_het_updated_by,
-                compound_het_updated_at,
-                updated_by,
-                created_at,
-                updated_at
-            FROM small_variant_reviews
-            WHERE family_id = CAST(:family_id AS uuid)
-              AND compound_het_group_id = :group_id
-            """
-        ),
-        {"family_id": family_uuid, "group_id": group_id},
+    return await _fetch_review_rows(
+        session,
+        where_clause="family_id = CAST(:family_id AS uuid) AND compound_het_group_id = :group_id",
+        params={"family_id": family_uuid, "group_id": group_id},
     )
-    return [dict(row) for row in result.mappings().all()]
 
 
 async def _delete_review_row(session: AsyncSession, review_id: str) -> None:
