@@ -155,7 +155,9 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'structural-variant-tags', projectId || null],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get(`/families/${familyId}/structural-variant-tags`, {
+      // Structural and small-variant tags share the same store (small_variant_tag_definitions);
+      // there is no separate structural endpoint.
+      const res = await api.get(`/families/${familyId}/small-variant-tags`, {
         params: projectId ? { project_id: projectId } : undefined,
       });
       return res.data as StructuralVariantTagDefinition[];

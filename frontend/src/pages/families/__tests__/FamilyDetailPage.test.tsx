@@ -121,6 +121,15 @@ vi.mock('../../../lib/api', () => ({
               scope: 'system',
               is_custom: false,
             },
+            {
+              key: 'needs_segmentation_review',
+              label: 'Needs segmentation review',
+              group: 'collaboration',
+              color: '#7c3aed',
+              sort_order: 25,
+              scope: 'family',
+              is_custom: true,
+            },
           ],
         });
       }
@@ -134,30 +143,6 @@ vi.mock('../../../lib/api', () => ({
               needs_segmentation_review: 1,
             },
           },
-        });
-      }
-      if (url === '/families/F1/structural-variant-tags') {
-        return Promise.resolve({
-          data: [
-            {
-              key: 'review',
-              label: 'Review',
-              group: 'collaboration',
-              color: '#2563eb',
-              sort_order: 10,
-              scope: 'system',
-              is_custom: false,
-            },
-            {
-              key: 'needs_segmentation_review',
-              label: 'Needs segmentation review',
-              group: 'collaboration',
-              color: '#7c3aed',
-              sort_order: 25,
-              scope: 'family',
-              is_custom: true,
-            },
-          ],
         });
       }
       if (url === '/projects') {
