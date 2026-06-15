@@ -303,7 +303,6 @@ async def delete_family_member(
     family_id: str,
     sample_id: str,
     confirm: bool = Query(False),
-    clear_existing_genomic_data: bool = Query(False),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberDeleteOut:
@@ -313,7 +312,6 @@ async def delete_family_member(
             family_id=family_id,
             sample_id=sample_id,
             confirmed=confirm,
-            clear_existing_genomic_data=clear_existing_genomic_data,
             user=user,
         )
     except DBAPIError as exc:
