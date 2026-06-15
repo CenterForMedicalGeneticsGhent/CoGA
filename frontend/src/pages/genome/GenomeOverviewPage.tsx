@@ -21,6 +21,10 @@ interface Layout {
   chroms: string[];
 }
 
+// Inter-chromosome gap in px. Module-level so it is referentially stable and
+// does not need to appear in render memo dependency arrays.
+const CHROM_GAP_PX = 8;
+
 const GenomeOverviewPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const navigate = useNavigate();
@@ -122,7 +126,6 @@ const GenomeOverviewPage: React.FC = () => {
 
   const trackHeight = 120;
   const svTrackHeight = 80;
-  const chromGapPx = 8;
   const win = useMemo(() => getGenomeWindow(), []);
   const binLimit = useMemo(() => getTrackBinLimit(trackWidth), [trackWidth]);
   const segmentLimit = useMemo(() => getTrackSegmentLimit(trackWidth), [trackWidth]);
@@ -179,8 +182,8 @@ const GenomeOverviewPage: React.FC = () => {
       lengths[chrom] = length;
       return sum + length;
     }, 0);
-    const bpPerPx = totalNoGap / (trackWidth - gapCount * chromGapPx);
-    const gapBp = bpPerPx * chromGapPx;
+    const bpPerPx = totalNoGap / (trackWidth - gapCount * CHROM_GAP_PX);
+    const gapBp = bpPerPx * CHROM_GAP_PX;
     const offsets: Record<string, number> = {};
     let offset = 0;
     chroms.forEach((chrom, index) => {
@@ -189,7 +192,7 @@ const GenomeOverviewPage: React.FC = () => {
       if (index < gapCount) offset += gapBp;
     });
     setLayout({ offsets, lengths, total: offset, chroms });
-  }, [chromGapPx, chromSizes, chroms, trackWidth]);
+  }, [chromSizes, chroms, trackWidth]);
 
   const haplotypeUrls = useMemo(() => {
     const params = new URLSearchParams();
