@@ -797,7 +797,6 @@ async def delete_family_member_for_admin(
     family_id: str,
     sample_id: str,
     confirmed: bool,
-    clear_existing_genomic_data: bool,
     user: CurrentUser,
 ) -> FamilyMemberDeleteOut:
     impact = await get_family_member_impact_for_user(

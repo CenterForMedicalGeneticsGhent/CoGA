@@ -301,7 +301,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     message: string;
   } | null>(null);
   const [memberStatus, setMemberStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
-  const [clearMemberGenomicData, setClearMemberGenomicData] = useState(false);
   const [hpoSearchInput, setHpoSearchInput] = useState('');
   const [selectedHpoTerm, setSelectedHpoTerm] = useState<ApiHpoTerm | null>(null);
   const [hpoAnnotationStatus, setHpoAnnotationStatus] = useState<HpoAnnotationStatus>('present');
@@ -580,7 +579,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       father_id: selectedMemberDetail.father_id ?? '',
       mother_id: selectedMemberDetail.mother_id ?? '',
     });
-    setClearMemberGenomicData(false);
     setMemberStatus(null);
     setHpoStatus(null);
     setHpoSearchInput('');
@@ -1026,7 +1024,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         {
           params: {
             confirm: true,
-            clear_existing_genomic_data: clearMemberGenomicData,
           },
         },
       );

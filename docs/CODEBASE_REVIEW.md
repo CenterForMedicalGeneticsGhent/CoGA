@@ -389,7 +389,7 @@ The function takes `existing_rows`, immediately `del`s it, and decides purely on
 
 ### Frontend — dead-in-production paths gated by a product decision
 
-**`clearMemberGenomicData` is constant `false`; the destructive clear path is unreachable**
+**`clearMemberGenomicData` is constant `false`; the destructive clear path is unreachable** — FIXED via option (B): removed the dead frontend state (declaration, the reset call, and the per-member-delete query arg), the `clear_existing_genomic_data` `Query` param on the delete route, and the now-ignored param on the `delete_family_member_for_admin` signature. Kept the real structure-update feature untouched (`FamilyStructureUpdate.clear_existing_genomic_data`, read at `family_structure_service.py`). Note: `FamilyDetailPage.test.tsx:584` did **not** need editing — that assertion is on the `/structure` PUT (the real path), not the dead delete.
 `frontend/src/pages/families/FamilyDetailPage.tsx` (304, 592, 1043)
 
 The state is only ever set to `false` (the `useState` initializer and the reset at 592) and read at 1043 (`clear_existing_genomic_data: clearMemberGenomicData`). There is **no checkbox or UI control** to toggle it, so per-member delete always sends `false`. **The dead chain is deeper than the raw finding states:** even if the frontend sent `true`, the backend `delete_family_member_for_admin` (`family_member_management_service.py:811`) hardcodes `clear_existing_genomic_data=False`, so the destructive path is unreachable on **both** layers. The feature itself is real and reachable only via the structure-update endpoint (`family_structure_service.py:1004`).
