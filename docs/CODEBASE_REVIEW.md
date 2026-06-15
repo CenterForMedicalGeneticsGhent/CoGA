@@ -332,7 +332,7 @@ These are dead-code candidates that verification confirmed as unreachable or unu
 
 ### Backend — legacy MongoDB / write-only review fields
 
-**Legacy MongoDB ObjectId shim is unreachable under the current `variant_id` scheme**
+**Legacy MongoDB ObjectId shim is unreachable under the current `variant_id` scheme** — FIXED (removed `OBJECT_ID_PATTERN`/`_looks_like_object_id`; the guard now simplifies to `if variant is None`)
 `backend/app/services/small_variant_review_pg.py` (134, 147-148, 1635-1636)
 
 `OBJECT_ID_PATTERN` / `_looks_like_object_id()` match a 24-char hex Mongo ObjectId, but `variant_id`s are now built as `chr-pos-ref-alt` (e.g. `chr1-12345-A-G`), which can never be 24 pure-hex chars. The guard at 1635 is therefore always false — a leftover from the old MongoDB-backed system.
@@ -368,7 +368,7 @@ Two findings: (1) the `locus_allele` branch of `_store_vep_annotation` is **prov
 
 ### Backend — intentional API surface (owner discretion)
 
-**`CoGALogger.debug()` is never called**
+**`CoGALogger.debug()` is never called** — FIXED (removed; owner chose strict no-dead-code over API symmetry)
 `backend/app/core/coga_logging.py` (57-58)
 
 `debug()` is never invoked: the sole `CoGALogger` instance (`request_logging.py`) uses only `.info/.warning/.error`, there is no `.debug(` call anywhere in `backend/app`, and there is no dynamic dispatch. **Residual concern:** it is the symmetric DEBUG-level member of a small, deliberate logger-wrapper API (`debug/info/warning/error`), so deleting it is a design call, not a mechanical cleanup — a future caller or a raised log level would naturally reach for it.

@@ -131,7 +131,6 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
     },
 ]
 DEFAULT_SMALL_VARIANT_TAG_KEYS = {entry["key"] for entry in DEFAULT_SMALL_VARIANT_TAGS}
-OBJECT_ID_PATTERN = re.compile(r"^[0-9a-fA-F]{24}$")
 POSTGRES_BIGINT_MIN = -(2**63)
 POSTGRES_BIGINT_MAX = (2**63) - 1
 
@@ -142,10 +141,6 @@ def _require_uuid(value: str, detail: str) -> str:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=detail) from exc
     return value
-
-
-def _looks_like_object_id(value: str) -> bool:
-    return bool(OBJECT_ID_PATTERN.fullmatch(str(value)))
 
 
 def _postgres_bigint_or_none(value: Any) -> int | None:
@@ -1632,7 +1627,7 @@ async def upsert_small_variant_review(
             family_guid=context.family_uuid,
             variant_id=variant_id,
         )
-    if variant is None and not _looks_like_object_id(variant_id):
+    if variant is None:
         raise HTTPException(status_code=404, detail="Variant not found")
 
     # Resolve the allowed-tag set lazily (a GROUP BY/ARRAY_AGG join) and only when
