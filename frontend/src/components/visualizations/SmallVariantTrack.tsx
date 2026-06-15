@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as d3 from 'd3';
 import api from '../../lib/api';
 import type { ApiVariantPage } from '../../lib/apiTypes';
-import { formatGt } from '../../lib/genotypes';
+import { hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import {
   SMALL_VARIANT_TRACK_RESULT_LIMIT,
@@ -276,7 +276,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     () =>
       (tooManyVariants ? [] : data?.variants || []).filter((v) =>
         v.genotypes?.some(
-          (g) => g.sample === sampleId && formatGt(g.gt) !== 'WT'
+          (g) => g.sample === sampleId && hasAltAllele(g.gt)
         )
       ),
     [data?.variants, sampleId, tooManyVariants]

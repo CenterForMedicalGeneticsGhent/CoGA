@@ -278,7 +278,7 @@ A single `useEffect` with `selected` in its dep array runs `svg.selectAll('*').r
 
 These are confirmed-real defects that were not auto-applied because the correct remediation is risky, non-trivial, or requires a deliberate product/architecture decision. Each requires a coordinated change across multiple sites or layers.
 
-### 1. `formatGt` reports no-call genotypes (`./.`) as confident wild-type
+### 1. `formatGt` reports no-call genotypes (`./.`) as confident wild-type — FIXED
 
 - **File:** [`frontend/src/lib/genotypes.ts`](frontend/src/lib/genotypes.ts) (lines 1-11); consumers in [`VariantTrack.tsx`](frontend/src/components/visualizations/VariantTrack.tsx) (113, 251), [`SmallVariantTrack.tsx`](frontend/src/components/visualizations/SmallVariantTrack.tsx) (279), [`SvTrack.tsx`](frontend/src/components/visualizations/SvTrack.tsx) (106, 256), [`StructuralVariantTable.tsx`](frontend/src/pages/families/StructuralVariantTable.tsx) (375), [`StructuralVariantCards.tsx`](frontend/src/pages/families/StructuralVariantCards.tsx) (411).
 - **Problem & impact:** `formatGt` has no branch for missing/no-call genotypes (`./.`, `.|.`, `.`, `''`), so they fall through to `'WT'` and a no-call is rendered as a confident wild-type/reference call in per-sample tooltips, tables, and cards. No-calls do reach the frontend (the backend builds `GenotypeOut` from all `record.calls` without dropping them), making this a real source of clinical misinterpretation. The author's own leftover comment (`what with missing values ./. ?`) flags exactly this gap.
