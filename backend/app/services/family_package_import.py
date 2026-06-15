@@ -3277,22 +3277,6 @@ def _dataset_provenance(validation: FamilyPackageValidationOut) -> dict[str, Any
 
 def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
     sample_payloads: dict[str, dict[str, Any]] = {}
-    path_keys = {
-        "bins",
-        "segments",
-        "file",
-        "index",
-        "bcf_index",
-        "json",
-        "bed",
-        "vcf",
-        "family_vcf",
-        "annotation_tsv",
-        "maternal",
-        "paternal",
-        "mat",
-        "pat",
-    }
     for dataset_type, dataset in bundle.manifest.datasets.items():
         if not dataset.enabled:
             continue
@@ -3302,7 +3286,7 @@ def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]
             files = {
                 key: _display_path(bundle.root, resolved)
                 for key, value in raw_entry.items()
-                if key in path_keys
+                if key in _PROVENANCE_PATH_KEYS
                 for resolved in [_resolve_package_path(bundle.root, str(value))]
                 if resolved is not None
             }

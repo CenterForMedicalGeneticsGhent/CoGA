@@ -12,7 +12,7 @@ BND_ALT_RE = re.compile(r"[\[\]]?([^:\[\]]+):(\d+)[\[\]]?")
 
 
 @dataclass(frozen=True)
-class StructuralVariantRecord:
+class ParsedStructuralVariant:
     variant_id: str
     chrom: str
     start: int
@@ -88,7 +88,7 @@ def parse_svlen(value: str | None) -> int | None:
             return None
 
 
-def _iter_manual_records(lines: Iterable[str]) -> Iterator[StructuralVariantRecord]:
+def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
             continue
@@ -103,7 +103,7 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[StructuralVariantReco
             remote_chr, remote_start = parse_bnd_alt(alt)
             if remote_start is not None:
                 remote_end = remote_start
-        yield StructuralVariantRecord(
+        yield ParsedStructuralVariant(
             variant_id=variant_id,
             chrom=normalize_chromosome(chrom),
             start=int(start_s),
@@ -119,7 +119,7 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[StructuralVariantReco
         )
 
 
-def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[StructuralVariantRecord]:
+def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
             continue
@@ -140,7 +140,7 @@ def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[StructuralVariantRe
             if remote_start is not None:
                 remote_end = remote_start
 
-        yield StructuralVariantRecord(
+        yield ParsedStructuralVariant(
             variant_id=variant_id,
             chrom=normalize_chromosome(chrom),
             start=int(pos),
@@ -159,7 +159,7 @@ def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[StructuralVariantRe
         )
 
 
-def _iter_spectre_records(lines: Iterable[str]) -> Iterator[StructuralVariantRecord]:
+def _iter_spectre_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
             continue
@@ -172,7 +172,7 @@ def _iter_spectre_records(lines: Iterable[str]) -> Iterator[StructuralVariantRec
         fmt_vals = parse_format(fmt, sample_f)
         chrom, start = split_chrom_pos(chrom_raw, pos)
 
-        yield StructuralVariantRecord(
+        yield ParsedStructuralVariant(
             variant_id=variant_id,
             chrom=normalize_chromosome(chrom),
             start=start,
@@ -191,7 +191,7 @@ def _iter_spectre_records(lines: Iterable[str]) -> Iterator[StructuralVariantRec
 def iter_structural_variant_records(
     text: str,
     record_format: StructuralVariantRecordFormat,
-) -> Iterator[StructuralVariantRecord]:
+) -> Iterator[ParsedStructuralVariant]:
     lines = text.splitlines()
     if record_format == "manual":
         return _iter_manual_records(lines)

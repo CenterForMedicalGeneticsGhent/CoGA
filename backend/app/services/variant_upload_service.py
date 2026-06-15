@@ -42,6 +42,7 @@ from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
 from .structural_variant_ingest import (
+    ParsedStructuralVariant,
     StructuralVariantRecordFormat,
     iter_structural_variant_records,
 )
@@ -1317,7 +1318,7 @@ def _gene_symbols_for_window(
 
 def _structural_record_call(
     sample_id: str,
-    record: Any,
+    record: ParsedStructuralVariant,
 ) -> StructuralVariantCall:
     return StructuralVariantCall(
         sample=sample_id,
