@@ -77,6 +77,27 @@ export const getBandGradientStops = (
   ];
 };
 
+// "Nice" axis tick interval (1/2/5/10 × power of ten) for a range of `rangeLength`
+// drawn `widthPx` wide, aiming for ticks at least `minSpacingPx` apart. Shared by
+// Ideogram and ZoomedIdeogram. The Math.max(1, …) guard prevents a sub-1 interval.
+export const niceTickInterval = (
+  rangeLength: number,
+  widthPx: number,
+  minSpacingPx = 60,
+): number => {
+  const maxTickCount = Math.max(Math.floor(widthPx / minSpacingPx), 1);
+  const roughTickInterval = rangeLength / maxTickCount;
+  const exponent = Math.floor(Math.log10(roughTickInterval));
+  const base = Math.pow(10, exponent);
+  const fraction = roughTickInterval / base;
+  let niceFraction: number;
+  if (fraction <= 1) niceFraction = 1;
+  else if (fraction <= 2) niceFraction = 2;
+  else if (fraction <= 5) niceFraction = 5;
+  else niceFraction = 10;
+  return Math.max(1, niceFraction * base);
+};
+
 export const collapseBandsForResolution = (
   bands: IdeogramBandLike[],
   chromLength: number,

@@ -6,6 +6,7 @@ import {
   collapseBandsForResolution,
   getAcenDirection,
   getBandGradientStops,
+  niceTickInterval,
 } from "../../lib/ideogram";
 import { getStainColor } from "../../lib/stainColors";
 import VizTooltip from "./VizTooltip";
@@ -152,20 +153,9 @@ const Ideogram: React.FC<Props> = ({
   const regionWidth = Math.max(endPx - startPx, 1);
   const showHighlight = regionWidth < width;
 
-  const minTickSpacingPx = 60;
   const ticks: number[] = [];
   if (showAxis) {
-    const maxTickCount = Math.max(Math.floor(width / minTickSpacingPx), 1);
-    const roughTickInterval = chromLength / maxTickCount;
-    const exponent = Math.floor(Math.log10(roughTickInterval));
-    const base = Math.pow(10, exponent);
-    const fraction = roughTickInterval / base;
-    let niceFraction: number;
-    if (fraction <= 1) niceFraction = 1;
-    else if (fraction <= 2) niceFraction = 2;
-    else if (fraction <= 5) niceFraction = 5;
-    else niceFraction = 10;
-    const tickInterval = niceFraction * base;
+    const tickInterval = niceTickInterval(chromLength, width);
     for (let pos = 0; pos <= chromLength; pos += tickInterval) {
       ticks.push(pos);
     }
