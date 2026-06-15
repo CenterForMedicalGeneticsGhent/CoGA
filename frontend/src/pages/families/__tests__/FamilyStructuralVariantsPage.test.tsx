@@ -54,7 +54,7 @@ vi.mock('../../../lib/api', () => ({
       if (url === '/families/F1/structural-variant-filter-presets') {
         return Promise.resolve({ data: [] });
       }
-      if (url === '/families/F1/structural-variant-tags') {
+      if (url === '/families/F1/small-variant-tags') {
         return Promise.resolve({
           data: [
             {
