@@ -231,7 +231,6 @@ def _merge_tag_metadata(
 def _compound_het_clear_payload() -> dict[str, Any]:
     return {
         "compound_het_group_id": None,
-        "compound_het_partner_variant_keys": [],
         "compound_het_partner_variant_ids": [],
         "compound_het_gene": None,
         "compound_het_gene_id": None,
@@ -455,7 +454,6 @@ async def _fetch_review_row(
                 tag_metadata,
                 note,
                 compound_het_group_id,
-                compound_het_partner_variant_keys,
                 compound_het_partner_variant_ids,
                 compound_het_gene,
                 compound_het_gene_id,
@@ -499,7 +497,6 @@ async def _fetch_compound_het_group_rows(
                 tag_metadata,
                 note,
                 compound_het_group_id,
-                compound_het_partner_variant_keys,
                 compound_het_partner_variant_ids,
                 compound_het_gene,
                 compound_het_gene_id,
@@ -548,7 +545,6 @@ async def _update_review_row(
                 tag_metadata = CAST(:tag_metadata_json AS jsonb),
                 note = :note,
                 compound_het_group_id = :compound_het_group_id,
-                compound_het_partner_variant_keys = CAST(:compound_het_partner_variant_keys_json AS jsonb),
                 compound_het_partner_variant_ids = CAST(:compound_het_partner_variant_ids_json AS jsonb),
                 compound_het_gene = :compound_het_gene,
                 compound_het_gene_id = :compound_het_gene_id,
@@ -569,9 +565,6 @@ async def _update_review_row(
             "variant_key": _postgres_bigint_or_none(fields.get("variant_key")),
             "tags_json": _json_payload(fields.get("tags", [])),
             "tag_metadata_json": _json_payload(fields.get("tag_metadata", {})),
-            "compound_het_partner_variant_keys_json": _json_payload(
-                fields.get("compound_het_partner_variant_keys", [])
-            ),
             "compound_het_partner_variant_ids_json": _json_payload(
                 fields.get("compound_het_partner_variant_ids", [])
             ),
@@ -603,7 +596,6 @@ async def _insert_review_row(
                 tag_metadata,
                 note,
                 compound_het_group_id,
-                compound_het_partner_variant_keys,
                 compound_het_partner_variant_ids,
                 compound_het_gene,
                 compound_het_gene_id,
@@ -627,7 +619,6 @@ async def _insert_review_row(
                 CAST(:tag_metadata_json AS jsonb),
                 :note,
                 :compound_het_group_id,
-                CAST(:compound_het_partner_variant_keys_json AS jsonb),
                 CAST(:compound_het_partner_variant_ids_json AS jsonb),
                 :compound_het_gene,
                 :compound_het_gene_id,
@@ -649,9 +640,6 @@ async def _insert_review_row(
             "variant_key": _postgres_bigint_or_none(fields.get("variant_key")),
             "tags_json": _json_payload(fields.get("tags", [])),
             "tag_metadata_json": _json_payload(fields.get("tag_metadata", {})),
-            "compound_het_partner_variant_keys_json": _json_payload(
-                fields.get("compound_het_partner_variant_keys", [])
-            ),
             "compound_het_partner_variant_ids_json": _json_payload(
                 fields.get("compound_het_partner_variant_ids", [])
             ),
@@ -1759,12 +1747,10 @@ async def upsert_small_variant_review(
             }
             compound_het_data = {
                 **shared_compound_het_data,
-                "compound_het_partner_variant_keys": [partner_variant.variant_key] if partner_variant.variant_key is not None else [],
                 "compound_het_partner_variant_ids": [compound_het_partner_id],
             }
             partner_compound_het_data = {
                 **shared_compound_het_data,
-                "compound_het_partner_variant_keys": [variant.variant_key] if variant.variant_key is not None else [],
                 "compound_het_partner_variant_ids": [variant_id],
             }
             partner_individual_data = {
