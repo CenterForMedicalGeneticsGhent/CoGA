@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "../../lib/api";
 import { cssVar } from "../../lib/colors";
 import { getStainColor } from "../../lib/stainColors";
-import { blendHex, getAcenDirection } from "../../lib/ideogram";
+import { getAcenDirection, getBandGradientStops, niceTickInterval } from "../../lib/ideogram";
 import VizTooltip from "./VizTooltip";
 
 interface IdeogramBand {
@@ -75,18 +75,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
     (b) => b.end > regionStart && b.start < regionEnd
   );
 
-  const minTickSpacingPx = 60;
-  const maxTickCount = Math.max(Math.floor(width / minTickSpacingPx), 1);
-  const roughTickInterval = regionLength / maxTickCount;
-  const exponent = Math.floor(Math.log10(roughTickInterval));
-  const base = Math.pow(10, exponent);
-  const fraction = roughTickInterval / base;
-  let niceFraction: number;
-  if (fraction <= 1) niceFraction = 1;
-  else if (fraction <= 2) niceFraction = 2;
-  else if (fraction <= 5) niceFraction = 5;
-  else niceFraction = 10;
-  const tickInterval = Math.max(1, niceFraction * base);
+  const tickInterval = niceTickInterval(regionLength, width);
   const tickValues: number[] = [regionStart];
   for (
     let pos = Math.ceil(regionStart / tickInterval) * tickInterval;
@@ -103,10 +92,14 @@ const ZoomedIdeogram: React.FC<Props> = ({
     const id = `zoomed-ideogram-gradient-${chrom}-${i}`;
     return (
       <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor={blendHex(color, "#ffffff", 0.28)} />
-        <stop offset="18%" stopColor={blendHex(color, "#ffffff", 0.14)} />
-        <stop offset="52%" stopColor={color} />
-        <stop offset="100%" stopColor={blendHex(color, "#000000", 0.12)} />
+        {getBandGradientStops(color, "glossy").map((stop) => (
+          <stop
+            key={`${id}-${stop.offset}`}
+            offset={stop.offset}
+            stopColor={stop.stopColor}
+            stopOpacity={stop.stopOpacity}
+          />
+        ))}
       </linearGradient>
     );
   });
