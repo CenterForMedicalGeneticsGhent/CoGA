@@ -52,6 +52,12 @@ const hasCopyNumberSignal = (call?: ApiParaphaseSampleResult): boolean => {
   );
 };
 
+// A gene shows a copy-number signal if it is flagged at the gene level or any
+// of its sample calls does. Shared by the filter and the badge count.
+const geneHasCopyNumberSignal = (gene: ApiParaphaseGeneResult): boolean =>
+  Boolean(gene.has_copy_number_signal) ||
+  Object.values(gene.samples).some((call) => hasCopyNumberSignal(call));
+
 const formatMetricValue = (value?: number | null, digits = 0): string =>
   value == null ? 'no-call' : formatNullableNumber(value, digits);
 
@@ -471,15 +477,13 @@ const FamilyParaphasePage: React.FC = () => {
         return false;
       }
       if (!onlyCopyNumberSignals) return true;
-      return Boolean(gene.has_copy_number_signal) || Object.values(gene.samples).some((call) => hasCopyNumberSignal(call));
+      return geneHasCopyNumberSignal(gene);
     });
   }, [onlyCopyNumberSignals, paraphaseTable?.genes, regionScope, searchText]);
 
   const copyNumberSignalCount = useMemo(
     () =>
-      (paraphaseTable?.genes || []).filter((gene) =>
-        Boolean(gene.has_copy_number_signal) || Object.values(gene.samples).some((call) => hasCopyNumberSignal(call)),
-      ).length,
+      (paraphaseTable?.genes || []).filter(geneHasCopyNumberSignal).length,
     [paraphaseTable?.genes],
   );
   const medicallyRelevantCount = useMemo(

@@ -73,7 +73,6 @@ const FamilyVariantSummaryPage: React.FC = () => {
     const allLengths = rows.map((v) => Math.abs(v.length));
     const byType: Record<string, number[]> = {};
     const bySource: Record<string, number[]> = {};
-    const byTypeChrom: Record<string, Record<string, number>> = {};
     const byChromType: Record<string, Record<string, number>> = {};
     const chromosomes = Array.from(
       new Set(rows.map((v) => v.chr || 'unknown'))
@@ -85,12 +84,10 @@ const FamilyVariantSummaryPage: React.FC = () => {
       byType[t].push(Math.abs(v.length));
       bySource[v.source || 'unknown'] = bySource[v.source || 'unknown'] || [];
       bySource[v.source || 'unknown'].push(Math.abs(v.length));
-      byTypeChrom[t] = byTypeChrom[t] || {};
-      byTypeChrom[t][c] = (byTypeChrom[t][c] || 0) + 1;
       byChromType[c] = byChromType[c] || {};
       byChromType[c][t] = (byChromType[c][t] || 0) + 1;
     });
-    const variantTypes = Object.keys(byTypeChrom).sort();
+    const variantTypes = Object.keys(byType).sort();
     const totalsByChrom: Record<string, number> = {};
     chromosomes.forEach((chr) => {
       totalsByChrom[chr] = Object.values(byChromType[chr] || {}).reduce(

@@ -19,23 +19,13 @@ from ..schemas import (
 )
 from .family_metadata_context import FamilyMetadataContext
 from .metadata_service import CurrentUser
+from .review_pg_utils import (
+    _json_payload,
+    _merge_tag_metadata,
+    _normalize_tags,
+    _require_uuid,
+)
 from .small_variant_review_pg import list_small_variant_tag_definitions
-
-
-def _require_uuid(value: str, detail: str) -> str:
-    try:
-        UUID(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=detail) from exc
-    return value
-
-
-def _json_payload(value: Any) -> str:
-    return json.dumps(jsonable_encoder(value if value is not None else {}))
-
-
-def _normalize_tags(tags: Iterable[str]) -> list[str]:
-    return sorted({str(tag).strip() for tag in tags if str(tag).strip()})
 
 
 def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
@@ -64,27 +54,6 @@ def _serialize_preset(row: dict[str, Any]) -> SmallVariantFilterPresetOut:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
-
-
-def _merge_tag_metadata(
-    *,
-    existing_metadata: dict[str, Any] | None,
-    previous_tags: Sequence[str],
-    next_tags: Sequence[str],
-    username: str,
-    timestamp: datetime,
-) -> dict[str, dict[str, Any]]:
-    previous = set(_normalize_tags(previous_tags))
-    merged: dict[str, dict[str, Any]] = {}
-    for tag in _normalize_tags(next_tags):
-        if tag in previous and isinstance((existing_metadata or {}).get(tag), dict):
-            merged[tag] = {
-                "updated_by": (existing_metadata or {})[tag].get("updated_by"),
-                "updated_at": (existing_metadata or {})[tag].get("updated_at"),
-            }
-        else:
-            merged[tag] = {"updated_by": username, "updated_at": timestamp}
-    return merged
 
 
 async def _fetch_review_row(

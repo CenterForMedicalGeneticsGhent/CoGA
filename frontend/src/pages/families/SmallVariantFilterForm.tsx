@@ -7,6 +7,8 @@ import {
   REVIEW_CLASSIFICATION_OPTIONS,
   sortTagDefinitions,
   resolveCarrierScreeningCoupleMembers,
+  parseCommaSeparatedValues,
+  joinFilterValues,
   type ActiveSmallFilterChip,
   type FamilyMember,
   type GenePanel,
@@ -108,12 +110,6 @@ const CONSEQUENCE_BY_IMPACT: Record<string, string[]> = {
     'non_coding_transcript_exon_variant',
   ],
 };
-
-const splitSelectedValues = (value: string) =>
-  value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
 
 const countNonEmpty = (...values: string[]) => values.filter((value) => value.trim()).length;
 
@@ -242,10 +238,10 @@ const SmallVariantFilterForm = ({
     (draftFilters.expanded_carrier_screening === 'true' ? 1 : 0) +
     countNonEmpty(draftFilters.inheritance, draftFilters.type, draftFilters.source, draftFilters.ps);
 
-  const pathogenicityFilterCount = splitSelectedValues(draftFilters.clinvar).length;
+  const pathogenicityFilterCount = parseCommaSeparatedValues(draftFilters.clinvar).length;
   const annotationFilterCount =
-    splitSelectedValues(draftFilters.impact).length +
-    splitSelectedValues(draftFilters.effect).length +
+    parseCommaSeparatedValues(draftFilters.impact).length +
+    parseCommaSeparatedValues(draftFilters.effect).length +
     countNonEmpty(
       draftFilters.transcript,
       draftFilters.rsid,
@@ -277,24 +273,24 @@ const SmallVariantFilterForm = ({
     (draftFilters.gene.trim() ? countTextAreaEntries(draftFilters.gene) : 0) +
     (draftFilters.intervals.trim() ? countTextAreaEntries(draftFilters.intervals) : 0);
   const excludeFilterCount =
-    splitSelectedValues(draftFilters.exclude_clinvar).length +
-    splitSelectedValues(draftFilters.exclude_review_tags).length +
+    parseCommaSeparatedValues(draftFilters.exclude_clinvar).length +
+    parseCommaSeparatedValues(draftFilters.exclude_review_tags).length +
     (draftFilters.exclude_gene.trim() ? countTextAreaEntries(draftFilters.exclude_gene) : 0) +
     (draftFilters.exclude_intervals.trim()
       ? countTextAreaEntries(draftFilters.exclude_intervals)
       : 0);
   const reviewFilterCount =
-    splitSelectedValues(draftFilters.classification).length +
-    splitSelectedValues(draftFilters.review_tags).length +
+    parseCommaSeparatedValues(draftFilters.classification).length +
+    parseCommaSeparatedValues(draftFilters.review_tags).length +
     (draftFilters.has_notes === 'true' ? 1 : 0);
 
-  const selectedImpactValues = splitSelectedValues(draftFilters.impact);
-  const selectedEffectValues = splitSelectedValues(draftFilters.effect);
-  const selectedClinvarValues = splitSelectedValues(draftFilters.clinvar);
-  const selectedExcludeClinvarValues = splitSelectedValues(draftFilters.exclude_clinvar);
-  const selectedExcludeReviewTagValues = splitSelectedValues(draftFilters.exclude_review_tags);
-  const selectedClassificationValues = splitSelectedValues(draftFilters.classification);
-  const selectedReviewTagValues = splitSelectedValues(draftFilters.review_tags);
+  const selectedImpactValues = parseCommaSeparatedValues(draftFilters.impact);
+  const selectedEffectValues = parseCommaSeparatedValues(draftFilters.effect);
+  const selectedClinvarValues = parseCommaSeparatedValues(draftFilters.clinvar);
+  const selectedExcludeClinvarValues = parseCommaSeparatedValues(draftFilters.exclude_clinvar);
+  const selectedExcludeReviewTagValues = parseCommaSeparatedValues(draftFilters.exclude_review_tags);
+  const selectedClassificationValues = parseCommaSeparatedValues(draftFilters.classification);
+  const selectedReviewTagValues = parseCommaSeparatedValues(draftFilters.review_tags);
   const clinvarOptions = CLINVAR_OPTIONS.map((option) => ({
     value: option,
     label: option,
@@ -327,9 +323,6 @@ const SmallVariantFilterForm = ({
   const toggleSingleValueCheckbox = (key: keyof SmallFilterState, optionValue: string) => {
     setDraftFilterValue(key, draftFilters[key] === optionValue ? '' : optionValue);
   };
-
-  const joinSelectedValues = (values: Iterable<string>) =>
-    Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean))).join(', ');
 
   const normalizePercentValue = (value: string) => {
     const parsed = Number(value);
@@ -522,8 +515,8 @@ const SmallVariantFilterForm = ({
 
   const handleImpactCategoryToggle = (impact: string, checked: boolean) => {
     const consequences = CONSEQUENCE_BY_IMPACT[impact] ?? [];
-    const impactSet = new Set(splitSelectedValues(draftFilters.impact));
-    const effectSet = new Set(splitSelectedValues(draftFilters.effect));
+    const impactSet = new Set(parseCommaSeparatedValues(draftFilters.impact));
+    const effectSet = new Set(parseCommaSeparatedValues(draftFilters.effect));
 
     if (checked) {
       impactSet.add(impact);
@@ -533,8 +526,8 @@ const SmallVariantFilterForm = ({
       consequences.forEach((value) => effectSet.delete(value));
     }
 
-    setDraftFilterValue('impact', joinSelectedValues(impactSet));
-    setDraftFilterValue('effect', joinSelectedValues(effectSet));
+    setDraftFilterValue('impact', joinFilterValues(impactSet));
+    setDraftFilterValue('effect', joinFilterValues(effectSet));
   };
 
   const applyCallQualityQuickFilter = (value: string) => {
@@ -615,7 +608,7 @@ const SmallVariantFilterForm = ({
   })();
 
   const selectedPathogenicityQuickFilter = (() => {
-    const selected = new Set(splitSelectedValues(draftFilters.clinvar));
+    const selected = new Set(parseCommaSeparatedValues(draftFilters.clinvar));
     if (selected.size === 0) return 'all';
     if (selected.size === 2 && selected.has('Pathogenic') && selected.has('Likely pathogenic')) {
       return 'path_likely_path';
@@ -633,8 +626,8 @@ const SmallVariantFilterForm = ({
   })();
 
   const selectedExcludeQuickFilter = (() => {
-    const selectedClinvar = new Set(splitSelectedValues(draftFilters.exclude_clinvar));
-    const selectedTags = new Set(splitSelectedValues(draftFilters.exclude_review_tags));
+    const selectedClinvar = new Set(parseCommaSeparatedValues(draftFilters.exclude_clinvar));
+    const selectedTags = new Set(parseCommaSeparatedValues(draftFilters.exclude_review_tags));
     const hasOnlyBenignClinvar =
       selectedClinvar.size === EXCLUDE_QUICK_CLINVAR_VALUES.length &&
       EXCLUDE_QUICK_CLINVAR_VALUES.every((value) => selectedClinvar.has(value));
@@ -649,8 +642,8 @@ const SmallVariantFilterForm = ({
   })();
 
   const selectedAnnotationQuickFilter = (() => {
-    const impactValues = splitSelectedValues(draftFilters.impact);
-    const effectValues = splitSelectedValues(draftFilters.effect);
+    const impactValues = parseCommaSeparatedValues(draftFilters.impact);
+    const effectValues = parseCommaSeparatedValues(draftFilters.effect);
     const effectSet = new Set(effectValues);
 
     if (impactValues.length === 0 && effectValues.length === 0) return 'all';
@@ -737,8 +730,8 @@ const SmallVariantFilterForm = ({
   })();
 
   const selectedReviewQuickFilter = (() => {
-    const selectedClassifications = new Set(splitSelectedValues(draftFilters.classification));
-    const selectedTags = new Set(splitSelectedValues(draftFilters.review_tags));
+    const selectedClassifications = new Set(parseCommaSeparatedValues(draftFilters.classification));
+    const selectedTags = new Set(parseCommaSeparatedValues(draftFilters.review_tags));
     const hasNoNotesFilter = draftFilters.has_notes !== 'true';
     const hasOnlyPathogenicVus =
       selectedClassifications.size === REVIEW_QUICK_CLASSIFICATION_VALUES.length &&

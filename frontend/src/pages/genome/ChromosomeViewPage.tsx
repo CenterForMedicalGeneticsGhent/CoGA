@@ -511,7 +511,6 @@ const ChromosomeViewPage: React.FC = () => {
         familyDisplayId={data.family_id}
         chrom={chrom}
         speciesName={speciesName}
-        assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
         assembly={assemblyName}
         assemblyId={assemblyId}

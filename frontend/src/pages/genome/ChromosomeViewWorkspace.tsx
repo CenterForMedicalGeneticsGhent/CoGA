@@ -72,7 +72,6 @@ interface ChromosomeViewWorkspaceProps {
   familyDisplayId: string;
   chrom: string;
   speciesName?: string;
-  assemblyName: string;
   assemblyVersion?: string;
   assembly: string;
   assemblyId?: string;
@@ -174,7 +173,6 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   familyDisplayId,
   chrom,
   speciesName,
-  assemblyName,
   assemblyVersion,
   assembly,
   assemblyId,
@@ -215,7 +213,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   const regionStartParam = Math.max(0, Math.floor(region.start));
   const regionEndParam = Math.ceil(region.end);
   const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
+    { speciesName, assemblyName: assembly, assemblyVersion },
     'Reference not linked',
   );
   const [jumpQuery, setJumpQuery] = useState('');
