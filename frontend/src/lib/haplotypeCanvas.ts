@@ -6,7 +6,7 @@
  *
  * Call this *after* the band's base fill has been drawn at (x, y, w, h).
  */
-const RISK_LINE_THICKNESS = 1.5;
+const RISK_LINE_THICKNESS = 2.5;
 
 export const drawHaplotypeRiskOverlay = (
   ctx: CanvasRenderingContext2D,
