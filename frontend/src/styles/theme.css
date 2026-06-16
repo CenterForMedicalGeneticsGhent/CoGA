@@ -1442,30 +1442,19 @@ tbody tr:hover {
 }
 
 /* Compact, single-line ROI editor. */
-.family-metadata-card {
-  display: grid;
-  gap: 1rem;
+.family-workspace-select {
+  width: 100%;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.4rem;
 }
 
-.family-metadata-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
+.family-workspace-metadata-status {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
 }
 
-.family-metadata-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-  gap: 1rem;
-}
-
-.family-metadata-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
+.family-workspace-metadata-status--error {
+  color: var(--color-danger, #c61f2d);
 }
 
 .family-status-form {
@@ -9143,7 +9132,7 @@ a.button-danger:hover {
 }
 
 .family-catalog-sample-count {
-  cursor: help;
+  cursor: default;
   border-bottom: 1px dotted currentColor;
 }
 

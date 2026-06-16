@@ -239,8 +239,8 @@ describe('FamilyDetailPage', () => {
 
     const statusSelect = (await screen.findByLabelText('Family status')) as HTMLSelectElement;
     await waitFor(() => expect(statusSelect.value).toBe('analysis_in_progress'));
+    // Changing a picker auto-saves just that field (no explicit save button).
     fireEvent.change(statusSelect, { target: { value: 'solved' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() =>
       expect(api.put).toHaveBeenCalledWith(

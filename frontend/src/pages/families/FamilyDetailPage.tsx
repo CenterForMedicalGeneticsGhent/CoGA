@@ -18,7 +18,6 @@ import type {
 } from '../../lib/apiTypes';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
-import FamilyStatusBadge from '../../components/FamilyStatusBadge';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
@@ -682,26 +681,25 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     }
   };
 
-  const metadataDirty =
-    statusDraft !== (data?.status?.key ?? '') ||
-    assignedToDraft !== (data?.assigned_to?.id ?? '') ||
-    reviewedByDraft !== (data?.reviewed_by?.id ?? '');
-
-  const saveMetadata = async () => {
+  // Each picker auto-saves the single field it changed (the backend applies a
+  // partial update). On failure the pickers roll back to the stored values.
+  const saveMetadata = async (patch: {
+    status_key?: string | null;
+    assigned_to?: string | null;
+    reviewed_by?: string | null;
+  }) => {
     if (!familyId) return;
     setMetadataBusy(true);
     setMetadataStatus(null);
     try {
-      const response = await api.put(`/families/${familyId}/metadata`, {
-        status_key: statusDraft || null,
-        assigned_to: assignedToDraft || null,
-        reviewed_by: reviewedByDraft || null,
-      });
+      const response = await api.put(`/families/${familyId}/metadata`, patch);
       const updatedFamily = response.data as ApiFamilyRecord;
       queryClient.setQueryData(['family', familyId], updatedFamily);
       await queryClient.invalidateQueries({ queryKey: ['families'] });
-      setMetadataStatus({ tone: 'success', message: 'Family status and assignment saved.' });
     } catch (error) {
+      setStatusDraft(data?.status?.key ?? '');
+      setAssignedToDraft(data?.assigned_to?.id ?? '');
+      setReviewedByDraft(data?.reviewed_by?.id ?? '');
       setMetadataStatus({
         tone: 'error',
         message: getErrorMessage(error, 'Failed to update the family status.'),
@@ -1199,7 +1197,80 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   <strong className="family-workspace-stat-copy">Not linked</strong>
                 )}
               </div>
+              <div className="family-workspace-stat">
+                <span className="stat-label">Status</span>
+                <select
+                  className="family-workspace-select"
+                  aria-label="Family status"
+                  value={statusDraft}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setStatusDraft(value);
+                    saveMetadata({ status_key: value || null });
+                  }}
+                  disabled={metadataBusy}
+                >
+                  <option value="">No status</option>
+                  {familyStatusOptions.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="family-workspace-stat">
+                <span className="stat-label">Assigned to</span>
+                <select
+                  className="family-workspace-select"
+                  aria-label="Assigned to"
+                  value={assignedToDraft}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setAssignedToDraft(value);
+                    saveMetadata({ assigned_to: value || null });
+                  }}
+                  disabled={metadataBusy}
+                >
+                  <option value="">Unassigned</option>
+                  {assignableUsers.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {formatUserRef(candidate)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="family-workspace-stat">
+                <span className="stat-label">Reviewed by</span>
+                <select
+                  className="family-workspace-select"
+                  aria-label="Reviewed by"
+                  value={reviewedByDraft}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setReviewedByDraft(value);
+                    saveMetadata({ reviewed_by: value || null });
+                  }}
+                  disabled={metadataBusy}
+                >
+                  <option value="">Not reviewed</option>
+                  {assignableUsers.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {formatUserRef(candidate)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+            {(metadataBusy || metadataStatus) && (
+              <span
+                className={`family-workspace-metadata-status${
+                  metadataStatus?.tone === 'error' ? ' family-workspace-metadata-status--error' : ''
+                }`}
+                role="status"
+              >
+                {metadataBusy ? 'Saving…' : metadataStatus?.message}
+              </span>
+            )}
           </div>
           {pedRows.length > 0 && (
             <div className="page-top-card-visual">
@@ -1215,87 +1286,6 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   />
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="surface-card-flat family-metadata-card">
-        <div className="family-metadata-head">
-          <div className="space-y-1">
-            <h2 className="section-title">Status &amp; assignment</h2>
-            <p className="family-workspace-card-subtitle">
-              Track this family&rsquo;s analysis status and who is working on it.
-            </p>
-          </div>
-          <FamilyStatusBadge status={data.status} />
-        </div>
-        <div className="family-metadata-grid">
-          <label className="field-label">
-            Status
-            <select
-              aria-label="Family status"
-              value={statusDraft}
-              onChange={(event) => setStatusDraft(event.target.value)}
-              disabled={metadataBusy}
-            >
-              <option value="">No status</option>
-              {familyStatusOptions.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label">
-            Assigned to
-            <select
-              aria-label="Assigned to"
-              value={assignedToDraft}
-              onChange={(event) => setAssignedToDraft(event.target.value)}
-              disabled={metadataBusy}
-            >
-              <option value="">Unassigned</option>
-              {assignableUsers.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {formatUserRef(candidate)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label">
-            Reviewed by
-            <select
-              aria-label="Reviewed by"
-              value={reviewedByDraft}
-              onChange={(event) => setReviewedByDraft(event.target.value)}
-              disabled={metadataBusy}
-            >
-              <option value="">Not reviewed</option>
-              {assignableUsers.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {formatUserRef(candidate)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="family-metadata-actions">
-          <button
-            type="button"
-            className="form-button"
-            onClick={saveMetadata}
-            disabled={metadataBusy || !metadataDirty}
-          >
-            {metadataBusy ? 'Saving…' : 'Save changes'}
-          </button>
-          {metadataStatus && (
-            <div
-              className={`status-note ${
-                metadataStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
-              }`}
-            >
-              {metadataStatus.message}
             </div>
           )}
         </div>
