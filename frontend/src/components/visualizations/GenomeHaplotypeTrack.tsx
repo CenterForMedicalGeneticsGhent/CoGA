@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
+import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
 import { storage } from '../../lib/storage';
 import {
   diseaseHaplotypeKindForLane,
@@ -232,7 +233,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
         const isSingleLane = lanes.length === 1;
         const y = isSingleLane ? 0 : lane === 'hap1' ? 0 : half + 1;
         const rectHeight = isSingleLane ? height : half - 1;
-        ctx.fillStyle = riskKind ? riskColors[riskKind] : baseColorForLane(seg, lane);
+        ctx.fillStyle = baseColorForLane(seg, lane);
         ctx.fillRect(x1, y, w, rectHeight);
         if (isDeletedHaplotype(seg[lane])) {
           ctx.strokeStyle = deletedStroke;
@@ -242,6 +243,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           ctx.lineTo(x2 - 0.75, y + rectHeight - 1);
           ctx.stroke();
         }
+        if (riskKind) drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, riskColors[riskKind]);
       });
     });
 

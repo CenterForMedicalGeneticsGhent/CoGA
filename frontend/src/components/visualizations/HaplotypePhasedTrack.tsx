@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
+import { drawHaplotypeRiskOverlay } from '../../lib/haplotypeCanvas';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
@@ -272,11 +273,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       const palette = signature.origin === 'paternal' ? fatherColors : motherColors;
       return Number.isNaN(parsed) ? unknownColor : palette[parsed] || unknownColor;
     };
-    // Same colour the cleaned block would use, with the disease overlay on top.
-    const laneFill = (seg: Segment, lane: HaplotypeLane): string => {
-      const riskKind = diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chrom);
-      return riskKind ? riskColors[riskKind] : baseColorForLane(seg, lane);
-    };
+    const laneRiskKind = (seg: Segment, lane: HaplotypeLane): DiseaseHaplotypeKind | null =>
+      diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chrom);
 
     // Lane divider.
     ctx.strokeStyle = cssVar('--color-grid');
@@ -302,7 +300,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       const single = lanes.length === 1;
       lanes.forEach((lane) => {
         const y = laneCenter(lane, single) - BAND_THICKNESS / 2;
-        ctx.fillStyle = laneFill(seg, lane);
+        ctx.fillStyle = baseColorForLane(seg, lane);
         ctx.fillRect(x1, y, w, BAND_THICKNESS);
         if (isDeletedHaplotype(seg[lane])) {
           ctx.strokeStyle = deletedStroke;
@@ -312,6 +310,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
           ctx.lineTo(x2 - 0.75, y + BAND_THICKNESS);
           ctx.stroke();
         }
+        const riskKind = laneRiskKind(seg, lane);
+        if (riskKind) drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, riskColors[riskKind]);
       });
     });
 
@@ -329,8 +329,9 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
     if (!showMarkers) return;
 
-    // Raw per-marker calls as dots on top of the thin line, coloured exactly like
-    // the block lane beneath them.
+    // Raw per-marker calls as dots on top of the thin line, coloured by the same
+    // parent-of-origin palette as the block lane beneath them. Risk is shown by
+    // the hatch on the cleaned blocks, not by recolouring individual dots.
     const dotColor = (marker: PhasedMarker, lane: HaplotypeLane): string => {
       const synthetic: Segment = {
         start: marker.pos,
@@ -339,7 +340,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         hap2: laneValue(marker.hap2),
         ps: null,
       };
-      return laneFill(synthetic, lane);
+      return baseColorForLane(synthetic, lane);
     };
     const paternalCy = laneCenter('hap1', false);
     const maternalCy = laneCenter('hap2', false);
