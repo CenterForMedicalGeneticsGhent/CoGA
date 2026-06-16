@@ -353,6 +353,9 @@ const ApcadChart: React.FC<Props> = ({
     });
     ctx.restore();
 
+    // Draw the raw BAF dots faint so the PCF segments layered on top read clearly.
+    ctx.save();
+    ctx.globalAlpha = 0.45;
     bins.forEach((bin) => {
       if (
         isFocusedRegion &&
@@ -379,6 +382,7 @@ const ApcadChart: React.FC<Props> = ({
       ctx.arc(cx, cy, TRACK_DOT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
     });
+    ctx.restore();
 
     ctx.save();
     ctx.lineCap = 'round';
