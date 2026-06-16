@@ -59,7 +59,7 @@
   --color-repeat-unknown: #c6ccd3;
 
   --color-apcad-paternal: var(--color-haplotype-father-dark);
-  --color-apcad-maternal: var(--color-haplotype-recessive);
+  --color-apcad-maternal: var(--color-haplotype-mother-dark);
   --color-apcad-default: var(--color-gray);
 
   --color-coverage-gain: #556f87;
