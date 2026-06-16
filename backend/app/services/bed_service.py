@@ -14,6 +14,7 @@ from .clickhouse_interval_tracks import (
     count_interval_track_source_rows,
     delete_interval_track_sources,
     delete_interval_tracks,
+    fetch_apcad_downsampled,
     fetch_interval_track_rows,
     get_interval_track_presence_by_sample,
     insert_interval_track_rows,
@@ -286,55 +287,6 @@ def _windowed_coverage_rows(rows: list[dict[str, Any]], window: int, limit: int)
     return records[:limit]
 
 
-def _stride_sample(records: list[dict[str, Any]], budget: int) -> list[dict[str, Any]]:
-    """Uniformly thin ``records`` to at most ``budget`` points (keeps real values)."""
-    if budget <= 0:
-        return []
-    if len(records) <= budget:
-        return records
-    step = -(-len(records) // budget)  # ceil division
-    return records[::step]
-
-
-def _is_heterozygous_baf(record: dict[str, Any]) -> bool:
-    value = record.get("value")
-    return value is not None and 0.05 <= value <= 0.95
-
-
-def _downsample_apcad_records(rows: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
-    """Thin raw APCAD points to at most ``limit``, preserving real BAF values.
-
-    APCAD is a dense BAF scatter — two homozygous bands (~0 and ~1) plus a sparse
-    heterozygous mid-band — and the autozygosity/ROH signal lives in the *density*
-    and real vertical spread of those bands. Per-window averaging destroyed that:
-    every homozygous SNP in a multi-megabase window collapsed to one dot pinned at
-    exactly 0.0/1.0, so the bands rendered as a sparse dotted line.
-
-    Two things matter, so the thinning is band-aware:
-
-    * The homozygous bands are dense (tens of thousands of points) — uniform stride
-      sampling keeps their density and real spread while bounding the payload (the
-      raw genome-wide track is otherwise ~2.7 MB/sample and stalls the page).
-    * The heterozygous mid-band is rare (<1% of points) but marks the breaks in
-      autozygosity, so it is kept in full and the rest of the budget thins the
-      homozygous bands. If the het band alone exceeds the budget, it is thinned too.
-
-    The caller applies a genome-wide ``limit`` so the cap is global, not per-chrom.
-    """
-    records = [_serialize_bed_record("apcad", row) for row in rows]
-    if limit <= 0 or len(records) <= limit:
-        return records
-
-    het = [rec for rec in records if _is_heterozygous_baf(rec)]
-    homozygous = [rec for rec in records if not _is_heterozygous_baf(rec)]
-    if len(het) >= limit:
-        kept = _stride_sample(het, limit)
-    else:
-        kept = het + _stride_sample(homozygous, limit - len(het))
-    kept.sort(key=lambda rec: (rec["chr"], rec["start"], rec.get("origin") or "und"))
-    return kept
-
-
 async def _fetch_bed_records_for_chrom(
     session: AsyncSession,
     *,
@@ -360,18 +312,18 @@ async def _fetch_bed_records_for_chrom(
         )
         return _windowed_coverage_rows(rows, window, limit)
     if bed_type == "apcad" and window:
-        rows = await _fetch_raw_track_rows(
-            session,
-            assembly_name=sample_context.assembly_name,
+        if not sample_context.assembly_name:
+            return []
+        return await fetch_apcad_downsampled(
+            sample_context.assembly_name,
             sample_uuid=sample_context.sample_uuid,
             family_uuid=sample_context.family_uuid,
-            track_type=bed_type,
-            chrom=chrom_clean,
+            chromosomes=[chrom_clean],
             origins=["paternal", "maternal"],
+            budget=limit,
             start=start,
             end=end,
         )
-        return _downsample_apcad_records(rows, limit)
     rows = await _fetch_raw_track_rows(
         session,
         assembly_name=sample_context.assembly_name,
@@ -402,9 +354,8 @@ async def _fetch_bed_records_for_chroms(
 
     Rows are regrouped back into per-chromosome buckets so coverage windowing and
     plain per-chromosome serialization stay identical to the previous
-    one-query-per-chromosome path. Windowed APCAD is the exception: its rows are
-    pooled across chromosomes and thinned once (``_downsample_apcad_records``) so
-    ``limit`` is a genome-wide point budget rather than a per-chromosome one.
+    one-query-per-chromosome path. (Windowed APCAD never reaches here — it is
+    selected and downsampled entirely in ClickHouse by ``fetch_apcad_downsampled``.)
     """
     _ = session
     # Deduplicate while preserving request order.
@@ -425,6 +376,21 @@ async def _fetch_bed_records_for_chroms(
     for chrom in ordered:
         for alias in chromosome_aliases(chrom):
             alias_to_chrom[normalize_chromosome(alias)] = chrom
+
+    # APCAD is selected and downsampled entirely in ClickHouse (informative +
+    # quality-gated + het-preserving) so Python never materializes the full
+    # SNV-resolution track. `limit` is the genome-wide point budget.
+    if bed_type == "apcad" and window:
+        return await fetch_apcad_downsampled(
+            sample_context.assembly_name,
+            sample_uuid=sample_context.sample_uuid,
+            family_uuid=sample_context.family_uuid,
+            chromosomes=ordered,
+            origins=["paternal", "maternal"],
+            budget=limit,
+            start=start,
+            end=end,
+        )
 
     origins = ["paternal", "maternal"] if bed_type in {"apcad", "apcad_pcf"} else None
     # Windowed paths bin in Python and need every row; the non-windowed
@@ -448,22 +414,14 @@ async def _fetch_bed_records_for_chroms(
             grouped[chrom].append(row)
 
     records: list[dict[str, Any]] = []
-    # Windowed APCAD is thinned once across all chromosomes so `limit` is a
-    # genome-wide budget (a per-chromosome cap would multiply the payload by the
-    # chromosome count); the real points are preserved, only uniformly thinned.
-    apcad_rows: list[dict[str, Any]] = []
     for chrom in ordered:
         chrom_rows = grouped[chrom]
         if not chrom_rows:
             continue
         if bed_type == "coverage" and window:
             records.extend(_windowed_coverage_rows(chrom_rows, window, limit))
-        elif bed_type == "apcad" and window:
-            apcad_rows.extend(chrom_rows)
         else:
             records.extend(_serialize_bed_record(bed_type, row) for row in chrom_rows[:limit])
-    if apcad_rows:
-        records.extend(_downsample_apcad_records(apcad_rows, limit))
     return records
 
 
