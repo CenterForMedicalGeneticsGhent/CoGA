@@ -59,7 +59,11 @@ def _schema_files() -> list[Path]:
 
 
 def _split_sql_script(contents: str) -> list[str]:
-    return [statement.strip() for statement in contents.split(";") if statement.strip()]
+    # Strip `--` line comments before splitting on ';' so a semicolon inside a
+    # comment cannot truncate a statement. (The schema files have no `--` inside
+    # string literals, so a plain per-line split is safe.)
+    without_comments = "\n".join(line.split("--", 1)[0] for line in contents.splitlines())
+    return [statement.strip() for statement in without_comments.split(";") if statement.strip()]
 
 
 async def init_postgres_schema() -> None:

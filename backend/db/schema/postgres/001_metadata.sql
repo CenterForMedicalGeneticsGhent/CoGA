@@ -288,7 +288,7 @@ CREATE TABLE IF NOT EXISTS small_variant_reviews (
     note TEXT,
     compound_het_group_id TEXT,
     -- DEPRECATED: no longer written or read by application code (only
-    -- compound_het_partner_variant_ids is used). Retained for existing rows;
+    -- compound_het_partner_variant_ids is used). Retained for existing rows,
     -- pending a drop-column migration.
     compound_het_partner_variant_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
     compound_het_partner_variant_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
