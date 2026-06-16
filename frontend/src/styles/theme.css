@@ -43,8 +43,8 @@
 
   --color-haplotype-father-dark: #1d4ed8;
   --color-haplotype-father-light: #93c5fd;
-  --color-haplotype-mother-dark: #10B981;
-  --color-haplotype-mother-light: #014f3f;
+  --color-haplotype-mother-dark: #047857;
+  --color-haplotype-mother-light: #6ee7b7;
   --color-haplotype-dominant: #8f1d1d;
   --color-haplotype-recessive: #d94a68;
   --color-haplotype-recessive-maternal: var(--color-haplotype-recessive);
