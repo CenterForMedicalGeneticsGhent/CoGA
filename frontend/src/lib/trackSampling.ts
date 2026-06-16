@@ -27,6 +27,18 @@ export const getTrackBinLimit = (width: number): number => {
   return clamp(Math.round(width * 2), 300, 6000);
 };
 
+// APCAD is a dense BAF scatter (two homozygous bands + a heterozygous mid-band),
+// not a single binned value per position, so it needs many more points than the
+// other tracks to read as continuous bands instead of a dotted line. Still capped
+// so the genome-wide payload stays bounded (the backend treats this as a global
+// point budget across all chromosomes).
+export const getApcadPointLimit = (width: number): number => {
+  if (!Number.isFinite(width) || width <= 0) {
+    return 4000;
+  }
+  return clamp(Math.round(width * 5), 2000, 8000);
+};
+
 export const getTrackSegmentLimit = (width: number): number => {
   if (!Number.isFinite(width) || width <= 0) {
     return 1600;

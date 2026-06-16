@@ -325,7 +325,12 @@ const ApcadChart: React.FC<Props> = ({
 
     const xScale = (value: number) =>
       ((value - xDomainStart) / xDomainSpan) * width;
-    const yScale = (value: number) => (1 - value) * height;
+    // Inset the BAF axis so the homozygous bands at value 0 and 1 — which for a
+    // normal sample are *all* of its points — render fully on-canvas instead of as
+    // dots pinned to (and clipped at) the top/bottom pixel rows, where they were
+    // effectively invisible. Ticks use yScale too, so they stay aligned.
+    const yPad = TRACK_DOT_RADIUS + 2;
+    const yScale = (value: number) => yPad + (1 - value) * (height - 2 * yPad);
 
     const tickValues = [0, 0.33, 0.5, 0.66, 1];
     const gridColor = cssVar('--color-grid');

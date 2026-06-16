@@ -7,7 +7,12 @@ import PageState from '../../components/PageState';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { getGenomeWindow } from '../../lib/settings';
 import { parseExplicitSampleFilterMap } from '../../lib/sampleFilterState';
-import { getAdaptiveTrackWindow, getTrackBinLimit, getTrackSegmentLimit } from '../../lib/trackSampling';
+import {
+  getAdaptiveTrackWindow,
+  getApcadPointLimit,
+  getTrackBinLimit,
+  getTrackSegmentLimit,
+} from '../../lib/trackSampling';
 import { useFamilyReference } from '../../lib/reference';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility } from './GenomeOverviewSidebar';
@@ -128,6 +133,7 @@ const GenomeOverviewPage: React.FC = () => {
   const svTrackHeight = 80;
   const win = useMemo(() => getGenomeWindow(), []);
   const binLimit = useMemo(() => getTrackBinLimit(trackWidth), [trackWidth]);
+  const apcadPointLimit = useMemo(() => getApcadPointLimit(trackWidth), [trackWidth]);
   const segmentLimit = useMemo(() => getTrackSegmentLimit(trackWidth), [trackWidth]);
   const projectIdParam = new URLSearchParams(location.search).get('project_id') || undefined;
 
@@ -246,7 +252,7 @@ const GenomeOverviewPage: React.FC = () => {
       apcad[member.sample_id] = [
         buildBatchBedUrl(member.sample_id, 'apcad', {
           window: String(genomeTrackWindow),
-          limit: String(binLimit),
+          limit: String(apcadPointLimit),
         }),
       ];
       apcadPcf[member.sample_id] = [
@@ -268,6 +274,7 @@ const GenomeOverviewPage: React.FC = () => {
 
     return { coverage, segments, apcad, apcadPcf, haplotypes, sv };
   }, [
+    apcadPointLimit,
     baseVariantParams,
     binLimit,
     chroms,

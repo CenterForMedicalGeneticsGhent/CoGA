@@ -1,77 +1,77 @@
-"""Unit tests for the pure BED windowing helpers in app.services.bed_service.
+"""Unit tests for the pure BED helpers in app.services.bed_service.
 
-These focus on `_windowed_apcad_rows`, which previously emitted every homozygous
-(extreme-BAF) SNP individually — leaving the genome-wide APCAD payload unbounded
-(~2.7 MB/sample) and stalling the genome-overview page. The fix bins the extremes
-per window/origin/band like the mid-range, so the payload is bounded while the
-homozygous bands that carry the ROH signal survive.
+`_downsample_apcad_records` bounds the genome-wide APCAD payload (otherwise
+~2.7 MB/sample, which stalled the genome-overview page) by uniformly thinning the
+raw points to a cap. Crucially it preserves the *real* BAF values rather than
+averaging each window to a single dot — averaging flattened the homozygous bands
+to a sparse dotted line, so many APCAD values were no longer visible.
 """
-from app.services.bed_service import _windowed_apcad_rows
+from app.services.bed_service import _downsample_apcad_records
 
 
 def _row(start: int, value: float, origin: str = "paternal") -> dict:
     return {"chr": "1", "start": start, "end": start + 1, "value": value, "origin": origin}
 
 
-def test_homozygous_extremes_are_binned_not_emitted_per_snp():
-    # A whole window of homozygous SNPs (the genome-wide common case) used to be
-    # emitted one record per SNP; now it collapses to one dot per band.
-    rows = [_row(start=i * 10, value=0.99) for i in range(100)]
-    rows += [_row(start=i * 10 + 5, value=0.01) for i in range(100)]  # 200 rows total
+def test_returns_all_points_with_real_values_when_under_limit():
+    rows = [_row(0, 0.01), _row(10, 0.99), _row(20, 0.48)]
 
-    out = _windowed_apcad_rows(rows, window=1000, limit=10000)
+    out = _downsample_apcad_records(rows, limit=100)
 
-    # 200 homozygous SNPs in one window/origin -> exactly two band dots.
-    assert len(out) == 2
-    values = sorted(round(rec["value"], 3) for rec in out)
-    assert values == [0.01, 0.99]
-    assert all(rec["start"] == 0 and rec["end"] == 1000 for rec in out)
+    # Real values, in order — no per-window averaging.
+    assert [rec["value"] for rec in out] == [0.01, 0.99, 0.48]
+    assert out[0] == {"chr": "1", "start": 0, "end": 1, "value": 0.01, "origin": "paternal"}
 
 
-def test_bands_are_averaged_and_roh_window_keeps_homozygous_bands():
-    rows = [
-        # Window [0,1000): run of homozygosity — only the two extreme bands.
-        _row(start=10, value=0.01),
-        _row(start=20, value=0.03),
-        _row(start=30, value=0.98),
-        _row(start=40, value=0.99),
-        # Window [1000,2000): heterozygous — adds the mid band.
-        _row(start=1010, value=0.02),
-        _row(start=1020, value=0.48),
-        _row(start=1030, value=0.52),
-        _row(start=1040, value=0.97),
-    ]
+def test_thins_to_at_most_limit_preserving_real_input_values():
+    rows = [_row(i, 0.99 if i % 2 else 0.01) for i in range(100)]
 
-    out = _windowed_apcad_rows(rows, window=1000, limit=10000)
+    out = _downsample_apcad_records(rows, limit=10)
 
-    by_window: dict[int, list[float]] = {}
-    for rec in out:
-        by_window.setdefault(rec["start"], []).append(round(rec["value"], 3))
-
-    # ROH window: two bands (low/high), no mid -> the empty mid band is the signal.
-    assert sorted(by_window[0]) == [0.02, 0.985]
-    # Heterozygous window: three bands, each the mean of its members.
-    assert sorted(by_window[1000]) == [0.02, 0.5, 0.97]
+    assert len(out) <= 10
+    # Every emitted value is one of the real inputs (a subset), never an average.
+    assert all(rec["value"] in (0.01, 0.99) for rec in out)
+    # Uniform stride starts at the first point.
+    assert out[0]["start"] == 0
 
 
-def test_origins_are_kept_separate():
-    rows = [
-        _row(start=10, value=0.99, origin="paternal"),
-        _row(start=20, value=0.99, origin="maternal"),
-    ]
+def test_homozygous_extremes_are_not_collapsed_to_a_band_mean():
+    # Many homozygous-high points across a region keep their real spread (~0.97–0.99)
+    # instead of averaging to one dot pinned at 1.0.
+    rows = [_row(i * 10, 0.97 + (i % 3) * 0.01) for i in range(60)]
 
-    out = _windowed_apcad_rows(rows, window=1000, limit=10000)
+    out = _downsample_apcad_records(rows, limit=1000)
+
+    assert len(out) == 60
+    assert {round(rec["value"], 2) for rec in out} == {0.97, 0.98, 0.99}
+
+
+def test_heterozygous_points_are_kept_when_homozygous_bands_are_thinned():
+    # Dense homozygous bands plus a few rare heterozygous points (the autozygosity-
+    # break signal). A tight budget thins the homozygous bands but keeps every het
+    # point.
+    rows = [_row(i, 0.99 if i % 2 else 0.01) for i in range(1000)]
+    het_starts = [101, 303, 505, 707, 909]
+    rows += [_row(start, 0.5) for start in het_starts]
+
+    out = _downsample_apcad_records(rows, limit=50)
+
+    assert len(out) <= 50
+    kept_het = [rec for rec in out if 0.05 <= rec["value"] <= 0.95]
+    assert sorted(rec["start"] for rec in kept_het) == het_starts
+
+
+def test_keeps_origins_distinct():
+    rows = [_row(0, 0.99, "paternal"), _row(0, 0.99, "maternal")]
+
+    out = _downsample_apcad_records(rows, limit=100)
 
     assert {rec["origin"] for rec in out} == {"paternal", "maternal"}
-    assert len(out) == 2
 
 
-def test_limit_bounds_the_output():
-    rows = [_row(start=i * 1000, value=0.5) for i in range(50)]  # 50 distinct windows
+def test_zero_limit_is_treated_as_unbounded():
+    rows = [_row(i, 0.5) for i in range(5)]
 
-    out = _windowed_apcad_rows(rows, window=1000, limit=10)
+    out = _downsample_apcad_records(rows, limit=0)
 
-    assert len(out) == 10
-    # Truncation keeps the earliest windows (sorted by start).
-    assert out[0]["start"] == 0
-    assert all(out[i]["start"] <= out[i + 1]["start"] for i in range(len(out) - 1))
+    assert len(out) == 5

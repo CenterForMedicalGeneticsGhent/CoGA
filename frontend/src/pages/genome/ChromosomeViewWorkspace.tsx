@@ -105,6 +105,7 @@ interface ChromosomeViewWorkspaceProps {
   sampleFilterMap: Record<string, string>;
   detailWindow: number;
   binLimit: number;
+  apcadPointLimit: number;
   segmentLimit: number;
   showViewerLoading: boolean;
 }
@@ -206,6 +207,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   sampleFilterMap,
   detailWindow,
   binLimit,
+  apcadPointLimit,
   segmentLimit,
   showViewerLoading,
 }) => {
@@ -505,7 +507,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                     >
                       <ApcadChart
                         apcadUrls={[
-                          `${api.defaults.baseURL}/bed/${member.sample_id}/apcad?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&format=json`,
+                          `${api.defaults.baseURL}/bed/${member.sample_id}/apcad?chrom=${chrom}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${apcadPointLimit}&format=json`,
                         ]}
                         pcfUrls={
                           availability[member.sample_id]?.apcadPcf
