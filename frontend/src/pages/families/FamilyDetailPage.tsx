@@ -695,7 +695,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       const response = await api.put(`/families/${familyId}/metadata`, patch);
       const updatedFamily = response.data as ApiFamilyRecord;
       queryClient.setQueryData(['family', familyId], updatedFamily);
+      // The dashboard's nested table is fed by the project catalog (['projects']),
+      // while the unassigned-families table uses ['families'] — refresh both.
       await queryClient.invalidateQueries({ queryKey: ['families'] });
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
     } catch (error) {
       setStatusDraft(data?.status?.key ?? '');
       setAssignedToDraft(data?.assigned_to?.id ?? '');

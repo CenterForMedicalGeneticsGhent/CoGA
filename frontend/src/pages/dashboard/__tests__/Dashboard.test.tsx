@@ -25,6 +25,14 @@ vi.mock('../../../lib/api', () => ({
                     { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
                     { sample_id: 'S2', role: 'mother', affected: false, sex: 'female' },
                   ],
+                  status: { key: 'solved', label: 'Solved', color: '#1f9d57' },
+                  assigned_to: {
+                    id: 'u1',
+                    username: 'ann',
+                    email: 'ann@example.com',
+                    first_name: 'Ann',
+                    last_name: 'Lee',
+                  },
                 },
               ],
               samples: ['S1'],
@@ -246,5 +254,9 @@ describe('Dashboard admin section', () => {
     expect(familyRow?.textContent).not.toContain('S1, S2');
     fireEvent.mouseEnter(sampleCount, { clientX: 20, clientY: 20 });
     expect(await screen.findByText('S1, S2')).toBeInTheDocument();
+
+    // Status and assignee from the project catalog render in the nested row.
+    expect(familyRow?.textContent).toContain('Solved');
+    expect(familyRow?.textContent).toContain('Ann Lee');
   });
 });

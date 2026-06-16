@@ -734,9 +734,25 @@ async def _fetch_project_family_rows(
             f.roi_chr,
             f.roi_start,
             f.roi_end,
-            f.created_at
+            f.created_at,
+            fs.key AS status_key,
+            fs.label AS status_label,
+            fs.color AS status_color,
+            au.id::text AS assigned_to_id,
+            au.username AS assigned_to_username,
+            au.email AS assigned_to_email,
+            au.first_name AS assigned_to_first_name,
+            au.last_name AS assigned_to_last_name,
+            ru.id::text AS reviewed_by_id,
+            ru.username AS reviewed_by_username,
+            ru.email AS reviewed_by_email,
+            ru.first_name AS reviewed_by_first_name,
+            ru.last_name AS reviewed_by_last_name
         FROM family_projects fp
         JOIN families f ON f.id = fp.family_id
+        LEFT JOIN family_statuses fs ON fs.id = f.status_id
+        LEFT JOIN users au ON au.id = f.assigned_to_id
+        LEFT JOIN users ru ON ru.id = f.reviewed_by_id
         WHERE fp.project_id IN :project_ids
         ORDER BY lower(f.family_id)
         """
