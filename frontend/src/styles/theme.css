@@ -48,9 +48,9 @@
   --color-haplotype-father-light: #8aa9c9;
   --color-haplotype-mother-dark: #386a55;
   --color-haplotype-mother-light: #8cc0a4;
-  /* Risk alleles, drawn as a clean frame over the homolog fill. */
+  /* Risk alleles, marked by a thin line under the homolog fill. */
   --color-haplotype-affected: #c61f2d;
-  --color-haplotype-carrier: #c2872e;
+  --color-haplotype-carrier: #d9822e;
   --color-haplotype-unknown: #9ca3af;
   --color-haplotype-deleted-fill: rgba(72, 84, 96, 0.10);
   --color-haplotype-deleted-stroke: rgba(78, 91, 103, 0.6);

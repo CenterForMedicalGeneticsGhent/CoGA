@@ -8,8 +8,8 @@ interface HaplotypeLegendProps {
 interface LegendEntry {
   label: string;
   color: string;
-  /** Risk alleles are drawn as a frame over the homolog fill, not a solid block. */
-  framed?: boolean;
+  /** Risk alleles are marked by a thin line under the homolog fill, not a solid block. */
+  risk?: boolean;
 }
 
 // The four parental homologs (P1/P2 paternal, M1/M2 maternal) are always shown.
@@ -23,15 +23,15 @@ const HOMOLOG_ENTRIES: LegendEntry[] = [
 const riskEntriesForModel = (inheritanceModel?: string | null): LegendEntry[] => {
   const mode = normalizeHaplotypeInheritance(inheritanceModel);
   if (mode === 'recessive') {
-    return [{ label: 'Carrier', color: 'var(--color-haplotype-carrier)', framed: true }];
+    return [{ label: 'Carrier', color: 'var(--color-haplotype-carrier)', risk: true }];
   }
   // dominant / x-linked / unknown
-  return [{ label: 'Affected', color: 'var(--color-haplotype-affected)', framed: true }];
+  return [{ label: 'Affected', color: 'var(--color-haplotype-affected)', risk: true }];
 };
 
 const swatchStyle = (entry: LegendEntry): React.CSSProperties =>
-  entry.framed
-    ? { background: 'var(--color-surface)', borderColor: entry.color, borderWidth: '1.5px' }
+  entry.risk
+    ? { background: 'transparent', borderBottomColor: entry.color, borderBottomWidth: '2px' }
     : { background: entry.color };
 
 const HaplotypeLegend: React.FC<HaplotypeLegendProps> = ({ inheritanceModel }) => (
