@@ -134,6 +134,26 @@ class FamilyRegionOfInterestUpdate(BaseModel):
     project_id: Optional[str] = None
 
 
+class UserRefOut(BaseModel):
+    """Minimal user reference used for assignment/reviewer pickers."""
+
+    id: ApiId
+    username: str
+    email: EmailStr
+    first_name: str = ""
+    last_name: str = ""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class FamilyStatusRef(BaseModel):
+    """Compact status reference embedded in a family record."""
+
+    key: str
+    label: str
+    color: str
+
+
 class FamilyOut(ApiDocumentModel):
     """Schema for families returned by the API."""
 
@@ -145,7 +165,53 @@ class FamilyOut(ApiDocumentModel):
     pedigree: Optional[str] = None
     roi: Optional[FamilyRegionOfInterestOut] = None
     projects: List[ApiId] = Field(default_factory=list)
+    status: Optional[FamilyStatusRef] = None
+    assigned_to: Optional[UserRefOut] = None
+    reviewed_by: Optional[UserRefOut] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FamilyMetadataUpdate(BaseModel):
+    """Partial update of a family's workflow metadata.
+
+    Only the fields actually present in the request body are applied (tracked
+    via ``model_fields_set``); a field sent explicitly as ``null`` clears it.
+    """
+
+    status_key: Optional[str] = None
+    assigned_to: Optional[ApiId] = None
+    reviewed_by: Optional[ApiId] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class FamilyStatusOut(BaseModel):
+    """An admin-managed family status value."""
+
+    id: ApiId
+    key: str
+    label: str
+    description: Optional[str] = None
+    color: str
+    sort_order: int
+    is_active: bool
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class FamilyStatusCreate(BaseModel):
+    label: str = Field(min_length=1)
+    description: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class FamilyStatusUpdate(BaseModel):
+    label: Optional[str] = None
+    description: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 class FamilyStructureMemberCreate(BaseModel):

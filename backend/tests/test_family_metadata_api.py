@@ -1,0 +1,193 @@
+from datetime import datetime, timezone
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.app.core.postgres import get_postgres_session
+from backend.app.main import app
+from backend.app.routers import admin as admin_router
+from backend.app.routers import families as families_router
+from backend.app.routers import lookups as lookups_router
+from backend.app.services.metadata_service import CurrentUser
+
+
+class _FakeSession:
+    async def rollback(self) -> None:
+        return None
+
+
+@pytest.fixture()
+def family_metadata_client(monkeypatch: pytest.MonkeyPatch):
+    original_overrides = dict(app.dependency_overrides)
+    app.state.skip_startup_tasks = True
+
+    user = CurrentUser(
+        id="user1",
+        username="viewer@example.com",
+        email="viewer@example.com",
+        role="viewer",
+        created_at=datetime.now(timezone.utc),
+    )
+
+    async def override_get_postgres_session():
+        yield _FakeSession()
+
+    async def override_get_current_user():
+        return user
+
+    async def override_get_current_admin_user():
+        return user.model_copy(update={"role": "admin"})
+
+    app.dependency_overrides[get_postgres_session] = override_get_postgres_session
+    app.dependency_overrides[families_router.get_current_user] = override_get_current_user
+    app.dependency_overrides[families_router.get_current_admin_user] = override_get_current_admin_user
+    app.dependency_overrides[lookups_router.get_current_user] = override_get_current_user
+    app.dependency_overrides[admin_router.get_current_admin_user] = override_get_current_admin_user
+
+    with TestClient(app) as client:
+        yield client, monkeypatch
+
+    app.dependency_overrides = original_overrides
+
+
+def _family_payload() -> dict:
+    return {
+        "_id": "11111111-1111-1111-1111-111111111111",
+        "family_id": "FAM1",
+        "created_at": datetime.now(timezone.utc),
+        "members": [],
+        "relationships": [],
+        "projects": [],
+        "metadata": {},
+        "status": {"key": "solved", "label": "Solved", "color": "#1f9d57"},
+        "assigned_to": {
+            "id": "u1",
+            "username": "ann",
+            "email": "ann@example.com",
+            "first_name": "Ann",
+            "last_name": "Lee",
+        },
+        "reviewed_by": None,
+    }
+
+
+def test_update_family_metadata_endpoint_allows_any_user(family_metadata_client) -> None:
+    client, monkeypatch = family_metadata_client
+    captured: dict = {}
+
+    async def fake_update(session, *, family_id, update, user):
+        captured["family_id"] = family_id
+        captured["update"] = update.model_dump(exclude_unset=True)
+        captured["role"] = user.role
+        return _family_payload()
+
+    monkeypatch.setattr(families_router, "update_family_metadata_for_user", fake_update)
+
+    response = client.put(
+        "/api/families/FAM1/metadata",
+        json={"status_key": "solved", "assigned_to": "u1", "reviewed_by": None},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"]["label"] == "Solved"
+    assert body["assigned_to"]["id"] == "u1"
+    assert body["reviewed_by"] is None
+    # Editable by a plain (non-admin) signed-in user, and the partial update is
+    # forwarded verbatim.
+    assert captured["role"] == "viewer"
+    assert captured["family_id"] == "FAM1"
+    assert captured["update"] == {"status_key": "solved", "assigned_to": "u1", "reviewed_by": None}
+
+
+def test_list_family_statuses_endpoint(family_metadata_client) -> None:
+    client, monkeypatch = family_metadata_client
+
+    async def fake_list(session, *, include_inactive=False):
+        assert include_inactive is False
+        return [
+            {
+                "id": "st1",
+                "key": "solved",
+                "label": "Solved",
+                "description": None,
+                "color": "#1f9d57",
+                "sort_order": 10,
+                "is_active": True,
+            }
+        ]
+
+    monkeypatch.setattr(lookups_router, "list_family_statuses", fake_list)
+
+    response = client.get("/api/family-statuses")
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["key"] for item in body] == ["solved"]
+
+
+def test_list_users_endpoint(family_metadata_client) -> None:
+    client, monkeypatch = family_metadata_client
+
+    async def fake_users(session):
+        return [
+            {"id": "u1", "username": "ann", "email": "ann@example.com", "first_name": "Ann", "last_name": "Lee"},
+            {"id": "u2", "username": "bob", "email": "bob@example.com", "first_name": "Bob", "last_name": "Ng"},
+        ]
+
+    monkeypatch.setattr(lookups_router, "list_assignable_users", fake_users)
+
+    response = client.get("/api/users")
+    assert response.status_code == 200
+    body = response.json()
+    assert {item["id"] for item in body} == {"u1", "u2"}
+
+
+def test_admin_family_status_crud(family_metadata_client) -> None:
+    client, monkeypatch = family_metadata_client
+    deleted: dict = {}
+
+    def _status(key: str, label: str) -> dict:
+        return {
+            "id": "st1",
+            "key": key,
+            "label": label,
+            "description": None,
+            "color": "#5b6b79",
+            "sort_order": 500,
+            "is_active": True,
+        }
+
+    async def fake_list(session, *, include_inactive=False):
+        assert include_inactive is True
+        return [_status("solved", "Solved")]
+
+    async def fake_create(session, *, payload, user):
+        assert user.role == "admin"
+        return _status("pending", payload.label)
+
+    async def fake_update(session, *, key, payload):
+        return _status(key, payload.label or "Solved")
+
+    async def fake_delete(session, *, key):
+        deleted["key"] = key
+
+    monkeypatch.setattr(admin_router, "list_family_statuses", fake_list)
+    monkeypatch.setattr(admin_router, "create_family_status", fake_create)
+    monkeypatch.setattr(admin_router, "update_family_status", fake_update)
+    monkeypatch.setattr(admin_router, "delete_family_status", fake_delete)
+
+    list_response = client.get("/api/admin/family-statuses")
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["key"] == "solved"
+
+    create_response = client.post("/api/admin/family-statuses", json={"label": "Pending"})
+    assert create_response.status_code == 201
+    assert create_response.json()["label"] == "Pending"
+
+    update_response = client.put("/api/admin/family-statuses/solved", json={"label": "Resolved"})
+    assert update_response.status_code == 200
+    assert update_response.json()["label"] == "Resolved"
+
+    delete_response = client.delete("/api/admin/family-statuses/solved")
+    assert delete_response.status_code == 204
+    assert deleted["key"] == "solved"

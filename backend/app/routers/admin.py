@@ -17,6 +17,9 @@ from ..schemas import (
     FamilyInventoryDetailOut,
     FamilyInventoryPageOut,
     FamilyRawFilesOut,
+    FamilyStatusCreate,
+    FamilyStatusOut,
+    FamilyStatusUpdate,
     GeneInfoRefreshJobOut,
     GeneReferenceAdminStatusOut,
     HpoAdminSummaryOut,
@@ -48,6 +51,12 @@ from ..services.admin_service import (
     rebuild_clickhouse_small_variant_gene_index_status,
     update_sample_projects_data,
     verify_raw_import_file_by_id,
+)
+from ..services.family_status_service import (
+    create_family_status,
+    delete_family_status,
+    list_family_statuses,
+    update_family_status,
 )
 from ..services.clinical_cnv_kb_jobs import (
     get_clinical_cnv_kb_status,
@@ -298,6 +307,45 @@ async def delete_variant_tag(
         tag_key=tag_key,
         user=user,
     )
+
+
+@router.get("/family-statuses", response_model=List[FamilyStatusOut])
+async def list_family_statuses_admin(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> List[FamilyStatusOut]:
+    del user
+    return await list_family_statuses(session, include_inactive=True)
+
+
+@router.post("/family-statuses", response_model=FamilyStatusOut, status_code=201)
+async def create_family_status_admin(
+    payload: FamilyStatusCreate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FamilyStatusOut:
+    return await create_family_status(session, payload=payload, user=user)
+
+
+@router.put("/family-statuses/{status_key}", response_model=FamilyStatusOut)
+async def update_family_status_admin(
+    status_key: str,
+    payload: FamilyStatusUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> FamilyStatusOut:
+    del user
+    return await update_family_status(session, key=status_key, payload=payload)
+
+
+@router.delete("/family-statuses/{status_key}", status_code=204)
+async def delete_family_status_admin(
+    status_key: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> None:
+    del user
+    await delete_family_status(session, key=status_key)
 
 
 @router.delete("/data/samples/{sample_id}/{data_type}")

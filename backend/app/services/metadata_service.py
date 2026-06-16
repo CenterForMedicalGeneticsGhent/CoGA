@@ -16,11 +16,13 @@ from ..schemas import (
     FamilyMemberOut,
     FamilyOut,
     FamilyRelationshipOut,
+    FamilyStatusRef,
     FamilyStructureVersionOut,
     ProjectDashboardOut,
     ProjectOut,
     SpeciesOut,
     UserRead,
+    UserRefOut,
 )
 
 ADMIN_ROLES = {"admin", "superuser"}
@@ -146,6 +148,29 @@ def _project_out_from_mapping(mapping: dict[str, Any]) -> ProjectOut:
     )
 
 
+def _user_ref_from_mapping(family_mapping: dict[str, Any], prefix: str) -> UserRefOut | None:
+    user_id = family_mapping.get(f"{prefix}id")
+    if not user_id:
+        return None
+    return UserRefOut(
+        id=str(user_id),
+        username=family_mapping.get(f"{prefix}username") or "",
+        email=family_mapping[f"{prefix}email"],
+        first_name=family_mapping.get(f"{prefix}first_name") or "",
+        last_name=family_mapping.get(f"{prefix}last_name") or "",
+    )
+
+
+def _family_status_ref_from_mapping(family_mapping: dict[str, Any]) -> FamilyStatusRef | None:
+    if not family_mapping.get("status_key"):
+        return None
+    return FamilyStatusRef(
+        key=family_mapping["status_key"],
+        label=family_mapping.get("status_label") or family_mapping["status_key"],
+        color=family_mapping.get("status_color") or "#5b6b79",
+    )
+
+
 def _family_out_from_mapping(
     family_mapping: dict[str, Any],
     members: list[FamilyMemberOut],
@@ -179,6 +204,9 @@ def _family_out_from_mapping(
         pedigree=family_mapping.get("pedigree"),
         roi=roi,
         projects=project_ids,
+        status=_family_status_ref_from_mapping(family_mapping),
+        assigned_to=_user_ref_from_mapping(family_mapping, "assigned_to_"),
+        reviewed_by=_user_ref_from_mapping(family_mapping, "reviewed_by_"),
         metadata=_normalize_metadata(family_mapping.get("metadata")),
     )
 
@@ -706,9 +734,25 @@ async def _fetch_project_family_rows(
             f.roi_chr,
             f.roi_start,
             f.roi_end,
-            f.created_at
+            f.created_at,
+            fs.key AS status_key,
+            fs.label AS status_label,
+            fs.color AS status_color,
+            au.id::text AS assigned_to_id,
+            au.username AS assigned_to_username,
+            au.email AS assigned_to_email,
+            au.first_name AS assigned_to_first_name,
+            au.last_name AS assigned_to_last_name,
+            ru.id::text AS reviewed_by_id,
+            ru.username AS reviewed_by_username,
+            ru.email AS reviewed_by_email,
+            ru.first_name AS reviewed_by_first_name,
+            ru.last_name AS reviewed_by_last_name
         FROM family_projects fp
         JOIN families f ON f.id = fp.family_id
+        LEFT JOIN family_statuses fs ON fs.id = f.status_id
+        LEFT JOIN users au ON au.id = f.assigned_to_id
+        LEFT JOIN users ru ON ru.id = f.reviewed_by_id
         WHERE fp.project_id IN :project_ids
         ORDER BY lower(f.family_id)
         """
@@ -993,6 +1037,19 @@ async def _fetch_family_rows(
             f.roi_end,
             f.created_at,
             f.metadata,
+            fs.key AS status_key,
+            fs.label AS status_label,
+            fs.color AS status_color,
+            au.id::text AS assigned_to_id,
+            au.username AS assigned_to_username,
+            au.email AS assigned_to_email,
+            au.first_name AS assigned_to_first_name,
+            au.last_name AS assigned_to_last_name,
+            ru.id::text AS reviewed_by_id,
+            ru.username AS reviewed_by_username,
+            ru.email AS reviewed_by_email,
+            ru.first_name AS reviewed_by_first_name,
+            ru.last_name AS reviewed_by_last_name,
             COALESCE(
                 ARRAY_AGG(DISTINCT fp.project_id::text)
                 FILTER (WHERE fp.project_id IS NOT NULL),
@@ -1000,8 +1057,11 @@ async def _fetch_family_rows(
             ) AS project_ids
         FROM families f
         LEFT JOIN family_projects fp ON fp.family_id = f.id
+        LEFT JOIN family_statuses fs ON fs.id = f.status_id
+        LEFT JOIN users au ON au.id = f.assigned_to_id
+        LEFT JOIN users ru ON ru.id = f.reviewed_by_id
         {where_clause}
-        GROUP BY f.id
+        GROUP BY f.id, fs.id, au.id, ru.id
         ORDER BY lower(f.family_id)
         """
     )

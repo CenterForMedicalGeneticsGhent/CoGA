@@ -62,6 +62,11 @@ const adminGroups: AdminGroup[] = [
         description: 'Inventory, project assignment, and deletion workflows.',
       },
       {
+        label: 'Family Statuses',
+        to: '/admin/data/family-statuses',
+        description: 'Curate the workflow statuses analysts assign to families.',
+      },
+      {
         label: 'Package Import',
         to: '/admin/data/upload',
         description: 'Validate manifests and run package-based initial or incremental imports.',

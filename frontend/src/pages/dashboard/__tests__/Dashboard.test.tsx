@@ -25,6 +25,14 @@ vi.mock('../../../lib/api', () => ({
                     { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
                     { sample_id: 'S2', role: 'mother', affected: false, sex: 'female' },
                   ],
+                  status: { key: 'solved', label: 'Solved', color: '#1f9d57' },
+                  assigned_to: {
+                    id: 'u1',
+                    username: 'ann',
+                    email: 'ann@example.com',
+                    first_name: 'Ann',
+                    last_name: 'Lee',
+                  },
                 },
               ],
               samples: ['S1'],
@@ -231,10 +239,24 @@ describe('Dashboard admin section', () => {
     const nestedTable = familyLink.closest('table');
 
     expect(nestedTable).not.toBeNull();
-    // family, members, and the "date added" column.
-    expect(nestedTable?.querySelectorAll('colgroup col')).toHaveLength(3);
+    // Family ID, Samples, Status, Assigned to, Reviewed by, Date added.
+    expect(nestedTable?.querySelectorAll('colgroup col')).toHaveLength(6);
     expect(nestedTable?.querySelector('.family-catalog-family-column')).not.toBeNull();
+    expect(nestedTable?.querySelector('.family-catalog-status-column')).not.toBeNull();
     expect(nestedTable?.querySelector('.family-catalog-added-column')).not.toBeNull();
     expect(familyLink.closest('td')).toHaveClass('family-catalog-family-cell');
+
+    // Individual sample IDs are not listed inline; hovering the sample count
+    // reveals them in a tooltip.
+    const familyRow = familyLink.closest('tr');
+    const sampleCount = familyRow?.querySelector('.family-catalog-sample-count') as HTMLElement;
+    expect(sampleCount?.textContent).toBe('2');
+    expect(familyRow?.textContent).not.toContain('S1, S2');
+    fireEvent.mouseEnter(sampleCount, { clientX: 20, clientY: 20 });
+    expect(await screen.findByText('S1, S2')).toBeInTheDocument();
+
+    // Status and assignee from the project catalog render in the nested row.
+    expect(familyRow?.textContent).toContain('Solved');
+    expect(familyRow?.textContent).toContain('Ann Lee');
   });
 });

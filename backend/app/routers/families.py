@@ -17,6 +17,7 @@ from ..schemas import (
     FamilyMemberImpactOut,
     FamilyMemberUpdate,
     FamilyMemberUpdateOut,
+    FamilyMetadataUpdate,
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
     FamilyRegionOfInterestUpdate,
@@ -65,6 +66,7 @@ from ..services.family_member_management_service import (
     update_family_members_batch_for_admin,
     update_family_member_for_admin,
 )
+from ..services.family_status_service import update_family_metadata_for_user
 from ..services.family_structure_service import update_family_structure_for_admin
 from ..services.hpo_service import (
     create_individual_hpo_annotation,
@@ -152,6 +154,21 @@ async def get_family(
     user: CurrentUser = Depends(get_current_user),
 ) -> FamilyOut:
     return await get_family_for_user(session, family_id, user)
+
+
+@router.put("/{family_id}/metadata", response_model=FamilyOut)
+async def update_family_metadata(
+    family_id: str,
+    update: FamilyMetadataUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FamilyOut:
+    return await update_family_metadata_for_user(
+        session,
+        family_id=family_id,
+        update=update,
+        user=user,
+    )
 
 
 @router.get(

@@ -1442,6 +1442,78 @@ tbody tr:hover {
 }
 
 /* Compact, single-line ROI editor. */
+.family-workspace-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+}
+
+.family-workspace-meta-field {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 9rem;
+}
+
+.family-workspace-select {
+  width: 100%;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.4rem;
+}
+
+.family-workspace-metadata-status {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+}
+
+.family-workspace-metadata-status--error {
+  color: var(--color-danger, #c61f2d);
+}
+
+.family-status-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.family-status-form .field-label {
+  flex: 1 1 12rem;
+}
+
+.family-status-color-field,
+.family-status-sort-field {
+  flex: 0 0 auto;
+}
+
+.family-status-row-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.family-status-edit-fields {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.family-status-edit-description {
+  margin-top: 0.4rem;
+  width: 100%;
+}
+
+.family-status-description {
+  margin: 0.25rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.family-status-delete {
+  color: var(--color-danger, #c61f2d);
+}
+
 .family-roi-edit {
   display: flex;
   flex-wrap: wrap;
@@ -9054,6 +9126,58 @@ a.button-danger:hover {
   white-space: nowrap;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.family-catalog-samples-column {
+  width: 6rem;
+}
+
+.family-catalog-status-column {
+  width: 12rem;
+}
+
+.family-catalog-assigned-column,
+.family-catalog-reviewed-column {
+  width: 10rem;
+}
+
+.family-catalog-samples-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+.family-catalog-sample-count {
+  cursor: default;
+  border-bottom: 1px dotted currentColor;
+}
+
+.family-catalog-assigned-cell,
+.family-catalog-reviewed-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.family-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+
+.family-status-badge--empty {
+  color: var(--color-text-muted);
+}
+
+.family-status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.family-status-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .family-catalog-nested th,
