@@ -9,13 +9,17 @@ import type {
   ApiFamilyMemberDeleteResponse,
   ApiFamilyMemberDetail,
   ApiFamilyRegionOfInterest,
+  ApiFamilyStatusDefinition,
   ApiHpoAnnotation,
   ApiHpoTerm,
   ApiPaginatedTotalResponse,
   ApiSmallVariantReviewSummary,
+  ApiUserRef,
 } from '../../lib/apiTypes';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
+import FamilyStatusBadge from '../../components/FamilyStatusBadge';
+import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -307,12 +311,39 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const [hpoNote, setHpoNote] = useState('');
   const [hpoBusy, setHpoBusy] = useState(false);
   const [hpoStatus, setHpoStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [statusDraft, setStatusDraft] = useState('');
+  const [assignedToDraft, setAssignedToDraft] = useState('');
+  const [reviewedByDraft, setReviewedByDraft] = useState('');
+  const [metadataBusy, setMetadataBusy] = useState(false);
+  const [metadataStatus, setMetadataStatus] = useState<{
+    tone: 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const { data, isLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}`);
       return res.data as ApiFamilyRecord;
+    },
+  });
+
+  // Active status catalogue + assignable users power the status / assignment
+  // pickers below. Both are small, app-wide lookups so they are cached by a
+  // stable key and shared across family pages.
+  const { data: familyStatusOptions = [] } = useQuery<ApiFamilyStatusDefinition[]>({
+    queryKey: ['family-statuses'],
+    queryFn: async () => {
+      const res = await api.get('/family-statuses');
+      return res.data as ApiFamilyStatusDefinition[];
+    },
+  });
+
+  const { data: assignableUsers = [] } = useQuery<ApiUserRef[]>({
+    queryKey: ['assignable-users'],
+    queryFn: async () => {
+      const res = await api.get('/users');
+      return res.data as ApiUserRef[];
     },
   });
 
@@ -538,6 +569,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   }, [data?.roi?.query]);
 
   useEffect(() => {
+    setStatusDraft(data?.status?.key ?? '');
+    setAssignedToDraft(data?.assigned_to?.id ?? '');
+    setReviewedByDraft(data?.reviewed_by?.id ?? '');
+    setMetadataStatus(null);
+  }, [data?.status?.key, data?.assigned_to?.id, data?.reviewed_by?.id]);
+
+  useEffect(() => {
     setPendingMemberUpdates({});
     setSelectedMemberId(null);
   }, [familyId]);
@@ -641,6 +679,35 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       });
     } finally {
       setRoiBusy(false);
+    }
+  };
+
+  const metadataDirty =
+    statusDraft !== (data?.status?.key ?? '') ||
+    assignedToDraft !== (data?.assigned_to?.id ?? '') ||
+    reviewedByDraft !== (data?.reviewed_by?.id ?? '');
+
+  const saveMetadata = async () => {
+    if (!familyId) return;
+    setMetadataBusy(true);
+    setMetadataStatus(null);
+    try {
+      const response = await api.put(`/families/${familyId}/metadata`, {
+        status_key: statusDraft || null,
+        assigned_to: assignedToDraft || null,
+        reviewed_by: reviewedByDraft || null,
+      });
+      const updatedFamily = response.data as ApiFamilyRecord;
+      queryClient.setQueryData(['family', familyId], updatedFamily);
+      await queryClient.invalidateQueries({ queryKey: ['families'] });
+      setMetadataStatus({ tone: 'success', message: 'Family status and assignment saved.' });
+    } catch (error) {
+      setMetadataStatus({
+        tone: 'error',
+        message: getErrorMessage(error, 'Failed to update the family status.'),
+      });
+    } finally {
+      setMetadataBusy(false);
     }
   };
 
@@ -1148,6 +1215,87 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   />
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="surface-card-flat family-metadata-card">
+        <div className="family-metadata-head">
+          <div className="space-y-1">
+            <h2 className="section-title">Status &amp; assignment</h2>
+            <p className="family-workspace-card-subtitle">
+              Track this family&rsquo;s analysis status and who is working on it.
+            </p>
+          </div>
+          <FamilyStatusBadge status={data.status} />
+        </div>
+        <div className="family-metadata-grid">
+          <label className="field-label">
+            Status
+            <select
+              aria-label="Family status"
+              value={statusDraft}
+              onChange={(event) => setStatusDraft(event.target.value)}
+              disabled={metadataBusy}
+            >
+              <option value="">No status</option>
+              {familyStatusOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label">
+            Assigned to
+            <select
+              aria-label="Assigned to"
+              value={assignedToDraft}
+              onChange={(event) => setAssignedToDraft(event.target.value)}
+              disabled={metadataBusy}
+            >
+              <option value="">Unassigned</option>
+              {assignableUsers.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {formatUserRef(candidate)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label">
+            Reviewed by
+            <select
+              aria-label="Reviewed by"
+              value={reviewedByDraft}
+              onChange={(event) => setReviewedByDraft(event.target.value)}
+              disabled={metadataBusy}
+            >
+              <option value="">Not reviewed</option>
+              {assignableUsers.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {formatUserRef(candidate)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="family-metadata-actions">
+          <button
+            type="button"
+            className="form-button"
+            onClick={saveMetadata}
+            disabled={metadataBusy || !metadataDirty}
+          >
+            {metadataBusy ? 'Saving…' : 'Save changes'}
+          </button>
+          {metadataStatus && (
+            <div
+              className={`status-note ${
+                metadataStatus.tone === 'success' ? 'status-note--success' : 'status-note--error'
+              }`}
+            >
+              {metadataStatus.message}
             </div>
           )}
         </div>

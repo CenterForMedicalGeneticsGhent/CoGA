@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import type { ApiFamilySummary } from '../lib/apiTypes';
 import { useProjectCatalog } from '../lib/reference';
+import { formatUserRef } from '../lib/users';
+import FamilyStatusBadge from './FamilyStatusBadge';
 import PageState from './PageState';
 
 /** Date a family was added to the system, e.g. "Jan 15, 2024" (matches ProjectsPage). */
@@ -88,6 +90,56 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
       <Link to={`/families/${familyId}`} className="table-link">
         {familyId}
       </Link>
+    );
+  };
+
+  // Shared column scaffold for both the per-project nested table and the
+  // unassigned-families table, so they stay in lockstep.
+  const renderFamilyTableHead = () => (
+    <>
+      <colgroup>
+        <col className="family-catalog-family-column" />
+        <col className="family-catalog-samples-column" />
+        <col className="family-catalog-status-column" />
+        <col className="family-catalog-assigned-column" />
+        <col className="family-catalog-reviewed-column" />
+        <col className="family-catalog-added-column" />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Family ID</th>
+          <th>Samples</th>
+          <th>Status</th>
+          <th>Assigned to</th>
+          <th>Reviewed by</th>
+          <th>Date added</th>
+        </tr>
+      </thead>
+    </>
+  );
+
+  const renderFamilyRow = (family: ApiFamilySummary) => {
+    const sampleIds = family.members.map((member) => member.sample_id);
+    return (
+      <tr key={family.family_id}>
+        <td className="family-catalog-family-cell">{renderFamilyName(family.family_id)}</td>
+        <td className="family-catalog-samples-cell">
+          <span
+            className="family-catalog-sample-count"
+            title={sampleIds.length ? sampleIds.join(', ') : 'No samples'}
+          >
+            {family.members.length}
+          </span>
+        </td>
+        <td className="family-catalog-status-cell">
+          <FamilyStatusBadge status={family.status} />
+        </td>
+        <td className="family-catalog-assigned-cell">{formatUserRef(family.assigned_to)}</td>
+        <td className="family-catalog-reviewed-cell">{formatUserRef(family.reviewed_by)}</td>
+        <td className="family-catalog-added-cell" title="Date added to the system">
+          {formatAddedDate(family.created_at)}
+        </td>
+      </tr>
     );
   };
 
@@ -287,28 +339,9 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
                           ) : (
                             <div className="family-catalog-detail overflow-x-auto">
                               <table className="analysis-table family-catalog-nested">
-                                <colgroup>
-                                  <col className="family-catalog-family-column" />
-                                  <col className="family-catalog-members-column" />
-                                  <col className="family-catalog-added-column" />
-                                </colgroup>
+                                {renderFamilyTableHead()}
                                 <tbody>
-                                  {project.visibleFamilies.map((family) => (
-                                    <tr key={family.family_id}>
-                                      <td className="family-catalog-family-cell">
-                                        {renderFamilyName(family.family_id)}
-                                      </td>
-                                      <td className="family-catalog-members-cell">
-                                        {family.members.map((member) => member.sample_id).join(', ')}
-                                      </td>
-                                      <td
-                                        className="family-catalog-added-cell"
-                                        title="Date added to the system"
-                                      >
-                                        {formatAddedDate(family.created_at)}
-                                      </td>
-                                    </tr>
-                                  ))}
+                                  {project.visibleFamilies.map((family) => renderFamilyRow(family))}
                                 </tbody>
                               </table>
                             </div>
@@ -332,17 +365,10 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
             </p>
           </div>
           <div className="data-table-shell overflow-x-auto">
-            <table className="analysis-table">
+            <table className="analysis-table family-catalog-nested">
+              {renderFamilyTableHead()}
               <tbody>
-                {unassignedFamilies.map((family) => (
-                  <tr key={family.family_id}>
-                    <td className="whitespace-nowrap">{renderFamilyName(family.family_id)}</td>
-                    <td>{family.members.map((member) => member.sample_id).join(', ')}</td>
-                    <td className="family-catalog-added-cell" title="Date added to the system">
-                      {formatAddedDate(family.created_at)}
-                    </td>
-                  </tr>
-                ))}
+                {unassignedFamilies.map((family) => renderFamilyRow(family))}
               </tbody>
             </table>
           </div>

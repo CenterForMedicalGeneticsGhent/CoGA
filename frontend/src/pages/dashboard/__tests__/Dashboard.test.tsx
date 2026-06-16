@@ -231,10 +231,19 @@ describe('Dashboard admin section', () => {
     const nestedTable = familyLink.closest('table');
 
     expect(nestedTable).not.toBeNull();
-    // family, members, and the "date added" column.
-    expect(nestedTable?.querySelectorAll('colgroup col')).toHaveLength(3);
+    // Family ID, Samples, Status, Assigned to, Reviewed by, Date added.
+    expect(nestedTable?.querySelectorAll('colgroup col')).toHaveLength(6);
     expect(nestedTable?.querySelector('.family-catalog-family-column')).not.toBeNull();
+    expect(nestedTable?.querySelector('.family-catalog-status-column')).not.toBeNull();
     expect(nestedTable?.querySelector('.family-catalog-added-column')).not.toBeNull();
     expect(familyLink.closest('td')).toHaveClass('family-catalog-family-cell');
+
+    // Individual sample IDs are not listed inline; the sample count carries
+    // them in a hover tooltip instead.
+    const familyRow = familyLink.closest('tr');
+    const sampleCount = familyRow?.querySelector('.family-catalog-sample-count');
+    expect(sampleCount?.textContent).toBe('2');
+    expect(sampleCount?.getAttribute('title')).toBe('S1, S2');
+    expect(familyRow?.textContent).not.toContain('S1, S2');
   });
 });

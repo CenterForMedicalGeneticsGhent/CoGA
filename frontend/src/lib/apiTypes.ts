@@ -110,11 +110,37 @@ export interface ApiFamilyRegionOfInterest {
   end: number;
 }
 
+export interface ApiUserRef {
+  id: string;
+  username: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+/** Compact status reference embedded in a family record. */
+export interface ApiFamilyStatusRef {
+  key: string;
+  label: string;
+  color: string;
+}
+
+/** Full admin-managed status definition (catalogue + dropdown options). */
+export interface ApiFamilyStatusDefinition extends ApiFamilyStatusRef {
+  id: string;
+  description?: string | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
 export interface ApiFamilyBase<TMember = ApiFamilyMemberRef> {
   family_id: string;
   members: TMember[];
   projects?: string[];
   created_at?: string;
+  status?: ApiFamilyStatusRef | null;
+  assigned_to?: ApiUserRef | null;
+  reviewed_by?: ApiUserRef | null;
 }
 
 export interface ApiFamilySummary extends ApiFamilyBase<ApiFamilyMember> {

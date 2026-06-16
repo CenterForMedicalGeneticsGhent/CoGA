@@ -25,6 +25,7 @@ from . import (
     hpo,
     variant_explorer,
     ui_events,
+    lookups,
 )
 
 all_routers = [
@@ -52,6 +53,7 @@ all_routers = [
     hpo.router,
     variant_explorer.router,
     ui_events.router,
+    lookups.router,
 ]
 
 __all__ = ["all_routers"]

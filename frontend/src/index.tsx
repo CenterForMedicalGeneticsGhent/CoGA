@@ -81,6 +81,9 @@ const AdminPresetFiltersPage = lazy(
 const AdminVariantTagsPage = lazy(
   () => import('./pages/admin/AdminVariantTagsPage')
 );
+const AdminFamilyStatusesPage = lazy(
+  () => import('./pages/admin/AdminFamilyStatusesPage')
+);
 const AdminAuditLogsPage = lazy(
   () => import('./pages/admin/AdminAuditLogsPage')
 );
@@ -303,6 +306,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/data/families/:familyId/structure"
                   element={routeElement(<FamilyDetailPage editable />)}
+                />
+                <Route
+                  path="/admin/data/family-statuses"
+                  element={routeElement(<AdminFamilyStatusesPage />)}
                 />
                 <Route
                   path="/admin/data/clickhouse"

@@ -25,6 +25,15 @@ vi.mock('../../../lib/api', () => ({
             pedigree: null,
             projects: ['p1'],
             metadata: {},
+            status: { key: 'analysis_in_progress', label: 'Analysis in progress', color: '#2f6fb0' },
+            assigned_to: {
+              id: 'u1',
+              username: 'ann',
+              email: 'ann@example.com',
+              first_name: 'Ann',
+              last_name: 'Lee',
+            },
+            reviewed_by: null,
             roi: {
               query: 'GENE1',
               label: 'GENE1',
@@ -160,6 +169,29 @@ vi.mock('../../../lib/api', () => ({
           data: [{ _id: 'asm1', assembly_name: 'GRCh38', version: 'p14' }],
         });
       }
+      if (url === '/family-statuses') {
+        return Promise.resolve({
+          data: [
+            { id: 'st1', key: 'solved', label: 'Solved', color: '#1f9d57', sort_order: 10, is_active: true },
+            {
+              id: 'st2',
+              key: 'analysis_in_progress',
+              label: 'Analysis in progress',
+              color: '#2f6fb0',
+              sort_order: 50,
+              is_active: true,
+            },
+          ],
+        });
+      }
+      if (url === '/users') {
+        return Promise.resolve({
+          data: [
+            { id: 'u1', username: 'ann', email: 'ann@example.com', first_name: 'Ann', last_name: 'Lee' },
+            { id: 'u2', username: 'bob', email: 'bob@example.com', first_name: 'Bob', last_name: 'Ng' },
+          ],
+        });
+      }
       return Promise.resolve({ data: [] });
     }),
     put: vi.fn(),
@@ -177,6 +209,45 @@ describe('FamilyDetailPage', () => {
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
+  });
+
+  it('lets a signed-in user change and save the family status', async () => {
+    localStorage.setItem('role', 'viewer');
+    vi.mocked(api.put).mockResolvedValue({
+      data: {
+        _id: 'fam1',
+        family_id: 'F1',
+        members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }],
+        projects: ['p1'],
+        metadata: {},
+        status: { key: 'solved', label: 'Solved', color: '#1f9d57' },
+        assigned_to: { id: 'u1', username: 'ann', email: 'ann@example.com', first_name: 'Ann', last_name: 'Lee' },
+        reviewed_by: null,
+      },
+    });
+    const queryClient = createTestQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const statusSelect = (await screen.findByLabelText('Family status')) as HTMLSelectElement;
+    await waitFor(() => expect(statusSelect.value).toBe('analysis_in_progress'));
+    fireEvent.change(statusSelect, { target: { value: 'solved' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        '/families/F1/metadata',
+        expect.objectContaining({ status_key: 'solved' }),
+      ),
+    );
   });
 
   it('lets admins edit the ROI from the family dashboard without structure edit controls', async () => {
