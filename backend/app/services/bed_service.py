@@ -14,6 +14,7 @@ from .clickhouse_interval_tracks import (
     count_interval_track_source_rows,
     delete_interval_track_sources,
     delete_interval_tracks,
+    fetch_apcad_downsampled,
     fetch_interval_track_rows,
     get_interval_track_presence_by_sample,
     insert_interval_track_rows,
@@ -241,6 +242,7 @@ async def _fetch_raw_track_rows(
     *,
     assembly_name: str | None,
     sample_uuid: str,
+    family_uuid: str | None = None,
     track_type: str,
     chrom: str,
     origins: list[str] | None = None,
@@ -254,6 +256,10 @@ async def _fetch_raw_track_rows(
     return await fetch_interval_track_rows(
         assembly_name,
         sample_uuid=sample_uuid,
+        # The interval table is ordered by (family_guid, sample_guid, …); filtering
+        # on the family too lets ClickHouse use the primary key instead of scanning
+        # the whole track partition across every family.
+        family_uuid=family_uuid,
         track_type=track_type,
         chromosomes=[chrom],
         origins=origins,
@@ -281,47 +287,6 @@ def _windowed_coverage_rows(rows: list[dict[str, Any]], window: int, limit: int)
     return records[:limit]
 
 
-def _windowed_apcad_rows(rows: list[dict[str, Any]], window: int, limit: int) -> list[dict[str, Any]]:
-    # Bin *every* point per (chromosome, origin, window, band), where band splits
-    # the homozygous extremes (BAF < 0.05 / > 0.95) from the heterozygous mid-range.
-    #
-    # The extremes are not emitted one-point-per-SNP: at genome scale that made the
-    # payload ~2.7 MB per sample (the homozygous SNPs that dominate the genome were
-    # never downsampled, only the sparse mid-range was). Binning by band keeps each
-    # window's three BAF bands (~0 / ~0.5 / ~1) as a single averaged dot each, so the
-    # two homozygous bands that carry the autozygosity/ROH signal survive — a window
-    # with no mid-range dot still reads as a run of homozygosity — while the payload
-    # drops to coverage-like size. Full per-SNP resolution remains on the unwindowed
-    # (region-zoomed) path; the segmented `apcad_pcf` track carries the ROH calls.
-    def _band(value: float) -> int:
-        if value < 0.05:
-            return 0
-        if value > 0.95:
-            return 2
-        return 1
-
-    grouped: dict[tuple[str, str, int, int], list[float]] = {}
-    for row in rows:
-        chrom = str(row["chr"])
-        value = float(row["value"])
-        origin = str(row.get("origin") or "und")
-        bin_start = (int(row["start"]) // window) * window
-        grouped.setdefault((chrom, origin, bin_start, _band(value)), []).append(value)
-    records = [
-        {
-            "chr": chrom,
-            "start": bin_start,
-            "end": bin_start + window,
-            "value": sum(values) / len(values),
-            "origin": origin,
-        }
-        for (chrom, origin, bin_start, _band_idx), values in sorted(
-            grouped.items(), key=lambda item: (item[0][2], item[0][1], item[0][0], item[0][3])
-        )
-    ]
-    return sorted(records, key=lambda item: (item["start"], item.get("origin") or "und"))[:limit]
-
-
 async def _fetch_bed_records_for_chrom(
     session: AsyncSession,
     *,
@@ -339,6 +304,7 @@ async def _fetch_bed_records_for_chrom(
             session,
             assembly_name=sample_context.assembly_name,
             sample_uuid=sample_context.sample_uuid,
+            family_uuid=sample_context.family_uuid,
             track_type=bed_type,
             chrom=chrom_clean,
             start=start,
@@ -346,17 +312,18 @@ async def _fetch_bed_records_for_chrom(
         )
         return _windowed_coverage_rows(rows, window, limit)
     if bed_type == "apcad" and window:
-        rows = await _fetch_raw_track_rows(
-            session,
-            assembly_name=sample_context.assembly_name,
+        if not sample_context.assembly_name:
+            return []
+        return await fetch_apcad_downsampled(
+            sample_context.assembly_name,
             sample_uuid=sample_context.sample_uuid,
-            track_type=bed_type,
-            chrom=chrom_clean,
+            family_uuid=sample_context.family_uuid,
+            chromosomes=[chrom_clean],
             origins=["paternal", "maternal"],
+            budget=limit,
             start=start,
             end=end,
         )
-        return _windowed_apcad_rows(rows, window, limit)
     rows = await _fetch_raw_track_rows(
         session,
         assembly_name=sample_context.assembly_name,
@@ -385,11 +352,10 @@ async def _fetch_bed_records_for_chroms(
     """Fetch and process BED records for many chromosomes with a single
     ClickHouse query (``chrom IN (...)``) instead of one query per chromosome.
 
-    Rows are regrouped back into per-chromosome buckets so the per-chromosome
-    processing (windowed coverage/APCAD binning, or serialization with a
-    per-chromosome ``limit``) is byte-for-byte identical to the previous
-    one-query-per-chromosome path — including ``_windowed_apcad_rows``, which is
-    only ever handed a single chromosome's rows.
+    Rows are regrouped back into per-chromosome buckets so coverage windowing and
+    plain per-chromosome serialization stay identical to the previous
+    one-query-per-chromosome path. (Windowed APCAD never reaches here — it is
+    selected and downsampled entirely in ClickHouse by ``fetch_apcad_downsampled``.)
     """
     _ = session
     # Deduplicate while preserving request order.
@@ -411,6 +377,21 @@ async def _fetch_bed_records_for_chroms(
         for alias in chromosome_aliases(chrom):
             alias_to_chrom[normalize_chromosome(alias)] = chrom
 
+    # APCAD is selected and downsampled entirely in ClickHouse (informative +
+    # quality-gated + het-preserving) so Python never materializes the full
+    # SNV-resolution track. `limit` is the genome-wide point budget.
+    if bed_type == "apcad" and window:
+        return await fetch_apcad_downsampled(
+            sample_context.assembly_name,
+            sample_uuid=sample_context.sample_uuid,
+            family_uuid=sample_context.family_uuid,
+            chromosomes=ordered,
+            origins=["paternal", "maternal"],
+            budget=limit,
+            start=start,
+            end=end,
+        )
+
     origins = ["paternal", "maternal"] if bed_type in {"apcad", "apcad_pcf"} else None
     # Windowed paths bin in Python and need every row; the non-windowed
     # per-chromosome `limit` is re-applied after grouping, so no DB-side limit is
@@ -418,6 +399,7 @@ async def _fetch_bed_records_for_chroms(
     rows = await fetch_interval_track_rows(
         sample_context.assembly_name,
         sample_uuid=sample_context.sample_uuid,
+        family_uuid=sample_context.family_uuid,
         track_type=bed_type,
         chromosomes=ordered,
         origins=origins,
@@ -438,8 +420,6 @@ async def _fetch_bed_records_for_chroms(
             continue
         if bed_type == "coverage" and window:
             records.extend(_windowed_coverage_rows(chrom_rows, window, limit))
-        elif bed_type == "apcad" and window:
-            records.extend(_windowed_apcad_rows(chrom_rows, window, limit))
         else:
             records.extend(_serialize_bed_record(bed_type, row) for row in chrom_rows[:limit])
     return records

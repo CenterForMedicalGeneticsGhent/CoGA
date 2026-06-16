@@ -1,5 +1,6 @@
 import {
   getAdaptiveTrackWindow,
+  getApcadPointLimit,
   getTrackBinLimit,
   getTrackSegmentLimit,
   getTrackVariantLimit,
@@ -19,6 +20,15 @@ describe('trackSampling', () => {
     expect(getTrackBinLimit(700)).toBe(1400);
     expect(getTrackSegmentLimit(100)).toBe(200);
     expect(getTrackSegmentLimit(700)).toBe(1050);
+  });
+
+  it('gives APCAD a larger, bounded point budget than the binned tracks', () => {
+    // Denser than getTrackBinLimit so the BAF bands read as bands, not a dotted line.
+    expect(getApcadPointLimit(1000)).toBe(5000);
+    expect(getApcadPointLimit(1000)).toBeGreaterThan(getTrackBinLimit(1000));
+    expect(getApcadPointLimit(100)).toBe(2000); // floor
+    expect(getApcadPointLimit(4000)).toBe(8000); // ceiling
+    expect(getApcadPointLimit(0)).toBe(4000); // fallback for unmeasured width
   });
 
   it('expands the aggregation window for wide genomic spans', () => {

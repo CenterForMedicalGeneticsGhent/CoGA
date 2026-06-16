@@ -136,6 +136,7 @@ const renderWorkspace = (onJumpToRegion = vi.fn()) => {
           sampleFilterMap={{}}
           detailWindow={5000}
           binLimit={500}
+          apcadPointLimit={2000}
           segmentLimit={500}
           showViewerLoading={false}
         />
@@ -215,6 +216,7 @@ describe('ChromosomeViewWorkspace', () => {
             sampleFilterMap={{}}
             detailWindow={5000}
             binLimit={500}
+            apcadPointLimit={2000}
             segmentLimit={500}
             showViewerLoading={false}
           />

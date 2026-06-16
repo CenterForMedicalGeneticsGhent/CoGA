@@ -14,6 +14,7 @@ import { getChromosomeWindow } from '../../lib/settings';
 import { parseExplicitSampleFilterMap } from '../../lib/sampleFilterState';
 import {
   getAdaptiveTrackWindow,
+  getApcadPointLimit,
   getTrackBinLimit,
   getTrackSegmentLimit,
 } from '../../lib/trackSampling';
@@ -125,6 +126,7 @@ const ChromosomeViewPage: React.FC = () => {
     [regionSpan, trackWidth, win],
   );
   const binLimit = useMemo(() => getTrackBinLimit(trackWidth), [trackWidth]);
+  const apcadPointLimit = useMemo(() => getApcadPointLimit(trackWidth), [trackWidth]);
   const segmentLimit = useMemo(() => getTrackSegmentLimit(trackWidth), [trackWidth]);
 
   const sampleFilterMap = useMemo(() => {
@@ -565,6 +567,7 @@ const ChromosomeViewPage: React.FC = () => {
         sampleFilterMap={sampleFilterMap}
         detailWindow={detailWindow}
         binLimit={binLimit}
+        apcadPointLimit={apcadPointLimit}
         segmentLimit={segmentLimit}
         showViewerLoading={showViewerLoading}
       />

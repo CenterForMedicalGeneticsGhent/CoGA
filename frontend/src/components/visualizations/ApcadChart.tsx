@@ -325,7 +325,12 @@ const ApcadChart: React.FC<Props> = ({
 
     const xScale = (value: number) =>
       ((value - xDomainStart) / xDomainSpan) * width;
-    const yScale = (value: number) => (1 - value) * height;
+    // Inset the BAF axis so the homozygous bands at value 0 and 1 — which for a
+    // normal sample are *all* of its points — render fully on-canvas instead of as
+    // dots pinned to (and clipped at) the top/bottom pixel rows, where they were
+    // effectively invisible. Ticks use yScale too, so they stay aligned.
+    const yPad = TRACK_DOT_RADIUS + 2;
+    const yScale = (value: number) => yPad + (1 - value) * (height - 2 * yPad);
 
     const tickValues = [0, 0.33, 0.5, 0.66, 1];
     const gridColor = cssVar('--color-grid');
@@ -348,6 +353,9 @@ const ApcadChart: React.FC<Props> = ({
     });
     ctx.restore();
 
+    // Draw the raw BAF dots faint so the PCF segments layered on top read clearly.
+    ctx.save();
+    ctx.globalAlpha = 0.45;
     bins.forEach((bin) => {
       if (
         isFocusedRegion &&
@@ -374,6 +382,7 @@ const ApcadChart: React.FC<Props> = ({
       ctx.arc(cx, cy, TRACK_DOT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
     });
+    ctx.restore();
 
     ctx.save();
     ctx.lineCap = 'round';

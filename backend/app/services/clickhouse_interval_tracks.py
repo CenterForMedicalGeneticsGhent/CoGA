@@ -234,6 +234,11 @@ async def fetch_interval_track_rows(
         clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
         params["window_start"] = int(start)
         params["window_end"] = int(end)
+    # `metadata_json` (per-row provenance: filename, line_no, …) is deliberately NOT
+    # selected here. It is large (a JSON blob per row) and unused by every track
+    # reader, so streaming it for a whole-genome APCAD track meant moving megabytes
+    # of dead weight per request — slow, and the prime trigger for stream corruption
+    # under the genome view's concurrent fan-out.
     query = f"""
         SELECT
             sample_guid,
@@ -245,8 +250,7 @@ async def fetch_interval_track_rows(
             origin,
             hap1,
             hap2,
-            ps,
-            metadata_json
+            ps
         FROM {_interval_table_name(assembly_name)}
         WHERE {' AND '.join(clauses)}
         ORDER BY chrom, start
@@ -268,7 +272,6 @@ async def fetch_interval_track_rows(
             hap1,
             hap2,
             ps,
-            metadata_json,
         ) = row
         result.append(
             {
@@ -282,10 +285,128 @@ async def fetch_interval_track_rows(
                 "hap1": hap1,
                 "hap2": hap2,
                 "ps": ps,
-                "metadata_json": metadata_json,
             }
         )
     return result
+
+
+def _apcad_band_strides(het_count: int, homo_count: int, budget: int) -> tuple[int, int]:
+    """Per-band ``cityHash`` strides to keep ~``budget`` APCAD points total.
+
+    Reserves up to 40% of the budget for the homozygous bands so they stay visible
+    even when het markers are plentiful; the rest goes to het (the phasing signal),
+    so rare het — the autozygosity-break signal — is kept in full. A stride of 0
+    means the band is excluded (no rows or no budget for it). Returns
+    ``(het_stride, homo_stride)``.
+    """
+    budget = max(1, int(budget))
+    homo_reserve = min(homo_count, budget * 2 // 5)
+    het_target = min(het_count, budget - homo_reserve)
+    homo_target = min(homo_count, budget - het_target)
+
+    def _stride(count: int, target: int) -> int:
+        if target <= 0 or count <= 0:
+            return 0
+        return max(1, -(-count // target))  # ceil(count / target)
+
+    return _stride(het_count, het_target), _stride(homo_count, homo_target)
+
+
+async def fetch_apcad_downsampled(
+    assembly_name: str,
+    *,
+    sample_uuid: str,
+    family_uuid: str | None = None,
+    chromosomes: Sequence[str],
+    origins: Sequence[str] | None = None,
+    budget: int,
+    start: int | None = None,
+    end: int | None = None,
+) -> list[dict[str, Any]]:
+    """Heterozygous-preserving, quality-filtered downsample of an APCAD track,
+    entirely server-side, to at most ~``budget`` points.
+
+    APCAD is stored at SNV resolution (millions of markers/sample). Pulling them all
+    into Python and thinning there moved megabytes and blocked the event loop for
+    seconds. Instead ClickHouse does the selection:
+
+    - Informative markers only: ``origin IN ('paternal','maternal')`` — these are the
+      SNVs that distinguish the parental haplotypes (``und`` markers are not phasing-
+      informative). The caller passes the origins; this keeps the informative set.
+    - Quality gate: keep VCF ``filter = PASS`` (plus markers with no recorded filter,
+      so older uploads without provenance are not dropped); drop the low-quality
+      VQSR-tranche markers. The per-marker ``qual`` score is also available in
+      ``metadata_json`` if a stricter numeric threshold is ever wanted.
+    - Band-aware budget: keep the heterozygous (BAF mid-band) markers — the phasing
+      signal — up to the budget, while reserving part of it for the homozygous bands
+      so they stay visible; each band is then spatially, uniformly thinned by a
+      deterministic ``cityHash`` stride so points still span the whole genome.
+    """
+    await ensure_clickhouse_interval_table(assembly_name)
+    base_clauses = ["track_type = 'apcad'", "sample_guid = %(sample_uuid)s"]
+    params: dict[str, Any] = {"sample_uuid": str(sample_uuid)}
+    if family_uuid is not None:
+        base_clauses.append("family_guid = %(family_uuid)s")
+        params["family_uuid"] = str(family_uuid)
+    chrom_values = _chrom_values(chromosomes)
+    if chrom_values:
+        base_clauses.append("chrom IN %(chromosomes)s")
+        params["chromosomes"] = tuple(chrom_values)
+    if origins:
+        base_clauses.append("origin IN %(origins)s")
+        params["origins"] = tuple(str(value) for value in origins)
+    if start is not None and end is not None:
+        base_clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
+        params["window_start"] = int(start)
+        params["window_end"] = int(end)
+    # Quality gate: PASS, or no recorded filter (uploads without VCF provenance).
+    base_clauses.append("JSONExtractString(metadata_json, 'filter') IN ('PASS', '')")
+    where = " AND ".join(base_clauses)
+    table = _interval_table_name(assembly_name)
+
+    het_expr = "value >= 0.05 AND value <= 0.95"
+    homo_expr = "value IS NOT NULL AND (value < 0.05 OR value > 0.95)"
+
+    counts = await _execute(
+        f"SELECT countIf({het_expr}) AS het, countIf({homo_expr}) AS homo "
+        f"FROM {table} WHERE {where}",
+        params,
+    )
+    het_count, homo_count = (int(counts[0][0]), int(counts[0][1])) if counts else (0, 0)
+    if het_count == 0 and homo_count == 0:
+        return []
+
+    het_stride, homo_stride = _apcad_band_strides(het_count, homo_count, budget)
+
+    band_clauses: list[str] = []
+    if het_stride:
+        # modulo() not the `%` operator: clickhouse-connect does client-side
+        # %-parameter binding, so a literal `%` in the SQL breaks the bind.
+        band_clauses.append(f"(({het_expr}) AND modulo(cityHash64(chrom, start, end), {het_stride}) = 0)")
+    if homo_stride:
+        band_clauses.append(f"(({homo_expr}) AND modulo(cityHash64(chrom, start, end), {homo_stride}) = 0)")
+    if not band_clauses:
+        return []
+
+    rows = await _execute(
+        f"""
+        SELECT chrom AS chr, start, end, value, origin
+        FROM {table}
+        WHERE {where} AND ({' OR '.join(band_clauses)})
+        ORDER BY chrom, start
+        """,
+        params,
+    )
+    return [
+        {
+            "chr": chrom,
+            "start": int(row_start),
+            "end": int(row_end),
+            "value": None if value is None else float(value),
+            "origin": origin or "und",
+        }
+        for (chrom, row_start, row_end, value, origin) in rows
+    ]
 
 
 async def get_interval_track_presence_by_sample(
