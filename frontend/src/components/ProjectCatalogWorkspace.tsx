@@ -7,6 +7,7 @@ import { useProjectCatalog } from '../lib/reference';
 import { formatUserRef } from '../lib/users';
 import FamilyStatusBadge from './FamilyStatusBadge';
 import PageState from './PageState';
+import VizTooltip from './visualizations/VizTooltip';
 
 /** Date a family was added to the system, e.g. "Jan 15, 2024" (matches ProjectsPage). */
 const formatAddedDate = (value?: string): string => {
@@ -62,6 +63,9 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
 
   const [localSearch, setLocalSearch] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [sampleTooltip, setSampleTooltip] = useState<{ ids: string[]; x: number; y: number } | null>(
+    null,
+  );
   const search = searchTerm ?? localSearch;
   const setSearch = onSearchTermChange ?? setLocalSearch;
   const normalizedSearch = search.trim().toLowerCase();
@@ -126,7 +130,15 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
         <td className="family-catalog-samples-cell">
           <span
             className="family-catalog-sample-count"
-            title={sampleIds.length ? sampleIds.join(', ') : 'No samples'}
+            onMouseEnter={(event) =>
+              sampleIds.length > 0 &&
+              setSampleTooltip({ ids: sampleIds, x: event.clientX, y: event.clientY })
+            }
+            onMouseMove={(event) =>
+              sampleIds.length > 0 &&
+              setSampleTooltip({ ids: sampleIds, x: event.clientX, y: event.clientY })
+            }
+            onMouseLeave={() => setSampleTooltip(null)}
           >
             {family.members.length}
           </span>
@@ -373,6 +385,11 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
             </table>
           </div>
         </section>
+      )}
+      {sampleTooltip && (
+        <VizTooltip x={sampleTooltip.x} y={sampleTooltip.y}>
+          {sampleTooltip.ids.join(', ')}
+        </VizTooltip>
       )}
     </>
   );

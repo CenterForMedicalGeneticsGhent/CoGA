@@ -1197,7 +1197,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   <strong className="family-workspace-stat-copy">Not linked</strong>
                 )}
               </div>
-              <div className="family-workspace-stat">
+            </div>
+            <div className="family-workspace-meta-row">
+              <div className="family-workspace-meta-field">
                 <span className="stat-label">Status</span>
                 <select
                   className="family-workspace-select"
@@ -1218,7 +1220,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   ))}
                 </select>
               </div>
-              <div className="family-workspace-stat">
+              <div className="family-workspace-meta-field">
                 <span className="stat-label">Assigned to</span>
                 <select
                   className="family-workspace-select"
@@ -1239,7 +1241,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   ))}
                 </select>
               </div>
-              <div className="family-workspace-stat">
+              <div className="family-workspace-meta-field">
                 <span className="stat-label">Reviewed by</span>
                 <select
                   className="family-workspace-select"
@@ -1260,17 +1262,17 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   ))}
                 </select>
               </div>
+              {(metadataBusy || metadataStatus) && (
+                <span
+                  className={`family-workspace-metadata-status${
+                    metadataStatus?.tone === 'error' ? ' family-workspace-metadata-status--error' : ''
+                  }`}
+                  role="status"
+                >
+                  {metadataBusy ? 'Saving…' : metadataStatus?.message}
+                </span>
+              )}
             </div>
-            {(metadataBusy || metadataStatus) && (
-              <span
-                className={`family-workspace-metadata-status${
-                  metadataStatus?.tone === 'error' ? ' family-workspace-metadata-status--error' : ''
-                }`}
-                role="status"
-              >
-                {metadataBusy ? 'Saving…' : metadataStatus?.message}
-              </span>
-            )}
           </div>
           {pedRows.length > 0 && (
             <div className="page-top-card-visual">

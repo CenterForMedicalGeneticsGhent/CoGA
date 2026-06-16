@@ -238,12 +238,13 @@ describe('Dashboard admin section', () => {
     expect(nestedTable?.querySelector('.family-catalog-added-column')).not.toBeNull();
     expect(familyLink.closest('td')).toHaveClass('family-catalog-family-cell');
 
-    // Individual sample IDs are not listed inline; the sample count carries
-    // them in a hover tooltip instead.
+    // Individual sample IDs are not listed inline; hovering the sample count
+    // reveals them in a tooltip.
     const familyRow = familyLink.closest('tr');
-    const sampleCount = familyRow?.querySelector('.family-catalog-sample-count');
+    const sampleCount = familyRow?.querySelector('.family-catalog-sample-count') as HTMLElement;
     expect(sampleCount?.textContent).toBe('2');
-    expect(sampleCount?.getAttribute('title')).toBe('S1, S2');
     expect(familyRow?.textContent).not.toContain('S1, S2');
+    fireEvent.mouseEnter(sampleCount, { clientX: 20, clientY: 20 });
+    expect(await screen.findByText('S1, S2')).toBeInTheDocument();
   });
 });

@@ -1442,6 +1442,20 @@ tbody tr:hover {
 }
 
 /* Compact, single-line ROI editor. */
+.family-workspace-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+}
+
+.family-workspace-meta-field {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 9rem;
+}
+
 .family-workspace-select {
   width: 100%;
   font-size: 0.82rem;
