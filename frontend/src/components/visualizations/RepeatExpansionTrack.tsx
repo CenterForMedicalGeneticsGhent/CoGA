@@ -4,7 +4,7 @@ import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
-import VizTooltip from './VizTooltip';
+import { RepeatLocusTooltip, STATUS_COLORS } from './repeatExpansionHelpers';
 
 interface Props {
   familyId: string;
@@ -17,13 +17,6 @@ interface Props {
   projectId?: string;
   chromosomeSize?: number;
 }
-
-const STATUS_COLORS = {
-  normal: () => cssVar('--color-repeat-normal'),
-  intermediate: () => cssVar('--color-repeat-intermediate'),
-  pathogenic: () => cssVar('--color-repeat-pathogenic'),
-  unknown: () => cssVar('--color-repeat-unknown'),
-};
 
 const RepeatExpansionTrack: React.FC<Props> = ({
   familyId,
@@ -152,11 +145,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
         </div>
       )}
       {tooltip && (
-        <VizTooltip x={tooltip.x} y={tooltip.y}>
-          <div>{tooltip.item.display_name}</div>
-          <div>{tooltip.item.disease}</div>
-          <div>{tooltip.item.allele_repeat_counts.join(' / ') || 'no call'} repeats</div>
-        </VizTooltip>
+        <RepeatLocusTooltip x={tooltip.x} y={tooltip.y} item={tooltip.item} />
       )}
     </div>
   );
