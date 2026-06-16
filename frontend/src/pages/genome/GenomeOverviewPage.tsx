@@ -467,7 +467,6 @@ const GenomeOverviewPage: React.FC = () => {
         familyId={familyId || data.family_id}
         familyDisplayId={data.family_id}
         speciesName={speciesName}
-        assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
         assembly={assemblyName}
         projectId={resolvedProjectId}

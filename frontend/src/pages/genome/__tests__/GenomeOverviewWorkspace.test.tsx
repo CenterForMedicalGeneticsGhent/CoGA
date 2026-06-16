@@ -66,7 +66,6 @@ describe('GenomeOverviewWorkspace', () => {
           familyId="F1"
           familyDisplayId="F1"
           speciesName="Homo sapiens"
-          assemblyName="GRCh38"
           assemblyVersion="p14"
           assembly="GRCh38"
           projectId="p1"
