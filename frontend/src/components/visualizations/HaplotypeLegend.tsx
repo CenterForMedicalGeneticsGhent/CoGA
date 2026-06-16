@@ -8,38 +8,35 @@ interface HaplotypeLegendProps {
 interface LegendEntry {
   label: string;
   color: string;
-  /** Risk haplotypes are drawn as a hatch over the origin fill, not a solid block. */
-  hatched?: boolean;
+  /** Risk alleles are drawn as a frame over the homolog fill, not a solid block. */
+  framed?: boolean;
 }
 
-// Parent-of-origin fills are always present; the risk entries depend on the model.
-const ORIGIN_ENTRIES: LegendEntry[] = [
-  { label: 'Paternal', color: 'var(--color-haplotype-father-dark)' },
-  { label: 'Maternal', color: 'var(--color-haplotype-mother-dark)' },
+// The four parental homologs (P1/P2 paternal, M1/M2 maternal) are always shown.
+const HOMOLOG_ENTRIES: LegendEntry[] = [
+  { label: 'P1', color: 'var(--color-haplotype-father-dark)' },
+  { label: 'P2', color: 'var(--color-haplotype-father-light)' },
+  { label: 'M1', color: 'var(--color-haplotype-mother-dark)' },
+  { label: 'M2', color: 'var(--color-haplotype-mother-light)' },
 ];
 
 const riskEntriesForModel = (inheritanceModel?: string | null): LegendEntry[] => {
   const mode = normalizeHaplotypeInheritance(inheritanceModel);
   if (mode === 'recessive') {
-    return [
-      { label: 'Maternal risk', color: 'var(--color-haplotype-recessive-maternal)', hatched: true },
-      { label: 'Paternal risk', color: 'var(--color-haplotype-recessive-paternal)', hatched: true },
-    ];
+    return [{ label: 'Carrier', color: 'var(--color-haplotype-carrier)', framed: true }];
   }
-  if (mode === 'x_linked_dominant' || mode === 'x_linked_recessive') {
-    return [{ label: 'Disease X', color: 'var(--color-haplotype-x-linked)', hatched: true }];
-  }
-  return [{ label: 'Disease haplotype', color: 'var(--color-haplotype-dominant)', hatched: true }];
+  // dominant / x-linked / unknown
+  return [{ label: 'Affected', color: 'var(--color-haplotype-affected)', framed: true }];
 };
 
 const swatchStyle = (entry: LegendEntry): React.CSSProperties =>
-  entry.hatched
-    ? { background: `repeating-linear-gradient(45deg, ${entry.color} 0 1.5px, transparent 1.5px 4px)` }
+  entry.framed
+    ? { background: 'var(--color-surface)', borderColor: entry.color, borderWidth: '1.5px' }
     : { background: entry.color };
 
 const HaplotypeLegend: React.FC<HaplotypeLegendProps> = ({ inheritanceModel }) => (
   <div className="haplotype-legend" aria-label="Haplotype color legend">
-    {[...ORIGIN_ENTRIES, ...riskEntriesForModel(inheritanceModel)].map((entry) => (
+    {[...HOMOLOG_ENTRIES, ...riskEntriesForModel(inheritanceModel)].map((entry) => (
       <span key={entry.label} className="haplotype-legend-item">
         <span className="haplotype-legend-swatch" style={swatchStyle(entry)} />
         {entry.label}

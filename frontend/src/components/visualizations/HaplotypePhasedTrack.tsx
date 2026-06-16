@@ -252,10 +252,10 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       cssVar('--color-haplotype-mother-light'),
     ];
     const riskColors: Record<DiseaseHaplotypeKind, string> = {
-      dominant: cssVar('--color-haplotype-dominant'),
-      'recessive-maternal': cssVar('--color-haplotype-recessive-maternal'),
-      'recessive-paternal': cssVar('--color-haplotype-recessive-paternal'),
-      'x-linked': cssVar('--color-haplotype-x-linked'),
+      dominant: cssVar('--color-haplotype-affected'),
+      'recessive-maternal': cssVar('--color-haplotype-carrier'),
+      'recessive-paternal': cssVar('--color-haplotype-carrier'),
+      'x-linked': cssVar('--color-haplotype-affected'),
     };
     const unknownColor = cssVar('--color-haplotype-unknown');
     const deletedFill = cssVar('--color-haplotype-deleted-fill');

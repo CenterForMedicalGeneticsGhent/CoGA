@@ -41,25 +41,26 @@
   --color-variant-inv: #666884;
   --color-variant-bnd: #44625e;
 
-  --color-haplotype-father-dark: #1d4ed8;
-  --color-haplotype-father-light: #93c5fd;
-  --color-haplotype-mother-dark: #047857;
-  --color-haplotype-mother-light: #6ee7b7;
-  --color-haplotype-dominant: #8f1d1d;
-  --color-haplotype-recessive: #d94a68;
-  --color-haplotype-recessive-maternal: var(--color-haplotype-recessive);
-  --color-haplotype-recessive-paternal: #d65f2e;
-  --color-haplotype-x-linked: #9f1d20;
+  /* Parental homologs — muted slate-blue (paternal P1/P2) and sage-green
+     (maternal M1/M2), in the project's desaturated palette. Dark = homolog 1,
+     light = homolog 2. */
+  --color-haplotype-father-dark: #2f5575;
+  --color-haplotype-father-light: #8aa9c9;
+  --color-haplotype-mother-dark: #386a55;
+  --color-haplotype-mother-light: #8cc0a4;
+  /* Risk alleles, drawn as a clean frame over the homolog fill. */
+  --color-haplotype-affected: #c61f2d;
+  --color-haplotype-carrier: #c2872e;
   --color-haplotype-unknown: #9ca3af;
-  --color-haplotype-deleted-fill: rgba(198, 31, 45, 0.08);
-  --color-haplotype-deleted-stroke: rgba(157, 22, 35, 0.65);
+  --color-haplotype-deleted-fill: rgba(72, 84, 96, 0.10);
+  --color-haplotype-deleted-stroke: rgba(78, 91, 103, 0.6);
   --color-repeat-normal: #9ca3af;
   --color-repeat-intermediate: #d97706;
   --color-repeat-pathogenic: #b42318;
   --color-repeat-unknown: #c6ccd3;
 
   --color-apcad-paternal: var(--color-haplotype-father-dark);
-  --color-apcad-maternal: var(--color-haplotype-recessive);
+  --color-apcad-maternal: var(--color-haplotype-mother-dark);
   --color-apcad-default: var(--color-gray);
 
   --color-coverage-gain: #556f87;
@@ -8000,11 +8001,11 @@ button.table-link:hover {
 }
 
 .haplotype-track--affected_or_at_risk {
-  border-left-color: var(--color-haplotype-dominant);
+  border-left-color: var(--color-haplotype-affected);
 }
 
 .haplotype-track--carrier {
-  border-left-color: var(--color-haplotype-recessive-paternal);
+  border-left-color: var(--color-haplotype-carrier);
 }
 
 .viewer-track-interactive {
