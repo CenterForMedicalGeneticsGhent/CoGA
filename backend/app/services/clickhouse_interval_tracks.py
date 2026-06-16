@@ -234,6 +234,11 @@ async def fetch_interval_track_rows(
         clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
         params["window_start"] = int(start)
         params["window_end"] = int(end)
+    # `metadata_json` (per-row provenance: filename, line_no, …) is deliberately NOT
+    # selected here. It is large (a JSON blob per row) and unused by every track
+    # reader, so streaming it for a whole-genome APCAD track meant moving megabytes
+    # of dead weight per request — slow, and the prime trigger for stream corruption
+    # under the genome view's concurrent fan-out.
     query = f"""
         SELECT
             sample_guid,
@@ -245,8 +250,7 @@ async def fetch_interval_track_rows(
             origin,
             hap1,
             hap2,
-            ps,
-            metadata_json
+            ps
         FROM {_interval_table_name(assembly_name)}
         WHERE {' AND '.join(clauses)}
         ORDER BY chrom, start
@@ -268,7 +272,6 @@ async def fetch_interval_track_rows(
             hap1,
             hap2,
             ps,
-            metadata_json,
         ) = row
         result.append(
             {
@@ -282,7 +285,6 @@ async def fetch_interval_track_rows(
                 "hap1": hap1,
                 "hap2": hap2,
                 "ps": ps,
-                "metadata_json": metadata_json,
             }
         )
     return result

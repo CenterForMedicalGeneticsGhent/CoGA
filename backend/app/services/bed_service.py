@@ -241,6 +241,7 @@ async def _fetch_raw_track_rows(
     *,
     assembly_name: str | None,
     sample_uuid: str,
+    family_uuid: str | None = None,
     track_type: str,
     chrom: str,
     origins: list[str] | None = None,
@@ -254,6 +255,10 @@ async def _fetch_raw_track_rows(
     return await fetch_interval_track_rows(
         assembly_name,
         sample_uuid=sample_uuid,
+        # The interval table is ordered by (family_guid, sample_guid, …); filtering
+        # on the family too lets ClickHouse use the primary key instead of scanning
+        # the whole track partition across every family.
+        family_uuid=family_uuid,
         track_type=track_type,
         chromosomes=[chrom],
         origins=origins,
@@ -347,6 +352,7 @@ async def _fetch_bed_records_for_chrom(
             session,
             assembly_name=sample_context.assembly_name,
             sample_uuid=sample_context.sample_uuid,
+            family_uuid=sample_context.family_uuid,
             track_type=bed_type,
             chrom=chrom_clean,
             start=start,
@@ -358,6 +364,7 @@ async def _fetch_bed_records_for_chrom(
             session,
             assembly_name=sample_context.assembly_name,
             sample_uuid=sample_context.sample_uuid,
+            family_uuid=sample_context.family_uuid,
             track_type=bed_type,
             chrom=chrom_clean,
             origins=["paternal", "maternal"],
@@ -426,6 +433,7 @@ async def _fetch_bed_records_for_chroms(
     rows = await fetch_interval_track_rows(
         sample_context.assembly_name,
         sample_uuid=sample_context.sample_uuid,
+        family_uuid=sample_context.family_uuid,
         track_type=bed_type,
         chromosomes=ordered,
         origins=origins,
