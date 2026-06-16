@@ -282,30 +282,32 @@ def _windowed_coverage_rows(rows: list[dict[str, Any]], window: int, limit: int)
 
 
 def _windowed_apcad_rows(rows: list[dict[str, Any]], window: int, limit: int) -> list[dict[str, Any]]:
-    # Bin per (chromosome, origin, window) and carry each row's own chromosome so
-    # the function is correct for multi-chromosome input. For the single-chromosome
-    # input it actually receives today this is byte-for-byte identical to binning
-    # by (origin, window) and stamping rows[0]'s chromosome.
-    grouped: dict[tuple[str, str, int], list[float]] = {}
-    extremes: list[dict[str, Any]] = []
+    # Bin *every* point per (chromosome, origin, window, band), where band splits
+    # the homozygous extremes (BAF < 0.05 / > 0.95) from the heterozygous mid-range.
+    #
+    # The extremes are not emitted one-point-per-SNP: at genome scale that made the
+    # payload ~2.7 MB per sample (the homozygous SNPs that dominate the genome were
+    # never downsampled, only the sparse mid-range was). Binning by band keeps each
+    # window's three BAF bands (~0 / ~0.5 / ~1) as a single averaged dot each, so the
+    # two homozygous bands that carry the autozygosity/ROH signal survive — a window
+    # with no mid-range dot still reads as a run of homozygosity — while the payload
+    # drops to coverage-like size. Full per-SNP resolution remains on the unwindowed
+    # (region-zoomed) path; the segmented `apcad_pcf` track carries the ROH calls.
+    def _band(value: float) -> int:
+        if value < 0.05:
+            return 0
+        if value > 0.95:
+            return 2
+        return 1
+
+    grouped: dict[tuple[str, str, int, int], list[float]] = {}
     for row in rows:
         chrom = str(row["chr"])
         value = float(row["value"])
         origin = str(row.get("origin") or "und")
-        if 0.05 <= value <= 0.95:
-            bin_start = (int(row["start"]) // window) * window
-            grouped.setdefault((chrom, origin, bin_start), []).append(value)
-        else:
-            extremes.append(
-                {
-                    "chr": chrom,
-                    "start": int(row["start"]),
-                    "end": int(row["end"]),
-                    "value": value,
-                    "origin": origin,
-                }
-            )
-    binned = [
+        bin_start = (int(row["start"]) // window) * window
+        grouped.setdefault((chrom, origin, bin_start, _band(value)), []).append(value)
+    records = [
         {
             "chr": chrom,
             "start": bin_start,
@@ -313,11 +315,11 @@ def _windowed_apcad_rows(rows: list[dict[str, Any]], window: int, limit: int) ->
             "value": sum(values) / len(values),
             "origin": origin,
         }
-        for (chrom, origin, bin_start), values in sorted(
-            grouped.items(), key=lambda item: (item[0][2], item[0][1], item[0][0])
+        for (chrom, origin, bin_start, _band_idx), values in sorted(
+            grouped.items(), key=lambda item: (item[0][2], item[0][1], item[0][0], item[0][3])
         )
-    ][:limit]
-    return sorted([*binned, *extremes], key=lambda item: (item["start"], item.get("origin") or "und"))
+    ]
+    return sorted(records, key=lambda item: (item["start"], item.get("origin") or "und"))[:limit]
 
 
 async def _fetch_bed_records_for_chrom(
