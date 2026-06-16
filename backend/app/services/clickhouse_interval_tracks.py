@@ -290,26 +290,19 @@ async def fetch_interval_track_rows(
     return result
 
 
-def _apcad_band_strides(het_count: int, homo_count: int, budget: int) -> tuple[int, int]:
-    """Per-band ``cityHash`` strides to keep ~``budget`` APCAD points total.
+def _apcad_band_targets(het_count: int, homo_count: int, budget: int) -> tuple[int, int]:
+    """How many het / homozygous APCAD points to keep for a ~``budget`` total.
 
     Reserves up to 40% of the budget for the homozygous bands so they stay visible
     even when het markers are plentiful; the rest goes to het (the phasing signal),
-    so rare het — the autozygosity-break signal — is kept in full. A stride of 0
-    means the band is excluded (no rows or no budget for it). Returns
-    ``(het_stride, homo_stride)``.
+    so rare het — the autozygosity-break signal — is kept in full. Returns
+    ``(het_target, homo_target)``.
     """
     budget = max(1, int(budget))
     homo_reserve = min(homo_count, budget * 2 // 5)
     het_target = min(het_count, budget - homo_reserve)
     homo_target = min(homo_count, budget - het_target)
-
-    def _stride(count: int, target: int) -> int:
-        if target <= 0 or count <= 0:
-            return 0
-        return max(1, -(-count // target))  # ceil(count / target)
-
-    return _stride(het_count, het_target), _stride(homo_count, homo_target)
+    return het_target, homo_target
 
 
 async def fetch_apcad_downsampled(
@@ -337,10 +330,11 @@ async def fetch_apcad_downsampled(
       so older uploads without provenance are not dropped); drop the low-quality
       VQSR-tranche markers. The per-marker ``qual`` score is also available in
       ``metadata_json`` if a stricter numeric threshold is ever wanted.
-    - Band-aware budget: keep the heterozygous (BAF mid-band) markers — the phasing
-      signal — up to the budget, while reserving part of it for the homozygous bands
-      so they stay visible; each band is then spatially, uniformly thinned by a
-      deterministic ``cityHash`` stride so points still span the whole genome.
+    - Band-aware, quality-ranked budget: keep the heterozygous (BAF mid-band)
+      markers — the phasing signal — up to the budget, while reserving part of it for
+      the homozygous bands so they stay visible; within each band keep the highest
+      VCF ``qual`` markers (not a spatial sample), so the points shown are the most
+      confident ones.
     """
     await ensure_clickhouse_interval_table(assembly_name)
     base_clauses = ["track_type = 'apcad'", "sample_guid = %(sample_uuid)s"]
@@ -376,27 +370,27 @@ async def fetch_apcad_downsampled(
     if het_count == 0 and homo_count == 0:
         return []
 
-    het_stride, homo_stride = _apcad_band_strides(het_count, homo_count, budget)
+    het_target, homo_target = _apcad_band_targets(het_count, homo_count, budget)
 
-    band_clauses: list[str] = []
-    if het_stride:
-        # modulo() not the `%` operator: clickhouse-connect does client-side
-        # %-parameter binding, so a literal `%` in the SQL breaks the bind.
-        band_clauses.append(f"(({het_expr}) AND modulo(cityHash64(chrom, start, end), {het_stride}) = 0)")
-    if homo_stride:
-        band_clauses.append(f"(({homo_expr}) AND modulo(cityHash64(chrom, start, end), {homo_stride}) = 0)")
-    if not band_clauses:
+    # Keep the highest-quality markers in each band (qual = per-marker VCF confidence)
+    # rather than a spatial sample. One ranked, LIMITed subquery per band, unioned.
+    qual_expr = "JSONExtractFloat(metadata_json, 'qual')"
+
+    def _band_query(band_expr: str, target: int) -> str:
+        return (
+            f"SELECT chrom AS chr, start, end, value, origin FROM {table} "
+            f"WHERE {where} AND ({band_expr}) ORDER BY {qual_expr} DESC LIMIT {int(target)}"
+        )
+
+    subqueries: list[str] = []
+    if het_target > 0:
+        subqueries.append(_band_query(het_expr, het_target))
+    if homo_target > 0:
+        subqueries.append(_band_query(homo_expr, homo_target))
+    if not subqueries:
         return []
 
-    rows = await _execute(
-        f"""
-        SELECT chrom AS chr, start, end, value, origin
-        FROM {table}
-        WHERE {where} AND ({' OR '.join(band_clauses)})
-        ORDER BY chrom, start
-        """,
-        params,
-    )
+    rows = await _execute(" UNION ALL ".join(subqueries), params)
     return [
         {
             "chr": chrom,
