@@ -14,6 +14,7 @@ CoGA is organized around three areas: a family workspace, cross-cohort discovery
 - Per-data-type analysis views, surfaced only when that data is present: small variants (SNV/indel), structural variants, a combined variant summary, repeat expansions (TRGT), Paraphase, and mitochondrial (mtDNA) analysis.
 - Genome visualization: whole-genome overview, per-chromosome view, Circos plot, and an embedded IGV browser.
 - Per-variant review with ACMG classification, tags, and notes. Phenotype (clinical status) and carrier status are tracked as independent axes.
+- Semi-automatic [ACMG classifier](docs/acmg-classification.md): pre-evaluates ACMG/AMP criteria from the variant, trio and gene data onto a points scale, with every criterion overridable.
 
 ### Discovery and analysis
 

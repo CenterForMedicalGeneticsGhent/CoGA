@@ -740,6 +740,30 @@ tbody tr:hover {
   font-size: 0.92em;
 }
 
+.content-prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.content-prose th,
+.content-prose td {
+  border: 1px solid var(--color-border);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.content-prose thead th {
+  background: rgba(245, 248, 251, 0.96);
+  font-weight: 650;
+}
+
+.content-prose .content-table-wrap {
+  overflow-x: auto;
+}
+
 .user-guide-page {
   align-items: stretch;
   gap: 2.75rem;

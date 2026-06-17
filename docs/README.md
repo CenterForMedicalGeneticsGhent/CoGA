@@ -20,6 +20,8 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
 
 ## Also Useful
 
+- [ACMG Classification](acmg-classification.md)
+  - The semi-automatic ACMG/AMP classifier: the points/scoring model, and the full pre-check and exclusion rules used to auto-position each criterion.
 - [Family Member Management](family-member-management.md)
   - How phenotype/carrier/structure edits propagate, what is preserved versus marked stale, and the batch-update flow.
 - [Demo Quartet Walkthrough](../demo/quartet_family/README.md)
