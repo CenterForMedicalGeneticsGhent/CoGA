@@ -15,12 +15,14 @@ from ..schemas import (
     GeneExternalLinkOut,
     GeneHomologOut,
     GeneInfoSourceStatusOut,
+    GeneMonarchAssociationOut,
     GenePanelMembershipOut,
     GeneProfileOut,
     GeneSearchResultOut,
     GeneTranscriptOut,
 )
 from .metadata_service import CurrentUser, get_accessible_family_mapping
+from .monarch_ingest import list_monarch_gene_disease
 
 
 def _gene_symbol_candidates(symbol: str) -> list[str]:
@@ -570,6 +572,22 @@ async def build_gene_profile(
         omim_gene_id=cached_mapping.get("omim_gene_id"),
     )
 
+    monarch_rows = await list_monarch_gene_disease(
+        session, symbol=str(primary["hgnc_symbol"])
+    )
+    monarch_associations = [
+        GeneMonarchAssociationOut(
+            mondo_id=row["mondo_id"],
+            disease_label=row.get("disease_label"),
+            predicate=row["predicate"],
+            predicates=list(row.get("predicates") or []),
+            sources=list(row.get("sources") or []),
+            causal=bool(row.get("causal")),
+            monarch_url=f"https://monarchinitiative.org/{row['mondo_id']}",
+        )
+        for row in monarch_rows
+    ]
+
     return GeneProfileOut(
         assembly_id=str(primary_assembly["id"]),
         assembly_name=str(primary_assembly["assembly_name"]),
@@ -600,6 +618,7 @@ async def build_gene_profile(
         family_counts=None,
         source_status=info_source_status,
         external_links=external_links,
+        monarch_associations=monarch_associations,
         extra=dict(cached_mapping.get("extra") or {}),
         updated_at=cached_mapping.get("updated_at"),
     )

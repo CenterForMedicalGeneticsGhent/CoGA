@@ -961,6 +961,16 @@ class GeneExternalLinkOut(BaseModel):
     href: str
 
 
+class GeneMonarchAssociationOut(BaseModel):
+    mondo_id: str
+    disease_label: Optional[str] = None
+    predicate: str
+    predicates: List[str] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
+    causal: bool = False
+    monarch_url: Optional[str] = None
+
+
 class GeneProfileOut(BaseModel):
     assembly_id: str
     assembly_name: str
@@ -991,8 +1001,20 @@ class GeneProfileOut(BaseModel):
     family_counts: Optional[GeneVariantCountsOut] = None
     source_status: Dict[str, GeneInfoSourceStatusOut] = Field(default_factory=dict)
     external_links: List[GeneExternalLinkOut] = Field(default_factory=list)
+    monarch_associations: List[GeneMonarchAssociationOut] = Field(default_factory=list)
     extra: Dict[str, Any] = Field(default_factory=dict)
     updated_at: Optional[datetime] = None
+
+
+class MonarchRefreshSummaryOut(BaseModel):
+    release_version: Optional[str] = None
+    files_loaded: int = 0
+    gene_disease_pairs: int = 0
+    genes: int = 0
+    diseases: int = 0
+    causal_pairs: int = 0
+    completed_at: datetime
+    duration_seconds: float = 0.0
 
 
 class GeneBulkRefreshOut(BaseModel):
