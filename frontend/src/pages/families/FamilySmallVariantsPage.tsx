@@ -434,6 +434,14 @@ const FamilySmallVariantsPage: React.FC = () => {
         />
       </section>
 
+      <div className="variant-results-region">
+        {isFetching ? (
+          <div className="variant-results-loading-bar" role="status" aria-live="polite">
+            <span className="viz-loading-spinner" aria-hidden="true" />
+            <span>Loading variants…</span>
+          </div>
+        ) : null}
+        <div className={isFetching ? 'variant-results-fetching' : undefined} aria-busy={isFetching}>
       <SmallVariantResults
         assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
@@ -476,6 +484,8 @@ const FamilySmallVariantsPage: React.FC = () => {
           await reviewMutation.mutateAsync({ variant, payload });
         }}
       />
+        </div>
+      </div>
     </div>
   );
 };
