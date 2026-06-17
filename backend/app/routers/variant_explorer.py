@@ -4,15 +4,19 @@ A variant-centric, cross-project aggregation view over small variants. See
 ``app/services/variant_explorer_service.py`` for the aggregation strategy.
 """
 
+import csv
+import io
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
     GlobalVariantPageOut,
+    GlobalVariantRowOut,
     SmallVariantTagDefinitionOut,
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
@@ -22,6 +26,7 @@ from ..services.panel_metadata_service import _fetch_panel_genes
 from ..services.small_variant_review_pg import list_small_variant_tag_definitions
 from ..services.variant_explorer_service import (
     GlobalVariantFilters,
+    export_global_small_variants,
     get_variant_carriers,
     list_explorer_assemblies,
     list_explorer_samples,
@@ -86,13 +91,7 @@ async def list_explorer_tag_definitions(
     )
 
 
-@router.get("/small-variants", response_model=GlobalVariantPageOut)
-async def list_global_small_variants(
-    assembly_id: str | None = None,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=50, ge=1, le=200),
-    sort: str = "total_samples",
-    order: str = "desc",
+async def _build_global_variant_filters(
     chr: str | None = None,
     start: int | None = None,
     end: int | None = None,
@@ -127,8 +126,12 @@ async def list_global_small_variants(
     include_imputed: bool = False,
     sample_gt: List[str] = Query(default_factory=list, alias="sample_gt"),
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> GlobalVariantPageOut:
+) -> GlobalVariantFilters:
+    """Parse the shared small-variant filter query params into a filter object.
+
+    Used by both the paginated listing and the CSV export so they stay in sync.
+    """
+
     panel_genes: list[str] = []
     if panel_id:
         try:
@@ -136,7 +139,7 @@ async def list_global_small_variants(
         except ValueError:
             panel_genes = []
 
-    filters = GlobalVariantFilters(
+    return GlobalVariantFilters(
         chromosome=chr,
         start=start,
         end=end,
@@ -171,6 +174,19 @@ async def list_global_small_variants(
         include_imputed=include_imputed,
         sample_genotype_filters=_parse_sample_genotype_filters(sample_gt),
     )
+
+
+@router.get("/small-variants", response_model=GlobalVariantPageOut)
+async def list_global_small_variants(
+    assembly_id: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    sort: str = "total_samples",
+    order: str = "desc",
+    filters: GlobalVariantFilters = Depends(_build_global_variant_filters),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> GlobalVariantPageOut:
     return await search_global_small_variants(
         session,
         user=user,
@@ -180,6 +196,77 @@ async def list_global_small_variants(
         page_size=page_size,
         sort=sort,
         order=order,
+    )
+
+
+# CSV column order for the variant export. Mirrors the on-screen table plus the
+# extra annotation fields that don't fit in the UI.
+_EXPORT_COLUMNS: list[tuple[str, str]] = [
+    ("chr", "Chromosome"),
+    ("pos", "Position"),
+    ("ref", "Ref"),
+    ("alt", "Alt"),
+    ("variant_id", "Variant ID"),
+    ("rsid", "rsID"),
+    ("type", "Type"),
+    ("gene", "Gene"),
+    ("gene_symbols", "Gene symbols"),
+    ("impact", "Impact"),
+    ("consequence", "Consequence"),
+    ("effects", "Effects"),
+    ("hgvsc", "HGVSc"),
+    ("hgvsp", "HGVSp"),
+    ("clinvar", "ClinVar"),
+    ("classification", "Classification"),
+    ("tags", "Tags"),
+    ("total_samples", "Total samples"),
+    ("het_samples", "Het"),
+    ("hom_samples", "Hom"),
+    ("total_families", "Families"),
+    ("last_seen", "Last reviewed"),
+]
+
+
+def _export_cell(row: GlobalVariantRowOut, field: str) -> str:
+    value = getattr(row, field, None)
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "; ".join(str(item) for item in value)
+    return str(value)
+
+
+@router.get("/small-variants/export")
+async def export_global_small_variants_csv(
+    assembly_id: str | None = None,
+    sort: str = "total_samples",
+    order: str = "desc",
+    filters: GlobalVariantFilters = Depends(_build_global_variant_filters),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download every filtered variant (with annotation data) as a CSV file."""
+
+    assembly_name, rows = await export_global_small_variants(
+        session,
+        user=user,
+        filters=filters,
+        assembly_id=assembly_id,
+        sort=sort,
+        order=order,
+    )
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([label for _, label in _EXPORT_COLUMNS])
+    for row in rows:
+        writer.writerow([_export_cell(row, field) for field, _ in _EXPORT_COLUMNS])
+
+    filename = f"variant-explorer-{assembly_name or 'export'}.csv"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

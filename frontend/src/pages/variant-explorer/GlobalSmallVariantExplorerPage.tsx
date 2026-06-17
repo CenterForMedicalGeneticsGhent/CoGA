@@ -59,6 +59,31 @@ const GlobalSmallVariantExplorerPage = () => {
     mode: CarrierModalMode;
   } | null>(null);
 
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleDownloadCsv = async () => {
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      const res = await api.get(`/variant-explorer/small-variants/export?${requestQueryString}`, {
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `variant-explorer-${assemblyId ?? 'export'}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setExportError('Could not export variants. Try narrowing your filters and retry.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const addGenotypeRow = () => {
     const sample = newSample.trim();
     if (!sample || genotypeRows.some((row) => row.sample === sample)) {
@@ -307,7 +332,22 @@ const GlobalSmallVariantExplorerPage = () => {
             {total.toLocaleString()} variant{total === 1 ? '' : 's'}
             {isFetching ? ' · updating…' : ''}
           </p>
+          <button
+            type="button"
+            className="button-secondary variant-explorer-download"
+            onClick={handleDownloadCsv}
+            disabled={isExporting || total === 0}
+            title="Download all filtered variants with annotation data as CSV"
+          >
+            {isExporting ? 'Preparing…' : 'Download CSV'}
+          </button>
         </div>
+
+        {exportError ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--error">
+            {exportError}
+          </div>
+        ) : null}
 
         {isLoading ? (
           <p className="table-subtle">Loading variants…</p>

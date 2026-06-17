@@ -452,6 +452,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         onPageChange={goToPage}
         page={page}
         projectId={projectId}
+        requestQueryString={requestQueryString}
         reviewIsPending={reviewMutation.isPending}
         reviewError={
           reviewMutation.isError

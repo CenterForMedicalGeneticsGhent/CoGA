@@ -697,9 +697,50 @@ async def search_global_small_variants(
             assembly_name=scope.assembly_name,
         )
 
+    variants = await _fetch_variant_rows(
+        session,
+        scope=scope,
+        entries_table=entries_table,
+        where_sql=where_sql,
+        params=params,
+        sort_expr=sort_expr,
+        direction=direction,
+        limit=page_size,
+        offset=(page - 1) * page_size,
+    )
+
+    return GlobalVariantPageOut(
+        total=total,
+        total_is_estimated=False,
+        page=page,
+        page_size=page_size,
+        assembly_id=scope.assembly_id,
+        assembly_name=scope.assembly_name,
+        variants=variants,
+    )
+
+
+async def _fetch_variant_rows(
+    session: AsyncSession,
+    *,
+    scope: Any,
+    entries_table: str,
+    where_sql: str,
+    params: dict[str, Any],
+    sort_expr: str,
+    direction: str,
+    limit: int,
+    offset: int,
+) -> list[GlobalVariantRowOut]:
+    """Run the aggregated variant query and hydrate it into row models.
+
+    Shared by the paginated search and the CSV export so both return identical
+    columns; only ``limit``/``offset`` differ.
+    """
+
     page_params = dict(params)
-    page_params["limit"] = page_size
-    page_params["offset"] = (page - 1) * page_size
+    page_params["limit"] = limit
+    page_params["offset"] = offset
 
     rows = await execute_clickhouse(
         f"""
@@ -803,15 +844,71 @@ async def search_global_small_variants(
             )
         )
 
-    return GlobalVariantPageOut(
-        total=total,
-        total_is_estimated=False,
-        page=page,
-        page_size=page_size,
-        assembly_id=scope.assembly_id,
-        assembly_name=scope.assembly_name,
-        variants=variants,
+    return variants
+
+
+# Hard cap on rows pulled into a single CSV export. Generous enough for any
+# realistic filtered result set, but bounds memory/response size for an
+# unfiltered "download everything" request.
+_MAX_EXPORT_ROWS = 50_000
+
+
+async def export_global_small_variants(
+    session: AsyncSession,
+    *,
+    user: CurrentUser,
+    filters: GlobalVariantFilters,
+    assembly_id: str | None = None,
+    sort: str = _DEFAULT_SORT,
+    order: str = "desc",
+    limit: int = _MAX_EXPORT_ROWS,
+) -> tuple[str | None, list[GlobalVariantRowOut]]:
+    """Fetch up to ``limit`` filtered variants for CSV export.
+
+    Returns ``(assembly_name, rows)``. Applies the same filtering/sorting as the
+    paginated search but ignores pagination so the caller gets the full result
+    set (capped at ``limit``).
+    """
+
+    limit = max(1, min(limit, _MAX_EXPORT_ROWS))
+    sort_expr = _SORT_EXPR.get(sort, _SORT_EXPR[_DEFAULT_SORT])
+    direction = "ASC" if str(order).lower() == "asc" else "DESC"
+
+    scope = await resolve_scope(session, user, assembly_id)
+    if scope is None:
+        return None, []
+
+    tag_variant_ids: list[str] | None = None
+    if filters.has_review_filter():
+        matched = await _variant_ids_matching_reviews(
+            session,
+            project_ids=scope.project_ids,
+            classifications=filters.classifications,
+            tags=filters.review_tags,
+        )
+        if not matched:
+            return scope.assembly_name, []
+        if len(matched) > _MAX_TAG_FILTER_VARIANT_IDS:
+            matched = set(list(matched)[:_MAX_TAG_FILTER_VARIANT_IDS])
+        tag_variant_ids = list(matched)
+
+    entries_table = _small_table_name(scope.assembly_name, "entries")
+    params: dict[str, Any] = {"gt_ref_missing": _GT_REF_MISSING, "gt_hom": _GT_HOM}
+    where_clauses = _entries_where(scope, filters, params, tag_variant_ids=tag_variant_ids)
+    where_sql = " AND ".join(where_clauses)
+
+    variants = await _fetch_variant_rows(
+        session,
+        scope=scope,
+        entries_table=entries_table,
+        where_sql=where_sql,
+        params=params,
+        sort_expr=sort_expr,
+        direction=direction,
+        limit=limit,
+        offset=0,
     )
+    return scope.assembly_name, variants
 
 
 async def _fetch_annotation_display(
