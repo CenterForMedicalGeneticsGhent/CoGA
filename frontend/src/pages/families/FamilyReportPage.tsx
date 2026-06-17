@@ -1,0 +1,424 @@
+import React, { useMemo } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { useQueries, useQuery } from '@tanstack/react-query';
+
+import api from '../../lib/api';
+import PageState from '../../components/PageState';
+import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
+import { formatLocus } from './smallVariantResultUtils';
+import {
+  REPORT_TAG_KEY,
+  type FamilyMember,
+  type SmallVariant,
+  type SmallVariantFamily,
+  type SmallVariantPage,
+} from './smallVariantSearch';
+import {
+  acmgClassificationLabel,
+  buildSegregationSentence,
+  buildVariantSentence,
+  collectInSilicoPredictions,
+  collectReportCriteria,
+  describeClinvar,
+  describeGnomadFrequency,
+  describeInSilico,
+  joinWithAnd,
+} from './reportNarrative';
+
+interface GeneHpoTerm {
+  hpo_id?: string | null;
+  label?: string | null;
+}
+
+interface GeneGenccAssertion {
+  disease_title?: string | null;
+  moi_title?: string | null;
+}
+
+interface GeneProfileResponse {
+  symbol: string;
+  display_name?: string | null;
+  summary?: string | null;
+  omim_gene_id?: string | null;
+  panels?: Array<{ panel_id: string; name: string }>;
+  extra?: {
+    hpo_terms?: GeneHpoTerm[];
+    gencc_assertions?: GeneGenccAssertion[];
+    omim_diseases?: Array<string | { disease?: string | null; title?: string | null }>;
+  };
+}
+
+interface FamilyHpoAnnotation {
+  sample_id: string;
+  hpo_id: string;
+  label: string;
+  status: 'present' | 'absent' | 'unknown';
+}
+
+const memberName = (member: FamilyMember): string =>
+  member.role?.trim() ? `${member.role} (${member.sample_id})` : member.sample_id;
+
+const uniqueGeneSymbols = (variants: SmallVariant[]): string[] =>
+  Array.from(
+    new Set(
+      variants
+        .map((variant) => variant.gene?.trim())
+        .filter((gene): gene is string => Boolean(gene)),
+    ),
+  );
+
+const omimDiseaseTitles = (profile?: GeneProfileResponse): string[] => {
+  const entries = profile?.extra?.omim_diseases ?? [];
+  return entries
+    .map((entry) => (typeof entry === 'string' ? entry : entry.disease || entry.title || ''))
+    .map((value) => value.trim())
+    .filter(Boolean);
+};
+
+const genccDiseases = (profile?: GeneProfileResponse): string[] =>
+  Array.from(
+    new Set(
+      (profile?.extra?.gencc_assertions ?? [])
+        .map((entry) => entry.disease_title?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
+  Array.from(
+    new Set(
+      (profile?.extra?.gencc_assertions ?? [])
+        .map((entry) => entry.moi_title?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+const FamilyReportPage: React.FC = () => {
+  const { familyId } = useParams<{ familyId: string }>();
+  const location = useLocation();
+  const preferredProjectId = useMemo(
+    () => new URLSearchParams(location.search).get('project_id') || undefined,
+    [location.search],
+  );
+
+  const { data: family, isLoading: familyLoading } = useQuery<SmallVariantFamily>({
+    queryKey: ['family', familyId],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}`);
+      return res.data as SmallVariantFamily;
+    },
+  });
+
+  const members = useMemo<FamilyMember[]>(
+    () => ((family?.members as FamilyMember[] | undefined) ?? []).filter((m) => m.active !== false),
+    [family],
+  );
+
+  const { speciesName, assemblyName, assemblyVersion, projectId, isLoading: referenceLoading } =
+    useFamilyReference(family?.projects as string[] | undefined, preferredProjectId);
+
+  const referenceLabel = formatResolvedReferenceLabel(
+    { speciesName, assemblyName, assemblyVersion },
+    'Reference not linked',
+  );
+
+  const variantQueryReady = Boolean(
+    familyId && family && (!family.projects?.length || projectId),
+  );
+
+  const reportQueryString = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set('review_tag', REPORT_TAG_KEY);
+    params.set('page_size', '500');
+    if (projectId) params.set('project_id', projectId);
+    return params.toString();
+  }, [projectId]);
+
+  const {
+    data: reportPage,
+    isLoading: variantsLoading,
+    isError,
+  } = useQuery<SmallVariantPage>({
+    queryKey: ['family', familyId, 'report-variants', reportQueryString],
+    enabled: variantQueryReady,
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/small-variants?${reportQueryString}`);
+      return res.data as SmallVariantPage;
+    },
+  });
+
+  const variants = useMemo(() => reportPage?.variants ?? [], [reportPage]);
+  const geneSymbols = useMemo(() => uniqueGeneSymbols(variants), [variants]);
+
+  const geneProfileQueries = useQueries({
+    queries: geneSymbols.map((symbol) => ({
+      queryKey: ['gene-profile', symbol, familyId, projectId || null],
+      queryFn: async () => {
+        const res = await api.get('/genes/profile', {
+          params: { symbol, family_id: familyId, project_id: projectId },
+        });
+        return res.data as GeneProfileResponse;
+      },
+      staleTime: 5 * 60 * 1000,
+    })),
+  });
+
+  const geneProfiles = useMemo(() => {
+    const map = new Map<string, GeneProfileResponse>();
+    geneProfileQueries.forEach((query) => {
+      if (query.data) map.set(query.data.symbol, query.data);
+    });
+    return map;
+  }, [geneProfileQueries]);
+
+  const { data: hpoAnnotations = [] } = useQuery<FamilyHpoAnnotation[]>({
+    queryKey: ['family', familyId, 'hpo'],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/hpo`);
+      return res.data as FamilyHpoAnnotation[];
+    },
+  });
+
+  const presentHpoTerms = useMemo(() => {
+    const byId = new Map<string, string>();
+    hpoAnnotations
+      .filter((annotation) => annotation.status === 'present')
+      .forEach((annotation) => byId.set(annotation.hpo_id, annotation.label));
+    return byId;
+  }, [hpoAnnotations]);
+
+  if (!familyId) {
+    return <PageState kicker="Report" title="Family not specified" />;
+  }
+
+  if (familyLoading || (variantQueryReady && variantsLoading) || referenceLoading) {
+    return (
+      <PageState
+        kicker="Report"
+        title="Preparing the family report"
+        message="Gathering reported variants, gene context and phenotype data."
+      />
+    );
+  }
+
+  if (isError) {
+    return (
+      <PageState
+        kicker="Report"
+        title="Report could not be loaded"
+        message="The reported variants for this family could not be retrieved."
+        action={
+          <Link to={`/families/${familyId}`} className="button-secondary">
+            Back to family
+          </Link>
+        }
+      />
+    );
+  }
+
+  return (
+    <div className="page-shell report-page space-y-6">
+      <header className="surface-card report-header">
+        <div className="space-y-1">
+          <p className="page-kicker">Clinical report</p>
+          <h1 className="page-state-title">Family {familyId}</h1>
+          <p className="report-header-meta">{referenceLabel}</p>
+        </div>
+        <div className="report-header-actions no-print">
+          <Link to={`/families/${familyId}`} className="button-secondary hover:no-underline">
+            Back to family
+          </Link>
+          <button type="button" className="form-button" onClick={() => window.print()}>
+            Print report
+          </button>
+        </div>
+      </header>
+
+      <section className="surface-card report-intro">
+        <p className="report-paragraph">
+          This report summarises {variants.length} variant
+          {variants.length === 1 ? '' : 's'} selected for reporting (tagged{' '}
+          <strong>report</strong>) in family <strong>{familyId}</strong>
+          {members.length ? `, comprising ${members.map(memberName).join(', ')}` : ''}. Each variant
+          is described together with its consequence and the ACMG/AMP criteria that motivated its
+          selection.
+        </p>
+        <p className="report-disclaimer">
+          ACMG/AMP classifications are decision support and must be confirmed by a qualified clinical
+          scientist before clinical use.
+        </p>
+      </section>
+
+      {variants.length === 0 ? (
+        <section className="surface-card report-empty">
+          <p className="report-paragraph">
+            No variants are currently tagged for reporting. Tag variants with the{' '}
+            <strong>Report</strong> chip on the small-variant table to include them here.
+          </p>
+        </section>
+      ) : (
+        variants.map((variant) => {
+          const profile = variant.gene ? geneProfiles.get(variant.gene) : undefined;
+          const criteria = collectReportCriteria(variant);
+          const classification = acmgClassificationLabel(variant);
+          const pointTotal = variant.review?.acmg?.point_total;
+          const clinvarSentence = describeClinvar(variant);
+          const segregation = buildSegregationSentence(variant, members);
+          const predictions = collectInSilicoPredictions(variant);
+
+          const geneHpoTerms = profile?.extra?.hpo_terms ?? [];
+          const overlappingHpo = geneHpoTerms
+            .map((term) => term.hpo_id?.trim())
+            .filter((id): id is string => Boolean(id) && presentHpoTerms.has(id as string))
+            .map((id) => ({ id, label: presentHpoTerms.get(id) || id }));
+          const omim = omimDiseaseTitles(profile);
+          const gencc = genccDiseases(profile);
+          const moi = modesOfInheritance(profile);
+          const diseases = Array.from(new Set([...omim, ...gencc]));
+
+          return (
+            <article key={variant._id} className="surface-card report-variant">
+              <div className="report-variant-head">
+                <h2 className="section-title">
+                  {`${variant.gene || variant.gene_id || 'Intergenic variant'}${
+                    variant.hgvsc ? ` ${variant.hgvsc}` : ''
+                  }`}
+                </h2>
+                {classification ? (
+                  <span className="table-chip report-classification-chip">
+                    {classification}
+                    {pointTotal !== undefined && pointTotal !== null
+                      ? ` · ${pointTotal} pts`
+                      : ''}
+                  </span>
+                ) : (
+                  <span className="table-chip report-classification-chip report-classification-chip--none">
+                    Not classified
+                  </span>
+                )}
+              </div>
+
+              <div className="report-section">
+                <h3 className="report-subheading">Variant description</h3>
+                <p className="report-paragraph">{buildVariantSentence(variant, members)}</p>
+                <p className="report-paragraph">
+                  The variant {describeGnomadFrequency(variant)}.{' '}
+                  {clinvarSentence ? `${clinvarSentence} ` : ''}
+                  {describeInSilico(variant)}
+                </p>
+                {segregation ? <p className="report-paragraph">{segregation}</p> : null}
+              </div>
+
+              <div className="report-section">
+                <h3 className="report-subheading">Classification motivation</h3>
+                {criteria.length ? (
+                  <>
+                    <p className="report-paragraph">
+                      This variant was classified as{' '}
+                      <strong>{classification || 'uncertain significance'}</strong> based on{' '}
+                      {joinWithAnd(criteria.map((criterion) => criterion.code))}.
+                    </p>
+                    <ul className="report-criteria-list">
+                      {criteria.map((criterion) => (
+                        <li
+                          key={criterion.code}
+                          className={`report-criterion report-criterion--${criterion.direction}`}
+                        >
+                          <span className="report-criterion-code">{criterion.code}</span>
+                          <span className="report-criterion-strength">{criterion.strengthLabel}</span>
+                          <span className="report-criterion-text">
+                            <strong>{criterion.name}.</strong> {criterion.description}
+                            {criterion.evidence ? ` Evidence: ${criterion.evidence}` : ''}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="report-paragraph report-evidence-summary">
+                      Supporting evidence: the variant {describeGnomadFrequency(variant)};{' '}
+                      {clinvarSentence ? `${clinvarSentence.toLowerCase()} ` : 'no ClinVar assertion is available. '}
+                      {predictions.length
+                        ? `in silico predictors report ${joinWithAnd(
+                            predictions.map((p) => `${p.label} ${p.value}`),
+                          )}. `
+                        : 'No in silico predictions were available. '}
+                      {segregation
+                        ? segregation.replace(/^Within the family, the variant is/, 'Segregation shows it is')
+                        : ''}
+                    </p>
+                  </>
+                ) : (
+                  <p className="report-paragraph">
+                    No ACMG/AMP criteria have been recorded for this variant. Open the ACMG
+                    classification modal from the small-variant table to document the motivation.
+                  </p>
+                )}
+              </div>
+
+              <div className="report-section">
+                <h3 className="report-subheading">Gene</h3>
+                {profile?.summary ? (
+                  <p className="report-paragraph">
+                    <strong>{profile.display_name || variant.gene}</strong> — {profile.summary}
+                  </p>
+                ) : (
+                  <p className="report-paragraph">
+                    No curated description is available for{' '}
+                    <strong>{variant.gene || 'this gene'}</strong>.
+                  </p>
+                )}
+                {diseases.length ? (
+                  <p className="report-paragraph">
+                    Associated condition{diseases.length === 1 ? '' : 's'}:{' '}
+                    {joinWithAnd(diseases)}
+                    {moi.length ? ` (${joinWithAnd(moi)})` : ''}.
+                  </p>
+                ) : null}
+                {profile?.panels?.length ? (
+                  <p className="report-paragraph report-gene-panels">
+                    Gene panels: {profile.panels.map((panel) => panel.name).join(', ')}.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="report-section">
+                <h3 className="report-subheading">Phenotype (HPO)</h3>
+                {presentHpoTerms.size === 0 ? (
+                  <p className="report-paragraph">
+                    No HPO phenotype terms have been recorded for this family.
+                  </p>
+                ) : overlappingHpo.length ? (
+                  <p className="report-paragraph">
+                    The patient phenotype overlaps the gene&rsquo;s known HPO associations for{' '}
+                    {joinWithAnd(overlappingHpo.map((term) => `${term.label} (${term.id})`))},
+                    supporting a phenotypic match.
+                  </p>
+                ) : (
+                  <p className="report-paragraph">
+                    The family&rsquo;s recorded phenotype (
+                    {joinWithAnd(Array.from(presentHpoTerms.values()))}) does not directly overlap the
+                    gene&rsquo;s annotated HPO terms; clinical correlation is advised.
+                  </p>
+                )}
+              </div>
+
+              {variant.review?.note ? (
+                <div className="report-section">
+                  <h3 className="report-subheading">Analyst note</h3>
+                  <p className="report-paragraph report-note">{variant.review.note}</p>
+                </div>
+              ) : null}
+
+              <p className="report-variant-locus">
+                {formatLocus(variant)} · {variant.ref || '—'} → {variant.alt || '—'}
+              </p>
+            </article>
+          );
+        })
+      )}
+    </div>
+  );
+};
+
+export default FamilyReportPage;

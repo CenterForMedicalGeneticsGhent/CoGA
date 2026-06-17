@@ -1364,8 +1364,20 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   </div>
                 </div>
               )}
-              {(hasVariantSummary || hasRepeatExpansions || hasParaphase || hasMitoDna) && (
+              {(hasSmallVariants ||
+                hasVariantSummary ||
+                hasRepeatExpansions ||
+                hasParaphase ||
+                hasMitoDna) && (
                 <div className="compact-toolbar family-toolbar family-variant-secondary">
+                  {hasSmallVariants && (
+                    <Link
+                      to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
+                      className="button-secondary hover:no-underline"
+                    >
+                      Report
+                    </Link>
+                  )}
                   {hasVariantSummary && (
                     <Link
                       to={`/families/${data.family_id}/variant-summary`}

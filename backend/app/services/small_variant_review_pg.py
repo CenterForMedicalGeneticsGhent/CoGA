@@ -92,6 +92,14 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
         "description": "Reviewed and excluded from reporting. Add a note with the reason.",
     },
     {
+        "key": "report",
+        "label": "Report",
+        "group": "collaboration",
+        "color": "#0f766e",
+        "sort_order": "70",
+        "description": "Selected for the clinical report. Appears on the family report template.",
+    },
+    {
         "key": "acmg_class_5",
         "label": "Pathogenic - class 5",
         "group": "classification",

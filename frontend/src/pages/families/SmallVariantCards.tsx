@@ -409,10 +409,12 @@ export default function SmallVariantCards({
         const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
+        const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
         const visibleReviewTags = sortedReviewTags.filter(
           (tagKey) =>
             tagKey !== COLLABORATION_QUICK_TAGS.review &&
-            tagKey !== COLLABORATION_QUICK_TAGS.excluded,
+            tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
+            tagKey !== COLLABORATION_QUICK_TAGS.report,
         );
 
         const consequenceLabel = formatTokenLabel(variant.effect);
@@ -787,10 +789,20 @@ export default function SmallVariantCards({
                 </button>
                 <button
                   type="button"
+                  className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
+                  disabled={reviewIsPending}
+                  onClick={() => {
+                    void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.report);
+                  }}
+                >
+                  Report
+                </button>
+                <button
+                  type="button"
                   className="variant-review-link"
                   onClick={() => onEditReview(variant)}
                 >
-                  Edit review
+                  Tags &amp; notes
                 </button>
                 <button
                   type="button"
