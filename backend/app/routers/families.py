@@ -1,6 +1,9 @@
-from typing import Dict, List
+import csv
+import io
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,9 +43,11 @@ from ..schemas import (
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
     VariantLengthOut,
+    VariantOut,
     VariantPage,
 )
 from ..services.clickhouse_family_variants import (
+    export_family_small_variants,
     get_family_compound_het_candidates as get_family_compound_het_candidates_clickhouse,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
     get_family_structural_variants_page as get_family_structural_variants_clickhouse,
@@ -551,11 +556,7 @@ async def get_family_structural_variants(
     )
 
 
-@router.get("/{family_id}/small-variants", response_model=VariantPage)
-async def get_family_small_variants(
-    family_id: str,
-    page: int = 1,
-    page_size: int = 100,
+def _family_small_variant_filters(
     chr: str | None = None,
     start: int | None = None,
     end: int | None = None,
@@ -598,24 +599,14 @@ async def get_family_small_variants(
     review_tags: List[str] = Query(default_factory=list, alias="review_tag"),
     exclude_review_tags: List[str] = Query(default_factory=list, alias="exclude_review_tag"),
     has_notes: bool = False,
-    project_id: str | None = None,
-    overlap: bool = False,
-    track_mode: bool = False,
-    track_result_limit: int | None = None,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> VariantPage:
-    context = await build_family_metadata_context(
-        session,
-        family_identifier=family_id,
-        user=user,
-        project_id=project_id,
-    )
-    return await get_family_small_variants_clickhouse(
-        session,
-        context=context,
-        page=page,
-        page_size=page_size,
+) -> Dict[str, Any]:
+    """Parse the shared family small-variant filter query params.
+
+    Returned as kwargs for ``get_family_small_variants_page`` so the paginated
+    listing and the CSV export apply identical filtering.
+    """
+
+    return dict(
         chr=chr,
         start=start,
         end=end,
@@ -658,9 +649,117 @@ async def get_family_small_variants(
         review_tags=review_tags,
         exclude_review_tags=exclude_review_tags,
         has_notes=has_notes,
+    )
+
+
+@router.get("/{family_id}/small-variants", response_model=VariantPage)
+async def get_family_small_variants(
+    family_id: str,
+    page: int = 1,
+    page_size: int = 100,
+    project_id: str | None = None,
+    overlap: bool = False,
+    track_mode: bool = False,
+    track_result_limit: int | None = None,
+    filters: Dict[str, Any] = Depends(_family_small_variant_filters),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> VariantPage:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    return await get_family_small_variants_clickhouse(
+        session,
+        context=context,
+        page=page,
+        page_size=page_size,
         overlap=overlap,
         track_mode=track_mode,
         track_result_limit=track_result_limit,
+        **filters,
+    )
+
+
+# CSV column order for the family small-variant export. Mirrors the on-screen
+# table plus the extra annotation fields that don't fit in the UI.
+_FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
+    ("chr", "Chromosome"),
+    ("start", "Start"),
+    ("end", "End"),
+    ("type", "Type"),
+    ("ref", "Ref"),
+    ("alt", "Alt"),
+    ("rsid", "rsID"),
+    ("gene", "Gene"),
+    ("gene_id", "Gene ID"),
+    ("transcript_id", "Transcript"),
+    ("impact", "Impact"),
+    ("effect", "Effect"),
+    ("hgvsc", "HGVSc"),
+    ("hgvsp", "HGVSp"),
+    ("clinvar", "ClinVar"),
+    ("gnomad_af", "gnomAD AF"),
+    ("gnomad_hom_count", "gnomAD hom"),
+    ("cadd_phred", "CADD"),
+    ("revel", "REVEL"),
+    ("spliceai_max", "SpliceAI"),
+    ("sift", "SIFT"),
+    ("polyphen", "PolyPhen"),
+    ("classification", "Classification"),
+    ("tags", "Tags"),
+    ("genotypes", "Genotypes"),
+]
+
+
+def _family_export_cell(variant: VariantOut, field: str) -> str:
+    if field == "classification":
+        return variant.review.classification or "" if variant.review else ""
+    if field == "tags":
+        return "; ".join(variant.review.tags) if variant.review else ""
+    if field == "genotypes":
+        return "; ".join(f"{gt.sample}={gt.gt}" for gt in variant.genotypes)
+    value = getattr(variant, field, None)
+    if value is None:
+        return ""
+    return str(value)
+
+
+@router.get("/{family_id}/small-variants/export")
+async def export_family_small_variants_csv(
+    family_id: str,
+    project_id: str | None = None,
+    filters: Dict[str, Any] = Depends(_family_small_variant_filters),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download every filtered small variant for this family as a CSV file."""
+
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    rows = await export_family_small_variants(
+        session,
+        context=context,
+        **filters,
+    )
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([label for _, label in _FAMILY_EXPORT_COLUMNS])
+    for variant in rows:
+        writer.writerow([_family_export_cell(variant, field) for field, _ in _FAMILY_EXPORT_COLUMNS])
+
+    filename = f"family-{family_id}-small-variants.csv"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

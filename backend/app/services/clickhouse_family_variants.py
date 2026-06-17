@@ -4266,6 +4266,42 @@ async def get_family_small_variants_page(
     )
 
 
+# Hard cap on rows pulled into a single CSV export. Generous enough for any
+# realistic filtered result set, but bounds memory/response size.
+_MAX_SMALL_VARIANT_EXPORT_ROWS = 50_000
+
+
+async def export_family_small_variants(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    limit: int = _MAX_SMALL_VARIANT_EXPORT_ROWS,
+    **filters: Any,
+) -> list[VariantOut]:
+    """Fetch up to ``limit`` filtered small variants for CSV export.
+
+    Reuses :func:`get_family_small_variants_page` with the same filters as the
+    table so the export always matches what the user sees, but requests a single
+    large page instead of paginating. Compound-het pair groups are flattened in
+    alongside single variants.
+    """
+
+    limit = max(1, min(limit, _MAX_SMALL_VARIANT_EXPORT_ROWS))
+    page = await get_family_small_variants_page(
+        session,
+        context=context,
+        page=1,
+        page_size=limit,
+        track_mode=False,
+        **filters,
+    )
+    rows: list[VariantOut] = []
+    for group in page.variant_groups:
+        rows.extend(group.variants)
+    rows.extend(page.variants)
+    return rows[:limit]
+
+
 async def get_family_structural_variants_page(
     session: AsyncSession,
     *,

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import api from '../../lib/api';
 import {
   CARD_VIEW_THRESHOLD,
   type FamilyMember,
@@ -26,6 +27,7 @@ type SmallVariantResultsProps = {
   onPageChange: (nextPage: number) => void;
   page: number;
   projectId?: string;
+  requestQueryString: string;
   speciesName?: string;
   totalPages: number;
   tags: SmallVariantTagDefinition[];
@@ -46,6 +48,7 @@ export default function SmallVariantResults({
   onPageChange,
   page,
   projectId,
+  requestQueryString,
   speciesName,
   totalPages,
   tags,
@@ -58,10 +61,38 @@ export default function SmallVariantResults({
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<SmallVariant | null>(null);
   const [acmgVariant, setAcmgVariant] = useState<SmallVariant | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const pairGroups = data?.variant_groups || [];
   const hasFlatVariants = Boolean(data?.variants.length);
   const hasGroupedPairs = Boolean(pairGroups.length);
   const hasResults = hasFlatVariants || hasGroupedPairs;
+
+  const handleDownloadCsv = async () => {
+    if (!familyId) {
+      return;
+    }
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      const res = await api.get(
+        `/families/${familyId}/small-variants/export?${requestQueryString}`,
+        { responseType: 'blob' },
+      );
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `family-${familyId}-small-variants.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setExportError('Could not export variants. Try narrowing your filters and retry.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const resolvedViewMode =
     viewMode === 'auto' && (data?.total ?? 0) <= CARD_VIEW_THRESHOLD
@@ -89,25 +120,42 @@ export default function SmallVariantResults({
               paginated list beyond that. Compound-het matches stay grouped by pair.
             </p>
           </div>
-          <div className="variant-results-toggle" role="tablist" aria-label="Variant display mode">
-            {[
-              { value: 'auto', label: 'Auto' },
-              { value: 'table', label: 'Table' },
-              { value: 'cards', label: 'Cards' },
-            ].map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="tab"
-                aria-selected={viewMode === option.value}
-                className={`pill-toggle ${viewMode === option.value ? 'pill-toggle--active' : ''}`}
-                onClick={() => setViewMode(option.value as ResultViewMode)}
-              >
-                {option.label}
-              </button>
-            ))}
+          <div className="variant-results-toolbar-actions">
+            <button
+              type="button"
+              className="button-secondary variant-explorer-download"
+              onClick={handleDownloadCsv}
+              disabled={isExporting || !hasResults}
+              title="Download all filtered variants with annotation data as CSV"
+            >
+              {isExporting ? 'Preparing…' : 'Download CSV'}
+            </button>
+            <div className="variant-results-toggle" role="tablist" aria-label="Variant display mode">
+              {[
+                { value: 'auto', label: 'Auto' },
+                { value: 'table', label: 'Table' },
+                { value: 'cards', label: 'Cards' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={viewMode === option.value}
+                  className={`pill-toggle ${viewMode === option.value ? 'pill-toggle--active' : ''}`}
+                  onClick={() => setViewMode(option.value as ResultViewMode)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
+        {exportError ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--error">
+            {exportError}
+          </div>
+        ) : null}
 
         {!hasResults ? (
           <div className="variant-results-empty">
