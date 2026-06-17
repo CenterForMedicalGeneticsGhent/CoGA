@@ -38,6 +38,7 @@ interface SmallVariantCardsProps {
   tags: SmallVariantTagDefinition[];
   reviewIsPending?: boolean;
   onEditReview: (variant: SmallVariant) => void;
+  onAcmgClassify: (variant: SmallVariant) => void;
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
 }
 
@@ -357,6 +358,7 @@ export default function SmallVariantCards({
   tags,
   reviewIsPending = false,
   onEditReview,
+  onAcmgClassify,
   onToggleReviewTag,
 }: SmallVariantCardsProps) {
   const tagMap = getTagDefinitionMap(tags);
@@ -789,6 +791,13 @@ export default function SmallVariantCards({
                   onClick={() => onEditReview(variant)}
                 >
                   Edit review
+                </button>
+                <button
+                  type="button"
+                  className="variant-review-link"
+                  onClick={() => onAcmgClassify(variant)}
+                >
+                  ACMG classify
                 </button>
               </div>
               <div className="variant-card-nav">

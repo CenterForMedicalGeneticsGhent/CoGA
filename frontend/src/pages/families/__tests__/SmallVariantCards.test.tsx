@@ -68,6 +68,7 @@ describe('SmallVariantCards', () => {
           locationSearch=""
           tags={[]}
           onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
           onToggleReviewTag={vi.fn(async () => undefined)}
         />
       </MemoryRouter>,

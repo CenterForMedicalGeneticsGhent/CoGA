@@ -1,0 +1,555 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+
+import api from '../../lib/api';
+import {
+  ACMG_CRITERIA_BY_CODE,
+  BENIGN_CRITERIA,
+  PATHOGENIC_CRITERIA,
+  STRENGTH_LABELS,
+  buildInitialSelections,
+  computeClassification,
+  evaluateAcmg,
+  type AcmgCriterionCode,
+  type AcmgCriterionDef,
+  type AcmgGeneContext,
+  type AcmgSelection,
+  type AcmgStrength,
+} from '../../lib/acmg';
+import AcmgScaleBar from './AcmgScaleBar';
+import {
+  buildLiteraturePubmedHref,
+  buildSmallVariantExternalLinks,
+  formatLocus,
+} from './smallVariantResultUtils';
+import {
+  ACMG_CLASSIFICATION_TAG_KEYS,
+  normalizeTagKeys,
+  type AcmgReviewPayload,
+  type FamilyMember,
+  type SmallVariant,
+  type SmallVariantReviewSavePayload,
+} from './smallVariantSearch';
+import type { AcmgFamilyContext } from '../../lib/acmg';
+
+type AcmgClassificationModalProps = {
+  familyId?: string;
+  projectId?: string;
+  variant: SmallVariant;
+  members?: FamilyMember[];
+  speciesName?: string;
+  assemblyName?: string;
+  assemblyVersion?: string;
+  onClose: () => void;
+  onSave: (payload: SmallVariantReviewSavePayload) => Promise<void>;
+  isPending?: boolean;
+  errorMessage?: string | null;
+};
+
+type HpoAnnotationLite = {
+  sample_id: string;
+  hpo_id: string;
+  label: string;
+  status: 'present' | 'absent' | 'unknown';
+};
+
+// Stable empty defaults — fresh `[]` literals as render-time defaults would change
+// identity every render and retrigger the seeding effect in an infinite loop.
+const EMPTY_MEMBERS: FamilyMember[] = [];
+const EMPTY_HPO: HpoAnnotationLite[] = [];
+
+// Slice of GET /genes/profile we read for gene-level ACMG context.
+type GeneProfileResponse = {
+  extra?: {
+    clingen_dosage_assertions?: Array<{ haploinsufficiency?: string | null }>;
+    gencc_assertions?: Array<{ moi_title?: string | null }>;
+    hpo_terms?: Array<{ hpo_id?: string | null }>;
+  };
+};
+
+function toGeneContext(profile: GeneProfileResponse | undefined): AcmgGeneContext | undefined {
+  if (!profile?.extra) return undefined;
+  const extra = profile.extra;
+  const haplo = (extra.clingen_dosage_assertions ?? [])
+    .map((a) => a.haploinsufficiency)
+    .find((value): value is string => Boolean(value));
+  return {
+    clingenDosageHaploinsufficiency: haplo ?? null,
+    modesOfInheritance: (extra.gencc_assertions ?? [])
+      .map((a) => a.moi_title)
+      .filter((value): value is string => Boolean(value)),
+    geneHpoIds: (extra.hpo_terms ?? [])
+      .map((t) => t.hpo_id)
+      .filter((value): value is string => Boolean(value)),
+  };
+}
+
+function savedSelections(payload: AcmgReviewPayload | null | undefined): AcmgSelection[] {
+  if (!payload?.criteria) return [];
+  return payload.criteria
+    .filter((c) => ACMG_CRITERIA_BY_CODE[c.code as AcmgCriterionCode])
+    .map((c) => ({
+      code: c.code as AcmgCriterionCode,
+      accepted: c.accepted,
+      strength: c.strength as AcmgStrength,
+      evidence: c.evidence ?? undefined,
+      autoSuggested: c.auto_suggested,
+    }));
+}
+
+export default function AcmgClassificationModal({
+  familyId,
+  projectId,
+  variant,
+  members = EMPTY_MEMBERS,
+  speciesName,
+  assemblyName,
+  assemblyVersion,
+  onClose,
+  onSave,
+  isPending = false,
+  errorMessage = null,
+}: AcmgClassificationModalProps) {
+  // Working selection state keyed by criterion code. A criterion absent from the
+  // map renders as an unaccepted default; toggling/strength-editing upserts it.
+  const [selections, setSelections] = useState<Record<string, AcmgSelection>>({});
+  const [note, setNote] = useState('');
+
+  const geneSymbol = variant.gene?.trim();
+  const { data: geneProfile } = useQuery<GeneProfileResponse>({
+    queryKey: ['acmg-gene-profile', geneSymbol, familyId, projectId],
+    enabled: Boolean(geneSymbol),
+    queryFn: async () => {
+      const response = await api.get('/genes/profile', {
+        params: { symbol: geneSymbol, family_id: familyId, project_id: projectId },
+      });
+      return response.data as GeneProfileResponse;
+    },
+  });
+
+  const geneContext = useMemo(() => toGeneContext(geneProfile), [geneProfile]);
+
+  // Patient HPO terms (proband's "present" annotations) for PP4 and the PubMed link.
+  const { data: hpoData } = useQuery<HpoAnnotationLite[]>({
+    queryKey: ['acmg-family-hpo', familyId],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const response = await api.get(`/families/${familyId}/hpo`);
+      return response.data as HpoAnnotationLite[];
+    },
+  });
+
+  const probandSampleId = useMemo(() => {
+    const proband =
+      members.find((m) => (m.role ?? '').toLowerCase() === 'proband') ??
+      members.find((m) => m.affected);
+    return proband?.sample_id;
+  }, [members]);
+
+  const probandHpo = useMemo(() => {
+    const present = (hpoData ?? EMPTY_HPO).filter(
+      (a) => a.status === 'present' && (!probandSampleId || a.sample_id === probandSampleId),
+    );
+    return {
+      ids: Array.from(new Set(present.map((a) => a.hpo_id))),
+      labels: Array.from(new Set(present.map((a) => a.label).filter(Boolean))),
+    };
+  }, [hpoData, probandSampleId]);
+
+  // Trio / segregation context: each member's genotype call for this variant.
+  const familyContext = useMemo<AcmgFamilyContext>(
+    () => ({
+      members: members.map((member) => ({
+        sampleId: member.sample_id,
+        role: member.role,
+        affected: Boolean(member.affected) || member.clinical_status === 'affected',
+        gt: variant.genotypes.find((g) => g.sample === member.sample_id)?.gt,
+      })),
+    }),
+    [members, variant],
+  );
+
+  // External resource links (reuse the variant-card builder) + a smart PubMed search.
+  const resourceLinks = useMemo(() => {
+    const base = buildSmallVariantExternalLinks({ variant, speciesName, assemblyName, assemblyVersion });
+    const wanted = ['gnomAD', 'ClinVar', 'DECIPHER'];
+    const links = wanted
+      .map((label) => base.find((entry) => entry.label === label))
+      .filter((entry): entry is { label: string; href: string } => Boolean(entry));
+    const pubmed = buildLiteraturePubmedHref({
+      gene: variant.gene || variant.gene_id,
+      proteinChange: variant.hgvsp || variant.hgvsc,
+      hpoLabels: probandHpo.labels,
+    });
+    if (pubmed) {
+      links.push({
+        label: probandHpo.labels.length ? 'PubMed (gene + HPO)' : 'PubMed (gene)',
+        href: pubmed,
+      });
+    }
+    return links;
+  }, [variant, speciesName, assemblyName, assemblyVersion, probandHpo.labels]);
+
+  // (Re)seed selections when the variant changes or gene/HPO context arrives.
+  useEffect(() => {
+    const suggestions = evaluateAcmg(
+      variant,
+      geneContext,
+      { probandHpoIds: probandHpo.ids },
+      familyContext,
+    );
+    const initial = buildInitialSelections(suggestions, savedSelections(variant.review?.acmg));
+    setSelections(Object.fromEntries(initial.map((s) => [s.code, s])));
+    setNote(variant.review?.note ?? '');
+  }, [variant, geneContext, familyContext, probandHpo]);
+
+  const selectionList = useMemo(() => Object.values(selections), [selections]);
+  const classification = useMemo(() => computeClassification(selectionList), [selectionList]);
+
+  // Custom hover tooltip (native title only yields a help cursor here).
+  const [tip, setTip] = useState<TipState | null>(null);
+  const showTip = (def: AcmgCriterionDef, selection: AcmgSelection | undefined, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    const below = rect.top < window.innerHeight / 2;
+    setTip({
+      def,
+      selection,
+      left: Math.min(rect.left, window.innerWidth - 340),
+      top: below ? rect.bottom + 6 : rect.top - 6,
+      below,
+    });
+  };
+  const hideTip = () => setTip(null);
+
+  const upsert = (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => {
+    setSelections((current) => {
+      const def = ACMG_CRITERIA_BY_CODE[code];
+      const existing =
+        current[code] ??
+        ({
+          code,
+          accepted: false,
+          strength: def.defaultStrength,
+          autoSuggested: false,
+        } satisfies AcmgSelection);
+      return { ...current, [code]: { ...existing, ...patch } };
+    });
+  };
+
+  const handleSave = async () => {
+    const accepted = selectionList.filter((s) => s.accepted);
+    const criteria = selectionList
+      .filter((s) => s.accepted || s.autoSuggested)
+      .map((s) => ({
+        code: s.code,
+        strength: s.strength,
+        accepted: s.accepted,
+        evidence: s.evidence ?? null,
+        auto_suggested: s.autoSuggested,
+      }));
+
+    const acmg: AcmgReviewPayload = {
+      criteria,
+      point_total: classification.points,
+      classification: classification.label,
+    };
+
+    // Reflect the computed class in the existing review tags so variant cards and
+    // summaries pick it up — replace any prior acmg_class_* tag.
+    const classTagKeys = ACMG_CLASSIFICATION_TAG_KEYS as readonly string[];
+    const priorTags = (variant.review?.tags ?? []).filter((tag) => !classTagKeys.includes(tag));
+    const tags = accepted.length
+      ? normalizeTagKeys([...priorTags, classification.classKey])
+      : normalizeTagKeys(priorTags);
+
+    const payload: SmallVariantReviewSavePayload = {
+      classification: accepted.length ? classification.label : undefined,
+      tags,
+      note: note.trim() || undefined,
+      acmg,
+    };
+
+    try {
+      await onSave(payload);
+    } catch {
+      // Parent keeps the dialog open and surfaces the error.
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="modal-surface surface-card variant-review-modal acmg-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="acmg-classification-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="variant-review-modal-header">
+          <div className="variant-review-modal-summary">
+            <p className="page-kicker">ACMG classification</p>
+            <h2 id="acmg-classification-title" className="catalog-card-title">
+              {variant.gene || variant.gene_id || 'Intergenic variant'}
+            </h2>
+            <p className="variant-review-modal-subtitle">
+              {formatLocus(variant)} · {variant.hgvsp || variant.hgvsc || variant.effect || variant.type}
+            </p>
+            {resourceLinks.length ? (
+              <div className="acmg-resource-links">
+                {resourceLinks.map((link) => (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="acmg-resource-link"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <button type="button" className="button-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="variant-review-modal-body acmg-modal-body">
+          {errorMessage ? (
+            <div className="variant-workspace-feedback variant-workspace-feedback--error">
+              {errorMessage}
+            </div>
+          ) : null}
+
+          <AcmgScaleBar classification={classification} />
+
+          <p className="acmg-modal-disclaimer">
+            Auto-evaluated from the variant, trio and gene data:
+            <span className="acmg-key acmg-key--applied"> checked</span> = data supports it,
+            <span className="acmg-key acmg-key--consider"> ●</span> = consider,
+            <span className="acmg-key acmg-key--against"> ✕</span> = data argues against,
+            <span className="acmg-key acmg-key--na"> n/a</span> = unlikely for this variant type.
+            All of them can be overridden; hover a criterion for its evidence.
+          </p>
+
+          <div className="acmg-family-grid">
+            {FAMILY_GROUPS.map((group) => (
+              <FamilyGroup
+                key={group.family}
+                group={group}
+                selections={selections}
+                onToggle={upsert}
+                onShowTip={showTip}
+                onHideTip={hideTip}
+              />
+            ))}
+          </div>
+
+          <textarea
+            className="variant-review-textarea"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            rows={3}
+            placeholder="Classification rationale / note"
+          />
+        </div>
+
+        <div className="variant-search-actions variant-review-modal-actions">
+          <button
+            type="button"
+            className="button-secondary"
+            onClick={() => setSelections({})}
+          >
+            Clear all
+          </button>
+          <button
+            type="button"
+            className="form-button"
+            onClick={() => {
+              void handleSave();
+            }}
+            disabled={isPending}
+          >
+            {isPending ? 'Saving…' : 'Save classification'}
+          </button>
+        </div>
+      </div>
+
+      {tip ? (
+        <div
+          className="acmg-tooltip"
+          role="tooltip"
+          style={
+            tip.below
+              ? { left: tip.left, top: tip.top }
+              : { left: tip.left, bottom: window.innerHeight - tip.top }
+          }
+        >
+          <p className="acmg-tooltip-title">
+            {tip.def.code} · {tip.def.name}
+          </p>
+          <p className="acmg-tooltip-body">{tip.selection?.evidence ?? tip.def.description}</p>
+          {tip.selection?.contraindicated ? (
+            <p className="acmg-tooltip-against">Data argues against applying this criterion.</p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Tooltip state for the custom hover popover.
+type TipState = {
+  def: AcmgCriterionDef;
+  selection?: AcmgSelection;
+  left: number;
+  top: number;
+  below: boolean;
+};
+
+// Tier label per ACMG code family (PVS/PS/PM/PP, BA/BS/BP).
+const TIER_LABELS: Record<string, string> = {
+  PVS: 'Very strong',
+  PS: 'Strong',
+  PM: 'Moderate',
+  PP: 'Supporting',
+  BA: 'Stand-alone',
+  BS: 'Strong',
+  BP: 'Supporting',
+};
+
+const codeFamily = (code: string): string => code.replace(/[0-9].*$/, '');
+
+type FamilyGroupDef = {
+  family: string;
+  direction: 'pathogenic' | 'benign';
+  items: AcmgCriterionDef[];
+};
+
+function groupFamilies(criteria: AcmgCriterionDef[]): FamilyGroupDef[] {
+  const groups: FamilyGroupDef[] = [];
+  for (const def of criteria) {
+    const family = codeFamily(def.code);
+    const last = groups[groups.length - 1];
+    if (last && last.family === family) {
+      last.items.push(def);
+    } else {
+      groups.push({ family, direction: def.direction, items: [def] });
+    }
+  }
+  return groups;
+}
+
+// One column per ACMG code family, ordered left→right to mirror the green→red
+// scale: benign (BA, BS, BP) on the left, then pathogenic from weakest to
+// strongest (PP, PM, PS, PVS) so very-strong pathogenic sits on the far right.
+function buildFamilyGroups(): FamilyGroupDef[] {
+  const benign = groupFamilies(BENIGN_CRITERIA); // BA, BS, BP
+  const pathogenic = groupFamilies(PATHOGENIC_CRITERIA).reverse(); // PP, PM, PS, PVS
+  return [...benign, ...pathogenic];
+}
+
+const FAMILY_GROUPS = buildFamilyGroups();
+
+type FamilyGroupProps = {
+  group: FamilyGroupDef;
+  selections: Record<string, AcmgSelection>;
+  onToggle: (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => void;
+  onShowTip: (def: AcmgCriterionDef, selection: AcmgSelection | undefined, el: HTMLElement) => void;
+  onHideTip: () => void;
+};
+
+function FamilyGroup({ group, selections, onToggle, onShowTip, onHideTip }: FamilyGroupProps) {
+  return (
+    <div className={`acmg-family acmg-family--${group.direction}`}>
+      <div className="acmg-tier-label">
+        {group.family} · {TIER_LABELS[group.family] ?? ''}
+      </div>
+      <div className="acmg-criteria-list">
+        {group.items.map((def) => (
+          <CriterionRow
+            key={def.code}
+            def={def}
+            selection={selections[def.code]}
+            onToggle={onToggle}
+            onShowTip={onShowTip}
+            onHideTip={onHideTip}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type CriterionRowProps = {
+  def: AcmgCriterionDef;
+  selection?: AcmgSelection;
+  onToggle: (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => void;
+  onShowTip: (def: AcmgCriterionDef, selection: AcmgSelection | undefined, el: HTMLElement) => void;
+  onHideTip: () => void;
+};
+
+function CriterionRow({ def, selection, onToggle, onShowTip, onHideTip }: CriterionRowProps) {
+  const accepted = selection?.accepted ?? false;
+  const strength = selection?.strength ?? def.defaultStrength;
+  const suggested = (selection?.autoSuggested ?? false) && !accepted;
+  const contraindicated = selection?.contraindicated ?? false;
+  // Ruled out by the variant class — greyed as a hint, but still overridable.
+  const notApplicable = (selection?.notApplicable ?? false) && !accepted;
+
+  return (
+    <div
+      className={[
+        'acmg-criterion',
+        def.direction === 'benign' ? 'acmg-criterion--benign' : '',
+        accepted ? 'acmg-criterion--accepted' : '',
+        suggested ? 'acmg-criterion--suggested' : '',
+        contraindicated && !accepted ? 'acmg-criterion--against' : '',
+        notApplicable ? 'acmg-criterion--na' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      onMouseEnter={(event) => onShowTip(def, selection, event.currentTarget)}
+      onMouseLeave={onHideTip}
+    >
+      <label className="analysis-checkbox">
+        <input
+          type="checkbox"
+          checked={accepted}
+          aria-label={`${def.code}: ${def.name}`}
+          onChange={(event) => onToggle(def.code, { accepted: event.target.checked })}
+          onFocus={(event) => onShowTip(def, selection, event.currentTarget.closest('.acmg-criterion') as HTMLElement)}
+          onBlur={onHideTip}
+        />
+      </label>
+      <span className="acmg-criterion-code">{def.code}</span>
+      {accepted ? null : suggested ? (
+        <span className="acmg-criterion-flag acmg-criterion-flag--consider" aria-label="Consider">
+          ●
+        </span>
+      ) : contraindicated ? (
+        <span className="acmg-criterion-flag acmg-criterion-flag--against" aria-label="Data argues against">
+          ✕
+        </span>
+      ) : notApplicable ? (
+        <span className="acmg-criterion-flag acmg-criterion-flag--na" aria-label="Not applicable">
+          n/a
+        </span>
+      ) : null}
+      <select
+        className="acmg-criterion-strength"
+        value={strength}
+        aria-label={`${def.code} strength`}
+        disabled={def.allowedStrengths.length <= 1}
+        onChange={(event) => onToggle(def.code, { strength: event.target.value as AcmgStrength })}
+      >
+        {def.allowedStrengths.map((option) => (
+          <option key={option} value={option}>
+            {STRENGTH_LABELS[option]}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}

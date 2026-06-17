@@ -30,6 +30,7 @@ interface SmallVariantTableProps {
   tags: SmallVariantTagDefinition[];
   reviewIsPending?: boolean;
   onEditReview: (variant: SmallVariant) => void;
+  onAcmgClassify: (variant: SmallVariant) => void;
   onToggleReviewTag: (variant: SmallVariant, tagKey: string) => Promise<void>;
 }
 
@@ -63,6 +64,7 @@ export default function SmallVariantTable({
   tags,
   reviewIsPending = false,
   onEditReview,
+  onAcmgClassify,
   onToggleReviewTag,
 }: SmallVariantTableProps) {
   const [tableSortKey, setTableSortKey] = useState<TableSortKey>('position');
@@ -203,6 +205,13 @@ export default function SmallVariantTable({
                         onClick={() => onEditReview(variant)}
                       >
                         More tags
+                      </button>
+                      <button
+                        type="button"
+                        className="variant-review-link"
+                        onClick={() => onAcmgClassify(variant)}
+                      >
+                        ACMG classify
                       </button>
                     </div>
                     {visibleReviewTags.length ? (

@@ -1235,6 +1235,21 @@ class SmallVariantCompoundHetReviewUpdate(BaseModel):
     note: Optional[str] = None
 
 
+class AcmgCriterionSelection(BaseModel):
+    code: str
+    strength: str
+    accepted: bool = False
+    evidence: Optional[str] = None
+    auto_suggested: bool = False
+
+
+class AcmgClassificationPayload(BaseModel):
+    criteria: List[AcmgCriterionSelection] = Field(default_factory=list)
+    # Derived fields; recomputed server-side on write so they cannot drift.
+    point_total: Optional[int] = None
+    classification: Optional[str] = None
+
+
 class SmallVariantReviewOut(BaseModel):
     variant_id: str
     classification: Optional[str] = None
@@ -1244,6 +1259,7 @@ class SmallVariantReviewOut(BaseModel):
     updated_by: Optional[str] = None
     updated_at: Optional[datetime] = None
     compound_het: Optional[SmallVariantCompoundHetReviewOut] = None
+    acmg: Optional[AcmgClassificationPayload] = None
 
 
 class SmallVariantReviewUpdate(BaseModel):
@@ -1251,6 +1267,7 @@ class SmallVariantReviewUpdate(BaseModel):
     tags: List[str] = Field(default_factory=list)
     note: Optional[str] = None
     compound_het: Optional[SmallVariantCompoundHetReviewUpdate] = None
+    acmg: Optional[AcmgClassificationPayload] = None
 
 
 class SmallVariantReviewSummaryOut(BaseModel):

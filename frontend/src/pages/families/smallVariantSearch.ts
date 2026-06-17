@@ -18,6 +18,21 @@ export interface SmallVariantGenotype {
   af?: number[];
 }
 
+// Persisted ACMG classification (snake_case to match the backend payload).
+export interface AcmgReviewCriterion {
+  code: string;
+  strength: string;
+  accepted: boolean;
+  evidence?: string | null;
+  auto_suggested: boolean;
+}
+
+export interface AcmgReviewPayload {
+  criteria: AcmgReviewCriterion[];
+  point_total?: number | null;
+  classification?: string | null;
+}
+
 export interface SmallVariantReview {
   variant_id: string;
   classification?: string | null;
@@ -27,6 +42,7 @@ export interface SmallVariantReview {
   updated_by?: string | null;
   updated_at?: string | null;
   compound_het?: SmallVariantCompoundHetReview | null;
+  acmg?: AcmgReviewPayload | null;
 }
 
 export interface SmallVariantReviewTagMetadata {
@@ -169,6 +185,7 @@ export type SmallVariantReviewSavePayload = {
     tags: string[];
     note?: string;
   };
+  acmg?: AcmgReviewPayload;
 };
 
 export interface SmallVariantFilterPreset {

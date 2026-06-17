@@ -7,6 +7,7 @@ import {
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
+import AcmgClassificationModal from './AcmgClassificationModal';
 import ResultsPagination from './ResultsPagination';
 import SmallVariantCards from './SmallVariantCards';
 import SmallVariantPairCards from './SmallVariantPairCards';
@@ -56,6 +57,7 @@ export default function SmallVariantResults({
 }: SmallVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<SmallVariant | null>(null);
+  const [acmgVariant, setAcmgVariant] = useState<SmallVariant | null>(null);
   const pairGroups = data?.variant_groups || [];
   const hasFlatVariants = Boolean(data?.variants.length);
   const hasGroupedPairs = Boolean(pairGroups.length);
@@ -159,6 +161,10 @@ export default function SmallVariantResults({
                       onOpenReview?.();
                       setSelectedVariant(variant);
                     }}
+                    onAcmgClassify={(variant) => {
+                      onOpenReview?.();
+                      setAcmgVariant(variant);
+                    }}
                     onToggleReviewTag={onToggleReviewTag}
                   />
                 ) : (
@@ -173,6 +179,10 @@ export default function SmallVariantResults({
                     onEditReview={(variant) => {
                       onOpenReview?.();
                       setSelectedVariant(variant);
+                    }}
+                    onAcmgClassify={(variant) => {
+                      onOpenReview?.();
+                      setAcmgVariant(variant);
                     }}
                     onToggleReviewTag={onToggleReviewTag}
                   />
@@ -198,6 +208,25 @@ export default function SmallVariantResults({
           onSave={async (payload) => {
             await onSaveReview(selectedVariant, payload);
             setSelectedVariant(null);
+          }}
+        />
+      ) : null}
+
+      {acmgVariant ? (
+        <AcmgClassificationModal
+          familyId={familyId}
+          projectId={projectId}
+          variant={acmgVariant}
+          members={members}
+          speciesName={speciesName}
+          assemblyName={assemblyName}
+          assemblyVersion={assemblyVersion}
+          errorMessage={reviewError}
+          isPending={reviewIsPending}
+          onClose={() => setAcmgVariant(null)}
+          onSave={async (payload) => {
+            await onSaveReview(acmgVariant, payload);
+            setAcmgVariant(null);
           }}
         />
       ) : null}
