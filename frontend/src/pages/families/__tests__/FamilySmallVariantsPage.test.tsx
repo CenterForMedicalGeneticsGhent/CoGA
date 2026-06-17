@@ -262,7 +262,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByRole('tab', { name: 'Auto' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Table' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Cards' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Edit review' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: 'Tags & notes' }).length).toBeGreaterThan(0);
   });
 
   it('scopes small-variant requests to the linked project when the URL has no project id', async () => {
@@ -1010,7 +1010,7 @@ describe('FamilySmallVariantsPage', () => {
 
     expect(brca2Row).toBeTruthy();
 
-    fireEvent.click(within(brca2Row as HTMLElement).getByRole('button', { name: 'More tags' }));
+    fireEvent.click(within(brca2Row as HTMLElement).getByRole('button', { name: 'Tags & notes' }));
 
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByLabelText(/Needs RNA/i));

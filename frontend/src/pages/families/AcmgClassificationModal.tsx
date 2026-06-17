@@ -21,14 +21,18 @@ import {
   buildLiteraturePubmedHref,
   buildSmallVariantExternalLinks,
   formatLocus,
+  getReviewTagStyle,
 } from './smallVariantResultUtils';
 import {
   ACMG_CLASSIFICATION_TAG_KEYS,
+  getTagDefinitionMap,
   normalizeTagKeys,
+  sortTagDefinitions,
   type AcmgReviewPayload,
   type FamilyMember,
   type SmallVariant,
   type SmallVariantReviewSavePayload,
+  type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import type { AcmgFamilyContext } from '../../lib/acmg';
 
@@ -37,6 +41,7 @@ type AcmgClassificationModalProps = {
   projectId?: string;
   variant: SmallVariant;
   members?: FamilyMember[];
+  tagDefinitions?: SmallVariantTagDefinition[];
   speciesName?: string;
   assemblyName?: string;
   assemblyVersion?: string;
@@ -57,6 +62,7 @@ type HpoAnnotationLite = {
 // identity every render and retrigger the seeding effect in an infinite loop.
 const EMPTY_MEMBERS: FamilyMember[] = [];
 const EMPTY_HPO: HpoAnnotationLite[] = [];
+const EMPTY_TAGS: SmallVariantTagDefinition[] = [];
 
 // Slice of GET /genes/profile we read for gene-level ACMG context.
 type GeneProfileResponse = {
@@ -102,6 +108,7 @@ export default function AcmgClassificationModal({
   projectId,
   variant,
   members = EMPTY_MEMBERS,
+  tagDefinitions = EMPTY_TAGS,
   speciesName,
   assemblyName,
   assemblyVersion,
@@ -114,6 +121,23 @@ export default function AcmgClassificationModal({
   // map renders as an unaccepted default; toggling/strength-editing upserts it.
   const [selections, setSelections] = useState<Record<string, AcmgSelection>>({});
   const [note, setNote] = useState('');
+  // Manually-managed review tags (collaboration / custom / secondary finding).
+  // The computed acmg_class_* tag is derived from the criteria and excluded here.
+  const [reviewTags, setReviewTags] = useState<string[]>([]);
+
+  const tagMap = useMemo(() => getTagDefinitionMap(tagDefinitions), [tagDefinitions]);
+  // Tags the analyst can toggle by hand — everything except the auto-managed
+  // ACMG class tags, which the selected criteria own.
+  const editableTagDefinitions = useMemo(() => {
+    const classKeys = ACMG_CLASSIFICATION_TAG_KEYS as readonly string[];
+    return sortTagDefinitions(tagDefinitions).filter((def) => !classKeys.includes(def.key));
+  }, [tagDefinitions]);
+  const toggleReviewTag = (tagKey: string) =>
+    setReviewTags((current) =>
+      current.includes(tagKey)
+        ? current.filter((key) => key !== tagKey)
+        : [...current, tagKey],
+    );
 
   const geneSymbol = variant.gene?.trim();
   const { data: geneProfile } = useQuery<GeneProfileResponse>({
@@ -201,6 +225,8 @@ export default function AcmgClassificationModal({
     const initial = buildInitialSelections(suggestions, savedSelections(variant.review?.acmg));
     setSelections(Object.fromEntries(initial.map((s) => [s.code, s])));
     setNote(variant.review?.note ?? '');
+    const classKeys = ACMG_CLASSIFICATION_TAG_KEYS as readonly string[];
+    setReviewTags((variant.review?.tags ?? []).filter((tag) => !classKeys.includes(tag)));
   }, [variant, geneContext, familyContext, probandHpo]);
 
   const selectionList = useMemo(() => Object.values(selections), [selections]);
@@ -254,13 +280,12 @@ export default function AcmgClassificationModal({
       classification: classification.label,
     };
 
-    // Reflect the computed class in the existing review tags so variant cards and
-    // summaries pick it up — replace any prior acmg_class_* tag.
-    const classTagKeys = ACMG_CLASSIFICATION_TAG_KEYS as readonly string[];
-    const priorTags = (variant.review?.tags ?? []).filter((tag) => !classTagKeys.includes(tag));
+    // Reflect the computed class in the review tags so variant cards and summaries
+    // pick it up — combine the analyst's manually-toggled tags with the computed
+    // acmg_class_* tag (the manual set already excludes any class tag).
     const tags = accepted.length
-      ? normalizeTagKeys([...priorTags, classification.classKey])
-      : normalizeTagKeys(priorTags);
+      ? normalizeTagKeys([...reviewTags, classification.classKey])
+      : normalizeTagKeys(reviewTags);
 
     const payload: SmallVariantReviewSavePayload = {
       classification: accepted.length ? classification.label : undefined,
@@ -345,6 +370,34 @@ export default function AcmgClassificationModal({
               />
             ))}
           </div>
+
+          {editableTagDefinitions.length ? (
+            <div className="acmg-modal-tags">
+              <p className="acmg-modal-tags-label">Review tags</p>
+              <p className="acmg-modal-tags-hint">
+                Adjust the variant&rsquo;s review tags — selected tags appear filled. The ACMG class
+                tag is set automatically from the criteria above.
+              </p>
+              <div className="acmg-modal-tags-list">
+                {editableTagDefinitions.map((def) => {
+                  const active = reviewTags.includes(def.key);
+                  return (
+                    <button
+                      key={def.key}
+                      type="button"
+                      className={`acmg-tag-toggle${active ? ' acmg-tag-toggle--active' : ''}`}
+                      style={active ? getReviewTagStyle(def.key, tagMap) : undefined}
+                      aria-pressed={active}
+                      title={def.description ?? undefined}
+                      onClick={() => toggleReviewTag(def.key)}
+                    >
+                      {def.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <textarea
             className="variant-review-textarea"

@@ -335,7 +335,10 @@ export const SYSTEM_TAG_GROUP_LABELS: Record<SmallVariantTagDefinition['group'],
 export const COLLABORATION_QUICK_TAGS = {
   review: 'review',
   excluded: 'excluded',
+  report: 'report',
 } as const;
+
+export const REPORT_TAG_KEY = COLLABORATION_QUICK_TAGS.report;
 
 export const ACMG_CLASSIFICATION_TAGS = [
   { key: 'acmg_class_5', label: 'Pathogenic - class 5' },

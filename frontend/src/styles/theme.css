@@ -10332,6 +10332,57 @@ a.button-danger:hover {
   margin: 0;
 }
 
+.acmg-modal-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  padding-top: 0.75rem;
+}
+
+.acmg-modal-tags-label {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #475569);
+}
+
+.acmg-modal-tags-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--color-accent);
+}
+
+.acmg-modal-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.acmg-tag-toggle {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background: transparent;
+  color: var(--color-text-muted, #475569);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.acmg-tag-toggle:hover {
+  border-color: var(--color-accent, #64748b);
+}
+
+.acmg-tag-toggle--active {
+  border-width: 1px;
+}
+
 .acmg-key {
   font-weight: 650;
   white-space: nowrap;
@@ -10385,4 +10436,159 @@ a.button-danger:hover {
   font-size: 0.68rem;
   font-weight: 600;
   color: #ff9b9b;
+}
+
+/* ---- Family report template ---- */
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.report-header-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-muted, #475569);
+}
+
+.report-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.report-intro,
+.report-variant,
+.report-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.report-paragraph {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--color-text, #1f2937);
+}
+
+.report-disclaimer {
+  margin: 0;
+  font-size: 0.76rem;
+  font-style: italic;
+  color: var(--color-text-muted, #64748b);
+}
+
+.report-variant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  padding-bottom: 0.6rem;
+}
+
+.report-classification-chip {
+  font-weight: 650;
+  background: rgba(15, 118, 110, 0.12);
+  border-color: rgba(15, 118, 110, 0.3);
+  color: #0f766e;
+}
+
+.report-classification-chip--none {
+  background: rgba(100, 116, 139, 0.12);
+  border-color: rgba(100, 116, 139, 0.3);
+  color: #475569;
+}
+
+.report-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.report-subheading {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #475569);
+}
+
+.report-criteria-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.report-criterion {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  padding: 0.4rem 0.55rem;
+  border-radius: 0.5rem;
+  border-left: 3px solid transparent;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.report-criterion--pathogenic {
+  border-left-color: #b42318;
+}
+
+.report-criterion--benign {
+  border-left-color: #2f855a;
+}
+
+.report-criterion-code {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-criterion-strength {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.report-evidence-summary {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #475569);
+}
+
+.report-variant-locus {
+  margin: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.76rem;
+  color: var(--color-text-muted, #64748b);
+}
+
+.report-note {
+  white-space: pre-wrap;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .report-page {
+    gap: 1rem;
+  }
+
+  .surface-card {
+    box-shadow: none;
+    border: 1px solid #cbd5e1;
+    break-inside: avoid;
+  }
 }

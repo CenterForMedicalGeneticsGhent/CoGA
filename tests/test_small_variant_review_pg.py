@@ -69,3 +69,14 @@ async def test_get_small_variant_review_map_binds_variant_ids_expanding() -> Non
     assert session.params == {"family_id": "family-uuid", "variant_ids": ["var-1"]}
     assert result["var-1"].variant_id == "var-1"
     assert result["var-1"].tags == ["validated"]
+
+
+def test_report_tag_registered_as_default_collaboration_tag() -> None:
+    report = next(
+        (tag for tag in small_variant_review_pg.DEFAULT_SMALL_VARIANT_TAGS if tag["key"] == "report"),
+        None,
+    )
+    assert report is not None, "the 'report' default tag should be registered"
+    assert report["group"] == "collaboration"
+    assert report["label"] == "Report"
+    assert "report" in small_variant_review_pg.DEFAULT_SMALL_VARIANT_TAG_KEYS

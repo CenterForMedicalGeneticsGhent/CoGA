@@ -218,6 +218,7 @@ export default function SmallVariantResults({
           projectId={projectId}
           variant={acmgVariant}
           members={members}
+          tagDefinitions={tags}
           speciesName={speciesName}
           assemblyName={assemblyName}
           assemblyVersion={assemblyVersion}
