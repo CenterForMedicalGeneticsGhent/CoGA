@@ -1,6 +1,6 @@
 # Monarch Initiative Integration — Design
 
-Status: Phase 1 implemented · Phases 2–3 proposed
+Status: Phases 1–2 implemented · Phase 3 proposed
 Owner: TBD
 Related: [storage-architecture.md](storage-architecture.md), [data-import.md](data-import.md), [database.md](database.md), [ROADMAP.md](ROADMAP.md)
 
@@ -160,19 +160,25 @@ read by symbol at profile-build time is a single source of truth with no cross-a
 staleness. `omim_id`/`orphanet_id` xref columns were also dropped from Phase 1 — the
 disease key is MONDO and OMIM mapping is a follow-up.
 
-Phase 2 adds `monarch_disease_phenotype` (still proposed):
+Phase 2's `monarch_disease_phenotype` (**as shipped** — see
+[027_monarch_disease_phenotype.sql](../backend/db/schema/postgres/027_monarch_disease_phenotype.sql)).
+The proposed `frequency`/`onset` columns were dropped: the denormalized
+`disease_phenotype.all.tsv.gz` does not carry them (its `qualifiers` column is empty).
+A `negated` flag was added for explicitly excluded phenotypes:
 
 ```sql
-CREATE TABLE monarch_disease_phenotype (
-    mondo_id     TEXT NOT NULL,
-    hpo_id       TEXT NOT NULL,
-    frequency    TEXT,                    -- HPOA frequency term/ratio
-    onset        TEXT,
-    source       TEXT,
+CREATE TABLE IF NOT EXISTS monarch_disease_phenotype (
+    mondo_id        TEXT NOT NULL,
+    disease_label   TEXT,
+    hpo_id          TEXT NOT NULL,
+    phenotype_label TEXT,
+    negated         BOOLEAN NOT NULL DEFAULT FALSE,   -- disease explicitly does NOT present this
+    sources         JSONB NOT NULL DEFAULT '[]'::jsonb,
     release_version TEXT,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     PRIMARY KEY (mondo_id, hpo_id)
 );
-CREATE INDEX ix_mdp_hpo ON monarch_disease_phenotype (hpo_id);
+CREATE INDEX idx_monarch_disease_phenotype_hpo ON monarch_disease_phenotype (hpo_id);
 ```
 
 ## Ingestion
@@ -231,11 +237,41 @@ Verified end-to-end against the live dev stack: the `2026-06-08` release ingests
 After deploy, an admin must `POST /api/admin/monarch/refresh` once (and monthly
 thereafter) — until then the profile shows the empty state.
 
-### Phase 2 — Disease → phenotype
+### Phase 2 — Disease → phenotype (implemented)
 
-- Ingest `monarch_disease_phenotype`.
-- On the family page, show a disease's expected HPO phenotypes alongside the family
-  member's observed `individual_hpo`, highlighting overlap/gaps.
+Shipped in this change. Builds directly on Phase 1's gene→disease MONDO key.
+
+- **Migration** [027_monarch_disease_phenotype.sql](../backend/db/schema/postgres/027_monarch_disease_phenotype.sql)
+  — `monarch_disease_phenotype`, one row per `(mondo_id, hpo_id)` with aggregated
+  `sources` and a `negated` flag (an explicitly *excluded* phenotype; a present
+  assertion from any source wins over an exclusion). Indexed on `hpo_id`.
+- **Ingest** — `refresh_monarch_disease_phenotype()` loads
+  `disease_associations/disease_phenotype.all.tsv.gz` (~4 MB), filters `MONDO:`→`HP:`
+  rows, aggregates, and replaces the table in chunked inserts. A new
+  `refresh_monarch()` orchestrator fetches the release once and refreshes both tables;
+  `POST /api/admin/monarch/refresh` now calls it and `MonarchRefreshSummaryOut` gained
+  the disease/phenotype counts.
+- **Overlap** — `summarize_disease_phenotypes()` returns each disease's expected
+  phenotype count and, when a family is in scope, the expected phenotypes the patient
+  exhibits. Matching is **ancestor-aware** via `hpo_closure`: an expected phenotype
+  counts as observed when the family has that HPO term *or a more specific descendant*
+  (`family_observed_phenotype_closure()` expands the family's `present`
+  `individual_hpo` terms to their ancestors). The gene profile already accepts
+  `family_id`, so this rides the existing variant-review → gene-profile link.
+- **Frontend** — each Monarch disease on the gene profile now shows its expected
+  phenotype count and, in a family context, the matched phenotypes as chips
+  ("N phenotypes · M observed in family").
+- **Tests** — added disease-phenotype parsing tests (source aggregation, present-wins,
+  exclusion-kept, non-HP filtering) and extended the GeneInfoPage test for the
+  phenotype caption + matched chip.
+
+Verified end-to-end against the live dev stack: full refresh ~8 s →
+**245,814 disease→phenotype pairs across 11,230 diseases** (702 exclusions); **90 %**
+of gene→disease MONDO ids have phenotypes; a real family's present terms matched
+3 of Fanconi anemia's 106 expected phenotypes via HPO ancestry.
+
+**Match semantics:** Phase 2 matches in one direction (disease expects X; patient has
+X or a subtype). Symmetric information-content similarity is Phase 3 (semsim).
 
 ### Phase 3 — Phenotype-driven prioritization
 

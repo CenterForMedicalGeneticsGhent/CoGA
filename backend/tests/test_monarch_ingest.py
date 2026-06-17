@@ -2,6 +2,8 @@
 
 from backend.app.services.monarch_ingest import (
     _Association,
+    _DiseasePhenotype,
+    parse_disease_phenotype_tsv,
     parse_gene_disease_tsv,
 )
 
@@ -67,3 +69,48 @@ def test_noncausal_only_predicate_is_not_marked_causal() -> None:
     record = associations[("HGNC:4", "MONDO:4")]
     assert record.causal is False
     assert record.predicate == "associated_with_increased_likelihood_of"
+
+
+def _pheno_row(disease, disease_label, hpo, hpo_label, source, negated=""):
+    return (
+        f"{disease}\t{disease_label}\tbiolink:Disease\t\t\t"
+        f"{negated}\tbiolink:has_phenotype\t{hpo}\t{hpo_label}\tbiolink:PhenotypicFeature\t\t\t\t"
+        f"{source}\t['infores:monarchinitiative']"
+    )
+
+
+def test_disease_phenotype_aggregates_sources() -> None:
+    text = _tsv(
+        _pheno_row("MONDO:1", "d1", "HP:1", "seizure", "infores:omim"),
+        _pheno_row("MONDO:1", "d1", "HP:1", "seizure", "infores:orphanet"),
+    )
+    phenotypes: dict[tuple[str, str], _DiseasePhenotype] = {}
+    parse_disease_phenotype_tsv(text, phenotypes=phenotypes)
+
+    assert len(phenotypes) == 1
+    record = phenotypes[("MONDO:1", "HP:1")]
+    assert record.sources == {"omim", "orphanet"}
+    assert record.negated is False
+
+
+def test_disease_phenotype_present_assertion_wins_over_negated() -> None:
+    text = _tsv(
+        _pheno_row("MONDO:2", "d2", "HP:2", "ataxia", "infores:omim", negated="True"),
+        _pheno_row("MONDO:2", "d2", "HP:2", "ataxia", "infores:orphanet"),
+    )
+    phenotypes: dict[tuple[str, str], _DiseasePhenotype] = {}
+    parse_disease_phenotype_tsv(text, phenotypes=phenotypes)
+
+    assert phenotypes[("MONDO:2", "HP:2")].negated is False
+
+
+def test_disease_phenotype_keeps_pure_exclusions_and_filters_non_hp() -> None:
+    text = _tsv(
+        _pheno_row("MONDO:3", "d3", "HP:3", "excluded", "infores:omim", negated="True"),
+        _pheno_row("MONDO:4", "d4", "MONDO:9", "not-a-phenotype", "infores:omim"),
+    )
+    phenotypes: dict[tuple[str, str], _DiseasePhenotype] = {}
+    parse_disease_phenotype_tsv(text, phenotypes=phenotypes)
+
+    assert set(phenotypes) == {("MONDO:3", "HP:3")}
+    assert phenotypes[("MONDO:3", "HP:3")].negated is True

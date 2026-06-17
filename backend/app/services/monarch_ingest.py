@@ -29,18 +29,23 @@ logger = logging.getLogger(__name__)
 # Monthly releases; "latest" always redirects to the newest dated release.
 MONARCH_KG_BASE_URL = "https://data.monarchinitiative.org/monarch-kg/latest"
 MONARCH_METADATA_URL = f"{MONARCH_KG_BASE_URL}/metadata.yaml"
-_TSV_BASE = f"{MONARCH_KG_BASE_URL}/tsv/gene_associations"
+_GENE_TSV_BASE = f"{MONARCH_KG_BASE_URL}/tsv/gene_associations"
+_DISEASE_TSV_BASE = f"{MONARCH_KG_BASE_URL}/tsv/disease_associations"
 
 # Pre-split denormalized association files. The causal file is taxon-filtered to
 # human (9606); the noncausal file is cross-species but gene -> disease rows are
 # HGNC-subject and we filter to those.
 MONARCH_GENE_DISEASE_FILES = (
-    (f"{_TSV_BASE}/gene_disease.9606.tsv.gz", True),
-    (f"{_TSV_BASE}/gene_disease.noncausal.tsv.gz", False),
+    (f"{_GENE_TSV_BASE}/gene_disease.9606.tsv.gz", True),
+    (f"{_GENE_TSV_BASE}/gene_disease.noncausal.tsv.gz", False),
 )
+
+# Disease -> phenotype (HPO). Cross-species file; filtered to MONDO -> HP rows.
+MONARCH_DISEASE_PHENOTYPE_FILE = f"{_DISEASE_TSV_BASE}/disease_phenotype.all.tsv.gz"
 
 _HGNC_PREFIX = "HGNC:"
 _MONDO_PREFIX = "MONDO:"
+_HPO_PREFIX = "HP:"
 
 # Predicate priority, strongest relationship first. Used to pick the representative
 # predicate when a (gene, disease) pair is asserted by several edges.
@@ -215,13 +220,16 @@ async def _replace_gene_disease_rows(
     return len(rows)
 
 
-async def refresh_monarch_gene_disease(session: AsyncSession) -> dict[str, Any]:
+async def refresh_monarch_gene_disease(
+    session: AsyncSession, *, release_version: str | None = None
+) -> dict[str, Any]:
     """Download, parse, and replace the Monarch gene -> disease table.
 
     Returns a summary dict suitable for an admin response.
     """
     started_at = datetime.now(timezone.utc)
-    release_version = await _fetch_release_version()
+    if release_version is None:
+        release_version = await _fetch_release_version()
 
     associations: dict[tuple[str, str], _Association] = {}
     files_loaded = 0
@@ -258,6 +266,174 @@ async def refresh_monarch_gene_disease(session: AsyncSession) -> dict[str, Any]:
     return summary
 
 
+@dataclass(slots=True)
+class _DiseasePhenotype:
+    mondo_id: str
+    disease_label: str
+    hpo_id: str
+    phenotype_label: str
+    sources: set[str] = field(default_factory=set)
+    # True only while *every* assertion of the pair is negated; a single present
+    # assertion flips it to False (present wins over excluded).
+    negated: bool = True
+
+
+def parse_disease_phenotype_tsv(
+    text_value: str,
+    *,
+    phenotypes: dict[tuple[str, str], _DiseasePhenotype],
+) -> None:
+    """Fold the rows of the denormalized disease_phenotype TSV into ``phenotypes``.
+
+    Keyed by ``(mondo_id, hpo_id)``; sources accumulate and a pair is only kept as
+    ``negated`` when no source asserts it as present.
+    """
+    reader = csv.DictReader(io.StringIO(text_value), delimiter="\t")
+    for row in reader:
+        subject = (row.get("subject") or "").strip()
+        obj = (row.get("object") or "").strip()
+        if not subject.startswith(_MONDO_PREFIX) or not obj.startswith(_HPO_PREFIX):
+            continue
+        negated = (row.get("negated") or "").strip().lower() == "true"
+        key = (subject, obj)
+        record = phenotypes.get(key)
+        if record is None:
+            record = _DiseasePhenotype(
+                mondo_id=subject,
+                disease_label=(row.get("subject_label") or "").strip(),
+                hpo_id=obj,
+                phenotype_label=(row.get("object_label") or "").strip(),
+            )
+            phenotypes[key] = record
+        record.negated = record.negated and negated
+        source = _strip_prefix(row.get("primary_knowledge_source") or "")
+        if source:
+            record.sources.add(source)
+        if not record.disease_label:
+            record.disease_label = (row.get("subject_label") or "").strip()
+        if not record.phenotype_label:
+            record.phenotype_label = (row.get("object_label") or "").strip()
+
+
+async def _replace_disease_phenotype_rows(
+    session: AsyncSession,
+    *,
+    phenotypes: Iterable[_DiseasePhenotype],
+    release_version: str | None,
+    now: datetime,
+) -> int:
+    rows = [
+        {
+            "mondo_id": record.mondo_id,
+            "disease_label": record.disease_label or None,
+            "hpo_id": record.hpo_id,
+            "phenotype_label": record.phenotype_label or None,
+            "negated": record.negated,
+            "sources": json.dumps(sorted(record.sources)),
+            "release_version": release_version,
+            "updated_at": now,
+        }
+        for record in phenotypes
+    ]
+
+    await session.execute(text("DELETE FROM monarch_disease_phenotype"))
+    if rows:
+        # Chunked to keep the executemany parameter set bounded (~265k rows).
+        chunk = 5000
+        insert = text(
+            """
+            INSERT INTO monarch_disease_phenotype (
+                mondo_id,
+                disease_label,
+                hpo_id,
+                phenotype_label,
+                negated,
+                sources,
+                release_version,
+                updated_at
+            )
+            VALUES (
+                :mondo_id,
+                :disease_label,
+                :hpo_id,
+                :phenotype_label,
+                :negated,
+                CAST(:sources AS jsonb),
+                :release_version,
+                :updated_at
+            )
+            """
+        )
+        for start in range(0, len(rows), chunk):
+            await session.execute(insert, rows[start : start + chunk])
+    await session.commit()
+    return len(rows)
+
+
+async def refresh_monarch_disease_phenotype(
+    session: AsyncSession, *, release_version: str | None = None
+) -> dict[str, Any]:
+    """Download, parse, and replace the Monarch disease -> phenotype table."""
+    started_at = datetime.now(timezone.utc)
+    if release_version is None:
+        release_version = await _fetch_release_version()
+
+    phenotypes: dict[tuple[str, str], _DiseasePhenotype] = {}
+    text_value = await _download_gzip_tsv(MONARCH_DISEASE_PHENOTYPE_FILE)
+    parse_disease_phenotype_tsv(text_value, phenotypes=phenotypes)
+
+    records = list(phenotypes.values())
+    written = await _replace_disease_phenotype_rows(
+        session,
+        phenotypes=records,
+        release_version=release_version,
+        now=started_at,
+    )
+
+    completed_at = datetime.now(timezone.utc)
+    summary = {
+        "disease_phenotype_pairs": written,
+        "phenotype_diseases": len({record.mondo_id for record in records}),
+        "phenotypes": len({record.hpo_id for record in records}),
+        "excluded_phenotype_pairs": sum(1 for record in records if record.negated),
+        "duration_seconds": (completed_at - started_at).total_seconds(),
+    }
+    logger.info(
+        "Monarch disease-phenotype refresh complete: %s pairs across %s diseases (release %s)",
+        summary["disease_phenotype_pairs"],
+        summary["phenotype_diseases"],
+        release_version,
+    )
+    return summary
+
+
+async def refresh_monarch(session: AsyncSession) -> dict[str, Any]:
+    """Refresh all Monarch tables (gene -> disease and disease -> phenotype).
+
+    Fetches the release version once and shares it across both refreshes so the
+    tables stay consistent. Returns a merged summary.
+    """
+    started_at = datetime.now(timezone.utc)
+    release_version = await _fetch_release_version()
+
+    gene_disease = await refresh_monarch_gene_disease(
+        session, release_version=release_version
+    )
+    disease_phenotype = await refresh_monarch_disease_phenotype(
+        session, release_version=release_version
+    )
+
+    completed_at = datetime.now(timezone.utc)
+    summary = {
+        **gene_disease,
+        **disease_phenotype,
+        "files_loaded": gene_disease.get("files_loaded", 0) + 1,
+        "completed_at": completed_at,
+        "duration_seconds": (completed_at - started_at).total_seconds(),
+    }
+    return summary
+
+
 async def list_monarch_gene_disease(
     session: AsyncSession, *, symbol: str
 ) -> list[dict[str, Any]]:
@@ -283,3 +459,84 @@ async def list_monarch_gene_disease(
         {"symbol": symbol},
     )
     return [dict(row) for row in result.mappings().all()]
+
+
+async def family_observed_phenotype_closure(
+    session: AsyncSession, *, family_uuid: str
+) -> set[str]:
+    """Return the set of HPO ids that count as observed for a family.
+
+    This is the family's *present* annotations plus all their ancestors, so a
+    disease's general expected phenotype matches when the patient has that term or
+    any more specific descendant of it.
+    """
+    present_result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT hpo_id
+            FROM individual_hpo
+            WHERE family_id = CAST(:family_uuid AS uuid)
+              AND status = 'present'
+            """
+        ),
+        {"family_uuid": family_uuid},
+    )
+    present = {row["hpo_id"] for row in present_result.mappings().all()}
+    if not present:
+        return set()
+
+    closure_result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT ancestor_id
+            FROM hpo_closure
+            WHERE hpo_id = ANY(:present)
+            """
+        ),
+        {"present": list(present)},
+    )
+    observed = {row["ancestor_id"] for row in closure_result.mappings().all()}
+    observed.update(present)  # ensure exact terms count even without self-closure rows
+    return observed
+
+
+async def summarize_disease_phenotypes(
+    session: AsyncSession,
+    *,
+    mondo_ids: Iterable[str],
+    observed_closure: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Per-disease expected-phenotype summary for the given MONDO ids.
+
+    Returns ``{mondo_id: {"phenotype_count": int, "matched": [{"hpo_id", "label"}]}}``.
+    ``matched`` lists the disease's expected phenotypes the patient exhibits (only
+    populated when ``observed_closure`` is provided), sorted by label.
+    """
+    ids = list({mondo_id for mondo_id in mondo_ids if mondo_id})
+    summary: dict[str, dict[str, Any]] = {
+        mondo_id: {"phenotype_count": 0, "matched": []} for mondo_id in ids
+    }
+    if not ids:
+        return summary
+
+    result = await session.execute(
+        text(
+            """
+            SELECT mondo_id, hpo_id, phenotype_label
+            FROM monarch_disease_phenotype
+            WHERE mondo_id = ANY(:ids)
+              AND negated = FALSE
+            """
+        ),
+        {"ids": ids},
+    )
+    for row in result.mappings().all():
+        entry = summary[row["mondo_id"]]
+        entry["phenotype_count"] += 1
+        if observed_closure and row["hpo_id"] in observed_closure:
+            entry["matched"].append(
+                {"hpo_id": row["hpo_id"], "label": row["phenotype_label"]}
+            )
+    for entry in summary.values():
+        entry["matched"].sort(key=lambda item: (item["label"] or item["hpo_id"]).lower())
+    return summary

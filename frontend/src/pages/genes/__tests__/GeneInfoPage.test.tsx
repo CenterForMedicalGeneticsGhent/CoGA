@@ -185,6 +185,8 @@ describe('GeneInfoPage', () => {
                   sources: ['omim', 'orphanet'],
                   causal: true,
                   monarch_url: 'https://monarchinitiative.org/MONDO:0011623',
+                  phenotype_count: 42,
+                  matched_phenotypes: [{ hpo_id: 'HP:0002894', label: 'Pancreatic carcinoma' }],
                 },
               ],
               extra: {
@@ -368,7 +370,10 @@ describe('GeneInfoPage', () => {
       'href',
       'https://monarchinitiative.org/MONDO:0011623',
     );
-    expect(screen.getByText(/Causes · omim, orphanet/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Causes · omim, orphanet · 42 phenotypes · 1 observed in family/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Pancreatic carcinoma')).toBeInTheDocument();
     expect(screen.getByText('Breast carcinoma')).toBeInTheDocument();
     expect(screen.getByText('HP:0003002')).toBeInTheDocument();
     expect(

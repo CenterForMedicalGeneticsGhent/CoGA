@@ -20,9 +20,14 @@ from ..schemas import (
     GeneProfileOut,
     GeneSearchResultOut,
     GeneTranscriptOut,
+    MonarchPhenotypeMatchOut,
 )
 from .metadata_service import CurrentUser, get_accessible_family_mapping
-from .monarch_ingest import list_monarch_gene_disease
+from .monarch_ingest import (
+    family_observed_phenotype_closure,
+    list_monarch_gene_disease,
+    summarize_disease_phenotypes,
+)
 
 
 def _gene_symbol_candidates(symbol: str) -> list[str]:
@@ -575,6 +580,16 @@ async def build_gene_profile(
     monarch_rows = await list_monarch_gene_disease(
         session, symbol=str(primary["hgnc_symbol"])
     )
+    observed_closure: set[str] | None = None
+    if family_row is not None:
+        observed_closure = await family_observed_phenotype_closure(
+            session, family_uuid=str(family_row["id"])
+        )
+    phenotype_summary = await summarize_disease_phenotypes(
+        session,
+        mondo_ids=[row["mondo_id"] for row in monarch_rows],
+        observed_closure=observed_closure,
+    )
     monarch_associations = [
         GeneMonarchAssociationOut(
             mondo_id=row["mondo_id"],
@@ -584,6 +599,11 @@ async def build_gene_profile(
             sources=list(row.get("sources") or []),
             causal=bool(row.get("causal")),
             monarch_url=f"https://monarchinitiative.org/{row['mondo_id']}",
+            phenotype_count=phenotype_summary[row["mondo_id"]]["phenotype_count"],
+            matched_phenotypes=[
+                MonarchPhenotypeMatchOut(hpo_id=match["hpo_id"], label=match["label"])
+                for match in phenotype_summary[row["mondo_id"]]["matched"]
+            ],
         )
         for row in monarch_rows
     ]

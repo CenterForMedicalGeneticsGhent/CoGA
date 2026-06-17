@@ -961,6 +961,11 @@ class GeneExternalLinkOut(BaseModel):
     href: str
 
 
+class MonarchPhenotypeMatchOut(BaseModel):
+    hpo_id: str
+    label: Optional[str] = None
+
+
 class GeneMonarchAssociationOut(BaseModel):
     mondo_id: str
     disease_label: Optional[str] = None
@@ -969,6 +974,8 @@ class GeneMonarchAssociationOut(BaseModel):
     sources: List[str] = Field(default_factory=list)
     causal: bool = False
     monarch_url: Optional[str] = None
+    phenotype_count: int = 0
+    matched_phenotypes: List[MonarchPhenotypeMatchOut] = Field(default_factory=list)
 
 
 class GeneProfileOut(BaseModel):
@@ -1013,6 +1020,10 @@ class MonarchRefreshSummaryOut(BaseModel):
     genes: int = 0
     diseases: int = 0
     causal_pairs: int = 0
+    disease_phenotype_pairs: int = 0
+    phenotype_diseases: int = 0
+    phenotypes: int = 0
+    excluded_phenotype_pairs: int = 0
     completed_at: datetime
     duration_seconds: float = 0.0
 

@@ -144,6 +144,11 @@ interface GeneHpoTerm {
   label?: string | null;
 }
 
+interface MonarchPhenotypeMatch {
+  hpo_id: string;
+  label?: string | null;
+}
+
 interface GeneMonarchAssociation {
   mondo_id: string;
   disease_label?: string | null;
@@ -152,6 +157,8 @@ interface GeneMonarchAssociation {
   sources?: string[];
   causal?: boolean;
   monarch_url?: string | null;
+  phenotype_count?: number;
+  matched_phenotypes?: MonarchPhenotypeMatch[];
 }
 
 interface GeneOntology {
@@ -1303,9 +1310,14 @@ const GeneInfoPage: React.FC = () => {
                       {monarchAssociations
                         .slice(0, diseaseEvidenceExpanded ? monarchAssociations.length : 6)
                         .map((entry) => {
+                          const matched = entry.matched_phenotypes || [];
                           const meta = [
                             formatMonarchPredicate(entry.predicate),
                             entry.sources?.length ? entry.sources.join(', ') : null,
+                            entry.phenotype_count
+                              ? `${entry.phenotype_count} phenotypes`
+                              : null,
+                            matched.length ? `${matched.length} observed in family` : null,
                           ]
                             .filter(Boolean)
                             .join(' · ');
@@ -1324,6 +1336,19 @@ const GeneInfoPage: React.FC = () => {
                                 <span>{entry.disease_label || entry.mondo_id}</span>
                               )}
                               {meta ? <span className="gene-compact-list-meta">{meta}</span> : null}
+                              {matched.length ? (
+                                <div className="gene-compact-chip-grid">
+                                  {matched.map((match) => (
+                                    <span
+                                      key={match.hpo_id}
+                                      className="gene-compact-term-chip"
+                                      title={`${match.label || match.hpo_id} observed in this family`}
+                                    >
+                                      {match.label || match.hpo_id}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
                             </li>
                           );
                         })}
