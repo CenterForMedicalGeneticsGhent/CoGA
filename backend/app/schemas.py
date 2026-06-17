@@ -437,6 +437,24 @@ class HpoFamilyQueryOut(BaseModel):
     annotations: List[HpoAnnotationOut] = Field(default_factory=list)
 
 
+class PhenotypeMatchResultOut(BaseModel):
+    rank: int
+    score: Optional[float] = None
+    id: str
+    name: str
+    category: Optional[str] = None
+    symbol: Optional[str] = None
+    gene_in_platform: bool = False
+
+
+class FamilyPhenotypeMatchOut(BaseModel):
+    group: str
+    sample_id: Optional[str] = None
+    query_hpo_ids: List[str] = Field(default_factory=list)
+    results: List[PhenotypeMatchResultOut] = Field(default_factory=list)
+    source: str = "Monarch Initiative semsim"
+
+
 class HpoOntologyImportRequest(BaseModel):
     path: str = Field(min_length=1)
     release_version: Optional[str] = None

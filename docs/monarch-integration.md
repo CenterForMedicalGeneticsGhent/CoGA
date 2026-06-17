@@ -1,6 +1,6 @@
 # Monarch Initiative Integration — Design
 
-Status: Phases 1–2 implemented · Phase 3 proposed
+Status: Phases 1–3 implemented
 Owner: TBD
 Related: [storage-architecture.md](storage-architecture.md), [data-import.md](data-import.md), [database.md](database.md), [ROADMAP.md](ROADMAP.md)
 
@@ -273,19 +273,44 @@ of gene→disease MONDO ids have phenotypes; a real family's present terms match
 **Match semantics:** Phase 2 matches in one direction (disease expects X; patient has
 X or a subtype). Symmetric information-content similarity is Phase 3 (semsim).
 
-### Phase 3 — Phenotype-driven prioritization
+### Phase 3 — Phenotype-driven prioritization (implemented)
 
-- New endpoint that POSTs a family member's HPO term set (`individual_hpo`) to Monarch
-  `POST /v3/api/semsim/search`, returning a ranked list of candidate diseases/genes by
-  phenotypic similarity.
-- Surface as a ranking column / filter preset in the variant explorer
-  ([GlobalSmallVariantExplorerPage.tsx](../frontend/src/pages/variant-explorer/GlobalSmallVariantExplorerPage.tsx)).
-- Requires no bulk data — pure API. Highest clinical value.
+Shipped in this change. Pure live API — no bulk ingest, no new tables.
+
+- **Service** [monarch_semsim.py](../backend/app/services/monarch_semsim.py)
+  — `semsim_search(termset, group, limit)` POSTs to Monarch
+  `POST /v3/api/semsim/search` (`group` ∈ `Human Genes` / `Human Diseases`,
+  `ancestor_information_content` metric) and returns ranked `{rank, score, id, name}`.
+  Wrapped with a 25 s timeout, a 1 h in-memory TTL cache keyed by the sorted termset,
+  and a `MonarchSemsimError` so callers can surface a clean "unavailable".
+- **Endpoint** `GET /api/families/{family_id}/phenotype-match` (optional `sample_id`,
+  `group`, `limit`) in [families.py](../backend/app/routers/families.py) — collects the
+  family's (or one member's) `present` `individual_hpo` terms, ranks genes, and flags
+  which results exist in this platform (`gene_in_platform`) so the UI links straight to
+  the gene profile. `FamilyPhenotypeMatchOut` carries the query terms + ranked results.
+- **Frontend** — [MonarchPhenotypeMatchPanel.tsx](../frontend/src/pages/families/MonarchPhenotypeMatchPanel.tsx)
+  on the family detail page: an on-demand "Find candidate genes" button (so Monarch is
+  not hit on every page load) that renders the ranked list; in-platform genes link to
+  `/genes?gene=…&family_id=…&project_id=…`.
+- **Tests** — [test_monarch_semsim.py](../backend/tests/test_monarch_semsim.py)
+  (normalize/cache/short-circuit, no network) and a
+  [panel test](../frontend/src/pages/families/__tests__/MonarchPhenotypeMatchPanel.test.tsx).
+
+**This closes the loop.** Patient phenotypes → ranked candidate genes (Phase 3) →
+click a gene → its Monarch diseases (Phase 1) and which of the patient's phenotypes
+match each disease (Phase 2). Verified end-to-end over HTTP against a real family with
+congenital-hypothyroidism phenotypes: top hits were **TG, IYD, DUOXA2** — the thyroid
+dyshormonogenesis genes — all linkable to the gene profile.
+
+This is the symmetric, information-content phenotype similarity that Phase 2's
+one-directional overlap could not provide.
 
 ## Open questions
 
-1. Bulk semsim vs live API for Phase 3 — start with the live API; revisit if latency or
-   availability is a problem (Monarch also ships a `semsimian` SQLite for self-hosting).
+1. Bulk semsim vs live API for Phase 3 — shipped against the live API with a 25 s
+   timeout + 1 h cache. Revisit if latency or availability becomes a problem (Monarch
+   ships a `semsimian` SQLite for self-hosting, and the variant-explorer ranking-column
+   surface remains a future enhancement).
 2. Confidence/evidence display — how much GenCC/ClinGen evidence detail to surface vs
    link out.
 3. Release pinning — show the Monarch release version in the UI for traceability;

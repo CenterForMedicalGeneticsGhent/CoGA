@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
 import type {
   ApiFamilyRecord,
   ApiFamilyMemberBatchUpdateItem,
@@ -2060,6 +2061,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </div>
         )}
       </section>
+
+      <MonarchPhenotypeMatchPanel familyId={familyId} projectId={projectId} />
 
       {selectedMemberId && (
         <div

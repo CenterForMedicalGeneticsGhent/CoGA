@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,10 +30,12 @@ from ..schemas import (
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
     PhasedMarkerResponse,
+    FamilyPhenotypeMatchOut,
     HpoAnnotationCreate,
     HpoAnnotationOut,
     HpoAnnotationUpdate,
     HpoFamilyQueryOut,
+    PhenotypeMatchResultOut,
     RepeatExpansionTrackResponse,
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
@@ -79,6 +82,14 @@ from ..services.hpo_service import (
     list_family_hpo_annotations,
     query_family_hpo_annotations,
     update_individual_hpo_annotation,
+)
+from ..services.monarch_semsim import (
+    DEFAULT_GROUP,
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    SEMSIM_GROUPS,
+    MonarchSemsimError,
+    semsim_search,
 )
 from ..services.metadata_service import CurrentUser
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
@@ -378,6 +389,97 @@ async def query_family_hpo(
         family_uuid=context.family_uuid,
         hpo_id=hpo_id,
         include_descendants=include_descendants,
+    )
+
+
+@router.get("/{family_id}/phenotype-match", response_model=FamilyPhenotypeMatchOut)
+async def family_phenotype_match(
+    family_id: str,
+    sample_id: str | None = None,
+    group: str = Query(default=DEFAULT_GROUP),
+    limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FamilyPhenotypeMatchOut:
+    """Rank candidate genes/diseases by phenotypic similarity to observed HPO terms.
+
+    Uses the Monarch Initiative semsim service against the family's (or a single
+    member's) `present` HPO annotations. Genes are linkable to the gene profile,
+    closing the loop with the gene->disease and disease->phenotype views.
+    """
+    if group not in SEMSIM_GROUPS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported group. Choose one of: {', '.join(SEMSIM_GROUPS)}",
+        )
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+    )
+    annotations = await list_family_hpo_annotations(
+        session,
+        family_uuid=context.family_uuid,
+        sample_id=sample_id,
+    )
+    present = sorted(
+        {row["hpo_id"] for row in annotations if row.get("status") == "present"}
+    )
+    if not present:
+        return FamilyPhenotypeMatchOut(
+            group=group, sample_id=sample_id, query_hpo_ids=[], results=[]
+        )
+
+    try:
+        raw_results = await semsim_search(present, group=group, limit=limit)
+    except MonarchSemsimError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Monarch phenotype matching is unavailable: {exc}",
+        ) from exc
+
+    # For gene results, flag which symbols exist in this platform so the UI can link
+    # straight to the gene profile (where Monarch gene->disease + overlap render).
+    gene_symbols = {
+        str(r.get("name"))
+        for r in raw_results
+        if (r.get("category") or "").endswith("Gene") and r.get("name")
+    }
+    in_platform: set[str] = set()
+    if gene_symbols:
+        platform_result = await session.execute(
+            text(
+                """
+                SELECT DISTINCT hgnc_symbol
+                FROM genes
+                WHERE hgnc_symbol = ANY(:symbols)
+                """
+            ),
+            {"symbols": list(gene_symbols)},
+        )
+        in_platform = {row["hgnc_symbol"] for row in platform_result.mappings().all()}
+
+    results = []
+    for entry in raw_results:
+        is_gene = (entry.get("category") or "").endswith("Gene")
+        symbol = entry.get("name") if is_gene else None
+        results.append(
+            PhenotypeMatchResultOut(
+                rank=entry["rank"],
+                score=entry.get("score"),
+                id=entry["id"],
+                name=entry["name"],
+                category=entry.get("category"),
+                symbol=symbol,
+                gene_in_platform=bool(symbol and symbol in in_platform),
+            )
+        )
+
+    return FamilyPhenotypeMatchOut(
+        group=group,
+        sample_id=sample_id,
+        query_hpo_ids=present,
+        results=results,
     )
 
 
