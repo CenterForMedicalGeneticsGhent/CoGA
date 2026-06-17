@@ -1030,4 +1030,82 @@ describe('FamilySmallVariantsPage', () => {
     expect(payload).toBeTruthy();
     expect(payload?.compound_het).toBeUndefined();
   });
+
+  it('shows a loading indicator while a filtered/paginated refetch is in flight', async () => {
+    localStorage.setItem('role', 'admin');
+
+    let resolvePage2: (value: { data: unknown }) => void = () => {};
+    const page2Promise = new Promise<{ data: unknown }>((resolve) => {
+      resolvePage2 = resolve;
+    });
+
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { members: [], projects: [] } });
+      }
+      if (url === '/panels') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variant-filter-presets')) {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variant-tags')) {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variants?page=2')) {
+        // Hold the next-page fetch open so the refetch stays in flight.
+        return page2Promise;
+      }
+      if (url.startsWith('/families/F1/small-variants?page=1')) {
+        return Promise.resolve({
+          data: {
+            variants: [
+              {
+                _id: 'v1',
+                chr: '1',
+                start: 10,
+                end: 10,
+                type: 'SNV',
+                gene: 'TP53',
+                ref: 'A',
+                alt: 'G',
+                impact: 'HIGH',
+                effect: 'stop_gained',
+                genotypes: [],
+              },
+            ],
+            total: 300,
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    // First page settles: results shown, no loading indicator.
+    const nextButton = await screen.findByRole('button', { name: 'Next' });
+    expect(screen.queryByText(/Loading variants/i)).not.toBeInTheDocument();
+
+    // Navigating to the next page keeps the previous results and refetches.
+    fireEvent.click(nextButton);
+
+    // The loading indicator appears while the refetch is in flight.
+    expect(await screen.findByText(/Loading variants/i)).toBeInTheDocument();
+
+    // Resolve the held request and confirm the indicator clears.
+    resolvePage2({ data: { variants: [], total: 300 } });
+    await waitFor(() => {
+      expect(screen.queryByText(/Loading variants/i)).not.toBeInTheDocument();
+    });
+  });
 });

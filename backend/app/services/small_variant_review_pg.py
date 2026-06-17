@@ -1296,7 +1296,7 @@ async def save_small_variant_filter_preset(
               AND owner = :owner
               AND name = :name
               AND (
-                    (:family_id IS NULL AND family_id IS NULL)
+                    (CAST(:family_id AS uuid) IS NULL AND family_id IS NULL)
                  OR family_id = CAST(:family_id AS uuid)
               )
             """
@@ -1402,7 +1402,7 @@ async def save_small_variant_filter_preset(
               AND owner = :owner
               AND name = :name
               AND (
-                    (:family_id IS NULL AND family_id IS NULL)
+                    (CAST(:family_id AS uuid) IS NULL AND family_id IS NULL)
                  OR family_id = CAST(:family_id AS uuid)
               )
             """

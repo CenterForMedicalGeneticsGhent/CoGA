@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 from clickhouse_connect.driver.binding import bind_query
+from clickhouse_connect.driver.exceptions import DatabaseError
+from fastapi import HTTPException
 
 from backend.app.services.clickhouse_family_variants import (
     PanelFilterConstraints,
@@ -10,6 +12,7 @@ from backend.app.services.clickhouse_family_variants import (
     SmallVariantRecord,
     _compound_het_partner_map,
     _chromosome_options,
+    _execute_clickhouse,
     _inheritance_result_items,
     _fetch_small_variant_rows,
     _flexible_status_match,
@@ -579,6 +582,43 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert params["detail_effect_terms"] == ["missense_variant"]
     assert params["detail_clinvar_terms"] == ["pathogenic"]
     assert params["limit"] == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_clickhouse_maps_heavy_query_error_to_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_execute_clickhouse(_query: str, _params: dict[str, object]):
+        raise DatabaseError(
+            "Code: 241. DB::Exception: Memory limit (total) exceeded: "
+            "MEMORY_LIMIT_EXCEEDED"
+        )
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    with pytest.raises(HTTPException) as excinfo:
+        await _execute_clickhouse("SELECT count()", {"family_guid": "fam-1"})
+
+    assert excinfo.value.status_code == 422
+    assert "Narrow the search" in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_execute_clickhouse_returns_empty_for_missing_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_execute_clickhouse(_query: str, _params: dict[str, object]):
+        raise DatabaseError("Code: 60. DB::Exception: UNKNOWN_TABLE")
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants.execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    assert await _execute_clickhouse("SELECT 1", {}) == []
 
 
 def test_clinvar_status_filter_is_exact_not_substring() -> None:

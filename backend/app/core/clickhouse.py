@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+import logging
 from pathlib import Path
 import re
 from typing import Any
@@ -12,6 +13,8 @@ import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, StreamClosedError, StreamFailureError
 
 from .config import settings
+
+logger = logging.getLogger(__name__)
 
 _async_client: Any | None = None
 _client_lock: asyncio.Lock | None = None
@@ -31,6 +34,41 @@ _INSERT_RETRY_ERROR_MARKERS = (
     "remote end closed",
     "server disconnected",
 )
+# Transient errors where the shared HTTP client is in a bad state (a dropped
+# socket, or a session that another concurrent query left locked). Resetting the
+# client and retrying once clears these without surfacing a 500 to the user.
+_QUERY_RETRY_ERROR_MARKERS = (
+    "broken pipe",
+    "connection aborted",
+    "connection reset",
+    "remote end closed",
+    "server disconnected",
+    "connection refused",
+    "session is locked",
+    "session_is_locked",
+    "timed out",
+    "read timeout",
+)
+
+
+def _clickhouse_query_settings() -> dict[str, Any]:
+    """Per-query guardrails so broad variant filters degrade gracefully.
+
+    Allowing large GROUP BY / sort / JOIN state to spill to disk keeps a heavy
+    query from being killed for memory, and ``max_execution_time`` bounds its
+    runtime so one query cannot hang the request worker indefinitely.
+    """
+    query_settings: dict[str, Any] = {
+        "max_execution_time": settings.clickhouse_max_execution_time,
+    }
+    spill_bytes = settings.clickhouse_external_spill_bytes
+    if spill_bytes > 0:
+        query_settings["max_bytes_before_external_group_by"] = spill_bytes
+        query_settings["max_bytes_before_external_sort"] = spill_bytes
+        query_settings["join_algorithm"] = "auto"
+    if settings.clickhouse_max_memory_usage > 0:
+        query_settings["max_memory_usage"] = settings.clickhouse_max_memory_usage
+    return query_settings
 
 
 async def _create_clickhouse_client() -> Any:
@@ -41,6 +79,14 @@ async def _create_clickhouse_client() -> Any:
         password=settings.clickhouse_password,
         database="default",
         interface="http",
+        # A single client is shared across all requests. Auto-generated session
+        # ids make ClickHouse serialize the session and reject concurrent queries
+        # with SESSION_IS_LOCKED, which surfaces as intermittent 500s under load
+        # (worse for slow/complex queries that hold the session longer). Disabling
+        # the session lets concurrent requests run independently over HTTP.
+        autogenerate_session_id=False,
+        send_receive_timeout=settings.clickhouse_send_receive_timeout,
+        settings=_clickhouse_query_settings(),
     )
 
 
@@ -131,14 +177,36 @@ async def reset_clickhouse_client(client: Any | None = None) -> None:
             await target.close()
 
 
+def _is_retryable_query_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if isinstance(exc, (StreamClosedError, StreamFailureError)):
+        return True
+    return any(marker in message for marker in _QUERY_RETRY_ERROR_MARKERS)
+
+
 async def execute_clickhouse(query: str, parameters: Any = None) -> Any:
     if isinstance(parameters, list) and _INSERT_QUERY_PATTERN.match(query):
         return await insert_clickhouse(query, parameters)
-    client = await get_clickhouse_client()
-    if _query_returns_rows(query):
-        result = await client.query(query, parameters=parameters or {})
-        return list(result.result_rows)
-    return await client.command(query, parameters=parameters or {})
+    returns_rows = _query_returns_rows(query)
+    for attempt in range(2):
+        client = await get_clickhouse_client()
+        try:
+            if returns_rows:
+                result = await client.query(query, parameters=parameters or {})
+                return list(result.result_rows)
+            return await client.command(query, parameters=parameters or {})
+        except Exception as exc:
+            if attempt == 0 and _is_retryable_query_error(exc):
+                logger.warning(
+                    "ClickHouse query failed with a transient error; resetting "
+                    "client and retrying once: %s",
+                    exc,
+                )
+                await reset_clickhouse_client(client)
+                await asyncio.sleep(0.25)
+                continue
+            raise
+    return None
 
 
 async def close_clickhouse_client() -> None:

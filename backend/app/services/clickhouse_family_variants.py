@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
@@ -40,6 +41,23 @@ from .small_variant_review_pg import (
 from .structural_variant_review_pg import (
     get_structural_variant_review_map,
     list_matching_structural_variant_review_ids,
+)
+
+logger = logging.getLogger(__name__)
+
+# ClickHouse error substrings that mean "this query was too broad/expensive to
+# run", not "the server is broken". We turn these into an actionable 422 so the
+# user can narrow their filters instead of seeing an opaque 500.
+_CLICKHOUSE_QUERY_TOO_HEAVY_MARKERS = (
+    "memory_limit_exceeded",
+    "memory limit",
+    "timeout_exceeded",
+    "timeout exceeded",
+    "max_execution_time",
+    "too_many_rows",
+    "too_many_bytes",
+    "too_many_parts",
+    "set_size_limit",
 )
 
 _VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
@@ -2188,6 +2206,22 @@ async def _execute_clickhouse(query: str, params: dict[str, Any]) -> list[tuple[
         message = str(exc)
         if "UNKNOWN_TABLE" in message or "doesn't exist" in message:
             return []
+        logger.error(
+            "ClickHouse variant query failed: %s | params=%s | query=%s",
+            message,
+            sorted(params.keys()),
+            " ".join(query.split()),
+        )
+        lowered = message.lower()
+        if any(marker in lowered for marker in _CLICKHOUSE_QUERY_TOO_HEAVY_MARKERS):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "This filter combination matches too many variants to evaluate. "
+                    "Narrow the search with a region, gene, or stricter frequency/impact "
+                    "thresholds and try again."
+                ),
+            ) from exc
         raise
 
 
