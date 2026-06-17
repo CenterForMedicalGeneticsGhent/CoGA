@@ -149,6 +149,62 @@ async def test_execute_clickhouse_retries_insert_after_request_body_write_failur
 
 
 @pytest.mark.asyncio
+async def test_execute_clickhouse_retries_query_after_session_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _SessionLockedClient(_RecordingAsyncClient):
+        async def query(self, query: str, parameters=None):
+            self.queries.append((query, parameters))
+            raise RuntimeError("Session is locked by a concurrent client")
+
+    created: list[_RecordingAsyncClient] = []
+
+    async def fake_create_clickhouse_client():
+        if not created:
+            client = _SessionLockedClient("client-1")
+        else:
+            client = _RecordingAsyncClient(f"client-{len(created) + 1}")
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(clickhouse, "_async_client", None)
+    monkeypatch.setattr(clickhouse, "_client_lock", None)
+    monkeypatch.setattr(clickhouse, "_create_clickhouse_client", fake_create_clickhouse_client)
+
+    rows = await clickhouse.execute_clickhouse("SELECT 1", {"side": "left"})
+
+    assert rows == [("client-2", "SELECT 1", {"side": "left"})]
+    assert len(created) == 2
+    assert created[0].closed is True
+
+
+@pytest.mark.asyncio
+async def test_execute_clickhouse_does_not_retry_non_transient_query_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _SyntaxErrorClient(_RecordingAsyncClient):
+        async def query(self, query: str, parameters=None):
+            self.queries.append((query, parameters))
+            raise RuntimeError("Code: 62. DB::Exception: Syntax error")
+
+    created: list[_RecordingAsyncClient] = []
+
+    async def fake_create_clickhouse_client():
+        client = _SyntaxErrorClient(f"client-{len(created) + 1}")
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(clickhouse, "_async_client", None)
+    monkeypatch.setattr(clickhouse, "_client_lock", None)
+    monkeypatch.setattr(clickhouse, "_create_clickhouse_client", fake_create_clickhouse_client)
+
+    with pytest.raises(RuntimeError, match="Syntax error"):
+        await clickhouse.execute_clickhouse("SELECT bad", {})
+
+    assert len(created) == 1
+
+
+@pytest.mark.asyncio
 async def test_close_clickhouse_client_closes_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _RecordingAsyncClient()
 

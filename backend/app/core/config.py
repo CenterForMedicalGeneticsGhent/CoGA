@@ -29,6 +29,29 @@ class Settings(BaseSettings):
     clickhouse_database: str = Field(default="coga", alias="CLICKHOUSE_DATABASE")
     clickhouse_user: str = Field(default="default", alias="CLICKHOUSE_USER")
     clickhouse_password: str = Field(default="", alias="CLICKHOUSE_PASSWORD")
+    # Per-query ClickHouse guardrails. These let heavy variant-filter queries
+    # spill to disk instead of being killed for memory, and bound their runtime
+    # so a single broad query cannot hang the request indefinitely.
+    clickhouse_max_execution_time: int = Field(
+        default=110,
+        ge=1,
+        alias="CLICKHOUSE_MAX_EXECUTION_TIME",
+    )
+    clickhouse_send_receive_timeout: int = Field(
+        default=120,
+        ge=1,
+        alias="CLICKHOUSE_SEND_RECEIVE_TIMEOUT",
+    )
+    clickhouse_max_memory_usage: int = Field(
+        default=0,
+        ge=0,
+        alias="CLICKHOUSE_MAX_MEMORY_USAGE",
+    )
+    clickhouse_external_spill_bytes: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        ge=0,
+        alias="CLICKHOUSE_EXTERNAL_SPILL_BYTES",
+    )
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: str = Field(default="change-me", alias="ADMIN_PASSWORD")
     admin_email: str = Field(default="admin@example.com", alias="ADMIN_EMAIL")
