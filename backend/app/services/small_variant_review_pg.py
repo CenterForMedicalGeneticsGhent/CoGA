@@ -12,6 +12,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
+    AcmgClassificationPayload,
     SmallVariantCompoundHetReviewOut,
     SmallVariantCompoundHetReviewUpdate,
     SmallVariantFilterPresetCreate,
@@ -23,6 +24,7 @@ from ..schemas import (
     SmallVariantTagDefinitionUpdate,
     SmallVariantTagDefinitionOut,
 )
+from . import acmg_points
 from .clickhouse_small_variants import (
     get_small_variant_family_record,
     has_affected_het_call,
@@ -225,7 +227,68 @@ def _document_has_individual_review(document: dict[str, Any]) -> bool:
         str(document.get("classification") or "").strip()
         or _normalize_tags(document.get("tags", []))
         or str(document.get("note") or "").strip()
+        or document.get("acmg")
     )
+
+
+def _normalize_acmg_payload(
+    payload: AcmgClassificationPayload | None,
+) -> tuple[dict[str, Any] | None, int | None, str | None]:
+    """Validate the submitted criteria and recompute the class/points server-side.
+
+    Returns ``(blob, point_total, class_key)`` where ``blob`` is the JSON to store
+    (or ``None`` to clear). The client-supplied total is ignored.
+    """
+
+    if payload is None or not payload.criteria:
+        return None, None, None
+
+    normalized_criteria: list[dict[str, Any]] = []
+    for criterion in payload.criteria:
+        code = (criterion.code or "").strip().upper()
+        if not acmg_points.is_valid_code(code):
+            raise HTTPException(status_code=400, detail=f"Unknown ACMG criterion: {criterion.code}")
+        strength = (criterion.strength or "").strip()
+        if strength not in acmg_points.VALID_STRENGTHS:
+            raise HTTPException(status_code=400, detail=f"Invalid ACMG strength: {criterion.strength}")
+        normalized_criteria.append(
+            {
+                "code": code,
+                "strength": strength,
+                "accepted": bool(criterion.accepted),
+                "evidence": (criterion.evidence or "").strip() or None,
+                "auto_suggested": bool(criterion.auto_suggested),
+            }
+        )
+
+    point_total, class_key, class_label = acmg_points.compute_classification(normalized_criteria)
+    blob = {
+        "criteria": normalized_criteria,
+        "point_total": point_total,
+        "classification": class_label,
+    }
+    return blob, point_total, class_key
+
+
+def _acmg_json_or_none(value: Any) -> str | None:
+    """Serialize the ACMG blob for a JSONB column, or None for SQL NULL."""
+    if not value:
+        return None
+    return _json_payload(value)
+
+
+def _deserialize_acmg(value: Any) -> AcmgClassificationPayload | None:
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return None
+    try:
+        return AcmgClassificationPayload.model_validate(value)
+    except Exception:  # noqa: BLE001 - tolerate legacy/partial blobs
+        return None
 
 
 def _document_has_compound_het_review(document: dict[str, Any]) -> bool:
@@ -289,6 +352,7 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
         updated_by=document.get("updated_by"),
         updated_at=document.get("updated_at"),
         compound_het=_serialize_compound_het(document),
+        acmg=_deserialize_acmg(document.get("acmg")),
     )
 
 
@@ -426,6 +490,9 @@ _SMALL_VARIANT_REVIEW_SELECT = """
                 compound_het_phase_status,
                 compound_het_updated_by,
                 compound_het_updated_at,
+                acmg,
+                acmg_point_total,
+                acmg_class,
                 updated_by,
                 created_at,
                 updated_at
@@ -510,6 +577,9 @@ async def _update_review_row(
                 compound_het_phase_status = :compound_het_phase_status,
                 compound_het_updated_by = :compound_het_updated_by,
                 compound_het_updated_at = :compound_het_updated_at,
+                acmg = CAST(:acmg_json AS jsonb),
+                acmg_point_total = :acmg_point_total,
+                acmg_class = :acmg_class,
                 updated_by = :updated_by,
                 updated_at = :updated_at
             WHERE id = CAST(:review_id AS uuid)
@@ -527,6 +597,9 @@ async def _update_review_row(
             "compound_het_tag_metadata_json": _json_payload(
                 fields.get("compound_het_tag_metadata", {})
             ),
+            "acmg_json": _acmg_json_or_none(fields.get("acmg")),
+            "acmg_point_total": fields.get("acmg_point_total"),
+            "acmg_class": fields.get("acmg_class"),
             "review_id": review_id,
         },
     )
@@ -561,6 +634,9 @@ async def _insert_review_row(
                 compound_het_phase_status,
                 compound_het_updated_by,
                 compound_het_updated_at,
+                acmg,
+                acmg_point_total,
+                acmg_class,
                 updated_by,
                 created_at,
                 updated_at
@@ -584,6 +660,9 @@ async def _insert_review_row(
                 :compound_het_phase_status,
                 :compound_het_updated_by,
                 :compound_het_updated_at,
+                CAST(:acmg_json AS jsonb),
+                :acmg_point_total,
+                :acmg_class,
                 :updated_by,
                 :created_at,
                 :updated_at
@@ -602,6 +681,9 @@ async def _insert_review_row(
             "compound_het_tag_metadata_json": _json_payload(
                 fields.get("compound_het_tag_metadata", {})
             ),
+            "acmg_json": _acmg_json_or_none(fields.get("acmg")),
+            "acmg_point_total": fields.get("acmg_point_total"),
+            "acmg_class": fields.get("acmg_class"),
             "family_id": family_uuid,
             "created_at": created_at,
         },
@@ -1614,6 +1696,16 @@ async def upsert_small_variant_review(
         payload.compound_het if compound_het_requested else None
     )
 
+    # ACMG classification: recompute the class/points server-side from the
+    # submitted criteria. When not part of this request, preserve any existing blob.
+    acmg_requested = "acmg" in payload.model_fields_set
+    if acmg_requested:
+        normalized_acmg, acmg_point_total, acmg_class = _normalize_acmg_payload(payload.acmg)
+    else:
+        normalized_acmg = (existing or {}).get("acmg")
+        acmg_point_total = (existing or {}).get("acmg_point_total")
+        acmg_class = (existing or {}).get("acmg_class")
+
     if compound_het_requested and compound_het_payload is not None:
         normalized_compound_het_classification = (
             (compound_het_payload.classification or "").strip() or None
@@ -1771,6 +1863,7 @@ async def upsert_small_variant_review(
         and normalized_classification is None
         and not normalized_tags
         and not compound_het_requested
+        and normalized_acmg is None
     ):
         if existing is not None and _document_has_compound_het_review(existing):
             data = {
@@ -1780,6 +1873,9 @@ async def upsert_small_variant_review(
                 "tags": [],
                 "tag_metadata": {},
                 "note": None,
+                "acmg": None,
+                "acmg_point_total": None,
+                "acmg_class": None,
                 "updated_by": user.username,
                 "updated_at": now,
                 **_preserve_existing_compound_het(existing),
@@ -1816,6 +1912,9 @@ async def upsert_small_variant_review(
             timestamp=now,
         ),
         "note": normalized_note,
+        "acmg": normalized_acmg,
+        "acmg_point_total": acmg_point_total,
+        "acmg_class": acmg_class,
         "updated_by": user.username,
         "updated_at": now,
     }

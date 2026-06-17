@@ -355,6 +355,33 @@ export const buildSmallVariantExternalLinks = ({
   ].filter((link): link is { label: string; href: string } => Boolean(link));
 };
 
+// "Smart" PubMed search combining the gene/variant with the patient's HPO terms,
+// to find literature linking this gene/variant to the observed phenotype.
+export const buildLiteraturePubmedHref = ({
+  gene,
+  proteinChange,
+  hpoLabels = [],
+}: {
+  gene?: string | null;
+  proteinChange?: string | null;
+  hpoLabels?: string[];
+}): string | null => {
+  const geneTerm = (gene || '').trim();
+  if (!geneTerm) return null;
+
+  // Anchor on the gene (optionally OR'd with the protein change), then AND the
+  // phenotype terms together as an OR group of quoted phrases.
+  const anchorParts = [geneTerm, (proteinChange || '').trim()].filter(Boolean);
+  const anchor = anchorParts.length > 1 ? `(${anchorParts.join(' OR ')})` : anchorParts[0];
+
+  const phenotypes = Array.from(
+    new Set(hpoLabels.map((label) => label.trim()).filter(Boolean)),
+  ).map((label) => `"${label}"`);
+  const phenotypeGroup = phenotypes.length ? ` AND (${phenotypes.join(' OR ')})` : '';
+
+  return `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(`${anchor}${phenotypeGroup}`)}`;
+};
+
 export const sortSmallVariants = (
   variants: SmallVariant[],
   tableSortKey: TableSortKey,

@@ -409,6 +409,279 @@ const guideSections: GuideSection[] = [
     ),
   },
   {
+    id: 'acmg-classification',
+    title: 'Semi-automatic ACMG classification',
+    summary:
+      'A guided ACMG/AMP classifier that pre-evaluates criteria from the variant, trio and gene data, scores them on a points scale, and stays fully overridable.',
+    content: (
+      <>
+        <p>
+          From any small-variant card or table row, <strong>ACMG classify</strong> opens a dedicated
+          modal that helps you apply the ACMG/AMP 2015 criteria. It reads the data already attached to
+          the variant — molecular consequence, gnomAD frequency, in-silico predictions, ClinVar — plus
+          the gene profile (ClinGen dosage, GenCC inheritance, gene–phenotype HPO terms) and the family
+          genotypes, and pre-positions each criterion accordingly. Nothing is final: every criterion
+          can be toggled and re-graded by you.
+        </p>
+
+        <h3>How the score and class are computed</h3>
+        <p>
+          Scoring follows the Tavtigian/ClinGen Bayesian <strong>points</strong> system. Each
+          <em> applied</em> criterion contributes points by its strength; the signed total maps onto
+          the five ACMG classes and drives the green→red scale bar and arrow at the top of the modal.
+        </p>
+        <div className="content-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Strength</th>
+                <th>Pathogenic</th>
+                <th>Benign</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Supporting (PP/BP)</td><td>+1</td><td>−1</td></tr>
+              <tr><td>Moderate (PM)</td><td>+2</td><td>−2</td></tr>
+              <tr><td>Strong (PS/BS)</td><td>+4</td><td>−4</td></tr>
+              <tr><td>Very strong (PVS1)</td><td>+8</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Class bands over the point total: <strong>≥ 10</strong> Pathogenic ·{' '}
+          <strong>6–9</strong> Likely Pathogenic · <strong>0–5</strong> VUS ·{' '}
+          <strong>−1…−6</strong> Likely Benign · <strong>≤ −7</strong> Benign. <code>BA1</code>
+          {' '}(allele frequency ≥ 5%) is a stand-alone override that classifies the variant Benign
+          regardless of any other evidence. The class is also recomputed on the server when you save,
+          so a stored classification never depends on the browser.
+        </p>
+
+        <h3>The four states a criterion can be in</h3>
+        <p>Auto-evaluation positions every criterion into one of four states (all overridable):</p>
+        <ul>
+          <li>
+            <strong>Applied (checked, green)</strong> — the data clearly supports the criterion, so it
+            is pre-checked and already counts toward the score.
+          </li>
+          <li>
+            <strong>Consider (●, amber)</strong> — there is a relevant but not decisive signal. The
+            criterion is surfaced unchecked; you confirm it if appropriate.
+          </li>
+          <li>
+            <strong>Argues against (✕, red)</strong> — the data points the other way (e.g. an
+            in-silico tool calls it benign when you are looking at PP3). Left unchecked and flagged.
+          </li>
+          <li>
+            <strong>Not applicable (greyed, struck-through)</strong> — the criterion cannot apply to
+            this variant given its type, frequency band or family configuration. Greyed as a clear
+            hint, but still clickable so you can override it.
+          </li>
+        </ul>
+        <p>
+          Hover any criterion for the exact evidence string behind its state. Criterion families are
+          laid out benign-left to pathogenic-right to mirror the scale bar.
+        </p>
+
+        <h3>Pre-check rules (positive evidence)</h3>
+        <p>
+          These rules decide which criteria are pre-checked or flagged <em>consider</em> from the
+          variant, gene and family data:
+        </p>
+        <div className="content-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Criterion</th>
+                <th>State</th>
+                <th>Rule / data source</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>PVS1</strong></td>
+                <td>Applied (Very strong / Strong) or Consider</td>
+                <td>
+                  Predicted-null consequence (nonsense, frameshift, canonical ±1,2 splice, start-loss,
+                  transcript ablation). Applied at <em>Very strong</em> when LOFTEE is high-confidence
+                  and ClinGen lists the gene as haploinsufficient (“Sufficient evidence”); at
+                  <em> Strong</em> otherwise. If the LOF disease mechanism is unconfirmed it is shown
+                  as <em>Consider</em> rather than auto-applied.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>PM2</strong></td>
+                <td>Applied (Supporting)</td>
+                <td>Absent from gnomAD, or popmax allele frequency &lt; 1×10⁻⁴.</td>
+              </tr>
+              <tr>
+                <td><strong>BA1</strong></td>
+                <td>Applied (Stand-alone)</td>
+                <td>gnomAD allele frequency ≥ 5% — stand-alone benign override.</td>
+              </tr>
+              <tr>
+                <td><strong>BS1</strong></td>
+                <td>Applied (Strong)</td>
+                <td>gnomAD allele frequency ≥ 1% (and &lt; 5%) — higher than expected for a Mendelian disorder.</td>
+              </tr>
+              <tr>
+                <td><strong>BS2</strong></td>
+                <td>Applied (Strong) / Consider</td>
+                <td>
+                  Homozygotes observed in gnomAD. Strong when the gene is recessive-associated (GenCC);
+                  otherwise <em>Consider</em> pending inheritance-mode confirmation.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>PM4</strong></td>
+                <td>Consider (Moderate)</td>
+                <td>In-frame indel or stop-loss (protein-length change) — confirm it is outside a repeat region.</td>
+              </tr>
+              <tr>
+                <td><strong>PP2</strong></td>
+                <td>Applied (Supporting)</td>
+                <td>Missense in a missense-constrained gene (gnomAD missense Z ≥ 3.09).</td>
+              </tr>
+              <tr>
+                <td><strong>PP3 / BP4</strong></td>
+                <td>Applied (strength-scaled)</td>
+                <td>
+                  In-silico predictions. REVEL drives the call with ClinGen-calibrated thresholds —
+                  PP3: ≥ 0.644 Supporting, ≥ 0.773 Moderate, ≥ 0.932 Strong; BP4: ≤ 0.290 Supporting,
+                  ≤ 0.183 Moderate, ≤ 0.016 Strong. SpliceAI (max Δ ≥ 0.2 / ≥ 0.5) and AlphaMissense
+                  class are also used. The opposing criterion is flagged <em>argues against</em>.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>BP7</strong></td>
+                <td>Applied (Supporting)</td>
+                <td>Synonymous variant with no predicted splice impact (SpliceAI max Δ &lt; 0.1).</td>
+              </tr>
+              <tr>
+                <td><strong>PP5 / BP6</strong></td>
+                <td>Applied (Supporting)</td>
+                <td>ClinVar reports this exact variant pathogenic (→ PP5) or benign (→ BP6).</td>
+              </tr>
+              <tr>
+                <td><strong>PP4</strong></td>
+                <td>Applied (Supporting)</td>
+                <td>The proband’s “present” HPO terms overlap the gene’s HPO associations.</td>
+              </tr>
+              <tr>
+                <td><strong>PM6</strong></td>
+                <td>Applied (Moderate)</td>
+                <td>
+                  Trio: variant present in the proband and absent in both sequenced parents (de novo).
+                  Applied as <em>assumed</em> de novo (PM6); upgrade to PS2 manually if parentage is
+                  molecularly confirmed.
+                </td>
+              </tr>
+              <tr>
+                <td><strong>PP1</strong></td>
+                <td>Consider (Supporting)</td>
+                <td>Cosegregation: the variant is carried by ≥ 2 affected family members.</td>
+              </tr>
+              <tr>
+                <td><strong>BS4</strong></td>
+                <td>Consider (Strong)</td>
+                <td>Lack of segregation: an affected relative does not carry the variant.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Exclusion rules (greyed as “not applicable”)</h3>
+        <p>
+          Criteria that cannot apply to the variant in front of you are greyed out, so the working set
+          stays honest. They remain clickable for the rare case where you need to override.
+        </p>
+        <div className="content-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>When…</th>
+                <th>Greyed as not applicable</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Missense variant</td>
+                <td>PVS1, PM4, BP3, BP7</td>
+              </tr>
+              <tr>
+                <td>Loss-of-function variant</td>
+                <td>PP2, PM5, BP1, BP7, BP3</td>
+              </tr>
+              <tr>
+                <td>Synonymous variant</td>
+                <td>PVS1, PM4, PP2, PM5, BP1, BP3</td>
+              </tr>
+              <tr>
+                <td>In-frame / length-changing variant</td>
+                <td>PVS1, PP2, PM5, BP1, BP7</td>
+              </tr>
+              <tr>
+                <td>Splice-region variant</td>
+                <td>PVS1, PP2, PM5, BP1, PM4</td>
+              </tr>
+              <tr>
+                <td>Allele frequency does not match a band</td>
+                <td>The frequency criteria that do not fit — only the matching one of PM2 / BS1 / BA1 stays active</td>
+              </tr>
+              <tr>
+                <td>No homozygotes in gnomAD</td>
+                <td>BS2</td>
+              </tr>
+              <tr>
+                <td>No in-silico prediction available</td>
+                <td>PP3, BP4</td>
+              </tr>
+              <tr>
+                <td>No complete trio / parental genotypes</td>
+                <td>PS2, PM6</td>
+              </tr>
+              <tr>
+                <td>Variant inherited from a parent</td>
+                <td>PS2, PM6 (it is not de novo)</td>
+              </tr>
+              <tr>
+                <td>No additional affected carrier</td>
+                <td>PP1 (cosegregation cannot be shown)</td>
+              </tr>
+              <tr>
+                <td>No affected relative lacking the variant</td>
+                <td>BS4 (lack of segregation cannot be shown)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>What is not auto-evaluated</h3>
+        <p>
+          Criteria that need information CoGA does not hold are always left for you to apply manually:
+          <strong> PS1</strong> and <strong>PM5</strong> (a different/known variant at the same amino-acid
+          residue — needs a residue-level ClinVar index), <strong>PS3 / BS3</strong> (functional studies),
+          <strong> PS4</strong> (case–control prevalence), <strong>PM1</strong> (hotspot / functional
+          domain) and <strong>PM3 / BP2</strong> (in-trans phasing).
+        </p>
+
+        <h3>External evidence links</h3>
+        <p>
+          The modal header carries quick links for the variant — <strong>gnomAD</strong>,{' '}
+          <strong>ClinVar</strong>, <strong>DECIPHER</strong> — plus a smart <strong>PubMed</strong>
+          {' '}search that combines the gene/variant with the patient’s HPO terms, to check whether the
+          gene–phenotype association has been published.
+        </p>
+
+        <div className="user-guide-callout">
+          <strong>Decision support, not an autoclassifier.</strong> Suggestions are pre-positioned from
+          the data, but you confirm, adjust strengths, and add a rationale note. On save, the resulting
+          class is written back as the variant’s ACMG classification (and class tag), and the full
+          per-criterion rationale is stored for audit and reuse.
+        </div>
+      </>
+    ),
+  },
+  {
     id: 'specialised-analyses',
     title: 'Structural variants, repeats, Paraphase, and mtDNA',
     summary:
