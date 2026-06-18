@@ -575,6 +575,33 @@ describe('FamilySmallVariantsPage', () => {
     });
   });
 
+  it('shows the ClinVar-overrides-frequency chip by default and clears it on click', async () => {
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole('combobox', { name: /preset or saved search/i });
+    const chip = await screen.findByRole('button', {
+      name: /clinvar p\/lp overrides frequency/i,
+    });
+    expect(chip).toBeInTheDocument();
+
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('button', { name: /clinvar p\/lp overrides frequency/i }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('applies the review quick tag filter', async () => {
     const queryClient = createTestQueryClient();
 

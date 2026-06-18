@@ -878,6 +878,8 @@ const countActiveFilters = (
 ): number => {
   const topLevel = Object.entries(filters).reduce((sum, [key, value]) => {
     if (!value.trim()) return sum;
+    // Behaviour modifiers, not narrowing filters — don't inflate the count.
+    if (key === 'prioritize' || key === 'clinvar_overrides_frequency') return sum;
     if (MULTI_VALUE_FILTER_KEYS.has(key as keyof SmallFilterState)) {
       return sum + parseCommaSeparatedValues(value).length;
     }
@@ -980,9 +982,12 @@ export const buildSmallVariantQueryParams = (
   parseCommaSeparatedValues(currentFilters.exclude_clinvar).forEach((value) => {
     params.append('exclude_clinvar', value);
   });
-  if (currentFilters.clinvar_overrides_frequency === 'true') {
-    params.set('clinvar_overrides_frequency', 'true');
-  }
+  // Standard on; emit explicitly so an off state survives the URL round-trip
+  // (absence is treated as the default — on).
+  params.set(
+    'clinvar_overrides_frequency',
+    currentFilters.clinvar_overrides_frequency === 'true' ? 'true' : 'false',
+  );
   parseCommaSeparatedValues(currentFilters.exclude_review_tags).forEach((value) => {
     params.append('exclude_review_tag', value);
   });
@@ -1050,8 +1055,9 @@ export const buildActiveFilterChips = (
   (Object.entries(filters) as [keyof SmallFilterState, string][]).forEach(([key, value]) => {
     if (!value) return;
     if (skipDerivedLocusKeys?.has(key)) return;
-    // Behaviour modifiers surfaced as their own toggles, not as removable chips.
-    if (key === 'clinvar_overrides_frequency' || key === 'prioritize') return;
+    // Prioritization is surfaced as its own toggle, not as a removable chip.
+    // (The ClinVar-overrides-frequency modifier does get a chip when on.)
+    if (key === 'prioritize') return;
     if (MULTI_VALUE_FILTER_KEYS.has(key)) {
       parseCommaSeparatedValues(value).forEach((entry) => {
         chips.push({
@@ -1323,6 +1329,12 @@ export const useSmallVariantSearchState = ({
       if (key === 'prioritize') {
         initialFilters.prioritize =
           params.get('prioritize') === 'true' ? 'true' : '';
+        return;
+      }
+      if (key === 'clinvar_overrides_frequency') {
+        // Standard on: only an explicit "false" turns it off; absence keeps the default.
+        initialFilters.clinvar_overrides_frequency =
+          params.get('clinvar_overrides_frequency') === 'false' ? '' : 'true';
         return;
       }
       const value = params.get(key);

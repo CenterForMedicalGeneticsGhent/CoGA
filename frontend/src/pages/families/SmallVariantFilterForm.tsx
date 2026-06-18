@@ -893,21 +893,27 @@ const SmallVariantFilterForm = ({
                   )}
                 </span>
               </span>
+              <span
+                className="variant-filter-dropdown-summary-controls"
+                onMouseDown={stopSummaryInteraction}
+                onClick={stopSummaryInteraction}
+              >
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draftFilters.prioritize === 'true'}
+                    onChange={(event) =>
+                      setDraftFilterValue('prioritize', event.target.checked ? 'true' : '')
+                    }
+                  />
+                  <span>Phenotype prioritization</span>
+                </label>
+              </span>
               <span className="variant-filter-dropdown-caret" aria-hidden="true">
                 ▾
               </span>
             </summary>
             <div className="variant-filter-dropdown-content">
-              <label className="analysis-checkbox">
-                <input
-                  type="checkbox"
-                  checked={draftFilters.prioritize === 'true'}
-                  onChange={(event) =>
-                    setDraftFilterValue('prioritize', event.target.checked ? 'true' : '')
-                  }
-                />
-                <span>Phenotype prioritization</span>
-              </label>
               <p className="table-subtle">
                 Rank candidate variants by how well each gene matches the affected
                 individuals’ HPO phenotypes (Monarch / Exomiser-style).

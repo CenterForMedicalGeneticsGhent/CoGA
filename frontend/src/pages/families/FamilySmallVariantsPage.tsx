@@ -390,14 +390,6 @@ const FamilySmallVariantsPage: React.FC = () => {
                 ) : null}
               </div>
               <div className="inline-actions">
-                <button
-                  type="button"
-                  className="button-ghost"
-                  aria-expanded={!filtersCollapsed}
-                  onClick={() => setFiltersCollapsed((current) => !current)}
-                >
-                  {filtersCollapsed ? 'Show filters' : 'Hide filters'}
-                </button>
                 <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
                   Family
                 </Link>
@@ -417,6 +409,16 @@ const FamilySmallVariantsPage: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
+        <div className="variant-filter-collapse-bar">
+          <button
+            type="button"
+            className="button-secondary"
+            aria-expanded={!filtersCollapsed}
+            onClick={() => setFiltersCollapsed((current) => !current)}
+          >
+            {filtersCollapsed ? 'Show filters' : 'Hide filters'}
+          </button>
         </div>
         {!filtersCollapsed && (
         <SmallVariantFilterForm
