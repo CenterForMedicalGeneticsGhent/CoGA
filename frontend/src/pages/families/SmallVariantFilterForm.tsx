@@ -568,6 +568,27 @@ const SmallVariantFilterForm = ({
     }
   };
 
+  // One-click prioritization preset: rare (gnomAD <1%, H/H <=10) with a ClinVar
+  // P/LP rescue past the frequency cut-off, ClinVar benign/likely-benign excluded,
+  // and affected individuals constrained to carry the variant (Hom or Het, not WT).
+  const applyPrioritizationPreset = () => {
+    setDraftFilterValue('max_gnomad_af', '');
+    setDraftFilterValue('max_gnomad_exomes_af', FREQUENCY_QUICK_GNOMAD_AF);
+    setDraftFilterValue('max_gnomad_genomes_af', FREQUENCY_QUICK_GNOMAD_AF);
+    setDraftFilterValue('max_gnomad_popmax_af', '');
+    setDraftFilterValue('max_topmed_af', '');
+    setDraftFilterValue('max_gnomad_ac', '');
+    setDraftFilterValue('max_gnomad_hom_count', FREQUENCY_QUICK_GNOMAD_COUNT);
+    setDraftFilterValue('max_gnomad_hemi_count', FREQUENCY_QUICK_GNOMAD_COUNT);
+    setDraftFilterValue('clinvar_overrides_frequency', 'true');
+    setDraftFilterValue('exclude_clinvar', EXCLUDE_QUICK_CLINVAR_FILTER);
+    updateInheritanceGenotypes((member) =>
+      member.affected
+        ? new Set<GtGroupId>(['hom-group', 'het-group'])
+        : new Set<GtGroupId>(['hom-group', 'het-group', 'ref-group']),
+    );
+  };
+
   const applyReviewQuickFilter = (value: string) => {
     if (value === 'all') {
       setDraftFilterValue('classification', '');
@@ -795,6 +816,14 @@ const SmallVariantFilterForm = ({
                   onClick={() => setSaveOpen((current) => !current)}
                 >
                   {saveOpen ? 'Close save' : 'Save current'}
+                </button>
+                <button
+                  type="button"
+                  className="form-button"
+                  onClick={applyPrioritizationPreset}
+                  title="gnomAD <1% & H/H ≤10 (ClinVar P/LP kept regardless), exclude benign/likely benign, affected Hom/Het"
+                >
+                  Prioritization preset
                 </button>
               </>
             ) : null}

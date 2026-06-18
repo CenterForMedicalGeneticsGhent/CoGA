@@ -506,6 +506,67 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.queryByText('Gene panel: panel-1')).not.toBeInTheDocument();
   });
 
+  it('applies the combined Prioritization preset in one click', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            members: [
+              { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+              { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
+              { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
+            ],
+            projects: [],
+          },
+        });
+      }
+      if (url === '/panels') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/small-variant-filter-presets') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /prioritization preset/i }));
+    fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+
+    await waitFor(() => {
+      // Rare frequency + H/H cap.
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_exomes_af=0.01'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_genomes_af=0.01'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_hom_count=10'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_hemi_count=10'));
+      // ClinVar P/LP overrides frequency.
+      expect(apiMock.get).toHaveBeenCalledWith(
+        expect.stringContaining('clinvar_overrides_frequency=true'),
+      );
+      // Exclude benign / likely benign.
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('exclude_clinvar=Benign'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('exclude_clinvar=Likely+benign'));
+      // Affected proband constrained to carry the variant (Hom/Het), not WT.
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('sample_filter=PROBAND'));
+    });
+  });
+
   it('applies the review quick tag filter', async () => {
     const queryClient = createTestQueryClient();
 

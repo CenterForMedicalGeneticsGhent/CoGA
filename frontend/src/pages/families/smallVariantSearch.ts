@@ -283,6 +283,7 @@ export type SmallFilterState = {
   effect: string;
   clinvar: string;
   exclude_clinvar: string;
+  clinvar_overrides_frequency: string;
   exclude_review_tags: string;
   exclude_gene: string;
   exclude_intervals: string;
@@ -467,6 +468,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   effect: 'Annotation',
   clinvar: 'Pathogenicity',
   exclude_clinvar: 'Exclude pathogenicity',
+  clinvar_overrides_frequency: 'ClinVar P/LP overrides frequency',
   exclude_review_tags: 'Exclude review tags',
   exclude_gene: 'Exclude gene list',
   exclude_intervals: 'Exclude intervals',
@@ -621,6 +623,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   effect: '',
   clinvar: '',
   exclude_clinvar: '',
+  clinvar_overrides_frequency: '',
   exclude_review_tags: '',
   exclude_gene: '',
   exclude_intervals: '',
@@ -967,6 +970,9 @@ export const buildSmallVariantQueryParams = (
   parseCommaSeparatedValues(currentFilters.exclude_clinvar).forEach((value) => {
     params.append('exclude_clinvar', value);
   });
+  if (currentFilters.clinvar_overrides_frequency === 'true') {
+    params.set('clinvar_overrides_frequency', 'true');
+  }
   parseCommaSeparatedValues(currentFilters.exclude_review_tags).forEach((value) => {
     params.append('exclude_review_tag', value);
   });

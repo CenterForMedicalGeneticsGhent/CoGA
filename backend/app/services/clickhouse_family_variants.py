@@ -1096,23 +1096,32 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
         return False
     if filters.lof_only and _casefold(_annotation_text(annotation, "lof") or "") in {"", ".", "na", "n/a"}:
         return False
-    if not _nullable_lte(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
-        return False
-    population_frequencies = _annotation_population_frequencies(annotation)
-    if not _nullable_lte(population_frequencies.get("gnomad_exomes_af"), filters.max_gnomad_exomes_af):
-        return False
-    if not _nullable_lte(population_frequencies.get("gnomad_genomes_af"), filters.max_gnomad_genomes_af):
-        return False
-    if not _nullable_lte(population_frequencies.get("gnomad_popmax_af"), filters.max_gnomad_popmax_af):
-        return False
-    if not _nullable_lte(population_frequencies.get("topmed_af"), filters.max_topmed_af):
-        return False
-    if not _nullable_lte(_annotation_int(annotation, "gnomad_ac"), filters.max_gnomad_ac):
-        return False
-    if not _nullable_lte(_annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount"), filters.max_gnomad_hom_count):
-        return False
-    if not _nullable_lte(_annotation_int(annotation, "gnomad_hemi_count"), filters.max_gnomad_hemi_count):
-        return False
+    # ClinVar Pathogenic/Likely_pathogenic can "rescue" a variant past the gnomAD
+    # frequency thresholds when the caller opts in — a recurrent pathogenic allele
+    # may sit above the rarity cut-off yet must not be filtered out.
+    clinvar_rescue = filters.clinvar_overrides_frequency and _flexible_status_match(
+        _annotation_clinvar(annotation), ("Pathogenic", "Likely_pathogenic")
+    )
+    if not clinvar_rescue:
+        if not _nullable_lte(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
+            return False
+        population_frequencies = _annotation_population_frequencies(annotation)
+        if not _nullable_lte(population_frequencies.get("gnomad_exomes_af"), filters.max_gnomad_exomes_af):
+            return False
+        if not _nullable_lte(population_frequencies.get("gnomad_genomes_af"), filters.max_gnomad_genomes_af):
+            return False
+        if not _nullable_lte(population_frequencies.get("gnomad_popmax_af"), filters.max_gnomad_popmax_af):
+            return False
+        if not _nullable_lte(population_frequencies.get("topmed_af"), filters.max_topmed_af):
+            return False
+        if not _nullable_lte(_annotation_int(annotation, "gnomad_ac"), filters.max_gnomad_ac):
+            return False
+        if not _nullable_lte(
+            _annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount"), filters.max_gnomad_hom_count
+        ):
+            return False
+        if not _nullable_lte(_annotation_int(annotation, "gnomad_hemi_count"), filters.max_gnomad_hemi_count):
+            return False
 
     impact_terms = {_casefold(value) for value in filters.impact if str(value).strip()}
     effect_terms = {_casefold(value) for value in filters.effect if str(value).strip()}
@@ -4246,6 +4255,7 @@ async def get_family_small_variants_page(
     effect: list[str] | None = None,
     clinvar: list[str] | None = None,
     exclude_clinvar: list[str] | None = None,
+    clinvar_overrides_frequency: bool = False,
     exclude_gene: str | None = None,
     exclude_intervals: str | None = None,
     rsid: str | None = None,
@@ -4297,6 +4307,7 @@ async def get_family_small_variants_page(
         effect=effect or [],
         clinvar=clinvar or [],
         exclude_clinvar=exclude_clinvar or [],
+        clinvar_overrides_frequency=clinvar_overrides_frequency,
         exclude_gene=exclude_gene,
         exclude_intervals=exclude_intervals,
         rsid=rsid,
