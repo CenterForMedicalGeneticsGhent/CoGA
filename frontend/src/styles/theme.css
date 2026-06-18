@@ -2056,8 +2056,10 @@ tbody tr:hover {
   align-content: start;
   gap: 1.45rem;
   width: min(1650px, calc(100vw - 1rem));
-  height: min(96vh, 880px);
-  max-height: calc(100vh - 1rem);
+  /* Scale to the (variable) content height; only cap + scroll once it would
+     exceed the viewport. A fixed height left short members oversized. */
+  height: auto;
+  max-height: min(96vh, calc(100vh - 1rem));
   overflow: auto;
   padding: clamp(1.45rem, 2vw, 2.25rem);
   border-radius: 8px;
@@ -2153,7 +2155,7 @@ tbody tr:hover {
 
   .family-detail-page .modal-surface.family-member-modal {
     width: min(100vw, calc(100vw - 0.5rem));
-    height: calc(100vh - 0.5rem);
+    height: auto;
     max-height: calc(100vh - 0.5rem);
     padding: 1rem;
   }
@@ -9563,22 +9565,32 @@ a.button-danger:hover {
   position: fixed;
   z-index: 1000;
   box-sizing: border-box;
-  width: 320px;
-  max-width: min(320px, 90vw);
-  max-height: 60vh;
-  overflow-y: auto;
+  /* Definite width so the breakdown text always wraps inside the tooltip; no
+     height cap / inner scrollbar (a tooltip can't be scrolled) so it grows to
+     fit the phenotype list. VariantScoreCell measures it and flips it to stay
+     on-screen. */
+  width: min(340px, 90vw);
+  max-width: min(340px, 90vw);
   border: 1px solid rgba(10, 11, 12, 0.12);
   border-radius: 10px;
   background: #ffffff;
   box-shadow: 0 10px 30px rgba(10, 11, 12, 0.16);
   padding: 0.62rem 0.7rem;
   pointer-events: none;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  /* Backstop: nothing can paint past the rounded box even if a child misbehaves. */
+  overflow: hidden;
 }
 
+/* Force every descendant to wrap and shrink within the tooltip — flex/grid items
+   default to min-width: auto, which otherwise lets a long phenotype label push
+   the line wider than the box and spill out. */
+.variant-priority-popover,
 .variant-priority-popover * {
+  min-width: 0;
   max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .variant-priority-popover .variant-card-priority {

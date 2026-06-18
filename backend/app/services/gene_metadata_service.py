@@ -22,6 +22,7 @@ from ..schemas import (
     GeneTranscriptOut,
     MonarchPhenotypeMatchOut,
 )
+from .data_scope import is_primary_chromosome
 from .metadata_service import CurrentUser, get_accessible_family_mapping
 from .monarch_ingest import (
     family_observed_phenotype_closure,
@@ -57,9 +58,13 @@ def _transcript_count_from_docs(docs: list[dict[str, Any]]) -> int:
 def _pick_primary_gene_doc(docs: list[dict[str, Any]]) -> dict[str, Any]:
     if not docs:
         raise HTTPException(status_code=404, detail="Gene not found")
+    # A gene present on both the primary chromosome and an ALT/scaffold contig has
+    # one row per locus; always resolve to the effective chromosome first so the
+    # chromosome view / search never jumps to an alt contig.
     return max(
         docs,
         key=lambda doc: (
+            is_primary_chromosome(str(doc.get("chr", ""))),
             int(doc.get("end", 0)) - int(doc.get("start", 0)),
             len(doc.get("exons", [])),
             _transcript_id_from_doc(doc),
