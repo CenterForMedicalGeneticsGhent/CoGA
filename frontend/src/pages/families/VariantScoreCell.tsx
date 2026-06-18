@@ -1,17 +1,49 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { type SmallVariant } from './smallVariantSearch';
 import VariantPriorityBlock from './VariantPriorityBlock';
+
+const VIEWPORT_MARGIN = 8;
+
+type TriggerRect = { top: number; bottom: number; left: number };
 
 /**
  * The table's Score cell with a reliable hover/focus popover showing the priority
  * breakdown. A fixed-positioned popover (rather than a native `title`, which is easy to
  * miss, or a CSS tooltip, which the table's scroll container would clip) so the
  * breakdown is always visible.
+ *
+ * The popover sizes to its content (no inner scrollbar — a tooltip can't be
+ * scrolled); after it renders we measure it and clamp/flip it so it always stays
+ * within the viewport.
  */
 export default function VariantScoreCell({ variant }: { variant: SmallVariant }) {
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [trigger, setTrigger] = useState<TriggerRect | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const priority = variant.priority;
+
+  useLayoutEffect(() => {
+    if (!trigger || !popoverRef.current) {
+      setPos(null);
+      return;
+    }
+    const { offsetWidth: width, offsetHeight: height } = popoverRef.current;
+    const left = Math.max(
+      VIEWPORT_MARGIN,
+      Math.min(trigger.left, window.innerWidth - width - VIEWPORT_MARGIN),
+    );
+    // Prefer below the cell; flip above when it would overrun the bottom edge.
+    let top = trigger.bottom + 6;
+    if (top + height > window.innerHeight - VIEWPORT_MARGIN) {
+      const above = trigger.top - height - 6;
+      top =
+        above >= VIEWPORT_MARGIN
+          ? above
+          : Math.max(VIEWPORT_MARGIN, window.innerHeight - height - VIEWPORT_MARGIN);
+    }
+    setPos({ top, left });
+  }, [trigger]);
 
   if (!priority) {
     return <td className="table-mono">—</td>;
@@ -19,11 +51,12 @@ export default function VariantScoreCell({ variant }: { variant: SmallVariant })
 
   const open = (event: React.MouseEvent | React.FocusEvent) => {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    // Keep the 320px popover inside the viewport horizontally.
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - 328));
-    setAnchor({ top: rect.bottom + 6, left });
+    setTrigger({ top: rect.top, bottom: rect.bottom, left: rect.left });
   };
-  const close = () => setAnchor(null);
+  const close = () => {
+    setTrigger(null);
+    setPos(null);
+  };
 
   return (
     <td className="table-mono variant-score-cell">
@@ -44,11 +77,13 @@ export default function VariantScoreCell({ variant }: { variant: SmallVariant })
           </span>
         ) : null}
       </span>
-      {anchor ? (
+      {trigger ? (
         <div
+          ref={popoverRef}
           className="variant-priority-popover"
           role="tooltip"
-          style={{ top: anchor.top, left: anchor.left }}
+          // Keep it invisible (but measurable) until positioned to avoid a flash.
+          style={pos ? { top: pos.top, left: pos.left } : { top: 0, left: 0, visibility: 'hidden' }}
         >
           <VariantPriorityBlock priority={priority} />
         </div>

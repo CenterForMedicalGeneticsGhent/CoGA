@@ -159,7 +159,12 @@ async def _build_family_roi_payload(
                 lower(hgnc_symbol) = lower(:query)
                 OR lower(gene_id) = lower(:query)
               )
-            ORDER BY ("end" - start) DESC, hgnc_symbol
+            -- Resolve to the effective chromosome (1-22, X, Y, M/MT) before any
+            -- ALT/scaffold contig (e.g. "1_KI270766v1_alt", "Un_GL000195v1").
+            ORDER BY
+              (CASE WHEN chr ~* '^(chr)?([0-9]{1,2}|X|Y|M|MT)$' THEN 0 ELSE 1 END),
+              ("end" - start) DESC,
+              hgnc_symbol
             LIMIT 1
             """
         ),
