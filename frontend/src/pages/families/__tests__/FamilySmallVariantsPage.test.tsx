@@ -506,7 +506,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.queryByText('Gene panel: panel-1')).not.toBeInTheDocument();
   });
 
-  it('applies the combined Prioritization preset in one click', async () => {
+  it('applies the Phenotype priority (Exomiser-style) preset', async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === '/families/F1') {
         return Promise.resolve({
@@ -546,10 +546,15 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /prioritization preset/i }));
+    fireEvent.change(await screen.findByRole('combobox', { name: /preset or saved search/i }), {
+      target: { value: 'built-in:phenotype_priority' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /apply selection/i }));
     fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
+      // Phenotype prioritization scoring enabled.
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('prioritize=true'));
       // Rare frequency + H/H cap.
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_exomes_af=0.01'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_genomes_af=0.01'));

@@ -401,6 +401,12 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
   description: string;
 }> = [
   {
+    value: 'phenotype_priority',
+    label: 'Phenotype priority (Exomiser-style)',
+    description:
+      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch).',
+  },
+  {
     value: 'dominant_strict',
     label: 'Dominant strict',
     description: 'Rare, high-confidence heterozygous calls in affected individuals.',
@@ -421,12 +427,6 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     label: 'Compound het',
     description:
       'Automatically keep variants that form a qualifying compound-heterozygous pair.',
-  },
-  {
-    value: 'phenotype_priority',
-    label: 'Phenotype priority (Exomiser-style)',
-    description:
-      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch).',
   },
   {
     value: 'recessive_hom',
@@ -623,7 +623,8 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   effect: '',
   clinvar: '',
   exclude_clinvar: '',
-  clinvar_overrides_frequency: '',
+  // Standard on: ClinVar P/LP variants survive the gnomAD frequency filter.
+  clinvar_overrides_frequency: 'true',
   exclude_review_tags: '',
   exclude_gene: '',
   exclude_intervals: '',
@@ -794,10 +795,18 @@ const buildPresetState = (
     filters.expanded_carrier_screening = 'true';
     filters.max_gnomad_af = '0.01';
   } else if (preset === 'phenotype_priority') {
-    // Exomiser-style: rare + impactful candidate set, then rank by gene-phenotype match.
+    // Exomiser-style: rare candidate set ranked by gene-phenotype match. gnomAD
+    // <1% + H/H <=10, but ClinVar P/LP overrules the frequency cut-off; ClinVar
+    // benign / likely benign excluded; affected individuals must carry the
+    // variant (Hom or Het, not WT).
     filters.prioritize = 'true';
-    filters.impact = 'HIGH, MODERATE';
-    filters.max_gnomad_popmax_af = '0.001';
+    filters.max_gnomad_exomes_af = '0.01';
+    filters.max_gnomad_genomes_af = '0.01';
+    filters.max_gnomad_hom_count = '10';
+    filters.max_gnomad_hemi_count = '10';
+    filters.clinvar_overrides_frequency = 'true';
+    filters.exclude_clinvar = 'Benign, Likely benign';
+    setAffectedGenotypes([...HOM_GT_GROUP, ...HET_GT_GROUP]);
   } else if (preset === 'compound_het') {
     filters.inheritance = 'compound_het';
     filters.max_gnomad_af = '0.02';
@@ -1040,6 +1049,8 @@ export const buildActiveFilterChips = (
   (Object.entries(filters) as [keyof SmallFilterState, string][]).forEach(([key, value]) => {
     if (!value) return;
     if (skipDerivedLocusKeys?.has(key)) return;
+    // Behaviour modifiers surfaced as their own toggles, not as removable chips.
+    if (key === 'clinvar_overrides_frequency' || key === 'prioritize') return;
     if (MULTI_VALUE_FILTER_KEYS.has(key)) {
       parseCommaSeparatedValues(value).forEach((entry) => {
         chips.push({
