@@ -1877,6 +1877,12 @@ class MitoDNAVariantAnnotationOut(BaseModel):
     region: str
     gene: Optional[str] = None
     consequence: Optional[str] = None
+    # Normalised consequence terms (e.g. ``synonymous_variant``) parsed off the
+    # underlying small-variant annotation so the UI can filter on consequence.
+    consequence_terms: List[str] = Field(default_factory=list)
+    # Numeric gnomAD allele frequency (chrM) when annotated; used to filter out
+    # common variants. ``None`` when the variant carries no gnomAD frequency.
+    gnomad_af: Optional[float] = None
     category: Optional[str] = None
     clinical_significance: Literal[
         "pathogenic",
@@ -1914,6 +1920,9 @@ class MitoDNAVariantOut(BaseModel):
         "no_alt_calls",
         "unknown",
     ] = "unknown"
+    # MT variants share the small-variant review store, so the same ACMG
+    # classification / tags / notes payload is attached here.
+    review: Optional[SmallVariantReviewOut] = None
 
 
 class FamilyMitoDNAAnalysisOut(BaseModel):

@@ -481,6 +481,8 @@ export interface ApiMitoDNAVariantAnnotation {
   region: string;
   gene?: string | null;
   consequence?: string | null;
+  consequence_terms?: string[];
+  gnomad_af?: number | null;
   category?: string | null;
   clinical_significance:
     | 'pathogenic'
@@ -508,6 +510,10 @@ export interface ApiMitoDNAVariant {
   rsid?: string | null;
   annotation: ApiMitoDNAVariantAnnotation;
   calls: Record<string, ApiMitoDNAVariantSampleCall>;
+  // MT variants reuse the small-variant review store (shared ACMG/tags/notes).
+  // Type-only import keeps the shared shape without duplicating it; it is erased
+  // at compile time so it introduces no runtime dependency on the page module.
+  review?: import('../pages/families/smallVariantSearch').SmallVariantReview | null;
   maternal_transmission:
     | 'maternal_shared'
     | 'maternal_not_observed'

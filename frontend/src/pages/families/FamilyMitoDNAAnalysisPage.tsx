@@ -1,9 +1,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
   ApiFamilyMitoDNAAnalysis,
+  ApiFamilyMember,
   ApiFamilyRecord,
   ApiMitoDNASample,
   ApiMitoDNAVariant,
@@ -13,6 +14,58 @@ import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
+import { getErrorMessage } from '../../lib/errorMessage';
+import AcmgClassificationModal from './AcmgClassificationModal';
+import type {
+  SmallVariant,
+  SmallVariantReview,
+  SmallVariantReviewSavePayload,
+} from './smallVariantSearch';
+
+// gnomAD allele-frequency cut-offs offered in the "common variant" filter.
+const GNOMAD_AF_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: 'Any frequency' },
+  { value: '0.05', label: '≤ 5% (exclude common)' },
+  { value: '0.01', label: '≤ 1%' },
+  { value: '0.005', label: '≤ 0.5%' },
+  { value: '0.001', label: '≤ 0.1% (rare)' },
+];
+
+const isSynonymousVariant = (variant: ApiMitoDNAVariant): boolean =>
+  (variant.annotation.consequence_terms ?? []).some((term) => term.includes('synonymous'));
+
+// Adapt an MT variant to the SmallVariant shape the ACMG modal consumes. MT
+// variants live in the small-variant store, so the modal, its auto-evaluation
+// and the shared review endpoint all operate on the same identity.
+const toSmallVariantForAcmg = (variant: ApiMitoDNAVariant): SmallVariant => ({
+  _id: variant.variant_id,
+  chr: 'MT',
+  start: variant.position,
+  end: variant.position,
+  type: variant.type,
+  ref: variant.ref,
+  alt: variant.alt,
+  rsid: variant.rsid ?? undefined,
+  gene: variant.annotation.gene ?? undefined,
+  effect: variant.annotation.consequence ?? undefined,
+  gnomad_af: variant.annotation.gnomad_af ?? undefined,
+  review: variant.review ?? null,
+  genotypes: Object.values(variant.calls).map((call) => ({
+    sample: call.sample,
+    gt: call.genotype,
+    dp: call.depth ?? undefined,
+    af: call.allele_fraction != null ? [call.allele_fraction] : undefined,
+    ad: call.alt_depth != null ? [call.alt_depth] : undefined,
+  })),
+});
+
+const samplesToMembers = (samples: ApiMitoDNASample[]): ApiFamilyMember[] =>
+  samples.map((sample) => ({
+    sample_id: sample.sample_id,
+    role: sample.role || 'relative',
+    affected: Boolean(sample.affected),
+    sex: sample.sex || 'und',
+  }));
 
 interface PedRow {
   fid: string;
@@ -228,7 +281,12 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   );
   const [searchText, setSearchText] = useState('');
   const [scope, setScope] = useState<'all' | 'clinical' | 'heteroplasmic' | 'homoplasmic' | 'maternal_review'>('all');
+  const [maxGnomadAf, setMaxGnomadAf] = useState('');
+  const [excludeSynonymous, setExcludeSynonymous] = useState(false);
   const [copiedMitomapVariant, setCopiedMitomapVariant] = useState<string | null>(null);
+  const [acmgVariant, setAcmgVariant] = useState<ApiMitoDNAVariant | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
@@ -272,10 +330,25 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     };
   }, [orderedSamples]);
 
+  const gnomadAfThreshold = useMemo(() => {
+    const parsed = Number.parseFloat(maxGnomadAf);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [maxGnomadAf]);
+
   const filteredVariants = useMemo(() => {
     const query = searchText.trim().toLowerCase();
     return (mtDNA?.variants || []).filter((variant) => {
       if (!variantMatchesSearch(variant, query)) return false;
+      // gnomAD frequency: drop variants whose annotated AF exceeds the cut-off.
+      // Variants without an annotated frequency are kept — commonness is unknown.
+      if (
+        gnomadAfThreshold != null &&
+        variant.annotation.gnomad_af != null &&
+        variant.annotation.gnomad_af > gnomadAfThreshold
+      ) {
+        return false;
+      }
+      if (excludeSynonymous && isSynonymousVariant(variant)) return false;
       if (scope === 'clinical') return isClinicalVariant(variant);
       if (scope === 'heteroplasmic') return hasHeteroplasmicCall(variant);
       if (scope === 'homoplasmic') return hasHomoplasmicCall(variant);
@@ -286,7 +359,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
       }
       return true;
     });
-  }, [mtDNA?.variants, scope, searchText]);
+  }, [mtDNA?.variants, scope, searchText, gnomadAfThreshold, excludeSynonymous]);
 
   const heteroplasmicCount = useMemo(
     () => (mtDNA?.variants || []).filter(hasHeteroplasmicCall).length,
@@ -320,6 +393,52 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     }
     window.open(variant.annotation.mitomap_url, '_blank', 'noopener,noreferrer');
   }, []);
+
+  const reviewMutation = useMutation({
+    mutationFn: async ({
+      variantId,
+      payload,
+    }: {
+      variantId: string;
+      payload: SmallVariantReviewSavePayload;
+    }) => {
+      if (!familyId) {
+        throw new Error('Family id is required');
+      }
+      const path = `/families/${encodeURIComponent(familyId)}/small-variants/${encodeURIComponent(
+        variantId,
+      )}/review`;
+      const res = resolvedProjectId
+        ? await api.put(path, payload, { params: { project_id: resolvedProjectId } })
+        : await api.put(path, payload);
+      return res.data as SmallVariantReview;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['family', familyId, 'mitochondrial-dna', resolvedProjectId],
+      });
+    },
+  });
+
+  const openAcmgModal = useCallback((variant: ApiMitoDNAVariant) => {
+    setReviewError(null);
+    setAcmgVariant(variant);
+  }, []);
+
+  const handleSaveAcmg = useCallback(
+    async (payload: SmallVariantReviewSavePayload) => {
+      if (!acmgVariant) return;
+      setReviewError(null);
+      try {
+        await reviewMutation.mutateAsync({ variantId: acmgVariant.variant_id, payload });
+        setAcmgVariant(null);
+      } catch (error) {
+        setReviewError(getErrorMessage(error, 'Unable to save the ACMG classification.'));
+        throw error;
+      }
+    },
+    [acmgVariant, reviewMutation],
+  );
 
   if (familyLoading || mtDNALoading || (family?.projects?.length && referenceLoading)) {
     return (
@@ -502,6 +621,28 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
               Maternal review
             </button>
           </div>
+          <label className="family-mtdna-filter-field" htmlFor="mtdna-gnomad-af">
+            <span>gnomAD frequency</span>
+            <select
+              id="mtdna-gnomad-af"
+              value={maxGnomadAf}
+              onChange={(event) => setMaxGnomadAf(event.target.value)}
+            >
+              {GNOMAD_AF_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="family-mtdna-filter-toggle">
+            <input
+              type="checkbox"
+              checked={excludeSynonymous}
+              onChange={(event) => setExcludeSynonymous(event.target.checked)}
+            />
+            <span>Hide synonymous</span>
+          </label>
           <div className="family-mtdna-filter-count">
             {filteredVariants.length} of {mtDNA.variants.length} variants · {clinicalCount} clinical · {homoplasmicCount} homoplasmic
           </div>
@@ -537,6 +678,13 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                       </span>
                     </div>
                     {variant.rsid && <div className="table-subtle">{variant.rsid}</div>}
+                    {variant.review?.acmg?.classification && (
+                      <div className="table-subtle">
+                        <span className="table-chip family-mtdna-acmg-chip">
+                          ACMG: {variant.review.acmg.classification}
+                        </span>
+                      </div>
+                    )}
                     <div className="family-mtdna-links">
                       <button
                         type="button"
@@ -545,6 +693,14 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                         aria-label={`Open MITOMAP for ${variant.annotation.mitomap_query || variant.label}`}
                       >
                         MITOMAP
+                      </button>
+                      <button
+                        type="button"
+                        className="table-link"
+                        onClick={() => openAcmgModal(variant)}
+                        aria-label={`Classify ${variant.label} with ACMG`}
+                      >
+                        {variant.review?.acmg ? 'Edit ACMG' : 'Classify (ACMG)'}
                       </button>
                       <Link
                         to={`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, variant.position - 100)}&end=${variant.position + 100}${
@@ -566,6 +722,11 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                       <strong>{variant.annotation.gene || variant.annotation.region}</strong>
                       <span>{variant.annotation.category || 'mitochondrial genome'}</span>
                       {variant.annotation.consequence && <span>{variant.annotation.consequence}</span>}
+                      {variant.annotation.gnomad_af != null && (
+                        <span className="table-subtle">
+                          gnomAD {formatPercent(variant.annotation.gnomad_af, 3)}
+                        </span>
+                      )}
                       {variant.annotation.disorders.length > 0 && (
                         <div className="family-mtdna-disorders">
                           {variant.annotation.disorders.map((disorder) => (
@@ -623,6 +784,21 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
           </table>
         </div>
       </section>
+
+      {acmgVariant && (
+        <AcmgClassificationModal
+          familyId={family.family_id}
+          projectId={resolvedProjectId ?? undefined}
+          variant={toSmallVariantForAcmg(acmgVariant)}
+          members={samplesToMembers(mtDNA.samples)}
+          assemblyName={assemblyName ?? undefined}
+          assemblyVersion={assemblyVersion ?? undefined}
+          errorMessage={reviewError}
+          isPending={reviewMutation.isPending}
+          onClose={() => setAcmgVariant(null)}
+          onSave={handleSaveAcmg}
+        />
+      )}
     </div>
   );
 };

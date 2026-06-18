@@ -7361,10 +7361,38 @@ button.table-link:hover {
   color: var(--color-text-muted);
 }
 
-.family-mtdna-filter-field input {
+.family-mtdna-filter-field input,
+.family-mtdna-filter-field select {
   min-height: 2.35rem;
   padding: 0.45rem 0.72rem;
   font-size: 0.82rem;
+}
+
+.family-mtdna-filter-field:has(select) {
+  width: min(15rem, 100%);
+}
+
+.family-mtdna-filter-toggle {
+  min-height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.2rem 0.1rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.family-mtdna-filter-toggle input {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.family-mtdna-acmg-chip {
+  background: rgba(99, 102, 241, 0.12);
+  color: #4338ca;
+  font-weight: 700;
 }
 
 .family-mtdna-scope-toggle {
