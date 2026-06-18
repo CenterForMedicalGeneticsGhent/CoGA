@@ -9,7 +9,6 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
-  buildPriorityTooltip,
   buildReviewTagTooltip,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
@@ -21,6 +20,7 @@ import {
   sortSmallVariants,
   type TableSortKey,
 } from './smallVariantResultUtils';
+import VariantScoreCell from './VariantScoreCell';
 
 interface SmallVariantTableProps {
   variants: SmallVariant[];
@@ -181,22 +181,7 @@ export default function SmallVariantTable({
                   isExcluded ? ' variant-table-row--excluded' : ''
                 }`}
               >
-                {hasPriority && (
-                  <td className="table-mono" title={buildPriorityTooltip(variant)}>
-                    {variant.priority ? (
-                      <span className="variant-priority-score">
-                        {variant.priority.combined_score.toFixed(2)}
-                        {variant.priority.phenotype_matches.length ? (
-                          <span className="variant-priority-pheno" title="Matches the patient's phenotypes">
-                            ✦
-                          </span>
-                        ) : null}
-                      </span>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                )}
+                {hasPriority && <VariantScoreCell variant={variant} />}
                 <td>{variant.chr}</td>
                 <td className="table-mono">{variant.start}</td>
                 <td className="table-mono">{variant.end}</td>

@@ -4471,6 +4471,74 @@ tbody tr:hover {
   gap: 0.35rem 0.9rem;
 }
 
+.variant-card-priority {
+  display: grid;
+  /* Constrain the single column to the container so long lines wrap instead of
+     forcing the block (and the popover) wider than its box. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.3rem;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.05);
+  padding: 0.5rem 0.62rem;
+}
+
+.variant-card-priority-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.variant-card-priority-score {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.variant-card-priority-rank {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgba(10, 11, 12, 0.55);
+}
+
+.variant-card-priority-pheno {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.variant-card-priority-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  min-width: 0;
+}
+
+.variant-card-priority-metric {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: baseline;
+}
+
+.variant-card-priority-metric-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: rgba(10, 11, 12, 0.5);
+}
+
+.variant-card-priority-metric-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.variant-card-priority-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(10, 11, 12, 0.66);
+  overflow-wrap: anywhere;
+}
+
 .variant-card-headline {
   display: inline-flex;
   flex-wrap: wrap;
@@ -9456,6 +9524,39 @@ a.button-danger:hover {
   align-items: center;
   gap: 0.2rem;
   font-weight: 600;
+  cursor: help;
+}
+
+.variant-score-cell {
+  position: relative;
+}
+
+.variant-priority-popover {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: min(320px, 90vw);
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid rgba(10, 11, 12, 0.12);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(10, 11, 12, 0.16);
+  padding: 0.62rem 0.7rem;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.variant-priority-popover * {
+  max-width: 100%;
+}
+
+.variant-priority-popover .variant-card-priority {
+  border: none;
+  background: transparent;
+  padding: 0;
 }
 
 .variant-priority-pheno {
