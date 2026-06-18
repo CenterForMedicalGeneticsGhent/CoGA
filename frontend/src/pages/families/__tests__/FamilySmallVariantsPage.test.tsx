@@ -555,6 +555,9 @@ describe('FamilySmallVariantsPage', () => {
     await waitFor(() => {
       // Phenotype prioritization scoring enabled.
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('prioritize=true'));
+      // Annotations: high or moderate impact.
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('impact=HIGH'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('impact=MODERATE'));
       // Rare frequency + H/H cap.
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_exomes_af=0.01'));
       expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_genomes_af=0.01'));

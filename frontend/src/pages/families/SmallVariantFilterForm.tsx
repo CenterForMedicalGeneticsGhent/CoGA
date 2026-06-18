@@ -169,6 +169,7 @@ const SmallVariantFilterForm = ({
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
   const [openSections, setOpenSections] = useState({
+    phenotype: false,
     inheritance: false,
     pathogenicity: false,
     annotations: false,
@@ -796,16 +797,6 @@ const SmallVariantFilterForm = ({
                 >
                   {saveOpen ? 'Close save' : 'Save current'}
                 </button>
-                <label className="analysis-checkbox variant-prioritize-toggle">
-                  <input
-                    type="checkbox"
-                    checked={draftFilters.prioritize === 'true'}
-                    onChange={(event) =>
-                      setDraftFilterValue('prioritize', event.target.checked ? 'true' : '')
-                    }
-                  />
-                  <span>Phenotype prioritization</span>
-                </label>
               </>
             ) : null}
             <button type="button" className="button-secondary" onClick={handleReset}>
@@ -886,6 +877,44 @@ const SmallVariantFilterForm = ({
 
       <section className="variant-search-section">
         <div className="variant-filter-dropdown-grid">
+          {familyAware ? (
+          <details
+            className="variant-filter-dropdown"
+            open={openSections.phenotype}
+            onToggle={handleSectionToggle('phenotype')}
+          >
+            <summary className="variant-filter-dropdown-summary">
+              <span className="variant-filter-dropdown-summary-copy">
+                <span className="variant-filter-dropdown-title">Phenotype</span>
+                <span className="variant-filter-dropdown-meta">
+                  {summarizeSection(
+                    draftFilters.prioritize === 'true' ? 1 : 0,
+                    'Prioritization off',
+                  )}
+                </span>
+              </span>
+              <span className="variant-filter-dropdown-caret" aria-hidden="true">
+                ▾
+              </span>
+            </summary>
+            <div className="variant-filter-dropdown-content">
+              <label className="analysis-checkbox">
+                <input
+                  type="checkbox"
+                  checked={draftFilters.prioritize === 'true'}
+                  onChange={(event) =>
+                    setDraftFilterValue('prioritize', event.target.checked ? 'true' : '')
+                  }
+                />
+                <span>Phenotype prioritization</span>
+              </label>
+              <p className="table-subtle">
+                Rank candidate variants by how well each gene matches the affected
+                individuals’ HPO phenotypes (Monarch / Exomiser-style).
+              </p>
+            </div>
+          </details>
+          ) : null}
           {familyAware ? (
           <details
             className="variant-filter-dropdown"

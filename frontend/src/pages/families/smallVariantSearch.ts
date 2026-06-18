@@ -800,6 +800,7 @@ const buildPresetState = (
     // benign / likely benign excluded; affected individuals must carry the
     // variant (Hom or Het, not WT).
     filters.prioritize = 'true';
+    filters.impact = 'HIGH, MODERATE';
     filters.max_gnomad_exomes_af = '0.01';
     filters.max_gnomad_genomes_af = '0.01';
     filters.max_gnomad_hom_count = '10';
