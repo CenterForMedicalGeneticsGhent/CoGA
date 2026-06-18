@@ -170,6 +170,7 @@ export interface SmallVariantPage {
   unfiltered_total?: number | null;
   unfiltered_total_is_estimated?: boolean;
   count_limit?: number | null;
+  ranking_truncated?: boolean;
   small_variant_summary?: SmallVariantSummary | null;
 }
 

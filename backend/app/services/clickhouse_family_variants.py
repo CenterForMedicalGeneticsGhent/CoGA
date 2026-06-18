@@ -3962,9 +3962,11 @@ def _inheritance_result_items(
 
 
 # Upper bound on variants pulled into a single prioritization pass. The Exomiser-style
-# preset applies strict frequency/impact/segregation filters first, so the candidate
-# set is normally far smaller than this.
-_PRIORITIZE_CANDIDATE_LIMIT = 3000
+# preset applies strict frequency/impact filters first, so the candidate set is normally
+# far smaller than this; when it is exceeded the ranking covers only this many (the
+# highest-priority variant could lie outside the window), so the response flags
+# `ranking_truncated` to prompt the user to narrow their filters.
+_PRIORITIZE_CANDIDATE_LIMIT = 5000
 
 
 async def _affected_present_hpo(
@@ -4187,7 +4189,28 @@ async def _prioritized_small_variants_page(
         if variant.priority:
             variant.priority.rank = index
 
-    total = len(variants)
+    ranked_total = len(variants)
+    # When the candidate set overflowed the ranking window, the ranking only covers the
+    # window — report the true filtered count (not the window size) and flag the
+    # truncation so the UI can prompt the user to narrow filters.
+    if capped:
+        true_total, true_estimated = await _count_small_variant_rows_bounded(
+            context,
+            filters,
+            panel_constraints=panel_constraints,
+            include_variant_ids=review_variant_ids if include_review_filter_active else None,
+            exclude_variant_ids=excluded_review_variant_ids,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+        )
+        total = max(true_total, ranked_total)
+        total_is_estimated = True
+    else:
+        total = ranked_total
+        total_is_estimated = ranked_total >= _SMALL_COUNT_LIMIT
+
     reported_total = min(total, _SMALL_COUNT_LIMIT)
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_variants = variants[skip : skip + page_size] if page_size else variants[skip:]
@@ -4196,10 +4219,11 @@ async def _prioritized_small_variants_page(
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
     return VariantPage(
         total=reported_total,
-        total_is_estimated=capped or total >= _SMALL_COUNT_LIMIT,
+        total_is_estimated=total_is_estimated,
         unfiltered_total=unfiltered_total,
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
+        ranking_truncated=capped,
         variants=page_variants,
         small_variant_summary=small_variant_summary,
     )

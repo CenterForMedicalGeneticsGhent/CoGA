@@ -3670,6 +3670,12 @@ tbody tr:hover {
   color: var(--color-signature-red-dark);
 }
 
+.variant-workspace-feedback--warning {
+  border-color: rgba(180, 83, 9, 0.25);
+  background: rgba(180, 83, 9, 0.08);
+  color: #92400e;
+}
+
 .variant-saved-layout {
   display: grid;
   gap: 0.75rem;

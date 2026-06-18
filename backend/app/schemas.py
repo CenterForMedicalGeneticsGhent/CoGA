@@ -1511,6 +1511,9 @@ class VariantPage(BaseModel):
     unfiltered_total: Optional[int] = None
     unfiltered_total_is_estimated: bool = False
     count_limit: Optional[int] = None
+    # True when a prioritized request had more candidates than the ranking window, so
+    # the ranking is incomplete and the user should narrow their filters.
+    ranking_truncated: bool = False
     variants: List[VariantOut] = Field(default_factory=list)
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None

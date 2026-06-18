@@ -157,6 +157,14 @@ export default function SmallVariantResults({
           </div>
         ) : null}
 
+        {data?.ranking_truncated ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--warning">
+            More candidates matched than the prioritizer ranks at once, so this ranking is
+            incomplete — the top variant may not be shown. Narrow the filters (tighter
+            frequency/impact, a gene panel, or an inheritance mode) to rank the full set.
+          </div>
+        ) : null}
+
         {!hasResults ? (
           <div className="variant-results-empty">
             <p className="table-empty">No variants match the current search.</p>
