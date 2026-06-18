@@ -25,6 +25,7 @@ import {
   getReviewTagStyle,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
+import VariantPriorityBlock from './VariantPriorityBlock';
 
 interface SmallVariantCardsProps {
   variants: SmallVariant[];
@@ -521,6 +522,8 @@ export default function SmallVariantCards({
                 ) : null}
               </div>
             </div>
+
+            {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
 
             {visibleReviewTags.length || variant.review?.compound_het ? (
               <div className="variant-card-chip-row variant-card-tag-row">

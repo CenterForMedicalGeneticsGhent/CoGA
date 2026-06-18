@@ -19,6 +19,7 @@ import {
   getReviewTagStyle,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
+import VariantPriorityBlock from './VariantPriorityBlock';
 
 interface SmallVariantPairCardsProps {
   groups: SmallVariantGroup[];
@@ -184,6 +185,9 @@ export default function SmallVariantPairCards({
                           gnomAD {formatFrequency(variant.gnomad_af)}
                         </span>
                       </div>
+                      {variant.priority ? (
+                        <VariantPriorityBlock priority={variant.priority} />
+                      ) : null}
                       <p className="table-subtle">
                         {buildCompactGenotypeText(variant, members) || 'No family genotypes available'}
                       </p>

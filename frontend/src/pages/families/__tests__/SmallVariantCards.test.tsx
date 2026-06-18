@@ -87,4 +87,55 @@ describe('SmallVariantCards', () => {
     expect(within(dialog).getByText('Canonical')).toBeInTheDocument();
     expect(within(dialog).getAllByText('Exon 13/27')).toHaveLength(2);
   });
+
+  it('shows the priority breakdown on a prioritized variant card', () => {
+    render(
+      <MemoryRouter>
+        <SmallVariantCards
+          variants={[
+            {
+              _id: 'antxr2-var',
+              chr: '4',
+              start: 80097499,
+              end: 80097499,
+              type: 'SNV',
+              gene: 'ANTXR2',
+              impact: 'HIGH',
+              effect: 'splice_donor_variant',
+              ref: 'C',
+              alt: 'T',
+              genotypes: [],
+              priority: {
+                combined_score: 0.46,
+                variant_score: 0.85,
+                pathogenicity_score: 0.85,
+                frequency_score: 1,
+                segregation_weight: 1,
+                phenotype_score: 0.07,
+                segregation_modes: ['homozygous_recessive'],
+                phenotype_gene: 'ANTXR2',
+                phenotype_matches: [
+                  { hpo_id: 'HP:0000851', label: 'Congenital hypothyroidism' },
+                ],
+                rank: 1,
+              },
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/Priority 0.46/)).toBeInTheDocument();
+    expect(screen.getByText('#1')).toBeInTheDocument();
+    expect(screen.getByText(/Inheritance: homozygous recessive/i)).toBeInTheDocument();
+    expect(screen.getByText(/Congenital hypothyroidism/)).toBeInTheDocument();
+  });
 });
