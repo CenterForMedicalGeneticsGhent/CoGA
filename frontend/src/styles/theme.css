@@ -9542,20 +9542,27 @@ a.button-danger:hover {
      fit the phenotype list. VariantScoreCell measures it and flips it to stay
      on-screen. */
   width: min(340px, 90vw);
+  max-width: min(340px, 90vw);
   border: 1px solid rgba(10, 11, 12, 0.12);
   border-radius: 10px;
   background: #ffffff;
   box-shadow: 0 10px 30px rgba(10, 11, 12, 0.16);
   padding: 0.62rem 0.7rem;
   pointer-events: none;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  /* Backstop: nothing can paint past the rounded box even if a child misbehaves. */
+  overflow: hidden;
 }
 
+/* Force every descendant to wrap and shrink within the tooltip — flex/grid items
+   default to min-width: auto, which otherwise lets a long phenotype label push
+   the line wider than the box and spill out. */
 .variant-priority-popover,
 .variant-priority-popover * {
   min-width: 0;
   max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .variant-priority-popover .variant-card-priority {
