@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Iterable, Sequence
 from urllib.parse import quote
 
@@ -25,6 +26,7 @@ from .clickhouse_family_variants import (
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters
+from .small_variant_review_pg import get_small_variant_review_map
 
 
 MT_GENOME_LENGTH = 16_569
@@ -219,6 +221,37 @@ def _clinical_significance(annotation: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _consequence_terms(annotation: dict[str, Any]) -> list[str]:
+    """Normalised consequence/effect terms used for client-side filtering.
+
+    VEP-style effects can be joined with ``&``/``,``/``;`` (e.g.
+    ``missense_variant&splice_region_variant``); split them into individual
+    lower-cased tokens so the UI can match ``synonymous_variant`` reliably.
+    """
+
+    raw = _annotation_value(
+        annotation,
+        "consequence",
+        "effect",
+        "variant_effect",
+        "major_consequence",
+        "majorConsequence",
+        "most_severe_consequence",
+    )
+    terms: list[str] = []
+    seen: set[str] = set()
+    for value in raw if isinstance(raw, list) else [raw]:
+        text_value = _text(value)
+        if not text_value:
+            continue
+        for part in re.split(r"[&,;]", text_value):
+            token = part.strip().lower().replace(" ", "_")
+            if token and token not in seen:
+                seen.add(token)
+                terms.append(token)
+    return terms
+
+
 def _annotation_source_keys(annotation: dict[str, Any]) -> list[str]:
     interesting = (
         "mitomap",
@@ -259,10 +292,22 @@ def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotati
             "effect",
             "variant_effect",
             "major_consequence",
+            "majorConsequence",
+            "most_severe_consequence",
             "HGVSp",
             "hgvsp",
             "HGVSc",
             "hgvsc",
+        )
+    )
+    consequence_terms = _consequence_terms(annotation)
+    gnomad_af = _float(
+        _annotation_value(
+            annotation,
+            "gnomad_af",
+            "gnomadAf",
+            "gnomad_genomes_af",
+            "gnomadGenomesAf",
         )
     )
     disorders = _list_texts(
@@ -278,6 +323,8 @@ def _annotation_for_record(record: SmallVariantRecord) -> MitoDNAVariantAnnotati
         region=str(locus.get("region") or gene or "mitochondrial genome"),
         gene=gene,
         consequence=consequence,
+        consequence_terms=consequence_terms,
+        gnomad_af=gnomad_af,
         category=_text(locus.get("category")),
         clinical_significance=_clinical_significance(annotation),  # type: ignore[arg-type]
         disorders=disorders,
@@ -684,13 +731,37 @@ def _family_qc_notes(samples: Sequence[MitoDNASampleOut], variants: Sequence[Mit
     return notes
 
 
+async def _attach_reviews(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    variants: Sequence[MitoDNAVariantOut],
+) -> None:
+    """Attach the shared small-variant review (ACMG/tags/notes) to MT variants.
+
+    MT variants live in the small-variant store, so their reviews are keyed by
+    the same ``variant_id`` and read through the same Postgres review map.
+    """
+
+    if not variants:
+        return
+    review_map = await get_small_variant_review_map(
+        session,
+        family_uuid=context.family_uuid,
+        variant_ids=[variant.variant_id for variant in variants],
+    )
+    if not review_map:
+        return
+    for variant in variants:
+        variant.review = review_map.get(variant.variant_id)
+
+
 async def get_family_mitochondrial_analysis_response(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
     count_only: bool = False,
 ) -> FamilyMitoDNAAnalysisOut:
-    del session
     member_by_sample = _member_meta(context)
     records = await _fetch_mt_records(context)
     coverage_map = await _coverage_by_sample(context)
@@ -714,6 +785,7 @@ async def get_family_mitochondrial_analysis_response(
         _variant_out(record, member_by_sample=member_by_sample, samples=samples)
         for record in records
     ]
+    await _attach_reviews(session, context=context, variants=variant_rows)
     return FamilyMitoDNAAnalysisOut(
         samples=samples,
         variants=variant_rows,

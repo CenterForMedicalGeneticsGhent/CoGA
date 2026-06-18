@@ -110,6 +110,8 @@ describe('FamilyMitoDNAAnalysisPage', () => {
                   region: 'MT-TL1',
                   gene: 'MT-TL1',
                   consequence: 'tRNA_variant',
+                  consequence_terms: ['trna_variant'],
+                  gnomad_af: null,
                   category: 'tRNA',
                   clinical_significance: 'pathogenic',
                   disorders: ['MELAS syndrome'],
@@ -169,6 +171,8 @@ describe('FamilyMitoDNAAnalysisPage', () => {
                   region: 'control region',
                   gene: 'MT-CR',
                   consequence: null,
+                  consequence_terms: [],
+                  gnomad_af: 0.85,
                   category: 'control',
                   clinical_significance: 'polymorphism',
                   disorders: [],
@@ -251,5 +255,130 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /maternal review/i }));
     expect(screen.getByText(/1 of 2 variants/)).toBeInTheDocument();
     expect(screen.getByRole('row', { name: /m\.73A>G/i })).toBeInTheDocument();
+  });
+
+  it('filters on gnomAD frequency and consequence, and opens the ACMG modal', async () => {
+    const sample = (sample_id: string, role: string) => ({
+      sample_id,
+      role,
+      affected: role === 'proband',
+      sex: role === 'father' ? 'male' : 'female',
+      haplogroup: 'H1',
+      coverage: { mean_depth: 400, min_depth: 350, max_depth: 450, breadth: 0.98, source: 'coverage', regions: 10 },
+      qc: { status: 'pass', notes: [], contamination: 0.001, mean_depth: 400, min_mean_depth: 350 },
+    });
+    const variant = (
+      label: string,
+      position: number,
+      gnomadAf: number | null,
+      consequenceTerms: string[],
+    ) => ({
+      variant_id: label,
+      position,
+      ref: 'A',
+      alt: 'G',
+      label,
+      type: 'SNV',
+      maternal_transmission: 'maternal_shared',
+      annotation: {
+        region: 'MT-ATP6',
+        gene: 'MT-ATP6',
+        consequence: consequenceTerms[0] ?? null,
+        consequence_terms: consequenceTerms,
+        gnomad_af: gnomadAf,
+        category: 'protein coding',
+        clinical_significance: 'unknown',
+        disorders: [],
+        polymorphism_notes: [],
+        mitomap_query: label,
+        mitomap_url: `https://www.mitomap.org/cgi-bin/search_allele?variant=${position}A%3EG`,
+        source_keys: [],
+      },
+      calls: {
+        PROBAND: {
+          sample: 'PROBAND',
+          role: 'proband',
+          affected: true,
+          sex: 'female',
+          genotype: '0/1',
+          allele_fraction: 0.4,
+          depth: 400,
+          alt_depth: 160,
+          zygosity: 'heteroplasmic',
+          display: '40.0%',
+        },
+      },
+    });
+
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            pedigree: '',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }],
+            projects: [],
+            metadata: {},
+          },
+        });
+      }
+      if (url === '/families/F1/hpo') {
+        return Promise.resolve({ data: [] });
+      }
+      if (url === '/families/F1/mitochondrial-dna') {
+        return Promise.resolve({
+          data: {
+            heteroplasmy_threshold: 0.02,
+            homoplasmy_threshold: 0.95,
+            qc_notes: [],
+            samples: [sample('PROBAND', 'proband')],
+            variants: [
+              variant('m.3243A>G', 3243, null, ['missense_variant']),
+              variant('m.73A>G', 73, 0.85, []),
+              variant('m.8860A>G', 8860, 0.97, ['synonymous_variant']),
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
+          <Routes>
+            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/3 of 3 variants/)).toBeInTheDocument();
+    });
+
+    // gnomAD frequency: ≤5% removes both common variants, keeps the rare one
+    // (no annotated frequency is treated as not-common, so it stays).
+    fireEvent.change(screen.getByLabelText('gnomAD frequency'), { target: { value: '0.05' } });
+    expect(screen.getByText(/1 of 3 variants/)).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /m\.3243A>G/i })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /m\.73A>G/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /m\.8860A>G/i })).not.toBeInTheDocument();
+
+    // Back to any frequency, then hide synonymous variants.
+    fireEvent.change(screen.getByLabelText('gnomAD frequency'), { target: { value: '' } });
+    expect(screen.getByText(/3 of 3 variants/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: /hide synonymous/i }));
+    expect(screen.getByText(/2 of 3 variants/)).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /m\.8860A>G/i })).not.toBeInTheDocument();
+
+    // ACMG: classify button opens the shared classification modal.
+    const row = screen.getByRole('row', { name: /m\.3243A>G/i });
+    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: /classify m\.3243A>G with acmg/i }));
+    await waitFor(() => {
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText('ACMG classification')).toBeInTheDocument();
+    });
   });
 });

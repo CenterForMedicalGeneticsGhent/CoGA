@@ -2,9 +2,26 @@ from __future__ import annotations
 
 import pytest
 
+from backend.app.schemas import SmallVariantReviewOut
 from backend.app.services import mitochondrial_analysis
 from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+
+
+@pytest.fixture(autouse=True)
+def _stub_review_map(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    """MT variants share the small-variant review store; isolate tests from PG.
+
+    Tests that care about review attachment populate the returned dict.
+    """
+
+    reviews: dict[str, object] = {}
+
+    async def fake_review_map(_session, *, family_uuid, variant_ids):  # noqa: ANN001
+        return {vid: reviews[vid] for vid in variant_ids if vid in reviews}
+
+    monkeypatch.setattr(mitochondrial_analysis, "get_small_variant_review_map", fake_review_map)
+    return reviews
 
 
 def _family_context() -> FamilyMetadataContext:
@@ -123,6 +140,9 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
     assert response.variants[0].annotation.gene == "MT-TL1"
     assert response.variants[0].annotation.disorders == ["MELAS syndrome"]
     assert response.variants[0].annotation.clinical_significance == "pathogenic"
+    assert response.variants[0].annotation.consequence_terms == ["trna_variant"]
+    assert response.variants[0].annotation.gnomad_af is None
+    assert response.variants[0].review is None
     assert response.variants[0].annotation.mitomap_query == "m.3243A>G"
     assert response.variants[0].annotation.mitomap_url.endswith("/cgi-bin/search_allele?variant=3243A%3EG")
     assert response.variants[0].maternal_transmission == "maternal_shared"
@@ -133,6 +153,64 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
     # The full response also carries the presence summary.
     assert response.variant_count == 1
     assert response.has_coverage is True
+
+
+@pytest.mark.asyncio
+async def test_family_mitochondrial_analysis_surfaces_frequency_consequence_and_review(
+    monkeypatch: pytest.MonkeyPatch,
+    _stub_review_map: dict[str, object],
+) -> None:
+    common_synonymous = SmallVariantRecord(
+        variant_key=2,
+        variant_id="m.8860A>G",
+        chr="MT",
+        start=8860,
+        end=8860,
+        ref="A",
+        alt="G",
+        source="mutserve",
+        rsid="rs2001031",
+        filters=[],
+        gene_symbols=["MT-ATP6"],
+        annotations=[
+            {
+                "gene": "MT-ATP6",
+                # VEP-style joined effect terms should split into tokens.
+                "effect": "synonymous_variant&NMD_transcript_variant",
+                "gnomad_af": 0.97,
+            }
+        ],
+        calls=[
+            SmallVariantCall(sample="PROBAND", gt="1/1", gq=None, dp=500, af=[0.99], ad=[1, 499], ps=None),
+        ],
+    )
+
+    async def fake_fetch_mt_records(_context):
+        return [common_synonymous]
+
+    async def fake_coverage_by_sample(_context):
+        return {}
+
+    monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
+    monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
+
+    review = SmallVariantReviewOut(
+        variant_id="m.8860A>G",
+        classification="acmg_class_1",
+        tags=["acmg_class_1"],
+    )
+    _stub_review_map["m.8860A>G"] = review
+
+    response = await mitochondrial_analysis.get_family_mitochondrial_analysis_response(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+    )
+
+    variant = response.variants[0]
+    assert variant.annotation.gnomad_af == 0.97
+    assert variant.annotation.consequence_terms == ["synonymous_variant", "nmd_transcript_variant"]
+    assert variant.review is not None
+    assert variant.review.classification == "acmg_class_1"
 
 
 @pytest.mark.asyncio
