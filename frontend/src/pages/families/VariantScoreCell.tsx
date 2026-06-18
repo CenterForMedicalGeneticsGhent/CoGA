@@ -19,7 +19,9 @@ export default function VariantScoreCell({ variant }: { variant: SmallVariant })
 
   const open = (event: React.MouseEvent | React.FocusEvent) => {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    setAnchor({ top: rect.bottom + 6, left: rect.left });
+    // Keep the 320px popover inside the viewport horizontally.
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - 328));
+    setAnchor({ top: rect.bottom + 6, left });
   };
   const close = () => setAnchor(null);
 
