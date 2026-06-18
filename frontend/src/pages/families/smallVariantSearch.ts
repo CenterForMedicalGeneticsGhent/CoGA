@@ -127,6 +127,8 @@ export interface SmallVariant {
   spliceai_ds_dg?: number;
   spliceai_ds_dl?: number;
   spliceai_max?: number;
+  alpha_missense_pathogenicity?: number;
+  alpha_missense_class?: string | null;
   annotation_extra?: Record<string, string | number | boolean | null>;
   transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];

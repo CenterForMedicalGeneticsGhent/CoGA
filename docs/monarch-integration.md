@@ -351,10 +351,21 @@ covers no-trio cases), and de novo carries the stronger segregation weight. A
 homozygous-alt child with reference parents is left to the recessive pattern rather than
 mislabeled de novo.
 
+**Missense sharpening (AlphaMissense + gene constraint).** `pathogenicity` also folds in
+**AlphaMissense** (the categorical `alpha_missense_class` from the annotation payload, plus
+the numeric `am_pathogenicity` when a VCF carries it) and **gene-level constraint** from
+`gene_info` (gnomAD pLI for LoF, missense-Z for missense, fetched for all candidates).
+An AlphaMissense `likely_pathogenic` call lifts a missense toward the predictor ceiling;
+`likely_benign` caps it (de-prioritizing benign missense) — but ClinVar assertions still
+take precedence over both. pLI is validated to its [0, 1] range, so malformed source
+constraint data is ignored rather than trusted. These signals surface in the review
+dialog's priority breakdown.
+
 **Caveats.** Scores rank *within a family*; they are not calibrated probabilities like
 Exomiser's trained model. The candidate set is capped (3,000) so the preset's hard
 filters should keep it well under that; a hit cap is flagged via `total_is_estimated`.
-`gene_pli`/AlphaMissense remain parsed-but-unstored (a future missense-scoring refinement).
+Numeric AlphaMissense and gene constraint persist in the annotation payload / `gene_info`
+respectively; a columnar filter index for AlphaMissense remains a future enhancement.
 
 ## Open questions
 

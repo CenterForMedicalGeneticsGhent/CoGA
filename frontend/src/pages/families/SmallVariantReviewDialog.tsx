@@ -24,6 +24,10 @@ type ReviewableVariant = {
   hgvsp?: string;
   hgvsc?: string;
   effect?: string;
+  alpha_missense_class?: string | null;
+  alpha_missense_pathogenicity?: number;
+  gene_pli?: number;
+  gene_missense_z?: number;
   review?: SmallVariantReview | null;
   priority?: SmallVariantPriority | null;
 };
@@ -40,10 +44,29 @@ type SmallVariantReviewDialogProps = {
   errorMessage?: string | null;
 };
 
-function PriorityBreakdown({ priority }: { priority: SmallVariantPriority }) {
+function PriorityBreakdown({
+  priority,
+  variant,
+}: {
+  priority: SmallVariantPriority;
+  variant: ReviewableVariant;
+}) {
   const modes = priority.segregation_modes
     .map((mode) => SEGREGATION_MODE_LABELS[mode] || mode)
     .join(', ');
+  const constraintBits = [
+    variant.alpha_missense_class
+      ? `AlphaMissense ${variant.alpha_missense_class.replace(/_/g, ' ')}${
+          typeof variant.alpha_missense_pathogenicity === 'number'
+            ? ` (${variant.alpha_missense_pathogenicity.toFixed(2)})`
+            : ''
+        }`
+      : null,
+    typeof variant.gene_pli === 'number' ? `gene pLI ${variant.gene_pli.toFixed(2)}` : null,
+    typeof variant.gene_missense_z === 'number'
+      ? `missense Z ${variant.gene_missense_z.toFixed(2)}`
+      : null,
+  ].filter(Boolean);
   return (
     <section className="variant-review-modal-section">
       <div className="variant-review-note-header">
@@ -85,6 +108,9 @@ function PriorityBreakdown({ priority }: { priority: SmallVariantPriority }) {
       ) : (
         <p className="table-subtle">No compatible inheritance mode for the pedigree.</p>
       )}
+      {constraintBits.length ? (
+        <p className="table-subtle">{constraintBits.join(' · ')}</p>
+      ) : null}
       {priority.phenotype_matches.length ? (
         <p className="table-subtle">
           Phenotype match{priority.phenotype_gene ? ` (${priority.phenotype_gene})` : ''}:{' '}
@@ -202,7 +228,7 @@ export default function SmallVariantReviewDialog({
           ) : null}
 
           {variant.priority ? (
-            <PriorityBreakdown priority={variant.priority} />
+            <PriorityBreakdown priority={variant.priority} variant={variant} />
           ) : null}
 
           <section className="variant-review-modal-section">

@@ -2060,6 +2060,14 @@ async def _fetch_gene_constraint_metric_map(
     return result_map
 
 
+def _normalize_alpha_missense_class(value: str | None) -> str | None:
+    """AlphaMissense no-call (``-`` / empty) becomes None for clean display/scoring."""
+    text_value = str(value or "").strip()
+    if not text_value or text_value == "-":
+        return None
+    return text_value
+
+
 def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
     annotation = _select_primary_annotation(record.annotations)
     population_frequencies = _annotation_population_frequencies(annotation)
@@ -2107,6 +2115,12 @@ def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
         spliceai_ds_dg=_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg"),
         spliceai_ds_dl=_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl"),
         spliceai_max=_annotation_spliceai_max(annotation),
+        alpha_missense_pathogenicity=_annotation_float(
+            annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
+        ),
+        alpha_missense_class=_normalize_alpha_missense_class(
+            _annotation_text(annotation, "alpha_missense_class", "alphaMissenseClass")
+        ),
         annotation_extra=_annotation_extra(annotation),
         transcripts=transcripts,
         genotypes=[
@@ -4099,6 +4113,16 @@ async def _prioritized_small_variants_page(
         if patient_terms and gene_symbols
         else {}
     )
+    # Gene-level constraint (pLI / missense-Z) from gene_info, for all candidates (the
+    # hydrate step only covers the page); also fills variant.gene_pli for display.
+    constraint_map = await _fetch_gene_constraint_metric_map(session, variants)
+    for variant in variants:
+        metrics = constraint_map.get(str(variant.id))
+        if metrics:
+            if variant.gene_pli is None:
+                variant.gene_pli = metrics.get("gene_pli")
+            if variant.gene_missense_z is None:
+                variant.gene_missense_z = metrics.get("gene_missense_z")
 
     for variant in variants:
         modes = modes_by_variant.get(str(variant.id), [])
@@ -4115,6 +4139,10 @@ async def _prioritized_small_variants_page(
             gnomad_af=variant.gnomad_af,
             segregation_modes=modes,
             phenotype_score=phenotype_value,
+            alpha_missense_class=variant.alpha_missense_class,
+            alpha_missense_pathogenicity=variant.alpha_missense_pathogenicity,
+            gene_pli=variant.gene_pli,
+            gene_missense_z=variant.gene_missense_z,
         )
         phenotype_matches = (
             [

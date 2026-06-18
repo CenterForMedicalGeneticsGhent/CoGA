@@ -37,6 +37,79 @@ def test_pathogenicity_missense_takes_max_predictor() -> None:
     assert abs(score - 0.8) < 1e-9
 
 
+def test_alpha_missense_pathogenic_class_raises_missense_score() -> None:
+    common = dict(
+        impact="MODERATE", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof=None,
+    )
+    plain = pathogenicity_score(**common)
+    flagged = pathogenicity_score(**common, alpha_missense_class="likely_pathogenic")
+    assert flagged > plain
+    assert flagged == 0.85
+
+
+def test_alpha_missense_benign_class_caps_missense_score() -> None:
+    # A MODERATE missense with a high CADD but AlphaMissense-benign is de-prioritized.
+    score = pathogenicity_score(
+        impact="MODERATE", clinvar=None, cadd_phred=30, revel=None,
+        spliceai_max=None, lof=None, alpha_missense_class="likely_benign",
+    )
+    assert score <= 0.25
+
+
+def test_alpha_missense_does_not_override_clinvar_pathogenic() -> None:
+    assert pathogenicity_score(
+        impact="MODERATE", clinvar="Pathogenic", cadd_phred=None, revel=None,
+        spliceai_max=None, lof=None, alpha_missense_class="likely_benign",
+    ) == 1.0
+
+
+def test_numeric_alpha_missense_feeds_predictor_max() -> None:
+    score = pathogenicity_score(
+        impact="MODERATE", clinvar=None, cadd_phred=None, revel=0.2,
+        spliceai_max=None, lof=None, alpha_missense_pathogenicity=0.88,
+    )
+    assert abs(score - 0.88) < 1e-9  # numeric AlphaMissense drives the predictor max
+
+
+def test_gene_pli_raises_lof_confidence() -> None:
+    base = pathogenicity_score(
+        impact="HIGH", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof="HC",
+    )
+    constrained = pathogenicity_score(
+        impact="HIGH", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof="HC", gene_pli=0.99,
+    )
+    assert constrained >= base
+    assert constrained == 0.9
+
+
+def test_out_of_range_gene_pli_is_ignored() -> None:
+    # Malformed pLI (> 1) from bad source data must not trigger the constraint floor.
+    base = pathogenicity_score(
+        impact="HIGH", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof="HC",
+    )
+    with_garbage = pathogenicity_score(
+        impact="HIGH", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof="HC", gene_pli=9.21,
+    )
+    assert with_garbage == base == 0.85
+
+
+def test_missense_z_adds_prior_for_missense_in_constrained_gene() -> None:
+    plain = pathogenicity_score(
+        impact="MODERATE", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof=None,
+    )
+    constrained = pathogenicity_score(
+        impact="MODERATE", clinvar=None, cadd_phred=None, revel=None,
+        spliceai_max=None, lof=None, gene_missense_z=4.0,
+    )
+    assert constrained > plain
+
+
 def test_frequency_score_is_monotonic_decreasing() -> None:
     assert frequency_score(gnomad_popmax_af=None, gnomad_af=None) == 1.0
     f_rare = frequency_score(gnomad_popmax_af=1e-5, gnomad_af=None)

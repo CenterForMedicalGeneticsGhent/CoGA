@@ -1472,6 +1472,8 @@ class VariantOut(ApiDocumentModel):
     spliceai_ds_dg: Optional[float] = None
     spliceai_ds_dl: Optional[float] = None
     spliceai_max: Optional[float] = None
+    alpha_missense_pathogenicity: Optional[float] = None
+    alpha_missense_class: Optional[str] = None
     annotation_extra: Dict[str, Any] = Field(default_factory=dict)
     transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
     genotypes: List[GenotypeOut] = Field(default_factory=list)
