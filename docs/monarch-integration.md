@@ -320,8 +320,9 @@ built on CoGA's existing annotation and pedigree infrastructure.
 - **Scoring math** [variant_prioritization.py](../backend/app/services/variant_prioritization.py)
   — `pathogenicity` (impact/LoF/ClinVar/CADD/REVEL/SpliceAI, predictor-only capped below
   the ClinVar-reserved 1.0), `frequency` (gnomAD popmax decay), a `segregation` weight
-  (de novo/dominant, homozygous recessive, compound het, X-linked via the existing
-  pedigree helpers), and a weighted `combined` score where phenotype relevance reorders
+  (trio-confirmed de novo, inherited dominant, homozygous recessive, compound het,
+  X-linked via the existing pedigree helpers), and a weighted `combined` score where
+  phenotype relevance reorders
   candidates without burying novel-gene candidates (their raw variant score is shown).
 - **Query** — `GET /api/families/{family_id}/small-variants?prioritize=true` adds an
   isolated branch in [clickhouse_family_variants.py](../backend/app/services/clickhouse_family_variants.py)
@@ -342,11 +343,18 @@ match (the patient's own "Congenital hypothyroidism, Goiter" shown as the reason
 rare deleterious variants in repetitive false-positive loci (MUC4, NBPF10, USP17L) — with
 no phenotype link — were pushed below it.
 
+**De novo (trio-aware).** A variant is called de novo only when it is heterozygous in
+an affected child and confidently homozygous-reference in **both** parents (full trio,
+parent genotypes present and covered at ≥ `_DE_NOVO_MIN_PARENT_DP`), using the pedigree
+`parent_child` relationships. This is distinguished from inherited dominant (which still
+covers no-trio cases), and de novo carries the stronger segregation weight. A
+homozygous-alt child with reference parents is left to the recessive pattern rather than
+mislabeled de novo.
+
 **Caveats.** Scores rank *within a family*; they are not calibrated probabilities like
 Exomiser's trained model. The candidate set is capped (3,000) so the preset's hard
 filters should keep it well under that; a hit cap is flagged via `total_is_estimated`.
-True de-novo detection currently relies on the dominant-with-unaffected-parents helper
-(no explicit parent-genotype trio check yet); `gene_pli`/AlphaMissense remain unstored.
+`gene_pli`/AlphaMissense remain parsed-but-unstored (a future missense-scoring refinement).
 
 ## Open questions
 

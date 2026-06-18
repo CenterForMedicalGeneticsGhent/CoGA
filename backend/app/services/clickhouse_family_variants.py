@@ -43,6 +43,7 @@ from .small_variant_review_pg import (
 from .monarch_phenotype_score import score_genes_for_hpo
 from .variant_prioritization import (
     MODE_COMPOUND_HET,
+    MODE_DE_NOVO,
     MODE_DOMINANT,
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
@@ -77,6 +78,10 @@ _INTERVAL_PATTERN = re.compile(
 _GENE_QUERY_SPLIT = re.compile(r"[\s,;]+")
 _HET_GT_VALUES = {"0/1", "1/0", "0|1", "1|0"}
 _HOM_ALT_GT_VALUES = {"1/1", "1|1"}
+_HOM_REF_GT_VALUES = {"0/0", "0|0"}
+# Minimum parental depth to trust a homozygous-reference call when calling de novo;
+# a low-coverage ref parent could be a missed heterozygote (false de novo).
+_DE_NOVO_MIN_PARENT_DP = 8
 _X_CHROMOSOME_TOKENS = {"X", "23"}
 _COMPOUND_HET_INHERITANCE = "compound_het"
 _RECESSIVE_INHERITANCE = "recessive"
@@ -1517,6 +1522,61 @@ def _call_is_hom_alt(call: SmallVariantCall | None) -> bool:
 
 def _call_has_alt(call: SmallVariantCall | None) -> bool:
     return call is not None and _has_alt_allele(call.gt)
+
+
+def _call_is_confident_hom_ref(call: SmallVariantCall | None) -> bool:
+    """A genotyped homozygous-reference call with enough depth to trust it.
+
+    A missing call (``./.``) is not confident reference, so it does not qualify — we
+    cannot rule out an uncalled inherited allele.
+    """
+    if call is None or call.gt not in _HOM_REF_GT_VALUES:
+        return False
+    return call.dp is None or call.dp >= _DE_NOVO_MIN_PARENT_DP
+
+
+def _child_parent_map(context: FamilyMetadataContext) -> dict[str, set[str]]:
+    """Map each child sample name to its parent sample names from the pedigree."""
+    parents: dict[str, set[str]] = {}
+    for relationship in context.relationship_rows or []:
+        if str(relationship.get("relationship_type")) != "parent_child":
+            continue
+        sample_a = relationship.get("sample_id_a")
+        sample_b = relationship.get("sample_id_b")
+        role_a = str(relationship.get("role_a") or "").lower()
+        role_b = str(relationship.get("role_b") or "").lower()
+        if role_b == "child" and role_a in {"mother", "father"} and sample_a and sample_b:
+            parents.setdefault(str(sample_b), set()).add(str(sample_a))
+        elif role_a == "child" and role_b in {"mother", "father"} and sample_a and sample_b:
+            parents.setdefault(str(sample_a), set()).add(str(sample_b))
+    return parents
+
+
+def _record_matches_de_novo(
+    record: SmallVariantRecord,
+    *,
+    affected_samples: Sequence[str],
+    child_parents: dict[str, set[str]],
+) -> bool:
+    """True de novo: heterozygous in an affected child, confidently absent in both parents.
+
+    Restricted to heterozygous child calls — the classic de novo scenario. A
+    homozygous-alt child with reference parents is biologically implausible (it would
+    require two independent events) and almost always a repetitive-region artifact, so
+    it is left to the homozygous-recessive pattern instead. Requires a full trio (both
+    parents genotyped and sufficiently covered); otherwise inheritance cannot be
+    excluded and this returns False (the variant may still match the dominant pattern).
+    """
+    call_map = _small_call_map(record)
+    for child in affected_samples:
+        parents = child_parents.get(child)
+        if not parents or len(parents) < 2:
+            continue
+        if not _call_is_het(call_map.get(child)):
+            continue
+        if all(_call_is_confident_hom_ref(call_map.get(parent)) for parent in parents):
+            return True
+    return False
 
 
 def _is_x_chromosome(chromosome: str | None) -> bool:
@@ -3927,6 +3987,7 @@ def _segregation_modes_by_variant(
 ) -> dict[str, list[str]]:
     affected, unaffected = _family_affected_unaffected_sample_names(context)
     sample_sex = _sample_sex_map(context.sample_rows)
+    child_parents = _child_parent_map(context)
     modes: dict[str, list[str]] = {record.variant_id: [] for record in records}
     if not affected:
         return modes
@@ -3949,7 +4010,13 @@ def _segregation_modes_by_variant(
             sample_sex=sample_sex,
         ):
             bucket.append(MODE_X_LINKED)
-        if _record_matches_de_novo_dominant(
+        # Prefer the stronger, trio-confirmed de novo call; fall back to the dominant
+        # pattern (which also covers inherited-dominant or no-trio cases).
+        if _record_matches_de_novo(
+            record, affected_samples=affected, child_parents=child_parents
+        ):
+            bucket.append(MODE_DE_NOVO)
+        elif _record_matches_de_novo_dominant(
             record, affected_samples=affected, unaffected_samples=unaffected
         ):
             bucket.append(MODE_DOMINANT)
