@@ -24,6 +24,8 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .monarch_phenotype_score import reset_information_content_cache
+
 logger = logging.getLogger(__name__)
 
 # Monthly releases; "latest" always redirects to the newest dated release.
@@ -113,8 +115,9 @@ async def _fetch_release_version() -> str | None:
         logger.warning("Could not fetch Monarch release metadata: %s", exc)
         return None
     for line in response.text.splitlines():
-        if line.startswith("version:"):
-            return line.split(":", 1)[1].strip().strip("'\"") or None
+        stripped = line.strip()
+        if stripped.startswith("version:"):
+            return stripped.split(":", 1)[1].strip().strip("'\"") or None
     return None
 
 
@@ -165,6 +168,7 @@ async def _replace_gene_disease_rows(
     associations: Iterable[_Association],
     release_version: str | None,
     now: datetime,
+    commit: bool = True,
 ) -> int:
     rows = [
         {
@@ -216,12 +220,16 @@ async def _replace_gene_disease_rows(
             ),
             rows,
         )
-    await session.commit()
+    if commit:
+        await session.commit()
     return len(rows)
 
 
 async def refresh_monarch_gene_disease(
-    session: AsyncSession, *, release_version: str | None = None
+    session: AsyncSession,
+    *,
+    release_version: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     """Download, parse, and replace the Monarch gene -> disease table.
 
@@ -244,6 +252,7 @@ async def refresh_monarch_gene_disease(
         associations=records,
         release_version=release_version,
         now=started_at,
+        commit=commit,
     )
 
     completed_at = datetime.now(timezone.utc)
@@ -321,6 +330,7 @@ async def _replace_disease_phenotype_rows(
     phenotypes: Iterable[_DiseasePhenotype],
     release_version: str | None,
     now: datetime,
+    commit: bool = True,
 ) -> int:
     rows = [
         {
@@ -366,12 +376,16 @@ async def _replace_disease_phenotype_rows(
         )
         for start in range(0, len(rows), chunk):
             await session.execute(insert, rows[start : start + chunk])
-    await session.commit()
+    if commit:
+        await session.commit()
     return len(rows)
 
 
 async def refresh_monarch_disease_phenotype(
-    session: AsyncSession, *, release_version: str | None = None
+    session: AsyncSession,
+    *,
+    release_version: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     """Download, parse, and replace the Monarch disease -> phenotype table."""
     started_at = datetime.now(timezone.utc)
@@ -388,14 +402,17 @@ async def refresh_monarch_disease_phenotype(
         phenotypes=records,
         release_version=release_version,
         now=started_at,
+        commit=commit,
     )
 
     completed_at = datetime.now(timezone.utc)
     summary = {
+        "release_version": release_version,
         "disease_phenotype_pairs": written,
         "phenotype_diseases": len({record.mondo_id for record in records}),
         "phenotypes": len({record.hpo_id for record in records}),
         "excluded_phenotype_pairs": sum(1 for record in records if record.negated),
+        "completed_at": completed_at,
         "duration_seconds": (completed_at - started_at).total_seconds(),
     }
     logger.info(
@@ -416,12 +433,18 @@ async def refresh_monarch(session: AsyncSession) -> dict[str, Any]:
     started_at = datetime.now(timezone.utc)
     release_version = await _fetch_release_version()
 
+    # Stage both table swaps in one transaction so a failure can't leave the tables on
+    # mismatched releases (gene_disease new, disease_phenotype old/empty).
     gene_disease = await refresh_monarch_gene_disease(
-        session, release_version=release_version
+        session, release_version=release_version, commit=False
     )
     disease_phenotype = await refresh_monarch_disease_phenotype(
-        session, release_version=release_version
+        session, release_version=release_version, commit=False
     )
+    await session.commit()
+    # The information-content map is derived from disease_phenotype; drop the cache so
+    # the next scoring request recomputes it against the new release.
+    reset_information_content_cache()
 
     completed_at = datetime.now(timezone.utc)
     summary = {

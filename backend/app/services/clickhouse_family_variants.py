@@ -4076,15 +4076,17 @@ async def _prioritized_small_variants_page(
         panel_constraints=panel_constraints,
         include_variant_ids=review_variant_ids if include_review_filter_active else None,
         exclude_variant_ids=excluded_review_variant_ids,
-        limit=_PRIORITIZE_CANDIDATE_LIMIT,
+        # Fetch one extra to detect overflow without dropping a genuine candidate when
+        # the set is exactly at the limit.
+        limit=_PRIORITIZE_CANDIDATE_LIMIT + 1,
         include_regions=include_regions,
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,
         exclude_gene_terms=exclude_gene_terms,
     )
-    capped = len(records) >= _PRIORITIZE_CANDIDATE_LIMIT
+    capped = len(records) > _PRIORITIZE_CANDIDATE_LIMIT
     if capped:
-        records = records[: _PRIORITIZE_CANDIDATE_LIMIT - 1]
+        records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
 
     filtered = [
         record
@@ -4629,6 +4631,7 @@ async def export_family_small_variants(
     *,
     context: FamilyMetadataContext,
     limit: int = _MAX_SMALL_VARIANT_EXPORT_ROWS,
+    prioritize: bool = False,
     **filters: Any,
 ) -> list[VariantOut]:
     """Fetch up to ``limit`` filtered small variants for CSV export.
@@ -4645,6 +4648,7 @@ async def export_family_small_variants(
         context=context,
         page=1,
         page_size=limit,
+        prioritize=prioritize,
         track_mode=False,
         **filters,
     )

@@ -819,6 +819,10 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
 
 
 def _family_export_cell(variant: VariantOut, field: str) -> str:
+    if field == "priority_score":
+        return f"{variant.priority.combined_score:.4f}" if variant.priority else ""
+    if field == "priority_rank":
+        return str(variant.priority.rank) if variant.priority and variant.priority.rank else ""
     if field == "classification":
         return variant.review.classification or "" if variant.review else ""
     if field == "tags":
@@ -835,6 +839,7 @@ def _family_export_cell(variant: VariantOut, field: str) -> str:
 async def export_family_small_variants_csv(
     family_id: str,
     project_id: str | None = None,
+    prioritize: bool = False,
     filters: Dict[str, Any] = Depends(_family_small_variant_filters),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -850,14 +855,22 @@ async def export_family_small_variants_csv(
     rows = await export_family_small_variants(
         session,
         context=context,
+        prioritize=prioritize,
         **filters,
     )
 
+    # When prioritizing, prepend the priority score/rank so the CSV matches the ranked
+    # on-screen order and carries the score.
+    columns = (
+        [("priority_score", "Priority"), ("priority_rank", "Rank"), *_FAMILY_EXPORT_COLUMNS]
+        if prioritize
+        else _FAMILY_EXPORT_COLUMNS
+    )
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow([label for _, label in _FAMILY_EXPORT_COLUMNS])
+    writer.writerow([label for _, label in columns])
     for variant in rows:
-        writer.writerow([_family_export_cell(variant, field) for field, _ in _FAMILY_EXPORT_COLUMNS])
+        writer.writerow([_family_export_cell(variant, field) for field, _ in columns])
 
     filename = f"family-{family_id}-small-variants.csv"
     return StreamingResponse(

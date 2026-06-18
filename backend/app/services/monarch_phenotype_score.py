@@ -81,7 +81,13 @@ async def _load_information_content(session: AsyncSession) -> tuple[dict[str, fl
             if value > max_ic:
                 max_ic = value
 
-    _ic_cache.update({"expires_at": now + _IC_CACHE_TTL_SECONDS, "ic": ic, "max_ic": max_ic})
+    # Don't cache an empty result (e.g. the table not yet populated) — otherwise the
+    # first call on a fresh/empty database would disable phenotype scoring for the full
+    # TTL even after a refresh fills the table.
+    if ic:
+        _ic_cache.update(
+            {"expires_at": now + _IC_CACHE_TTL_SECONDS, "ic": ic, "max_ic": max_ic}
+        )
     return ic, max_ic
 
 
@@ -205,14 +211,21 @@ async def score_genes_for_hpo(
     Genes without Monarch phenotype data are simply absent from the result (the
     caller treats them as "phenotype unknown", not "phenotype score 0").
     """
-    patient = sorted({t for t in patient_hpo_ids if t})[:_MAX_PATIENT_TERMS]
+    patient_all = sorted({t for t in patient_hpo_ids if t})
     symbols = {s.upper() for s in gene_symbols if s}
-    if not patient or not symbols:
+    if not patient_all or not symbols:
         return {}
 
     ic, max_ic = await _load_information_content(session)
     if not ic:
         return {}
+
+    # Keep the most informative patient terms (highest IC), not the lexicographically
+    # first ones, when bounding the set — a deeply phenotyped patient shouldn't have
+    # the scoring driven by HPO-id ordering.
+    patient = sorted(patient_all, key=lambda t: ic.get(t, 0.0), reverse=True)[
+        :_MAX_PATIENT_TERMS
+    ]
 
     gene_terms_map, _label_map = await _gene_phenotype_terms(session, symbols)
     if not gene_terms_map:
