@@ -17,6 +17,7 @@ from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
 from ..schemas import (
     GenotypeOut,
+    MonarchPhenotypeMatchOut,
     SmallVariantGroupOut,
     SmallVariantReviewOut,
     SmallVariantSampleSummaryOut,
@@ -25,6 +26,7 @@ from ..schemas import (
     VariantInternalCohortOut,
     VariantOut,
     VariantPage,
+    VariantPriorityOut,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
@@ -37,6 +39,14 @@ from .family_variant_filters import (
 from .small_variant_review_pg import (
     get_small_variant_review_map,
     list_matching_small_variant_review_ids,
+)
+from .monarch_phenotype_score import score_genes_for_hpo
+from .variant_prioritization import (
+    MODE_COMPOUND_HET,
+    MODE_DOMINANT,
+    MODE_HOM_RECESSIVE,
+    MODE_X_LINKED,
+    score_variant,
 )
 from .structural_variant_review_pg import (
     get_structural_variant_review_map,
@@ -3869,6 +3879,227 @@ def _inheritance_result_items(
     return []
 
 
+# Upper bound on variants pulled into a single prioritization pass. The Exomiser-style
+# preset applies strict frequency/impact/segregation filters first, so the candidate
+# set is normally far smaller than this.
+_PRIORITIZE_CANDIDATE_LIMIT = 3000
+
+
+async def _affected_present_hpo(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> tuple[list[str], dict[str, str]]:
+    """Present HPO terms for affected individuals (all members if none flagged)."""
+    affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
+    affected_uuids = [
+        context.sample_name_to_uuid[name]
+        for name in affected_names
+        if name in context.sample_name_to_uuid
+    ]
+    clauses = ["family_id = CAST(:family_uuid AS uuid)", "ih.status = 'present'"]
+    params: dict[str, Any] = {"family_uuid": context.family_uuid}
+    if affected_uuids:
+        clauses.append("ih.sample_id::text = ANY(:affected_uuids)")
+        params["affected_uuids"] = affected_uuids
+    rows = await session.execute(
+        text(
+            f"""
+            SELECT DISTINCT ih.hpo_id AS hpo_id, t.label AS label
+            FROM individual_hpo ih
+            LEFT JOIN hpo_term t ON t.hpo_id = ih.hpo_id
+            WHERE {' AND '.join(clauses)}
+            """
+        ),
+        params,
+    )
+    terms: list[str] = []
+    labels: dict[str, str] = {}
+    for row in rows.mappings().all():
+        terms.append(row["hpo_id"])
+        if row["label"]:
+            labels[row["hpo_id"]] = row["label"]
+    return terms, labels
+
+
+def _segregation_modes_by_variant(
+    records: Sequence[SmallVariantRecord],
+    *,
+    context: FamilyMetadataContext,
+) -> dict[str, list[str]]:
+    affected, unaffected = _family_affected_unaffected_sample_names(context)
+    sample_sex = _sample_sex_map(context.sample_rows)
+    modes: dict[str, list[str]] = {record.variant_id: [] for record in records}
+    if not affected:
+        return modes
+    for pair in _compound_het_pairs(
+        records, affected_samples=affected, unaffected_samples=unaffected
+    ):
+        for vid in (pair.left.variant_id, pair.right.variant_id):
+            if MODE_COMPOUND_HET not in modes.setdefault(vid, []):
+                modes[vid].append(MODE_COMPOUND_HET)
+    for record in records:
+        bucket = modes.setdefault(record.variant_id, [])
+        if _record_matches_homozygous_recessive(
+            record, affected_samples=affected, unaffected_samples=unaffected
+        ):
+            bucket.append(MODE_HOM_RECESSIVE)
+        if _record_matches_x_linked_recessive(
+            record,
+            affected_samples=affected,
+            unaffected_samples=unaffected,
+            sample_sex=sample_sex,
+        ):
+            bucket.append(MODE_X_LINKED)
+        if _record_matches_de_novo_dominant(
+            record, affected_samples=affected, unaffected_samples=unaffected
+        ):
+            bucket.append(MODE_DOMINANT)
+    return modes
+
+
+async def _prioritized_small_variants_page(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    page: int,
+    page_size: int,
+    panel_constraints: PanelFilterConstraints,
+    review_variant_ids: set[str] | None,
+    excluded_review_variant_ids: set[str],
+    include_review_filter_active: bool,
+    include_regions: list[Region],
+    exclude_regions: Sequence[Region],
+    exclude_gene_regions: Sequence[Region],
+    exclude_gene_terms: Sequence[str],
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage:
+    if filters.gene:
+        include_regions = [
+            *include_regions,
+            *await _fetch_gene_regions(
+                session, gene_query=filters.gene, assembly_id=context.assembly_id
+            ),
+        ]
+
+    records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        panel_constraints=panel_constraints,
+        include_variant_ids=review_variant_ids if include_review_filter_active else None,
+        exclude_variant_ids=excluded_review_variant_ids,
+        limit=_PRIORITIZE_CANDIDATE_LIMIT,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=exclude_gene_terms,
+    )
+    capped = len(records) >= _PRIORITIZE_CANDIDATE_LIMIT
+    if capped:
+        records = records[: _PRIORITIZE_CANDIDATE_LIMIT - 1]
+
+    filtered = [
+        record
+        for record in records
+        if record.variant_id not in excluded_review_variant_ids
+        and ((not include_review_filter_active) or record.variant_id in (review_variant_ids or set()))
+        and _small_record_matches(
+            record,
+            filters,
+            include_regions,
+            exclude_regions,
+            exclude_gene_regions,
+            panel_constraints=panel_constraints,
+        )
+    ]
+    if not filtered:
+        return VariantPage(
+            total=0,
+            total_is_estimated=capped,
+            count_limit=_SMALL_COUNT_LIMIT - 1,
+            variants=[],
+            small_variant_summary=small_variant_summary,
+        )
+
+    modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
+    patient_terms, term_labels = await _affected_present_hpo(session, context)
+
+    variants = [_small_variant_out(record) for record in filtered]
+    gene_symbols = {variant.gene for variant in variants if variant.gene}
+    phenotype_scores = (
+        await score_genes_for_hpo(
+            session, gene_symbols=gene_symbols, patient_hpo_ids=patient_terms
+        )
+        if patient_terms and gene_symbols
+        else {}
+    )
+
+    for variant in variants:
+        modes = modes_by_variant.get(str(variant.id), [])
+        gene_score = phenotype_scores.get(variant.gene.upper()) if variant.gene else None
+        phenotype_value = gene_score.score if gene_score else None
+        scored = score_variant(
+            impact=variant.impact,
+            clinvar=variant.clinvar,
+            cadd_phred=variant.cadd_phred,
+            revel=variant.revel,
+            spliceai_max=variant.spliceai_max,
+            lof=variant.lof,
+            gnomad_popmax_af=variant.population_frequencies.get("gnomad_popmax_af"),
+            gnomad_af=variant.gnomad_af,
+            segregation_modes=modes,
+            phenotype_score=phenotype_value,
+        )
+        phenotype_matches = (
+            [
+                MonarchPhenotypeMatchOut(
+                    hpo_id=match["hpo_id"], label=term_labels.get(match["hpo_id"])
+                )
+                for match in gene_score.matched
+            ]
+            if gene_score
+            else []
+        )
+        variant.priority = VariantPriorityOut(
+            combined_score=round(scored.combined_score, 4),
+            variant_score=round(scored.variant_score, 4),
+            pathogenicity_score=round(scored.pathogenicity, 4),
+            frequency_score=round(scored.frequency, 4),
+            segregation_weight=round(scored.segregation_weight, 4),
+            phenotype_score=round(phenotype_value, 4) if phenotype_value is not None else None,
+            segregation_modes=scored.segregation_modes,
+            phenotype_gene=variant.gene if gene_score else None,
+            phenotype_matches=phenotype_matches,
+        )
+
+    variants.sort(
+        key=lambda v: (
+            v.priority.combined_score if v.priority else 0.0,
+            v.priority.variant_score if v.priority else 0.0,
+        ),
+        reverse=True,
+    )
+    for index, variant in enumerate(variants, start=1):
+        if variant.priority:
+            variant.priority.rank = index
+
+    total = len(variants)
+    reported_total = min(total, _SMALL_COUNT_LIMIT)
+    skip = max(page - 1, 0) * page_size if page_size else 0
+    page_variants = variants[skip : skip + page_size] if page_size else variants[skip:]
+    await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
+
+    unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+    return VariantPage(
+        total=reported_total,
+        total_is_estimated=capped or total >= _SMALL_COUNT_LIMIT,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        variants=page_variants,
+        small_variant_summary=small_variant_summary,
+    )
+
+
 async def get_family_small_variants_page(
     session: AsyncSession,
     *,
@@ -3918,6 +4149,7 @@ async def get_family_small_variants_page(
     exclude_review_tags: list[str] | None = None,
     has_notes: bool = False,
     overlap: bool = False,
+    prioritize: bool = False,
     track_mode: bool = False,
     track_result_limit: int | None = None,
 ) -> VariantPage:
@@ -4011,6 +4243,24 @@ async def get_family_small_variants_page(
         else []
     )
     exclude_gene_terms = _split_gene_terms(filters.exclude_gene)
+
+    if prioritize and not track_mode:
+        return await _prioritized_small_variants_page(
+            session,
+            context=context,
+            filters=filters,
+            page=page,
+            page_size=page_size,
+            panel_constraints=panel_constraints,
+            review_variant_ids=review_variant_ids,
+            excluded_review_variant_ids=excluded_review_variant_ids,
+            include_review_filter_active=include_review_filter_active,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+            small_variant_summary=small_variant_summary,
+        )
 
     if track_mode and track_result_limit is not None:
         safe_track_result_limit = min(

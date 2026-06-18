@@ -1,6 +1,6 @@
 # Monarch Initiative Integration — Design
 
-Status: Phases 1–3 implemented
+Status: Phases 1–4 implemented
 Owner: TBD
 Related: [storage-architecture.md](storage-architecture.md), [data-import.md](data-import.md), [database.md](database.md), [ROADMAP.md](ROADMAP.md)
 
@@ -304,6 +304,49 @@ dyshormonogenesis genes — all linkable to the gene profile.
 
 This is the symmetric, information-content phenotype similarity that Phase 2's
 one-directional overlap could not provide.
+
+### Phase 4 — Exomiser-style variant prioritization (implemented)
+
+Uses the phenotype signal to rank a family's small variants, combining gene–phenotype
+match with variant impact, rarity, segregation, and quality — the Exomiser model,
+built on CoGA's existing annotation and pedigree infrastructure.
+
+- **Local phenotype score** [monarch_phenotype_score.py](../backend/app/services/monarch_phenotype_score.py)
+  — a Phenomizer/Resnik best-match-average between the affected individuals' HPO terms
+  and each gene's Monarch phenotype profile, using information content derived from the
+  Phase 2 disease→phenotype table propagated through `hpo_closure`. Unlike the Phase 3
+  semsim API (top ~50 genes), this scores **every** gene with a candidate variant, with
+  no per-request network call (IC map cached process-wide).
+- **Scoring math** [variant_prioritization.py](../backend/app/services/variant_prioritization.py)
+  — `pathogenicity` (impact/LoF/ClinVar/CADD/REVEL/SpliceAI, predictor-only capped below
+  the ClinVar-reserved 1.0), `frequency` (gnomAD popmax decay), a `segregation` weight
+  (de novo/dominant, homozygous recessive, compound het, X-linked via the existing
+  pedigree helpers), and a weighted `combined` score where phenotype relevance reorders
+  candidates without burying novel-gene candidates (their raw variant score is shown).
+- **Query** — `GET /api/families/{family_id}/small-variants?prioritize=true` adds an
+  isolated branch in [clickhouse_family_variants.py](../backend/app/services/clickhouse_family_variants.py)
+  that fetches the filtered candidate set, computes segregation modes and scores, ranks,
+  and returns a `priority` block per variant (`VariantPriorityOut`).
+- **Frontend** — a built-in **"Phenotype priority (Exomiser-style)"** preset (rare +
+  HIGH/MODERATE + `prioritize`), a sortable **Score** column with a phenotype-match
+  marker and a hover breakdown, and a **priority breakdown panel** in the variant review
+  dialog (variant / pathogenicity / rarity / phenotype sub-scores, compatible inheritance,
+  matched phenotypes).
+- **Tests** — [test_variant_prioritization.py](../backend/tests/test_variant_prioritization.py)
+  (scoring math + Phenomizer) and the extended
+  [SmallVariantTable test](../frontend/src/pages/families/__tests__/SmallVariantTable.test.tsx).
+
+Verified end-to-end over HTTP on the congenital-hypothyroidism family: with the preset
+applied, **ANTXR2** (HIGH-impact, homozygous-recessive) rose to **#1** on its phenotype
+match (the patient's own "Congenital hypothyroidism, Goiter" shown as the reason), while
+rare deleterious variants in repetitive false-positive loci (MUC4, NBPF10, USP17L) — with
+no phenotype link — were pushed below it.
+
+**Caveats.** Scores rank *within a family*; they are not calibrated probabilities like
+Exomiser's trained model. The candidate set is capped (3,000) so the preset's hard
+filters should keep it well under that; a hit cap is flagged via `total_is_estimated`.
+True de-novo detection currently relies on the dominant-with-unaffected-parents helper
+(no explicit parent-genotype trio check yet); `gene_pli`/AlphaMissense remain unstored.
 
 ## Open questions
 

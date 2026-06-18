@@ -43,4 +43,54 @@ describe('SmallVariantTable', () => {
     expect(allele.closest('td')).toHaveClass('variant-allele-cell');
     expect(allele.closest('table')).toHaveClass('small-variant-table');
   });
+
+  it('shows a Score column and ranks prioritized variants highest-first', () => {
+    const mkVariant = (id: string, gene: string, combined: number) => ({
+      _id: id,
+      chr: '1',
+      start: 100,
+      end: 100,
+      type: 'SNV',
+      gene,
+      ref: 'A',
+      alt: 'G',
+      impact: 'HIGH',
+      effect: 'stop_gained',
+      genotypes: [],
+      priority: {
+        combined_score: combined,
+        variant_score: combined,
+        pathogenicity_score: 0.85,
+        frequency_score: 1,
+        segregation_weight: 1,
+        phenotype_score: combined > 0.5 ? 0.9 : null,
+        segregation_modes: ['de_novo'],
+        phenotype_gene: gene,
+        phenotype_matches: combined > 0.5 ? [{ hpo_id: 'HP:0001250', label: 'Seizure' }] : [],
+        rank: null,
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[mkVariant('low', 'LOWG', 0.3), mkVariant('high', 'TOPG', 0.92)]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/^Score/)).toBeInTheDocument();
+    // Higher combined score sorts to the top row.
+    const geneLinks = screen.getAllByRole('link').filter((el) => /TOPG|LOWG/.test(el.textContent || ''));
+    expect(geneLinks[0]).toHaveTextContent('TOPG');
+    expect(screen.getByText('0.92')).toBeInTheDocument();
+  });
 });

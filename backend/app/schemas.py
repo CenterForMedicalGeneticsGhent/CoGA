@@ -1410,6 +1410,19 @@ class VariantInternalCohortOut(BaseModel):
     families: int = 0
 
 
+class VariantPriorityOut(BaseModel):
+    combined_score: float
+    variant_score: float
+    pathogenicity_score: float
+    frequency_score: float
+    segregation_weight: float
+    phenotype_score: Optional[float] = None
+    segregation_modes: List[str] = Field(default_factory=list)
+    phenotype_gene: Optional[str] = None
+    phenotype_matches: List[MonarchPhenotypeMatchOut] = Field(default_factory=list)
+    rank: Optional[int] = None
+
+
 class VariantOut(ApiDocumentModel):
     chr: str
     start: int
@@ -1464,6 +1477,7 @@ class VariantOut(ApiDocumentModel):
     genotypes: List[GenotypeOut] = Field(default_factory=list)
     review: Optional[SmallVariantReviewOut] = None
     internal_cohort: Optional[VariantInternalCohortOut] = None
+    priority: Optional[VariantPriorityOut] = None
 
 
 class SmallVariantGroupOut(BaseModel):

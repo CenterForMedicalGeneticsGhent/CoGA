@@ -6,7 +6,47 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 
-export type TableSortKey = 'position' | 'gene' | 'impact';
+export type TableSortKey = 'position' | 'gene' | 'impact' | 'priority';
+
+export const SEGREGATION_MODE_LABELS: Record<string, string> = {
+  de_novo: 'de novo',
+  homozygous_recessive: 'homozygous recessive',
+  compound_het: 'compound heterozygous',
+  x_linked_recessive: 'X-linked recessive',
+  dominant: 'dominant',
+};
+
+export const buildPriorityTooltip = (variant: SmallVariant): string => {
+  const p = variant.priority;
+  if (!p) return '';
+  const lines = [
+    `Priority ${p.combined_score.toFixed(2)}${p.rank ? ` (rank ${p.rank})` : ''}`,
+    `Variant ${p.variant_score.toFixed(2)} — pathogenicity ${p.pathogenicity_score.toFixed(
+      2,
+    )}, rarity ${p.frequency_score.toFixed(2)}`,
+  ];
+  if (p.segregation_modes.length) {
+    lines.push(
+      `Segregation: ${p.segregation_modes
+        .map((mode) => SEGREGATION_MODE_LABELS[mode] || mode)
+        .join(', ')}`,
+    );
+  }
+  if (typeof p.phenotype_score === 'number') {
+    const matches = p.phenotype_matches
+      .map((match) => match.label || match.hpo_id)
+      .slice(0, 4)
+      .join(', ');
+    lines.push(
+      `Phenotype ${p.phenotype_score.toFixed(2)}${p.phenotype_gene ? ` (${p.phenotype_gene})` : ''}${
+        matches ? `: ${matches}` : ''
+      }`,
+    );
+  } else {
+    lines.push('Phenotype: no Monarch data for this gene');
+  }
+  return lines.join('\n');
+};
 
 export const formatFrequency = (value?: number) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return '—';
@@ -391,6 +431,21 @@ export const sortSmallVariants = (
   sorted.sort((left, right) => {
     let diff = 0;
 
+    if (tableSortKey === 'priority') {
+      // Higher combined score first; variants without a score fall to the bottom.
+      const leftScore = left.priority?.combined_score ?? -1;
+      const rightScore = right.priority?.combined_score ?? -1;
+      diff = rightScore - leftScore;
+      if (diff === 0) {
+        const leftVar = left.priority?.variant_score ?? -1;
+        const rightVar = right.priority?.variant_score ?? -1;
+        diff = rightVar - leftVar;
+      }
+      if (diff === 0) diff = compareChromosomes(left.chr, right.chr);
+      if (diff === 0) diff = left.start - right.start;
+      // Priority is intrinsically descending; the asc/desc toggle still flips it below.
+      return tableSortAsc ? -diff : diff;
+    }
     if (tableSortKey === 'position') {
       diff = compareChromosomes(left.chr, right.chr);
       if (diff === 0) diff = left.start - right.start;

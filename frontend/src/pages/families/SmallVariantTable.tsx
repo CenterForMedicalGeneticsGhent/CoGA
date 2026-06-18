@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   buildCompactGenotypeSummary,
@@ -9,6 +9,7 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
+  buildPriorityTooltip,
   buildReviewTagTooltip,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
@@ -71,6 +72,18 @@ export default function SmallVariantTable({
   const [tableSortAsc, setTableSortAsc] = useState(true);
   const tagMap = useMemo(() => getTagDefinitionMap(tags), [tags]);
 
+  const hasPriority = useMemo(
+    () => variants.some((variant) => variant.priority),
+    [variants],
+  );
+  // When the backend returns prioritized results, default to the priority ranking.
+  useEffect(() => {
+    if (hasPriority) {
+      setTableSortKey('priority');
+      setTableSortAsc(false);
+    }
+  }, [hasPriority]);
+
   const sortedVariants = useMemo(
     () => sortSmallVariants(variants, tableSortKey, tableSortAsc),
     [tableSortAsc, tableSortKey, variants],
@@ -93,6 +106,7 @@ export default function SmallVariantTable({
     <div className="analysis-results-card overflow-x-auto">
       <table className="analysis-table table-sticky small-variant-table">
         <colgroup>
+          {hasPriority && <col className="small-variant-col-impact" />}
           <col className="small-variant-col-chr" />
           <col className="small-variant-col-position" />
           <col className="small-variant-col-position" />
@@ -108,6 +122,15 @@ export default function SmallVariantTable({
         </colgroup>
         <thead>
           <tr>
+            {hasPriority && (
+              <th
+                className="table-sortable"
+                onClick={() => handleTableSort('priority')}
+                title="Exomiser-style priority: variant impact + rarity + segregation + gene–phenotype match"
+              >
+                Score {getSortIndicator('priority')}
+              </th>
+            )}
             <th className="table-sortable" onClick={() => handleTableSort('position')}>
               Chr {getSortIndicator('position')}
             </th>
@@ -158,6 +181,22 @@ export default function SmallVariantTable({
                   isExcluded ? ' variant-table-row--excluded' : ''
                 }`}
               >
+                {hasPriority && (
+                  <td className="table-mono" title={buildPriorityTooltip(variant)}>
+                    {variant.priority ? (
+                      <span className="variant-priority-score">
+                        {variant.priority.combined_score.toFixed(2)}
+                        {variant.priority.phenotype_matches.length ? (
+                          <span className="variant-priority-pheno" title="Matches the patient's phenotypes">
+                            ✦
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                )}
                 <td>{variant.chr}</td>
                 <td className="table-mono">{variant.start}</td>
                 <td className="table-mono">{variant.end}</td>

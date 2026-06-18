@@ -9421,6 +9421,41 @@ a.button-danger:hover {
   padding: 0.56rem 0.62rem;
 }
 
+.variant-priority-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.variant-priority-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.variant-priority-label {
+  font-size: 0.7rem;
+  color: rgba(10, 11, 12, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.variant-priority-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.variant-priority-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 600;
+}
+
+.variant-priority-pheno {
+  color: #b45309;
+}
+
 .variant-review-note-header {
   display: grid;
   gap: 0.08rem;

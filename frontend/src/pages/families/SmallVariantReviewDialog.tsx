@@ -6,11 +6,12 @@ import {
   getClassificationTagKeyFromTags,
   normalizeTagKeys,
   sortTagDefinitions,
+  type SmallVariantPriority,
   type SmallVariantReview,
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
-import { formatLocus } from './smallVariantResultUtils';
+import { formatLocus, SEGREGATION_MODE_LABELS } from './smallVariantResultUtils';
 
 type ReviewableVariant = {
   _id: string;
@@ -24,6 +25,7 @@ type ReviewableVariant = {
   hgvsc?: string;
   effect?: string;
   review?: SmallVariantReview | null;
+  priority?: SmallVariantPriority | null;
 };
 
 type SmallVariantReviewDialogProps = {
@@ -37,6 +39,63 @@ type SmallVariantReviewDialogProps = {
   isPending?: boolean;
   errorMessage?: string | null;
 };
+
+function PriorityBreakdown({ priority }: { priority: SmallVariantPriority }) {
+  const modes = priority.segregation_modes
+    .map((mode) => SEGREGATION_MODE_LABELS[mode] || mode)
+    .join(', ');
+  return (
+    <section className="variant-review-modal-section">
+      <div className="variant-review-note-header">
+        <p className="analysis-section-title">
+          Priority score {priority.combined_score.toFixed(2)}
+          {priority.rank ? ` · rank ${priority.rank}` : ''}
+        </p>
+        <p className="table-subtle">
+          Exomiser-style: variant impact + rarity + segregation, ranked by gene–phenotype
+          match.
+        </p>
+      </div>
+      <div className="variant-priority-grid">
+        <div>
+          <span className="variant-priority-label">Variant</span>
+          <span className="variant-priority-value">{priority.variant_score.toFixed(2)}</span>
+        </div>
+        <div>
+          <span className="variant-priority-label">Pathogenicity</span>
+          <span className="variant-priority-value">
+            {priority.pathogenicity_score.toFixed(2)}
+          </span>
+        </div>
+        <div>
+          <span className="variant-priority-label">Rarity</span>
+          <span className="variant-priority-value">{priority.frequency_score.toFixed(2)}</span>
+        </div>
+        <div>
+          <span className="variant-priority-label">Phenotype</span>
+          <span className="variant-priority-value">
+            {typeof priority.phenotype_score === 'number'
+              ? priority.phenotype_score.toFixed(2)
+              : 'n/a'}
+          </span>
+        </div>
+      </div>
+      {modes ? (
+        <p className="table-subtle">Compatible inheritance: {modes}</p>
+      ) : (
+        <p className="table-subtle">No compatible inheritance mode for the pedigree.</p>
+      )}
+      {priority.phenotype_matches.length ? (
+        <p className="table-subtle">
+          Phenotype match{priority.phenotype_gene ? ` (${priority.phenotype_gene})` : ''}:{' '}
+          {priority.phenotype_matches.map((m) => m.label || m.hpo_id).join(', ')}
+        </p>
+      ) : typeof priority.phenotype_score !== 'number' ? (
+        <p className="table-subtle">No Monarch phenotype data for this gene.</p>
+      ) : null}
+    </section>
+  );
+}
 
 export default function SmallVariantReviewDialog({
   variant,
@@ -140,6 +199,10 @@ export default function SmallVariantReviewDialog({
             <div className="variant-workspace-feedback variant-workspace-feedback--error">
               {errorMessage}
             </div>
+          ) : null}
+
+          {variant.priority ? (
+            <PriorityBreakdown priority={variant.priority} />
           ) : null}
 
           <section className="variant-review-modal-section">
