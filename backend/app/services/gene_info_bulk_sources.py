@@ -72,7 +72,10 @@ def _leading_float(value: str) -> float | None:
     value = _clean_cell(value)
     if not value:
         return None
-    match = re.search(r"-?\d+(?:\.\d+)?", value)
+    # Capture an optional scientific-notation exponent — dbNSFP stores constraint
+    # metrics like gnomAD_pLI as "9.2157e-29", and dropping the exponent silently
+    # corrupts them (9.2157 instead of ~0).
+    match = re.search(r"-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", value)
     if match is None:
         return None
     return float(match.group(0))
