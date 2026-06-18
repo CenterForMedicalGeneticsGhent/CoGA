@@ -56,6 +56,7 @@ describe('smallVariantSearch preset helpers', () => {
         effect: '',
         clinvar: '',
         exclude_clinvar: '',
+        clinvar_overrides_frequency: '',
         exclude_review_tags: '',
         exclude_gene: '',
         exclude_intervals: '',

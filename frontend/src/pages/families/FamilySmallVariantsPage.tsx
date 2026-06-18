@@ -163,6 +163,8 @@ const FamilySmallVariantsPage: React.FC = () => {
     tone: 'error' | 'success';
     message: string;
   } | null>(null);
+  // Collapse the whole filter panel to give the variant cards more room.
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
 
   const { data: panels = [] } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
@@ -408,6 +410,17 @@ const FamilySmallVariantsPage: React.FC = () => {
             </div>
           )}
         </div>
+        <div className="variant-filter-collapse-bar">
+          <button
+            type="button"
+            className="button-secondary"
+            aria-expanded={!filtersCollapsed}
+            onClick={() => setFiltersCollapsed((current) => !current)}
+          >
+            {filtersCollapsed ? 'Show filters' : 'Hide filters'}
+          </button>
+        </div>
+        {!filtersCollapsed && (
         <SmallVariantFilterForm
           activeFilterChips={activeFilterChips}
           applyPreset={applyPreset}
@@ -432,6 +445,7 @@ const FamilySmallVariantsPage: React.FC = () => {
           tags={tags}
           toggleDraftFilterListValue={toggleDraftFilterListValue}
         />
+        )}
       </section>
 
       <div className="variant-results-region">

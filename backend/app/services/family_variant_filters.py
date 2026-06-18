@@ -89,6 +89,9 @@ class SmallVariantQueryFilters:
     effect: List[str] = field(default_factory=list)
     clinvar: List[str] = field(default_factory=list)
     exclude_clinvar: List[str] = field(default_factory=list)
+    # When set, a ClinVar Pathogenic/Likely_pathogenic variant is kept even if it
+    # exceeds the gnomAD frequency / hom / hemi / AC thresholds (P/LP "rescue").
+    clinvar_overrides_frequency: bool = False
     exclude_gene: str | None = None
     exclude_intervals: str | None = None
     rsid: str | None = None

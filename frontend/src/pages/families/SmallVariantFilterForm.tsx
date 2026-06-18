@@ -169,6 +169,7 @@ const SmallVariantFilterForm = ({
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
   const [openSections, setOpenSections] = useState({
+    phenotype: false,
     inheritance: false,
     pathogenicity: false,
     annotations: false,
@@ -879,6 +880,50 @@ const SmallVariantFilterForm = ({
           {familyAware ? (
           <details
             className="variant-filter-dropdown"
+            open={openSections.phenotype}
+            onToggle={handleSectionToggle('phenotype')}
+          >
+            <summary className="variant-filter-dropdown-summary">
+              <span className="variant-filter-dropdown-summary-copy">
+                <span className="variant-filter-dropdown-title">Phenotype</span>
+                <span className="variant-filter-dropdown-meta">
+                  {summarizeSection(
+                    draftFilters.prioritize === 'true' ? 1 : 0,
+                    'Prioritization off',
+                  )}
+                </span>
+              </span>
+              <span
+                className="variant-filter-dropdown-summary-controls"
+                onMouseDown={stopSummaryInteraction}
+                onClick={stopSummaryInteraction}
+              >
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draftFilters.prioritize === 'true'}
+                    onChange={(event) =>
+                      setDraftFilterValue('prioritize', event.target.checked ? 'true' : '')
+                    }
+                  />
+                  <span>Phenotype prioritization</span>
+                </label>
+              </span>
+              <span className="variant-filter-dropdown-caret" aria-hidden="true">
+                ▾
+              </span>
+            </summary>
+            <div className="variant-filter-dropdown-content">
+              <p className="table-subtle">
+                Rank candidate variants by how well each gene matches the affected
+                individuals’ HPO phenotypes (Monarch / Exomiser-style).
+              </p>
+            </div>
+          </details>
+          ) : null}
+          {familyAware ? (
+          <details
+            className="variant-filter-dropdown"
             open={openSections.inheritance}
             onToggle={handleSectionToggle('inheritance')}
           >
@@ -1419,6 +1464,19 @@ const SmallVariantFilterForm = ({
                   onChange={handleDraftFieldChange}
                 />
               </div>
+              <label className="analysis-checkbox">
+                <input
+                  type="checkbox"
+                  checked={draftFilters.clinvar_overrides_frequency === 'true'}
+                  onChange={(event) =>
+                    setDraftFilterValue(
+                      'clinvar_overrides_frequency',
+                      event.target.checked ? 'true' : '',
+                    )
+                  }
+                />
+                <span>ClinVar pathogenic / likely pathogenic overrules the frequency filter</span>
+              </label>
             </div>
           </details>
 
