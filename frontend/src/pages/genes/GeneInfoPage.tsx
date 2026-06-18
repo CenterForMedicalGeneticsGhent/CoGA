@@ -144,6 +144,23 @@ interface GeneHpoTerm {
   label?: string | null;
 }
 
+interface MonarchPhenotypeMatch {
+  hpo_id: string;
+  label?: string | null;
+}
+
+interface GeneMonarchAssociation {
+  mondo_id: string;
+  disease_label?: string | null;
+  predicate: string;
+  predicates?: string[];
+  sources?: string[];
+  causal?: boolean;
+  monarch_url?: string | null;
+  phenotype_count?: number;
+  matched_phenotypes?: MonarchPhenotypeMatch[];
+}
+
 interface GeneOntology {
   biological_process?: string[];
   cellular_component?: string[];
@@ -253,6 +270,7 @@ interface GeneProfile {
   family_counts?: GeneVariantCounts | null;
   source_status: Record<string, GeneSourceStatus>;
   external_links: GeneExternalLink[];
+  monarch_associations?: GeneMonarchAssociation[];
   extra: GeneProfileExtra;
   updated_at?: string | null;
 }
@@ -446,6 +464,17 @@ const formatAssemblyCoordinate = (
   if (fallback) return fallback;
   return 'Not imported';
 };
+
+const MONARCH_PREDICATE_LABELS: Record<string, string> = {
+  causes: 'Causes',
+  gene_associated_with_condition: 'Associated',
+  contributes_to: 'Contributes to',
+  associated_with_increased_likelihood_of: 'Increased likelihood',
+};
+
+const formatMonarchPredicate = (predicate: string): string =>
+  MONARCH_PREDICATE_LABELS[predicate] ||
+  predicate.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase());
 
 const extractOmimDiseases = (profile: GeneProfile): ParsedOmimDisease[] => {
   const rawEntries = Array.isArray(profile.extra.omim_diseases) ? profile.extra.omim_diseases : [];
@@ -744,6 +773,10 @@ const GeneInfoPage: React.FC = () => {
   );
   const dbnsfpAssociations = useMemo(
     () => (profile ? extractDbnsfpAssociations(profile) : []),
+    [profile],
+  );
+  const monarchAssociations = useMemo<GeneMonarchAssociation[]>(
+    () => profile?.monarch_associations || [],
     [profile],
   );
   const compactLinks = useMemo(() => (profile ? buildGeneLinks(profile) : []), [profile]);
@@ -1266,6 +1299,63 @@ const GeneInfoPage: React.FC = () => {
                   ) : (
                     <p className="gene-compact-empty">
                       No dbNSFP disease association summary is cached for this gene.
+                    </p>
+                  )}
+                </div>
+
+                <div className="gene-compact-subsection">
+                  <p className="gene-compact-subtitle-label">Monarch gene–disease associations</p>
+                  {monarchAssociations.length ? (
+                    <ul className="gene-compact-list">
+                      {monarchAssociations
+                        .slice(0, diseaseEvidenceExpanded ? monarchAssociations.length : 6)
+                        .map((entry) => {
+                          const matched = entry.matched_phenotypes || [];
+                          const meta = [
+                            formatMonarchPredicate(entry.predicate),
+                            entry.sources?.length ? entry.sources.join(', ') : null,
+                            entry.phenotype_count
+                              ? `${entry.phenotype_count} phenotypes`
+                              : null,
+                            matched.length ? `${matched.length} observed in family` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ');
+                          return (
+                            <li key={`${entry.mondo_id}`}>
+                              {entry.monarch_url ? (
+                                <a
+                                  href={entry.monarch_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="gene-compact-link"
+                                >
+                                  {entry.disease_label || entry.mondo_id}
+                                </a>
+                              ) : (
+                                <span>{entry.disease_label || entry.mondo_id}</span>
+                              )}
+                              {meta ? <span className="gene-compact-list-meta">{meta}</span> : null}
+                              {matched.length ? (
+                                <div className="gene-compact-chip-grid">
+                                  {matched.map((match) => (
+                                    <span
+                                      key={match.hpo_id}
+                                      className="gene-compact-term-chip"
+                                      title={`${match.label || match.hpo_id} observed in this family`}
+                                    >
+                                      {match.label || match.hpo_id}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                    </ul>
+                  ) : (
+                    <p className="gene-compact-empty">
+                      No Monarch gene–disease associations cached for this gene.
                     </p>
                   )}
                 </div>

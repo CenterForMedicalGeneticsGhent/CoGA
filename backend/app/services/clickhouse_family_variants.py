@@ -17,6 +17,7 @@ from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
 from ..schemas import (
     GenotypeOut,
+    MonarchPhenotypeMatchOut,
     SmallVariantGroupOut,
     SmallVariantReviewOut,
     SmallVariantSampleSummaryOut,
@@ -25,8 +26,10 @@ from ..schemas import (
     VariantInternalCohortOut,
     VariantOut,
     VariantPage,
+    VariantPriorityOut,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
+from .variant_annotation_parser import _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
     SmallVariantQueryFilters,
@@ -37,6 +40,15 @@ from .family_variant_filters import (
 from .small_variant_review_pg import (
     get_small_variant_review_map,
     list_matching_small_variant_review_ids,
+)
+from .monarch_phenotype_score import score_genes_for_hpo
+from .variant_prioritization import (
+    MODE_COMPOUND_HET,
+    MODE_DE_NOVO,
+    MODE_DOMINANT,
+    MODE_HOM_RECESSIVE,
+    MODE_X_LINKED,
+    score_variant,
 )
 from .structural_variant_review_pg import (
     get_structural_variant_review_map,
@@ -67,6 +79,10 @@ _INTERVAL_PATTERN = re.compile(
 _GENE_QUERY_SPLIT = re.compile(r"[\s,;]+")
 _HET_GT_VALUES = {"0/1", "1/0", "0|1", "1|0"}
 _HOM_ALT_GT_VALUES = {"1/1", "1|1"}
+_HOM_REF_GT_VALUES = {"0/0", "0|0"}
+# Minimum parental depth to trust a homozygous-reference call when calling de novo;
+# a low-coverage ref parent could be a missed heterozygote (false de novo).
+_DE_NOVO_MIN_PARENT_DP = 8
 _X_CHROMOSOME_TOKENS = {"X", "23"}
 _COMPOUND_HET_INHERITANCE = "compound_het"
 _RECESSIVE_INHERITANCE = "recessive"
@@ -767,14 +783,14 @@ def _annotation_polyphen(annotation: dict[str, Any]) -> str | None:
 
 
 def _annotation_spliceai_max(annotation: dict[str, Any]) -> float | None:
-    explicit = _annotation_float(annotation, "spliceai_max", "spliceaiMax")
+    explicit = _spliceai_delta(_annotation_float(annotation, "spliceai_max", "spliceaiMax"))
     if explicit is not None:
         return explicit
     values = [
-        _annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg"),
-        _annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl"),
-        _annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg"),
-        _annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl"),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl")),
     ]
     present = [value for value in values if value is not None]
     return max(present) if present else None
@@ -1509,6 +1525,61 @@ def _call_has_alt(call: SmallVariantCall | None) -> bool:
     return call is not None and _has_alt_allele(call.gt)
 
 
+def _call_is_confident_hom_ref(call: SmallVariantCall | None) -> bool:
+    """A genotyped homozygous-reference call with enough depth to trust it.
+
+    A missing call (``./.``) is not confident reference, so it does not qualify — we
+    cannot rule out an uncalled inherited allele.
+    """
+    if call is None or call.gt not in _HOM_REF_GT_VALUES:
+        return False
+    return call.dp is None or call.dp >= _DE_NOVO_MIN_PARENT_DP
+
+
+def _child_parent_map(context: FamilyMetadataContext) -> dict[str, set[str]]:
+    """Map each child sample name to its parent sample names from the pedigree."""
+    parents: dict[str, set[str]] = {}
+    for relationship in context.relationship_rows or []:
+        if str(relationship.get("relationship_type")) != "parent_child":
+            continue
+        sample_a = relationship.get("sample_id_a")
+        sample_b = relationship.get("sample_id_b")
+        role_a = str(relationship.get("role_a") or "").lower()
+        role_b = str(relationship.get("role_b") or "").lower()
+        if role_b == "child" and role_a in {"mother", "father"} and sample_a and sample_b:
+            parents.setdefault(str(sample_b), set()).add(str(sample_a))
+        elif role_a == "child" and role_b in {"mother", "father"} and sample_a and sample_b:
+            parents.setdefault(str(sample_a), set()).add(str(sample_b))
+    return parents
+
+
+def _record_matches_de_novo(
+    record: SmallVariantRecord,
+    *,
+    affected_samples: Sequence[str],
+    child_parents: dict[str, set[str]],
+) -> bool:
+    """True de novo: heterozygous in an affected child, confidently absent in both parents.
+
+    Restricted to heterozygous child calls — the classic de novo scenario. A
+    homozygous-alt child with reference parents is biologically implausible (it would
+    require two independent events) and almost always a repetitive-region artifact, so
+    it is left to the homozygous-recessive pattern instead. Requires a full trio (both
+    parents genotyped and sufficiently covered); otherwise inheritance cannot be
+    excluded and this returns False (the variant may still match the dominant pattern).
+    """
+    call_map = _small_call_map(record)
+    for child in affected_samples:
+        parents = child_parents.get(child)
+        if not parents or len(parents) < 2:
+            continue
+        if not _call_is_het(call_map.get(child)):
+            continue
+        if all(_call_is_confident_hom_ref(call_map.get(parent)) for parent in parents):
+            return True
+    return False
+
+
 def _is_x_chromosome(chromosome: str | None) -> bool:
     normalized = normalize_chromosome(str(chromosome or ""))
     return normalized.upper() in _X_CHROMOSOME_TOKENS
@@ -1990,6 +2061,14 @@ async def _fetch_gene_constraint_metric_map(
     return result_map
 
 
+def _normalize_alpha_missense_class(value: str | None) -> str | None:
+    """AlphaMissense no-call (``-`` / empty) becomes None for clean display/scoring."""
+    text_value = str(value or "").strip()
+    if not text_value or text_value == "-":
+        return None
+    return text_value
+
+
 def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
     annotation = _select_primary_annotation(record.annotations)
     population_frequencies = _annotation_population_frequencies(annotation)
@@ -2032,11 +2111,17 @@ def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
         revel=_annotation_float(annotation, "revel"),
         sift=_annotation_sift(annotation),
         polyphen=_annotation_polyphen(annotation),
-        spliceai_ds_ag=_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg"),
-        spliceai_ds_al=_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl"),
-        spliceai_ds_dg=_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg"),
-        spliceai_ds_dl=_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl"),
+        spliceai_ds_ag=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg")),
+        spliceai_ds_al=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl")),
+        spliceai_ds_dg=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg")),
+        spliceai_ds_dl=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl")),
         spliceai_max=_annotation_spliceai_max(annotation),
+        alpha_missense_pathogenicity=_annotation_float(
+            annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
+        ),
+        alpha_missense_class=_normalize_alpha_missense_class(
+            _annotation_text(annotation, "alpha_missense_class", "alphaMissenseClass")
+        ),
         annotation_extra=_annotation_extra(annotation),
         transcripts=transcripts,
         genotypes=[
@@ -3869,6 +3954,277 @@ def _inheritance_result_items(
     return []
 
 
+# Upper bound on variants pulled into a single prioritization pass. The Exomiser-style
+# preset applies strict frequency/impact filters first, so the candidate set is normally
+# far smaller than this; when it is exceeded the ranking covers only this many (the
+# highest-priority variant could lie outside the window), so the response flags
+# `ranking_truncated` to prompt the user to narrow their filters.
+_PRIORITIZE_CANDIDATE_LIMIT = 5000
+
+
+async def _affected_present_hpo(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> tuple[list[str], dict[str, str]]:
+    """Present HPO terms for affected individuals (all members if none flagged)."""
+    affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
+    affected_uuids = [
+        context.sample_name_to_uuid[name]
+        for name in affected_names
+        if name in context.sample_name_to_uuid
+    ]
+    clauses = ["family_id = CAST(:family_uuid AS uuid)", "ih.status = 'present'"]
+    params: dict[str, Any] = {"family_uuid": context.family_uuid}
+    if affected_uuids:
+        clauses.append("ih.sample_id::text = ANY(:affected_uuids)")
+        params["affected_uuids"] = affected_uuids
+    rows = await session.execute(
+        text(
+            f"""
+            SELECT DISTINCT ih.hpo_id AS hpo_id, t.label AS label
+            FROM individual_hpo ih
+            LEFT JOIN hpo_term t ON t.hpo_id = ih.hpo_id
+            WHERE {' AND '.join(clauses)}
+            """
+        ),
+        params,
+    )
+    terms: list[str] = []
+    labels: dict[str, str] = {}
+    for row in rows.mappings().all():
+        terms.append(row["hpo_id"])
+        if row["label"]:
+            labels[row["hpo_id"]] = row["label"]
+    return terms, labels
+
+
+def _segregation_modes_by_variant(
+    records: Sequence[SmallVariantRecord],
+    *,
+    context: FamilyMetadataContext,
+) -> dict[str, list[str]]:
+    affected, unaffected = _family_affected_unaffected_sample_names(context)
+    sample_sex = _sample_sex_map(context.sample_rows)
+    child_parents = _child_parent_map(context)
+    modes: dict[str, list[str]] = {record.variant_id: [] for record in records}
+    if not affected:
+        return modes
+    for pair in _compound_het_pairs(
+        records, affected_samples=affected, unaffected_samples=unaffected
+    ):
+        for vid in (pair.left.variant_id, pair.right.variant_id):
+            if MODE_COMPOUND_HET not in modes.setdefault(vid, []):
+                modes[vid].append(MODE_COMPOUND_HET)
+    for record in records:
+        bucket = modes.setdefault(record.variant_id, [])
+        if _record_matches_homozygous_recessive(
+            record, affected_samples=affected, unaffected_samples=unaffected
+        ):
+            bucket.append(MODE_HOM_RECESSIVE)
+        if _record_matches_x_linked_recessive(
+            record,
+            affected_samples=affected,
+            unaffected_samples=unaffected,
+            sample_sex=sample_sex,
+        ):
+            bucket.append(MODE_X_LINKED)
+        # Prefer the stronger, trio-confirmed de novo call; fall back to the dominant
+        # pattern (which also covers inherited-dominant or no-trio cases).
+        if _record_matches_de_novo(
+            record, affected_samples=affected, child_parents=child_parents
+        ):
+            bucket.append(MODE_DE_NOVO)
+        elif _record_matches_de_novo_dominant(
+            record, affected_samples=affected, unaffected_samples=unaffected
+        ):
+            bucket.append(MODE_DOMINANT)
+    return modes
+
+
+async def _prioritized_small_variants_page(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    page: int,
+    page_size: int,
+    panel_constraints: PanelFilterConstraints,
+    review_variant_ids: set[str] | None,
+    excluded_review_variant_ids: set[str],
+    include_review_filter_active: bool,
+    include_regions: list[Region],
+    exclude_regions: Sequence[Region],
+    exclude_gene_regions: Sequence[Region],
+    exclude_gene_terms: Sequence[str],
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage:
+    if filters.gene:
+        include_regions = [
+            *include_regions,
+            *await _fetch_gene_regions(
+                session, gene_query=filters.gene, assembly_id=context.assembly_id
+            ),
+        ]
+
+    records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        panel_constraints=panel_constraints,
+        include_variant_ids=review_variant_ids if include_review_filter_active else None,
+        exclude_variant_ids=excluded_review_variant_ids,
+        # Fetch one extra to detect overflow without dropping a genuine candidate when
+        # the set is exactly at the limit.
+        limit=_PRIORITIZE_CANDIDATE_LIMIT + 1,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=exclude_gene_terms,
+    )
+    capped = len(records) > _PRIORITIZE_CANDIDATE_LIMIT
+    if capped:
+        records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
+
+    filtered = [
+        record
+        for record in records
+        if record.variant_id not in excluded_review_variant_ids
+        and ((not include_review_filter_active) or record.variant_id in (review_variant_ids or set()))
+        and _small_record_matches(
+            record,
+            filters,
+            include_regions,
+            exclude_regions,
+            exclude_gene_regions,
+            panel_constraints=panel_constraints,
+        )
+    ]
+    if not filtered:
+        return VariantPage(
+            total=0,
+            total_is_estimated=capped,
+            count_limit=_SMALL_COUNT_LIMIT - 1,
+            variants=[],
+            small_variant_summary=small_variant_summary,
+        )
+
+    modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
+    affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
+    segregation_evaluated = bool(affected_names)
+    patient_terms, term_labels = await _affected_present_hpo(session, context)
+
+    variants = [_small_variant_out(record) for record in filtered]
+    gene_symbols = {variant.gene for variant in variants if variant.gene}
+    phenotype_scores = (
+        await score_genes_for_hpo(
+            session, gene_symbols=gene_symbols, patient_hpo_ids=patient_terms
+        )
+        if patient_terms and gene_symbols
+        else {}
+    )
+    # Gene-level constraint (pLI / missense-Z) from gene_info, for all candidates (the
+    # hydrate step only covers the page); also fills variant.gene_pli for display.
+    constraint_map = await _fetch_gene_constraint_metric_map(session, variants)
+
+    for variant in variants:
+        metrics = constraint_map.get(str(variant.id))
+        if metrics:
+            if variant.gene_pli is None:
+                variant.gene_pli = metrics.get("gene_pli")
+            if variant.gene_missense_z is None:
+                variant.gene_missense_z = metrics.get("gene_missense_z")
+
+        modes = modes_by_variant.get(str(variant.id), [])
+        gene_score = phenotype_scores.get(variant.gene.upper()) if variant.gene else None
+        phenotype_value = gene_score.score if gene_score else None
+        scored = score_variant(
+            impact=variant.impact,
+            clinvar=variant.clinvar,
+            cadd_phred=variant.cadd_phred,
+            revel=variant.revel,
+            spliceai_max=variant.spliceai_max,
+            lof=variant.lof,
+            gnomad_popmax_af=variant.population_frequencies.get("gnomad_popmax_af"),
+            gnomad_af=variant.gnomad_af,
+            segregation_modes=modes,
+            segregation_evaluated=segregation_evaluated,
+            phenotype_score=phenotype_value,
+            alpha_missense_class=variant.alpha_missense_class,
+            alpha_missense_pathogenicity=variant.alpha_missense_pathogenicity,
+            gene_pli=variant.gene_pli,
+            gene_missense_z=variant.gene_missense_z,
+        )
+        phenotype_matches = (
+            [
+                MonarchPhenotypeMatchOut(
+                    hpo_id=match["hpo_id"], label=term_labels.get(match["hpo_id"])
+                )
+                for match in gene_score.matched
+            ]
+            if gene_score
+            else []
+        )
+        variant.priority = VariantPriorityOut(
+            combined_score=round(scored.combined_score, 4),
+            variant_score=round(scored.variant_score, 4),
+            pathogenicity_score=round(scored.pathogenicity, 4),
+            frequency_score=round(scored.frequency, 4),
+            segregation_weight=round(scored.segregation_weight, 4),
+            phenotype_score=round(phenotype_value, 4) if phenotype_value is not None else None,
+            segregation_modes=scored.segregation_modes,
+            phenotype_gene=variant.gene if gene_score else None,
+            phenotype_matches=phenotype_matches,
+        )
+
+    variants.sort(
+        key=lambda v: (
+            v.priority.combined_score if v.priority else 0.0,
+            v.priority.variant_score if v.priority else 0.0,
+        ),
+        reverse=True,
+    )
+    for index, variant in enumerate(variants, start=1):
+        if variant.priority:
+            variant.priority.rank = index
+
+    ranked_total = len(variants)
+    # When the candidate set overflowed the ranking window, the ranking only covers the
+    # window — report the true filtered count (not the window size) and flag the
+    # truncation so the UI can prompt the user to narrow filters.
+    if capped:
+        true_total, true_estimated = await _count_small_variant_rows_bounded(
+            context,
+            filters,
+            panel_constraints=panel_constraints,
+            include_variant_ids=review_variant_ids if include_review_filter_active else None,
+            exclude_variant_ids=excluded_review_variant_ids,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+        )
+        total = max(true_total, ranked_total)
+        total_is_estimated = True
+    else:
+        total = ranked_total
+        total_is_estimated = ranked_total >= _SMALL_COUNT_LIMIT
+
+    reported_total = min(total, _SMALL_COUNT_LIMIT)
+    skip = max(page - 1, 0) * page_size if page_size else 0
+    page_variants = variants[skip : skip + page_size] if page_size else variants[skip:]
+    await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
+
+    unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+    return VariantPage(
+        total=reported_total,
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        ranking_truncated=capped,
+        variants=page_variants,
+        small_variant_summary=small_variant_summary,
+    )
+
+
 async def get_family_small_variants_page(
     session: AsyncSession,
     *,
@@ -3918,6 +4274,7 @@ async def get_family_small_variants_page(
     exclude_review_tags: list[str] | None = None,
     has_notes: bool = False,
     overlap: bool = False,
+    prioritize: bool = False,
     track_mode: bool = False,
     track_result_limit: int | None = None,
 ) -> VariantPage:
@@ -4011,6 +4368,24 @@ async def get_family_small_variants_page(
         else []
     )
     exclude_gene_terms = _split_gene_terms(filters.exclude_gene)
+
+    if prioritize and not track_mode:
+        return await _prioritized_small_variants_page(
+            session,
+            context=context,
+            filters=filters,
+            page=page,
+            page_size=page_size,
+            panel_constraints=panel_constraints,
+            review_variant_ids=review_variant_ids,
+            excluded_review_variant_ids=excluded_review_variant_ids,
+            include_review_filter_active=include_review_filter_active,
+            include_regions=include_regions,
+            exclude_regions=exclude_regions,
+            exclude_gene_regions=exclude_gene_regions,
+            exclude_gene_terms=exclude_gene_terms,
+            small_variant_summary=small_variant_summary,
+        )
 
     if track_mode and track_result_limit is not None:
         safe_track_result_limit = min(
@@ -4276,6 +4651,7 @@ async def export_family_small_variants(
     *,
     context: FamilyMetadataContext,
     limit: int = _MAX_SMALL_VARIANT_EXPORT_ROWS,
+    prioritize: bool = False,
     **filters: Any,
 ) -> list[VariantOut]:
     """Fetch up to ``limit`` filtered small variants for CSV export.
@@ -4292,6 +4668,7 @@ async def export_family_small_variants(
         context=context,
         page=1,
         page_size=limit,
+        prioritize=prioritize,
         track_mode=False,
         **filters,
     )

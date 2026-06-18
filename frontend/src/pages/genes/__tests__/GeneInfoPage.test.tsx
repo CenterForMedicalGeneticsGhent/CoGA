@@ -176,6 +176,19 @@ describe('GeneInfoPage', () => {
                 { label: 'PubMed', href: 'https://pubmed.ncbi.nlm.nih.gov/?term=BRCA1' },
                 { label: 'ClinVar', href: 'https://www.ncbi.nlm.nih.gov/clinvar/?term=BRCA1%5Bgene%5D' },
               ],
+              monarch_associations: [
+                {
+                  mondo_id: 'MONDO:0011623',
+                  disease_label: 'Fanconi anemia complementation group S',
+                  predicate: 'causes',
+                  predicates: ['causes', 'gene_associated_with_condition'],
+                  sources: ['omim', 'orphanet'],
+                  causal: true,
+                  monarch_url: 'https://monarchinitiative.org/MONDO:0011623',
+                  phenotype_count: 42,
+                  matched_phenotypes: [{ hpo_id: 'HP:0002894', label: 'Pancreatic carcinoma' }],
+                },
+              ],
               extra: {
                 hgnc_gene_group: ['DNA repair'],
                 ensembl_canonical_transcript: 'ENST00000357654',
@@ -349,6 +362,18 @@ describe('GeneInfoPage', () => {
       screen.getByText(/Hereditary breast and ovarian cancer syndrome/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/ClinVar · Pathogenic/i)).toBeInTheDocument();
+    expect(screen.getByText(/Monarch gene.disease associations/i)).toBeInTheDocument();
+    const monarchLink = screen.getByRole('link', {
+      name: /Fanconi anemia complementation group S/i,
+    });
+    expect(monarchLink).toHaveAttribute(
+      'href',
+      'https://monarchinitiative.org/MONDO:0011623',
+    );
+    expect(
+      screen.getByText(/Causes · omim, orphanet · 42 phenotypes · 1 observed in family/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Pancreatic carcinoma')).toBeInTheDocument();
     expect(screen.getByText('Breast carcinoma')).toBeInTheDocument();
     expect(screen.getByText('HP:0003002')).toBeInTheDocument();
     expect(

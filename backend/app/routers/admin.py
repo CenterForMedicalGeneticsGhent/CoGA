@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, List
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from ..schemas import (
     HpoAdminTermOut,
     HpoOntologySyncOut,
     HpoOntologySyncRequest,
+    MonarchRefreshSummaryOut,
     ProjectsUpdate,
     RawImportFileVerifyOut,
     SmallVariantFilterPresetOut,
@@ -62,6 +64,7 @@ from ..services.clinical_cnv_kb_jobs import (
     get_clinical_cnv_kb_status,
     queue_clinical_cnv_kb_rebuild,
 )
+from ..services.monarch_ingest import refresh_monarch
 from ..services.gene_info_jobs_pg import (
     list_gene_reference_admin_status,
     queue_gene_reference_refresh_job,
@@ -524,6 +527,28 @@ async def refresh_gene_reference(
         symbol=symbol,
         requested_by=user.email,
     )
+
+
+@router.post("/monarch/refresh", response_model=MonarchRefreshSummaryOut)
+async def refresh_monarch_associations(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> MonarchRefreshSummaryOut:
+    """Download the latest Monarch associations and replace the Monarch tables.
+
+    Refreshes both gene -> disease and disease -> phenotype. Runs inline: the
+    source files are small (a few MB gzipped) so the full refresh completes in
+    seconds, unlike the per-gene gene-reference sync.
+    """
+    del user
+    try:
+        summary = await refresh_monarch(session)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to download Monarch data: {exc}",
+        ) from exc
+    return MonarchRefreshSummaryOut(**summary)
 
 
 @router.get("/clinical-cnv-kb/status", response_model=ClinicalCnvKbStatusOut)

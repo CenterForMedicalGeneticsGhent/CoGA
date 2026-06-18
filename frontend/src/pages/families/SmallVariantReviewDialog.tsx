@@ -6,11 +6,12 @@ import {
   getClassificationTagKeyFromTags,
   normalizeTagKeys,
   sortTagDefinitions,
+  type SmallVariantPriority,
   type SmallVariantReview,
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
-import { formatLocus } from './smallVariantResultUtils';
+import { formatLocus, SEGREGATION_MODE_LABELS } from './smallVariantResultUtils';
 
 type ReviewableVariant = {
   _id: string;
@@ -23,7 +24,12 @@ type ReviewableVariant = {
   hgvsp?: string;
   hgvsc?: string;
   effect?: string;
+  alpha_missense_class?: string | null;
+  alpha_missense_pathogenicity?: number;
+  gene_pli?: number;
+  gene_missense_z?: number;
   review?: SmallVariantReview | null;
+  priority?: SmallVariantPriority | null;
 };
 
 type SmallVariantReviewDialogProps = {
@@ -37,6 +43,89 @@ type SmallVariantReviewDialogProps = {
   isPending?: boolean;
   errorMessage?: string | null;
 };
+
+function PriorityBreakdown({
+  priority,
+  variant,
+}: {
+  priority: SmallVariantPriority;
+  variant: ReviewableVariant;
+}) {
+  const modes = priority.segregation_modes
+    .map((mode) => SEGREGATION_MODE_LABELS[mode] || mode)
+    .join(', ');
+  const constraintBits = [
+    variant.alpha_missense_class
+      ? `AlphaMissense ${variant.alpha_missense_class.replace(/_/g, ' ')}${
+          typeof variant.alpha_missense_pathogenicity === 'number'
+            ? ` (${variant.alpha_missense_pathogenicity.toFixed(2)})`
+            : ''
+        }`
+      : null,
+    typeof variant.gene_pli === 'number' ? `gene pLI ${variant.gene_pli.toFixed(2)}` : null,
+    typeof variant.gene_missense_z === 'number'
+      ? `missense Z ${variant.gene_missense_z.toFixed(2)}`
+      : null,
+  ].filter(Boolean);
+  return (
+    <section className="variant-review-modal-section">
+      <div className="variant-review-note-header">
+        <p className="analysis-section-title">
+          Priority score {priority.combined_score.toFixed(2)}
+          {priority.rank ? ` · rank ${priority.rank}` : ''}
+        </p>
+        <p className="table-subtle">
+          Exomiser-style: variant impact + rarity + segregation, ranked by gene–phenotype
+          match.
+        </p>
+      </div>
+      <div className="variant-priority-grid">
+        <div>
+          <span className="variant-priority-label">Variant</span>
+          <span className="variant-priority-value">{priority.variant_score.toFixed(2)}</span>
+        </div>
+        <div>
+          <span className="variant-priority-label">Pathogenicity</span>
+          <span className="variant-priority-value">
+            {priority.pathogenicity_score.toFixed(2)}
+          </span>
+        </div>
+        <div>
+          <span className="variant-priority-label">Rarity</span>
+          <span className="variant-priority-value">{priority.frequency_score.toFixed(2)}</span>
+        </div>
+        <div>
+          <span className="variant-priority-label">Phenotype</span>
+          <span className="variant-priority-value">
+            {typeof priority.phenotype_score === 'number'
+              ? priority.phenotype_score.toFixed(2)
+              : 'n/a'}
+          </span>
+        </div>
+      </div>
+      {modes ? (
+        <p className="table-subtle">Compatible inheritance: {modes}</p>
+      ) : priority.segregation_weight >= 1 ? (
+        <p className="table-subtle">
+          Segregation not evaluated (no affected individuals flagged).
+        </p>
+      ) : (
+        <p className="table-subtle">No compatible inheritance mode for the pedigree.</p>
+      )}
+      {constraintBits.length ? (
+        <p className="table-subtle">{constraintBits.join(' · ')}</p>
+      ) : null}
+      {priority.phenotype_matches.length ? (
+        <p className="table-subtle">
+          Phenotype match{priority.phenotype_gene ? ` (${priority.phenotype_gene})` : ''}:{' '}
+          {priority.phenotype_matches.map((m) => m.label || m.hpo_id).join(', ')}
+        </p>
+      ) : typeof priority.phenotype_score !== 'number' ? (
+        <p className="table-subtle">No Monarch phenotype data for this gene.</p>
+      ) : null}
+    </section>
+  );
+}
 
 export default function SmallVariantReviewDialog({
   variant,
@@ -140,6 +229,10 @@ export default function SmallVariantReviewDialog({
             <div className="variant-workspace-feedback variant-workspace-feedback--error">
               {errorMessage}
             </div>
+          ) : null}
+
+          {variant.priority ? (
+            <PriorityBreakdown priority={variant.priority} variant={variant} />
           ) : null}
 
           <section className="variant-review-modal-section">

@@ -127,11 +127,32 @@ export interface SmallVariant {
   spliceai_ds_dg?: number;
   spliceai_ds_dl?: number;
   spliceai_max?: number;
+  alpha_missense_pathogenicity?: number;
+  alpha_missense_class?: string | null;
   annotation_extra?: Record<string, string | number | boolean | null>;
   transcripts?: SmallVariantTranscript[];
   genotypes: SmallVariantGenotype[];
   review?: SmallVariantReview | null;
   internal_cohort?: SmallVariantInternalCohort | null;
+  priority?: SmallVariantPriority | null;
+}
+
+export interface SmallVariantPriorityMatch {
+  hpo_id: string;
+  label?: string | null;
+}
+
+export interface SmallVariantPriority {
+  combined_score: number;
+  variant_score: number;
+  pathogenicity_score: number;
+  frequency_score: number;
+  segregation_weight: number;
+  phenotype_score?: number | null;
+  segregation_modes: string[];
+  phenotype_gene?: string | null;
+  phenotype_matches: SmallVariantPriorityMatch[];
+  rank?: number | null;
 }
 
 export interface SmallVariantInternalCohort {
@@ -149,6 +170,7 @@ export interface SmallVariantPage {
   unfiltered_total?: number | null;
   unfiltered_total_is_estimated?: boolean;
   count_limit?: number | null;
+  ranking_truncated?: boolean;
   small_variant_summary?: SmallVariantSummary | null;
 }
 
@@ -251,6 +273,7 @@ export type SmallFilterState = {
   intervals: string;
   inheritance: string;
   expanded_carrier_screening: string;
+  prioritize: string;
   ps: string;
   type: string;
   source: string;
@@ -315,6 +338,7 @@ export type SmallPreset =
   | 'dominant_relaxed'
   | 'compound_het'
   | 'expanded_carrier_screening'
+  | 'phenotype_priority'
   | 'recessive_hom'
   | 'recessive_permissive'
   | 'any_affected'
@@ -398,6 +422,12 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
       'Automatically keep variants that form a qualifying compound-heterozygous pair.',
   },
   {
+    value: 'phenotype_priority',
+    label: 'Phenotype priority (Exomiser-style)',
+    description:
+      'Rank rare, impactful, segregating variants by how well each gene matches the affected individuals’ HPO phenotypes (Monarch).',
+  },
+  {
     value: 'recessive_hom',
     label: 'Recessive hom',
     description: 'Homozygous recessive candidates with supportive parental genotypes.',
@@ -427,6 +457,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   intervals: 'Intervals',
   inheritance: 'Inheritance',
   expanded_carrier_screening: 'Expanded carrier screening',
+  prioritize: 'Phenotype prioritization',
   ps: 'Phase set',
   type: 'Variant type',
   source: 'Callset',
@@ -565,6 +596,10 @@ const normalizeStoredFilterValue = (
     if (value === true || value === 'true') return 'true';
     return '';
   }
+  if (key === 'prioritize') {
+    if (value === true || value === 'true') return 'true';
+    return '';
+  }
   return String(value);
 };
 
@@ -576,6 +611,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   intervals: '',
   inheritance: '',
   expanded_carrier_screening: '',
+  prioritize: '',
   ps: '',
   type: '',
   source: '',
@@ -754,6 +790,11 @@ const buildPresetState = (
     }
     filters.expanded_carrier_screening = 'true';
     filters.max_gnomad_af = '0.01';
+  } else if (preset === 'phenotype_priority') {
+    // Exomiser-style: rare + impactful candidate set, then rank by gene-phenotype match.
+    filters.prioritize = 'true';
+    filters.impact = 'HIGH, MODERATE';
+    filters.max_gnomad_popmax_af = '0.001';
   } else if (preset === 'compound_het') {
     filters.inheritance = 'compound_het';
     filters.max_gnomad_af = '0.02';
@@ -907,6 +948,9 @@ export const buildSmallVariantQueryParams = (
   if (currentFilters.ps) params.set('ps', currentFilters.ps);
   if (currentFilters.expanded_carrier_screening === 'true') {
     params.set('expanded_carrier_screening', 'true');
+  }
+  if (currentFilters.prioritize === 'true') {
+    params.set('prioritize', 'true');
   }
   if (currentFilters.type) params.set('type', currentFilters.type);
   if (currentFilters.source) params.set('source', currentFilters.source);
@@ -1092,7 +1136,11 @@ export const serializePresetFilters = (filters: SmallFilterState): Record<string
         if (MULTI_VALUE_FILTER_KEYS.has(key)) {
           return [key, parseCommaSeparatedValues(value)];
         }
-        if (key === 'has_notes' || key === 'expanded_carrier_screening') {
+        if (
+          key === 'has_notes' ||
+          key === 'expanded_carrier_screening' ||
+          key === 'prioritize'
+        ) {
           return [key, value === 'true'];
         }
         return [key, value];
@@ -1252,6 +1300,11 @@ export const useSmallVariantSearchState = ({
       if (key === 'expanded_carrier_screening') {
         initialFilters.expanded_carrier_screening =
           params.get('expanded_carrier_screening') === 'true' ? 'true' : '';
+        return;
+      }
+      if (key === 'prioritize') {
+        initialFilters.prioritize =
+          params.get('prioritize') === 'true' ? 'true' : '';
         return;
       }
       const value = params.get(key);

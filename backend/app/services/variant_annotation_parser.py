@@ -172,6 +172,14 @@ def _parse_int(value: Any) -> Optional[int]:
         return None
 
 
+def _spliceai_delta(value: Optional[float]) -> Optional[float]:
+    """SpliceAI delta scores are probabilities in [0, 1]. Values outside that range are
+    not delta scores (a DP position field leaked in via a field-offset) and are dropped."""
+    if value is None or not (0.0 <= value <= 1.0):
+        return None
+    return value
+
+
 def _parse_spliceai_pred(value: Any) -> Dict[str, float]:
     value = _clean_value(value)
     if not isinstance(value, str):
@@ -186,7 +194,7 @@ def _parse_spliceai_pred(value: Any) -> Dict[str, float]:
         ("spliceai_ds_dg", 4),
         ("spliceai_ds_dl", 5),
     ):
-        parsed = _parse_float(parts[index])
+        parsed = _spliceai_delta(_parse_float(parts[index]))
         if parsed is not None:
             result[key] = parsed
     return result
@@ -279,7 +287,7 @@ def _apply_numeric_and_population_aliases(
         annotation["extra"] = extra
 
     for key, aliases in _SPLICE_ALIASES.items():
-        value = _parse_float(_first_value(source, aliases))
+        value = _spliceai_delta(_parse_float(_first_value(source, aliases)))
         if value is not None:
             annotation[key] = value
     annotation.update(_parse_spliceai_pred(source.get("SpliceAI_pred")))

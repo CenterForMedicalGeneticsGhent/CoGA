@@ -437,6 +437,24 @@ class HpoFamilyQueryOut(BaseModel):
     annotations: List[HpoAnnotationOut] = Field(default_factory=list)
 
 
+class PhenotypeMatchResultOut(BaseModel):
+    rank: int
+    score: Optional[float] = None
+    id: str
+    name: str
+    category: Optional[str] = None
+    symbol: Optional[str] = None
+    gene_in_platform: bool = False
+
+
+class FamilyPhenotypeMatchOut(BaseModel):
+    group: str
+    sample_id: Optional[str] = None
+    query_hpo_ids: List[str] = Field(default_factory=list)
+    results: List[PhenotypeMatchResultOut] = Field(default_factory=list)
+    source: str = "Monarch Initiative semsim"
+
+
 class HpoOntologyImportRequest(BaseModel):
     path: str = Field(min_length=1)
     release_version: Optional[str] = None
@@ -961,6 +979,23 @@ class GeneExternalLinkOut(BaseModel):
     href: str
 
 
+class MonarchPhenotypeMatchOut(BaseModel):
+    hpo_id: str
+    label: Optional[str] = None
+
+
+class GeneMonarchAssociationOut(BaseModel):
+    mondo_id: str
+    disease_label: Optional[str] = None
+    predicate: str
+    predicates: List[str] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
+    causal: bool = False
+    monarch_url: Optional[str] = None
+    phenotype_count: int = 0
+    matched_phenotypes: List[MonarchPhenotypeMatchOut] = Field(default_factory=list)
+
+
 class GeneProfileOut(BaseModel):
     assembly_id: str
     assembly_name: str
@@ -991,8 +1026,24 @@ class GeneProfileOut(BaseModel):
     family_counts: Optional[GeneVariantCountsOut] = None
     source_status: Dict[str, GeneInfoSourceStatusOut] = Field(default_factory=dict)
     external_links: List[GeneExternalLinkOut] = Field(default_factory=list)
+    monarch_associations: List[GeneMonarchAssociationOut] = Field(default_factory=list)
     extra: Dict[str, Any] = Field(default_factory=dict)
     updated_at: Optional[datetime] = None
+
+
+class MonarchRefreshSummaryOut(BaseModel):
+    release_version: Optional[str] = None
+    files_loaded: int = 0
+    gene_disease_pairs: int = 0
+    genes: int = 0
+    diseases: int = 0
+    causal_pairs: int = 0
+    disease_phenotype_pairs: int = 0
+    phenotype_diseases: int = 0
+    phenotypes: int = 0
+    excluded_phenotype_pairs: int = 0
+    completed_at: datetime
+    duration_seconds: float = 0.0
 
 
 class GeneBulkRefreshOut(BaseModel):
@@ -1359,6 +1410,19 @@ class VariantInternalCohortOut(BaseModel):
     families: int = 0
 
 
+class VariantPriorityOut(BaseModel):
+    combined_score: float
+    variant_score: float
+    pathogenicity_score: float
+    frequency_score: float
+    segregation_weight: float
+    phenotype_score: Optional[float] = None
+    segregation_modes: List[str] = Field(default_factory=list)
+    phenotype_gene: Optional[str] = None
+    phenotype_matches: List[MonarchPhenotypeMatchOut] = Field(default_factory=list)
+    rank: Optional[int] = None
+
+
 class VariantOut(ApiDocumentModel):
     chr: str
     start: int
@@ -1408,11 +1472,14 @@ class VariantOut(ApiDocumentModel):
     spliceai_ds_dg: Optional[float] = None
     spliceai_ds_dl: Optional[float] = None
     spliceai_max: Optional[float] = None
+    alpha_missense_pathogenicity: Optional[float] = None
+    alpha_missense_class: Optional[str] = None
     annotation_extra: Dict[str, Any] = Field(default_factory=dict)
     transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
     genotypes: List[GenotypeOut] = Field(default_factory=list)
     review: Optional[SmallVariantReviewOut] = None
     internal_cohort: Optional[VariantInternalCohortOut] = None
+    priority: Optional[VariantPriorityOut] = None
 
 
 class SmallVariantGroupOut(BaseModel):
@@ -1444,6 +1511,9 @@ class VariantPage(BaseModel):
     unfiltered_total: Optional[int] = None
     unfiltered_total_is_estimated: bool = False
     count_limit: Optional[int] = None
+    # True when a prioritized request had more candidates than the ranking window, so
+    # the ranking is incomplete and the user should narrow their filters.
+    ranking_truncated: bool = False
     variants: List[VariantOut] = Field(default_factory=list)
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None
