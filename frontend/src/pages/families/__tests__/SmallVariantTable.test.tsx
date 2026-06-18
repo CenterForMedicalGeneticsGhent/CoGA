@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import SmallVariantTable from '../SmallVariantTable';
@@ -92,5 +93,57 @@ describe('SmallVariantTable', () => {
     const geneLinks = screen.getAllByRole('link').filter((el) => /TOPG|LOWG/.test(el.textContent || ''));
     expect(geneLinks[0]).toHaveTextContent('TOPG');
     expect(screen.getByText('0.92')).toBeInTheDocument();
+  });
+
+  it('reveals the priority breakdown in a popover on score hover', async () => {
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[
+            {
+              _id: 'top',
+              chr: '1',
+              start: 100,
+              end: 100,
+              type: 'SNV',
+              gene: 'TOPG',
+              ref: 'A',
+              alt: 'G',
+              impact: 'HIGH',
+              effect: 'stop_gained',
+              genotypes: [],
+              priority: {
+                combined_score: 0.92,
+                variant_score: 0.92,
+                pathogenicity_score: 0.85,
+                frequency_score: 1,
+                segregation_weight: 1,
+                phenotype_score: 0.9,
+                segregation_modes: ['de_novo'],
+                phenotype_gene: 'TOPG',
+                phenotype_matches: [{ hpo_id: 'HP:0001250', label: 'Seizure' }],
+                rank: 1,
+              },
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+    // No breakdown until hovered.
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    await userEvent.hover(screen.getByRole('button', { name: /priority score 0.92/i }));
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent(/Priority 0.92/);
+    expect(tooltip).toHaveTextContent(/Inheritance: de novo/i);
+    expect(tooltip).toHaveTextContent(/Seizure/);
   });
 });

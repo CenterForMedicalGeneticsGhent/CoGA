@@ -9519,6 +9519,30 @@ a.button-danger:hover {
   align-items: center;
   gap: 0.2rem;
   font-weight: 600;
+  cursor: help;
+}
+
+.variant-score-cell {
+  position: relative;
+}
+
+.variant-priority-popover {
+  position: fixed;
+  z-index: 1000;
+  width: 320px;
+  max-width: min(320px, 90vw);
+  border: 1px solid rgba(10, 11, 12, 0.12);
+  border-radius: 10px;
+  background: var(--color-surface, #fff);
+  box-shadow: 0 10px 30px rgba(10, 11, 12, 0.16);
+  padding: 0.5rem 0.62rem;
+  pointer-events: none;
+}
+
+.variant-priority-popover .variant-card-priority {
+  border: none;
+  background: transparent;
+  padding: 0;
 }
 
 .variant-priority-pheno {
