@@ -32,6 +32,11 @@ const guideHighlights: GuideHighlight[] = [
       'Apply de novo / dominant, recessive (homozygous and compound heterozygous), X-linked, and carrier-screening logic to variant searches.',
   },
   {
+    title: 'Phenotype matching and automatic ranking',
+    description:
+      'Match the patient’s HPO phenotypes to genes and diseases through the Monarch Initiative knowledge graph, and rank a family’s variants with an Exomiser-style score that blends phenotype fit, impact, rarity, and segregation.',
+  },
+  {
     title: 'Evidence-rich interpretation',
     description:
       'See ClinVar, gnomAD frequencies, CADD / REVEL / SpliceAI, and MANE / canonical transcript context next to each candidate, then record an ACMG class, tags, and notes.',
@@ -248,6 +253,78 @@ const guideSections: GuideSection[] = [
     ),
   },
   {
+    id: 'phenotype-matching',
+    title: 'Phenotype matching (Monarch Initiative)',
+    summary:
+      'Connect the patient’s HPO phenotypes to genes and diseases through the Monarch knowledge graph — on the gene profile and as a ranked “candidate genes” panel in the family.',
+    quickLinks: [
+      { label: 'Gene explorer', to: '/genes', note: 'Gene–disease & phenotypes' },
+      { label: 'Families', to: '/families', note: 'Candidate-gene panel' },
+    ],
+    content: (
+      <>
+        <p>
+          CoGA integrates the{' '}
+          <a href="https://monarchinitiative.org/" target="_blank" rel="noreferrer">
+            Monarch Initiative
+          </a>{' '}
+          knowledge graph, which links <strong>genes ↔ diseases ↔ HPO phenotypes</strong> from
+          curated sources (OMIM, ClinGen, Orphanet, and the Human Phenotype Ontology Annotations).
+          This turns the patient’s recorded phenotype into an active signal: it tells you which genes
+          and diseases are phenotypically relevant, and it powers the automatic variant ranking
+          described in the next section.
+        </p>
+        <div className="user-guide-callout">
+          <strong>The loop in one sentence.</strong> Observed phenotypes → candidate genes → each
+          gene’s diseases → which of the patient’s phenotypes those diseases explain → ranked
+          variants.
+        </div>
+
+        <h3>On the gene profile</h3>
+        <p>The Gene Explorer profile gains two phenotype-aware blocks:</p>
+        <ul>
+          <li>
+            <strong>Monarch gene–disease associations</strong> — the curated diseases linked to the
+            gene, each labelled with the relationship (<em>causes</em>, <em>associated</em>,{' '}
+            <em>contributes&nbsp;to</em>) and its source(s), and linking out to the Monarch page for
+            the disease. Causal associations are listed first.
+          </li>
+          <li>
+            <strong>Expected phenotypes and patient overlap</strong> — each disease carries the HPO
+            phenotypes expected for it. When you open a gene <em>in the context of a family</em>{' '}
+            (for example by clicking a gene from a variant), CoGA highlights the expected phenotypes
+            the family actually exhibits. Matching is <strong>ancestor-aware</strong>: a patient’s
+            specific term (e.g. a particular seizure type) still matches a disease’s more general
+            expected term (e.g. <em>Seizure</em>) through the HPO hierarchy.
+          </li>
+        </ul>
+
+        <h3>In the family: ranked candidate genes</h3>
+        <p>
+          The family workspace has a <strong>Phenotype match (Monarch)</strong> panel. Press{' '}
+          <em>Find candidate genes</em> and CoGA sends the affected individuals’ observed HPO terms
+          to Monarch’s semantic-similarity service, which returns a list of genes ranked by how well
+          their phenotype profile matches the patient. Genes that exist in your platform link
+          straight to the gene profile (where the gene–disease and overlap blocks above are waiting),
+          so you can move from “these phenotypes” to “this gene” to “this variant” without leaving
+          the case.
+        </p>
+        <div className="user-guide-callout">
+          <strong>It runs on demand.</strong> The candidate-gene panel calls Monarch only when you
+          press the button, so it never slows down opening a family. Results are cached briefly.
+        </div>
+
+        <h3>Where the data comes from</h3>
+        <p>
+          The gene–disease and disease–phenotype tables are loaded by an administrator from the
+          monthly Monarch release (see <a href="#administration">Administration</a>); the
+          candidate-gene panel is a live call to Monarch. If the tables have not been loaded yet, the
+          profile blocks show an empty state rather than an error.
+        </p>
+      </>
+    ),
+  },
+  {
     id: 'family-workspace',
     title: 'The family workspace',
     summary:
@@ -354,8 +431,109 @@ const guideSections: GuideSection[] = [
 
         <div className="user-guide-callout">
           <strong>Presets save the recipe, not the result.</strong> Built-in presets cover common
-          patterns (dominant, recessive, compound het, carrier screening, ClinVar review); save your
-          own to standardise variant filtration.
+          patterns (dominant, recessive, compound het, carrier screening, ClinVar review, and{' '}
+          <em>phenotype priority</em> — see the next section); save your own to standardise variant
+          filtration.
+        </div>
+      </>
+    ),
+  },
+  {
+    id: 'variant-prioritisation',
+    title: 'Phenotype-driven variant prioritisation (Exomiser-style)',
+    summary:
+      'One click ranks a family’s rare, impactful, segregating variants by how well each gene matches the patient’s phenotypes — with a transparent, explainable score.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Apply the preset' }],
+    content: (
+      <>
+        <p>
+          Filtering narrows the genome to a candidate list; prioritisation puts that list in order.
+          The <strong>Phenotype priority (Exomiser-style)</strong> preset combines the Monarch
+          phenotype signal with the usual variant evidence to rank candidates the way tools such as
+          Exomiser do — so the most likely causal variant tends to rise to the top instead of being
+          buried in a long, position-sorted list.
+        </p>
+
+        <h3>Turning it on</h3>
+        <p>
+          Apply the <strong>Phenotype priority (Exomiser-style)</strong> preset. It sets a sensible
+          starting point — rare (gnomAD popmax &lt; 0.1%) and HIGH/MODERATE impact — and switches the
+          result list into ranked mode. A <strong>Score</strong> column appears (sortable), the rows
+          come back ordered best-first, and a small <span aria-hidden>✦</span> marks variants whose
+          gene matches the patient’s phenotypes. You can still adjust any filter; prioritisation
+          re-ranks whatever passes.
+        </p>
+
+        <h3>What the score blends</h3>
+        <p>Each variant gets a single priority score in <code>[0, 1]</code> built from four parts:</p>
+        <ul>
+          <li>
+            <strong>Pathogenicity</strong> — variant impact and loss-of-function, ClinVar
+            assertions (a pathogenic ClinVar record dominates), and the in-silico predictors
+            (CADD, REVEL, SpliceAI, and AlphaMissense). Gene constraint (gnomAD pLI for
+            loss-of-function, missense-Z for missense) raises confidence for the relevant variant
+            class.
+          </li>
+          <li>
+            <strong>Rarity</strong> — rarer variants score higher, using the gnomAD population-max
+            frequency.
+          </li>
+          <li>
+            <strong>Segregation</strong> — whether the variant fits an inheritance pattern in the
+            pedigree (see below).
+          </li>
+          <li>
+            <strong>Phenotype fit</strong> — how well the gene’s Monarch phenotype profile matches
+            the affected individuals’ HPO, computed locally with a Phenomizer-style
+            information-content similarity (rarer, more specific shared phenotypes count more).
+          </li>
+        </ul>
+        <p>
+          Pathogenicity, rarity, and segregation form a <em>variant score</em>; phenotype fit then{' '}
+          <strong>reorders</strong> candidates so a gene that matches the patient can rise above an
+          equally damaging variant in an unrelated gene. Genes Monarch knows nothing about are not
+          penalised on the variant axis — their raw variant score is shown separately, so a strong
+          candidate in a novel gene stays findable (sort by the variant score to surface them).
+        </p>
+
+        <h3>Segregation modes</h3>
+        <p>Using the pedigree (affected status, sex, and parent–child links), each variant is tagged with the inheritance patterns it is compatible with:</p>
+        <ul>
+          <li>
+            <strong>De novo</strong> — heterozygous in an affected child and confidently absent in{' '}
+            <em>both</em> genotyped parents (a true trio is required; a parent with a missing or
+            low-coverage genotype does not qualify).
+          </li>
+          <li><strong>Homozygous recessive</strong> — affected individuals homozygous-alt, no unaffected homozygous-alt.</li>
+          <li><strong>Compound heterozygous</strong> — two heterozygous hits in the same gene that segregate as a pair.</li>
+          <li><strong>X-linked recessive</strong> — sex-aware X-chromosome pattern.</li>
+          <li><strong>Dominant</strong> — affected carry the variant, unaffected do not (covers inherited-dominant and no-trio cases).</li>
+        </ul>
+
+        <h3>The score breakdown</h3>
+        <p>
+          Open a variant’s review dialog to see exactly <em>why</em> it ranked where it did: the
+          combined score and rank, the variant / pathogenicity / rarity / phenotype sub-scores, the
+          compatible inheritance modes, the gene constraint values, and — most usefully — the
+          specific patient phenotypes that drove the gene’s phenotype match. This explainability is
+          the point: the ranking is a transparent aid, not a black box.
+        </p>
+
+        <h3>Export</h3>
+        <p>
+          With the preset active, <em>Download CSV</em> exports the variants in ranked order with{' '}
+          <strong>Priority</strong> and <strong>Rank</strong> columns, so the file matches what you
+          see on screen.
+        </p>
+
+        <div className="user-guide-callout">
+          <strong>Read the scores as a ranking, not a verdict.</strong> Priority scores order
+          candidates <em>within a family</em>; they are not calibrated probabilities of
+          pathogenicity. Phenotype matching needs HPO recorded on the affected individuals — without
+          it, ranking falls back to impact/rarity/segregation only. If the result list shows a{' '}
+          <em>“ranking is incomplete”</em> warning, more candidates matched than the ranker handles
+          at once: tighten the filters (frequency, impact, a gene panel, or an inheritance mode) so
+          the full set is ranked.
         </div>
       </>
     ),
@@ -832,6 +1010,11 @@ const guideSections: GuideSection[] = [
         <ul>
           <li>Constraint metrics (e.g. pLI, LOEUF, missense constraint) for dosage sensitivity.</li>
           <li>Disease and phenotype associations, ClinGen / GenCC evidence, and OMIM links.</li>
+          <li>
+            <strong>Monarch gene–disease associations</strong> and each disease’s expected HPO
+            phenotypes, with patient overlap when opened in a family context — see{' '}
+            <a href="#phenotype-matching">Phenotype matching</a>.
+          </li>
           <li>External links out to the major knowledge resources for the gene.</li>
         </ul>
       </>
@@ -912,6 +1095,13 @@ const guideSections: GuideSection[] = [
             queue gene-reference refreshes.
           </li>
           <li>
+            <strong>Monarch knowledge graph</strong> — load the monthly Monarch release (gene–disease
+            and disease–phenotype associations) that powers{' '}
+            <a href="#phenotype-matching">phenotype matching</a> and{' '}
+            <a href="#variant-prioritisation">variant prioritisation</a>. Run it once after deploy and
+            roughly monthly to stay current; until it is run, the phenotype blocks show an empty state.
+          </li>
+          <li>
             <strong>Storage maintenance</strong> — inspect and repair the per-assembly ClickHouse
             variant tables (ensure / optimise).
           </li>
@@ -953,8 +1143,32 @@ const guideSections: GuideSection[] = [
           <li><strong>ClinVar</strong> — public archive of variant–condition interpretations.</li>
           <li><strong>gnomAD / TOPMed</strong> — population allele-frequency references.</li>
           <li>
-            <strong>CADD / REVEL / SpliceAI / SIFT / PolyPhen</strong> — in-silico predictors of
-            deleteriousness or splicing impact.
+            <strong>CADD / REVEL / SpliceAI / SIFT / PolyPhen / AlphaMissense</strong> — in-silico
+            predictors of deleteriousness or splicing impact (AlphaMissense scores missense
+            variants).
+          </li>
+          <li><strong>HPO</strong> — Human Phenotype Ontology: a structured vocabulary of clinical phenotypes, organised as a hierarchy (specific terms inherit from more general ones).</li>
+          <li>
+            <strong>Monarch Initiative</strong> — a knowledge graph linking genes, diseases, and HPO
+            phenotypes from curated sources; CoGA uses it for phenotype matching and ranking.
+          </li>
+          <li>
+            <strong>Phenotype similarity (Phenomizer / semantic similarity)</strong> — a score for how
+            well two sets of HPO terms match, weighting rarer, more specific shared phenotypes
+            (information content) more heavily.
+          </li>
+          <li>
+            <strong>pLI / LOEUF</strong> — gene-level constraint metrics: how intolerant a gene is to
+            loss-of-function variation (high pLI / low LOEUF = constrained).
+          </li>
+          <li>
+            <strong>De novo (trio)</strong> — a variant present in an affected child but absent in
+            both parents; confirming it needs a genotyped, well-covered trio.
+          </li>
+          <li>
+            <strong>Priority score</strong> — the Exomiser-style ranking score blending phenotype fit,
+            impact, rarity, and segregation; orders candidates within a family rather than giving an
+            absolute probability.
           </li>
           <li>
             <strong>MANE Select / MANE Plus Clinical</strong> — agreed reference transcripts for

@@ -362,27 +362,65 @@ constraint data is ignored rather than trusted. These signals surface in the rev
 dialog's priority breakdown.
 
 **Caveats.** Scores rank *within a family*; they are not calibrated probabilities like
-Exomiser's trained model. The candidate set is capped (3,000) so the preset's hard
-filters should keep it well under that; a hit cap is flagged via `total_is_estimated`.
-Numeric AlphaMissense and gene constraint persist in the annotation payload / `gene_info`
-respectively; a columnar filter index for AlphaMissense remains a future enhancement.
+Exomiser's trained model. The candidate set is capped (5,000); when the filtered set
+overflows the window the response reports the true filtered count and sets
+`ranking_truncated`, and the UI shows a "ranking is incomplete — narrow your filters"
+banner (the ranking only covers the window, so the true top variant could lie outside
+it). Numeric AlphaMissense and gene constraint persist in the annotation payload /
+`gene_info` respectively; a columnar filter index for AlphaMissense remains a future
+enhancement.
 
-## Open questions
+### Hardening (code review)
 
-1. Bulk semsim vs live API for Phase 3 — shipped against the live API with a 25 s
-   timeout + 1 h cache. Revisit if latency or availability becomes a problem (Monarch
-   ships a `semsimian` SQLite for self-hosting, and the variant-explorer ranking-column
-   surface remains a future enhancement).
-2. Confidence/evidence display — how much GenCC/ClinGen evidence detail to surface vs
-   link out.
-3. Release pinning — show the Monarch release version in the UI for traceability;
-   decide whether refresh is fully manual or scheduled.
-4. Predicate scope — confirm the exact Biolink predicate set to include against a real
-   `monarch-kg_edges.tsv` sample before finalizing the filter.
+A high-effort, multi-angle review ran over the whole branch; all findings were
+addressed:
+
+- **Ranking window** raised to 5,000; overflow now reports the true count and flags
+  `ranking_truncated` (was a silent, position-ordered truncation).
+- **Atomic Monarch refresh** — the two table swaps share one transaction, so a
+  mid-refresh failure can't leave the tables on mismatched releases. The
+  information-content cache is invalidated on refresh (and never caches an empty map),
+  and its first-call aggregate is single-flight (an `asyncio.Lock`) to avoid a
+  thundering herd on a cold cache.
+- **CSV export** honours `prioritize` and prepends `Priority`/`Rank` columns so the
+  file matches the ranked on-screen order.
+- **Segregation is neutral when it can't be evaluated** (no affected individuals
+  flagged) rather than applying a uniform penalty while phenotype is still scored.
+- **Patient HPO** is bounded by information content (most informative terms), not
+  lexicographic HPO-id order; the SpliceAI range guard is shared between the parse and
+  read paths.
+
+## Open questions / follow-ups
+
+1. **Backfill for already-stored corrupt data.** Two annotation-import bugs were fixed
+   in this branch — dbNSFP scientific-notation parsing (corrupted gnomAD pLI/LOEUF in
+   `gene_info`) and a SpliceAI position-field leak (`spliceai_max > 1` in ~800k stored
+   variants). The code fixes are forward-correct and the SpliceAI read path corrects
+   stored data on the fly, but Postgres `gene_info` constraint values stay wrong until a
+   gene-reference re-ingest. The dev DB was repaired directly; **other environments need
+   a re-ingest** (or a committed backfill job). Tracked as the main follow-up.
+2. **Bulk semsim vs live API for Phase 3** — shipped against the live API with a 25 s
+   timeout + 1 h cache. Revisit if latency/availability becomes a problem (Monarch ships
+   a `semsimian` SQLite for self-hosting). A variant-explorer ranking column and a
+   columnar AlphaMissense filter index remain future enhancements.
+3. **Refresh scheduling** — currently a manual admin action (release version is recorded
+   on every row); could be moved to a scheduled job.
+4. **Cleanup** — `_download_text`/`_download_gzip_tsv` and the two TTL caches are small
+   boilerplate duplications left in place; a shared "fetch + filter + paginate" helper
+   could serve both the inheritance and prioritization query paths.
 
 ## Documentation
 
-- provide proper documentation in the CoGA User Guide
+User-facing documentation lives in the in-app **CoGA User Guide**
+([UserGuidePage.tsx](../frontend/src/pages/docs/UserGuidePage.tsx), route `/docs`):
+
+- **Phenotype matching (Monarch Initiative)** — the gene-profile gene–disease blocks,
+  expected-phenotype overlap, and the family candidate-gene panel.
+- **Phenotype-driven variant prioritisation (Exomiser-style)** — the preset, the Score
+  column and breakdown, how the score is built, segregation modes, export, and caveats.
+- Plus woven references in the Gene Explorer, Administration (the Monarch refresh), and
+  Glossary (Monarch, HPO, phenotype similarity, pLI/LOEUF, AlphaMissense, de novo,
+  priority score) sections.
 
 ## Sources
 
