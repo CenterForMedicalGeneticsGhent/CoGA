@@ -105,6 +105,10 @@ function PriorityBreakdown({
       </div>
       {modes ? (
         <p className="table-subtle">Compatible inheritance: {modes}</p>
+      ) : priority.segregation_weight >= 1 ? (
+        <p className="table-subtle">
+          Segregation not evaluated (no affected individuals flagged).
+        </p>
       ) : (
         <p className="table-subtle">No compatible inheritance mode for the pedigree.</p>
       )}

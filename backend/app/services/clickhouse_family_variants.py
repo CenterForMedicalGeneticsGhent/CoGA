@@ -29,6 +29,7 @@ from ..schemas import (
     VariantPriorityOut,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
+from .variant_annotation_parser import _spliceai_delta
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import (
     SmallVariantQueryFilters,
@@ -779,14 +780,6 @@ def _annotation_sift(annotation: dict[str, Any]) -> str | None:
 
 def _annotation_polyphen(annotation: dict[str, Any]) -> str | None:
     return _annotation_text(annotation, "polyphen", "polyphenPrediction")
-
-
-def _spliceai_delta(value: float | None) -> float | None:
-    """SpliceAI delta scores are in [0, 1]; out-of-range values are misparses (e.g. a
-    DP position field leaked in) and are dropped. Also corrects already-stored data."""
-    if value is None or not (0.0 <= value <= 1.0):
-        return None
-    return value
 
 
 def _annotation_spliceai_max(annotation: dict[str, Any]) -> float | None:
@@ -4114,6 +4107,8 @@ async def _prioritized_small_variants_page(
         )
 
     modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
+    affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
+    segregation_evaluated = bool(affected_names)
     patient_terms, term_labels = await _affected_present_hpo(session, context)
 
     variants = [_small_variant_out(record) for record in filtered]
@@ -4128,6 +4123,7 @@ async def _prioritized_small_variants_page(
     # Gene-level constraint (pLI / missense-Z) from gene_info, for all candidates (the
     # hydrate step only covers the page); also fills variant.gene_pli for display.
     constraint_map = await _fetch_gene_constraint_metric_map(session, variants)
+
     for variant in variants:
         metrics = constraint_map.get(str(variant.id))
         if metrics:
@@ -4136,7 +4132,6 @@ async def _prioritized_small_variants_page(
             if variant.gene_missense_z is None:
                 variant.gene_missense_z = metrics.get("gene_missense_z")
 
-    for variant in variants:
         modes = modes_by_variant.get(str(variant.id), [])
         gene_score = phenotype_scores.get(variant.gene.upper()) if variant.gene else None
         phenotype_value = gene_score.score if gene_score else None
@@ -4150,6 +4145,7 @@ async def _prioritized_small_variants_page(
             gnomad_popmax_af=variant.population_frequencies.get("gnomad_popmax_af"),
             gnomad_af=variant.gnomad_af,
             segregation_modes=modes,
+            segregation_evaluated=segregation_evaluated,
             phenotype_score=phenotype_value,
             alpha_missense_class=variant.alpha_missense_class,
             alpha_missense_pathogenicity=variant.alpha_missense_pathogenicity,

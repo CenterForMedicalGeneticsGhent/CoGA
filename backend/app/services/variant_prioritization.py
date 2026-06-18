@@ -159,7 +159,12 @@ def frequency_score(
     return 0.0
 
 
-def segregation_weight(modes: list[str]) -> float:
+def segregation_weight(modes: list[str], *, evaluated: bool = True) -> float:
+    # When segregation cannot be evaluated (no affected individuals in the pedigree),
+    # it is neutral rather than a penalty — otherwise every variant would be uniformly
+    # down-weighted while phenotype is still scored, skewing the ranking.
+    if not evaluated:
+        return _SEG_WEIGHT_STRONG
     if any(mode in _STRONG_MODES for mode in modes):
         return _SEG_WEIGHT_STRONG
     if MODE_DOMINANT in modes:
@@ -191,6 +196,7 @@ def score_variant(
     gnomad_af: float | None,
     segregation_modes: list[str],
     phenotype_score: float | None,
+    segregation_evaluated: bool = True,
     alpha_missense_class: str | None = None,
     alpha_missense_pathogenicity: float | None = None,
     gene_pli: float | None = None,
@@ -209,7 +215,7 @@ def score_variant(
         gene_missense_z=gene_missense_z,
     )
     frequency = frequency_score(gnomad_popmax_af=gnomad_popmax_af, gnomad_af=gnomad_af)
-    seg_weight = segregation_weight(segregation_modes)
+    seg_weight = segregation_weight(segregation_modes, evaluated=segregation_evaluated)
     variant_score = pathogenicity * frequency * seg_weight
     combined = combine(variant_score, phenotype_score)
     return VariantScore(

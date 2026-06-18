@@ -18,6 +18,7 @@ See docs/monarch-integration.md.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -30,8 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 # IC is a function of the Monarch release only, so cache it process-wide with a TTL.
+# The lock makes the (heavy, ~265k-row) aggregate single-flight: concurrent first-hits
+# on a cold cache wait for one computation instead of all running it (thundering herd).
 _IC_CACHE_TTL_SECONDS = 3600.0
 _ic_cache: dict[str, Any] = {"expires_at": 0.0, "ic": None, "max_ic": 0.0}
+_ic_lock = asyncio.Lock()
 
 # Bounds to keep per-request scoring cheap even for genes with large phenotype sets.
 _MAX_GENE_TERMS = 200
@@ -46,49 +50,55 @@ class GenePhenotypeScore:
 
 async def _load_information_content(session: AsyncSession) -> tuple[dict[str, float], float]:
     """IC per HPO term, propagated to ancestors via the closure. Cached with a TTL."""
-    now = time.monotonic()
-    if _ic_cache["ic"] is not None and now < _ic_cache["expires_at"]:
+    if _ic_cache["ic"] is not None and time.monotonic() < _ic_cache["expires_at"]:
         return _ic_cache["ic"], _ic_cache["max_ic"]
 
-    total_result = await session.execute(
-        text(
-            "SELECT count(DISTINCT mondo_id) FROM monarch_disease_phenotype WHERE negated = FALSE"
-        )
-    )
-    total_diseases = int(total_result.scalar() or 0)
-    ic: dict[str, float] = {}
-    max_ic = 0.0
-    if total_diseases > 0:
-        # Disease count per term, propagated up the ontology: a disease "has" ancestor
-        # a when it is annotated to any descendant of a.
-        rows = await session.execute(
+    async with _ic_lock:
+        # Re-check after acquiring: another coroutine may have populated the cache while
+        # we waited, in which case we skip the expensive aggregate.
+        now = time.monotonic()
+        if _ic_cache["ic"] is not None and now < _ic_cache["expires_at"]:
+            return _ic_cache["ic"], _ic_cache["max_ic"]
+
+        total_result = await session.execute(
             text(
-                """
-                SELECT c.ancestor_id AS hpo_id, count(DISTINCT dp.mondo_id) AS disease_count
-                FROM monarch_disease_phenotype dp
-                JOIN hpo_closure c ON c.hpo_id = dp.hpo_id
-                WHERE dp.negated = FALSE
-                GROUP BY c.ancestor_id
-                """
+                "SELECT count(DISTINCT mondo_id) FROM monarch_disease_phenotype WHERE negated = FALSE"
             )
         )
-        for row in rows.mappings().all():
-            count = int(row["disease_count"] or 0)
-            if count <= 0:
-                continue
-            value = -math.log(count / total_diseases)
-            ic[row["hpo_id"]] = value
-            if value > max_ic:
-                max_ic = value
+        total_diseases = int(total_result.scalar() or 0)
+        ic: dict[str, float] = {}
+        max_ic = 0.0
+        if total_diseases > 0:
+            # Disease count per term, propagated up the ontology: a disease "has"
+            # ancestor a when it is annotated to any descendant of a.
+            rows = await session.execute(
+                text(
+                    """
+                    SELECT c.ancestor_id AS hpo_id, count(DISTINCT dp.mondo_id) AS disease_count
+                    FROM monarch_disease_phenotype dp
+                    JOIN hpo_closure c ON c.hpo_id = dp.hpo_id
+                    WHERE dp.negated = FALSE
+                    GROUP BY c.ancestor_id
+                    """
+                )
+            )
+            for row in rows.mappings().all():
+                count = int(row["disease_count"] or 0)
+                if count <= 0:
+                    continue
+                value = -math.log(count / total_diseases)
+                ic[row["hpo_id"]] = value
+                if value > max_ic:
+                    max_ic = value
 
-    # Don't cache an empty result (e.g. the table not yet populated) — otherwise the
-    # first call on a fresh/empty database would disable phenotype scoring for the full
-    # TTL even after a refresh fills the table.
-    if ic:
-        _ic_cache.update(
-            {"expires_at": now + _IC_CACHE_TTL_SECONDS, "ic": ic, "max_ic": max_ic}
-        )
-    return ic, max_ic
+        # Don't cache an empty result (e.g. the table not yet populated) — otherwise the
+        # first call on a fresh/empty database would disable phenotype scoring for the
+        # full TTL even after a refresh fills the table.
+        if ic:
+            _ic_cache.update(
+                {"expires_at": now + _IC_CACHE_TTL_SECONDS, "ic": ic, "max_ic": max_ic}
+            )
+        return ic, max_ic
 
 
 def reset_information_content_cache() -> None:

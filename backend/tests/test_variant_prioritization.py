@@ -126,6 +126,24 @@ def test_segregation_weight_prefers_strong_modes() -> None:
     assert segregation_weight([]) == 0.6
 
 
+def test_segregation_neutral_when_not_evaluated() -> None:
+    # No affected individuals -> segregation can't be evaluated -> neutral, not a penalty.
+    assert segregation_weight([], evaluated=False) == 1.0
+    assert segregation_weight([], evaluated=True) == 0.6
+    # A variant with no compatible mode is not penalised when segregation is unevaluable.
+    unevaluated = score_variant(
+        impact="MODERATE", clinvar=None, cadd_phred=None, revel=0.8, spliceai_max=None,
+        lof=None, gnomad_popmax_af=0.0, gnomad_af=0.0, segregation_modes=[],
+        phenotype_score=None, segregation_evaluated=False,
+    )
+    evaluated = score_variant(
+        impact="MODERATE", clinvar=None, cadd_phred=None, revel=0.8, spliceai_max=None,
+        lof=None, gnomad_popmax_af=0.0, gnomad_af=0.0, segregation_modes=[],
+        phenotype_score=None, segregation_evaluated=True,
+    )
+    assert unevaluated.variant_score > evaluated.variant_score
+
+
 def test_combine_phenotype_reorders_candidates() -> None:
     # Bounded in [0, 1] and monotonic in both axes.
     assert 0.0 <= combine(0.0, None) <= 1.0
