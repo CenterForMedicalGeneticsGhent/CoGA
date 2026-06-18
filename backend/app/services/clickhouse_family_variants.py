@@ -781,15 +781,23 @@ def _annotation_polyphen(annotation: dict[str, Any]) -> str | None:
     return _annotation_text(annotation, "polyphen", "polyphenPrediction")
 
 
+def _spliceai_delta(value: float | None) -> float | None:
+    """SpliceAI delta scores are in [0, 1]; out-of-range values are misparses (e.g. a
+    DP position field leaked in) and are dropped. Also corrects already-stored data."""
+    if value is None or not (0.0 <= value <= 1.0):
+        return None
+    return value
+
+
 def _annotation_spliceai_max(annotation: dict[str, Any]) -> float | None:
-    explicit = _annotation_float(annotation, "spliceai_max", "spliceaiMax")
+    explicit = _spliceai_delta(_annotation_float(annotation, "spliceai_max", "spliceaiMax"))
     if explicit is not None:
         return explicit
     values = [
-        _annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg"),
-        _annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl"),
-        _annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg"),
-        _annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl"),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg")),
+        _spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl")),
     ]
     present = [value for value in values if value is not None]
     return max(present) if present else None
@@ -2110,10 +2118,10 @@ def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
         revel=_annotation_float(annotation, "revel"),
         sift=_annotation_sift(annotation),
         polyphen=_annotation_polyphen(annotation),
-        spliceai_ds_ag=_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg"),
-        spliceai_ds_al=_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl"),
-        spliceai_ds_dg=_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg"),
-        spliceai_ds_dl=_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl"),
+        spliceai_ds_ag=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_ag", "spliceaiDsAg")),
+        spliceai_ds_al=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_al", "spliceaiDsAl")),
+        spliceai_ds_dg=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dg", "spliceaiDsDg")),
+        spliceai_ds_dl=_spliceai_delta(_annotation_float(annotation, "spliceai_ds_dl", "spliceaiDsDl")),
         spliceai_max=_annotation_spliceai_max(annotation),
         alpha_missense_pathogenicity=_annotation_float(
             annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
