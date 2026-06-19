@@ -140,6 +140,30 @@ DEFAULT_SMALL_VARIANT_TAGS: list[dict[str, str]] = [
         "description": "ACMG/AMP class 1 benign classification.",
     },
     {
+        "key": "acmg_vus_hot",
+        "label": "VUS — Hot",
+        "group": "classification",
+        "color": "#e11d48",
+        "sort_order": "131",
+        "description": "VUS leaning pathogenic (4–5 points) — MAGI-ACMG hot tier.",
+    },
+    {
+        "key": "acmg_vus_warm",
+        "label": "VUS — Warm",
+        "group": "classification",
+        "color": "#f59e0b",
+        "sort_order": "132",
+        "description": "VUS with intermediate evidence (2–3 points) — MAGI-ACMG warm tier.",
+    },
+    {
+        "key": "acmg_vus_cold",
+        "label": "VUS — Cold",
+        "group": "classification",
+        "color": "#38bdf8",
+        "sort_order": "133",
+        "description": "VUS leaning benign / low evidence (0–1 points) — MAGI-ACMG cold tier.",
+    },
+    {
         "key": "secondary_finding",
         "label": "Secondary finding",
         "group": "classification",
@@ -274,6 +298,7 @@ def _normalize_acmg_payload(
         "criteria": normalized_criteria,
         "point_total": point_total,
         "classification": class_label,
+        "vus_tier": acmg_points.vus_tier_for_points(point_total, class_key),
     }
     return blob, point_total, class_key
 

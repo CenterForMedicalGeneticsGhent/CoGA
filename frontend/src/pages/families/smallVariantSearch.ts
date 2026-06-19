@@ -8,6 +8,7 @@ import {
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
 import { parseGeneOrRegionInput } from '../../lib/variantSearch';
+import type { AcmgMitoContext } from '../../lib/acmg';
 
 export interface SmallVariantGenotype {
   sample?: string;
@@ -31,6 +32,8 @@ export interface AcmgReviewPayload {
   criteria: AcmgReviewCriterion[];
   point_total?: number | null;
   classification?: string | null;
+  // MAGI-ACMG VUS sub-tier ('hot' | 'warm' | 'cold'); only set when class is VUS.
+  vus_tier?: string | null;
 }
 
 export interface SmallVariantReview {
@@ -135,6 +138,9 @@ export interface SmallVariant {
   review?: SmallVariantReview | null;
   internal_cohort?: SmallVariantInternalCohort | null;
   priority?: SmallVariantPriority | null;
+  // mtDNA-specific ACMG context, attached by the mitochondrial page adapter for
+  // MT variants so the modal can run the mt-specific evaluator.
+  mito?: AcmgMitoContext | null;
 }
 
 export interface SmallVariantPriorityMatch {
@@ -378,6 +384,29 @@ export const ACMG_CLASSIFICATION_LABELS = Object.fromEntries(
   ACMG_CLASSIFICATION_TAGS.map((entry) => [entry.key, entry.label]),
 ) as Record<string, string>;
 export const REVIEW_CLASSIFICATION_OPTIONS = ACMG_CLASSIFICATION_TAGS.map((entry) => entry.label);
+
+// MAGI-ACMG VUS sub-tier tags. Auto-managed alongside the acmg_class_* tags so a
+// "hot VUS" is filterable/reportable through the existing review-tag pipeline.
+export const ACMG_VUS_TIER_TAGS = [
+  { key: 'acmg_vus_hot', label: 'VUS — Hot' },
+  { key: 'acmg_vus_warm', label: 'VUS — Warm' },
+  { key: 'acmg_vus_cold', label: 'VUS — Cold' },
+] as const;
+
+export const ACMG_VUS_TIER_TAG_KEYS = ACMG_VUS_TIER_TAGS.map((entry) => entry.key);
+
+export const ACMG_VUS_TIER_TAG_BY_TIER: Record<'hot' | 'warm' | 'cold', string> = {
+  hot: 'acmg_vus_hot',
+  warm: 'acmg_vus_warm',
+  cold: 'acmg_vus_cold',
+};
+
+// All ACMG-derived tags the modal owns automatically (class + VUS tier); these
+// are excluded from the manually-editable tag set and re-derived on each save.
+export const ACMG_AUTO_MANAGED_TAG_KEYS = [
+  ...ACMG_CLASSIFICATION_TAG_KEYS,
+  ...ACMG_VUS_TIER_TAG_KEYS,
+];
 
 export const COMPOUND_HET_PHASE_STATUS_LABELS: Record<string, string> = {
   likely_in_trans: 'Likely in trans',

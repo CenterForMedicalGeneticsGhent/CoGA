@@ -16,6 +16,7 @@ import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { getErrorMessage } from '../../lib/errorMessage';
 import AcmgClassificationModal from './AcmgClassificationModal';
+import type { AcmgMitoContext } from '../../lib/acmg';
 import type {
   SmallVariant,
   SmallVariantReview,
@@ -36,28 +37,52 @@ const isSynonymousVariant = (variant: ApiMitoDNAVariant): boolean =>
 
 // Adapt an MT variant to the SmallVariant shape the ACMG modal consumes. MT
 // variants live in the small-variant store, so the modal, its auto-evaluation
-// and the shared review endpoint all operate on the same identity.
-const toSmallVariantForAcmg = (variant: ApiMitoDNAVariant): SmallVariant => ({
-  _id: variant.variant_id,
-  chr: 'MT',
-  start: variant.position,
-  end: variant.position,
-  type: variant.type,
-  ref: variant.ref,
-  alt: variant.alt,
-  rsid: variant.rsid ?? undefined,
-  gene: variant.annotation.gene ?? undefined,
-  effect: variant.annotation.consequence ?? undefined,
-  gnomad_af: variant.annotation.gnomad_af ?? undefined,
-  review: variant.review ?? null,
-  genotypes: Object.values(variant.calls).map((call) => ({
-    sample: call.sample,
-    gt: call.genotype,
-    dp: call.depth ?? undefined,
-    af: call.allele_fraction != null ? [call.allele_fraction] : undefined,
-    ad: call.alt_depth != null ? [call.alt_depth] : undefined,
-  })),
-});
+// and the shared review endpoint all operate on the same identity. The `mito`
+// context carries the mtDNA-specific fields the mt evaluator (McCormick 2020)
+// needs — locus category, MITOMAP status, maternal transmission, heteroplasmy.
+const toSmallVariantForAcmg = (
+  variant: ApiMitoDNAVariant,
+  samples: ApiMitoDNASample[],
+): SmallVariant => {
+  const proband =
+    samples.find((s) => (s.role ?? '').toLowerCase() === 'proband') ??
+    samples.find((s) => s.affected);
+  return {
+    _id: variant.variant_id,
+    chr: 'MT',
+    start: variant.position,
+    end: variant.position,
+    type: variant.type,
+    ref: variant.ref,
+    alt: variant.alt,
+    rsid: variant.rsid ?? undefined,
+    gene: variant.annotation.gene ?? undefined,
+    effect: variant.annotation.consequence ?? undefined,
+    gnomad_af: variant.annotation.gnomad_af ?? undefined,
+    review: variant.review ?? null,
+    genotypes: Object.values(variant.calls).map((call) => ({
+      sample: call.sample,
+      gt: call.genotype,
+      dp: call.depth ?? undefined,
+      af: call.allele_fraction != null ? [call.allele_fraction] : undefined,
+      ad: call.alt_depth != null ? [call.alt_depth] : undefined,
+    })),
+    mito: {
+      category: (variant.annotation.category ?? null) as AcmgMitoContext['category'],
+      clinicalSignificance: variant.annotation.clinical_significance ?? null,
+      disorders: variant.annotation.disorders ?? [],
+      maternalTransmission: variant.maternal_transmission ?? null,
+      probandHaplogroup: proband?.haplogroup ?? null,
+      calls: Object.values(variant.calls).map((call) => ({
+        sampleId: call.sample,
+        role: call.role ?? undefined,
+        affected: call.affected ?? undefined,
+        zygosity: call.zygosity,
+        alleleFraction: call.allele_fraction ?? null,
+      })),
+    },
+  };
+};
 
 const samplesToMembers = (samples: ApiMitoDNASample[]): ApiFamilyMember[] =>
   samples.map((sample) => ({
@@ -789,7 +814,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
         <AcmgClassificationModal
           familyId={family.family_id}
           projectId={resolvedProjectId ?? undefined}
-          variant={toSmallVariantForAcmg(acmgVariant)}
+          variant={toSmallVariantForAcmg(acmgVariant, mtDNA.samples)}
           members={samplesToMembers(mtDNA.samples)}
           assemblyName={assemblyName ?? undefined}
           assemblyVersion={assemblyVersion ?? undefined}

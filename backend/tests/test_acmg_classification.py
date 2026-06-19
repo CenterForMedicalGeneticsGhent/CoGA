@@ -31,6 +31,40 @@ def test_point_bands_match_clingen_thresholds() -> None:
         assert class_key == expected_class
 
 
+def test_vus_sub_tier_bands() -> None:
+    # Cold 0–1, Warm 2–3, Hot 4–5; None outside the VUS band.
+    assert acmg_points.vus_tier_for_points(0, "acmg_class_3") == "cold"
+    assert acmg_points.vus_tier_for_points(1, "acmg_class_3") == "cold"
+    assert acmg_points.vus_tier_for_points(2, "acmg_class_3") == "warm"
+    assert acmg_points.vus_tier_for_points(3, "acmg_class_3") == "warm"
+    assert acmg_points.vus_tier_for_points(4, "acmg_class_3") == "hot"
+    assert acmg_points.vus_tier_for_points(5, "acmg_class_3") == "hot"
+    assert acmg_points.vus_tier_for_points(9, "acmg_class_4") is None
+    assert acmg_points.vus_tier_for_points(-2, "acmg_class_2") is None
+
+
+def test_normalize_stores_vus_tier_only_for_vus() -> None:
+    # PM2 supporting (1 pt) → VUS cold.
+    vus_blob, _, vus_class = _normalize_acmg_payload(
+        AcmgClassificationPayload(criteria=[crit("PM2", "supporting")])
+    )
+    assert vus_class == "acmg_class_3"
+    assert vus_blob["vus_tier"] == "cold"
+
+    # PS1 strong (4 pts) → VUS hot.
+    hot_blob, _, _ = _normalize_acmg_payload(
+        AcmgClassificationPayload(criteria=[crit("PS1", "strong")])
+    )
+    assert hot_blob["vus_tier"] == "hot"
+
+    # Likely Pathogenic → no tier.
+    lp_blob, _, lp_class = _normalize_acmg_payload(
+        AcmgClassificationPayload(criteria=[crit("PVS1", "very_strong"), crit("PM2", "supporting")])
+    )
+    assert lp_class == "acmg_class_4"
+    assert lp_blob["vus_tier"] is None
+
+
 def test_ba1_forces_benign_regardless_of_points() -> None:
     points, class_key, label = acmg_points.compute_classification(
         [

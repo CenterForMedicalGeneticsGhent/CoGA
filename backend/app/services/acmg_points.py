@@ -97,6 +97,22 @@ def class_key_for_points(points: int) -> str:
     return "acmg_class_1"
 
 
+def vus_tier_for_points(points: int, class_key: str) -> str | None:
+    """MAGI-ACMG VUS sub-tier over the Tavtigian VUS band (points 0–5).
+
+    Kept in parity with the frontend (score.vusTierForPoints): 4–5 hot · 2–3 warm
+    · 0–1 cold. Returns None unless the variant is a VUS (acmg_class_3).
+    """
+
+    if class_key != "acmg_class_3":
+        return None
+    if points >= 4:
+        return "hot"
+    if points >= 2:
+        return "warm"
+    return "cold"
+
+
 def compute_classification(
     criteria: Iterable[Mapping[str, object]],
 ) -> tuple[int, str, str]:
