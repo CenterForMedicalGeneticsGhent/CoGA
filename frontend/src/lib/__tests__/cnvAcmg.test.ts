@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildInitialCnvSelections,
   classKeyForPoints,
+  cnvGeneCountMode,
   cnvKindForType,
   computeCnvClassification,
   evaluateCnv,
@@ -37,6 +38,14 @@ describe('cnvAcmg evaluate', () => {
   it('suggests 1B for an intergenic event', () => {
     const suggestions = evaluateCnv({ type: 'DEL', gene: null });
     expect(suggestions.some((s) => s.code === '1B')).toBe(true);
+  });
+
+  it('counts all genes for deletions but only disrupted genes for inv/bnd/ins', () => {
+    expect(cnvGeneCountMode('DEL')).toBe('all');
+    expect(cnvGeneCountMode('DUP')).toBe('all');
+    expect(cnvGeneCountMode('INV')).toBe('disrupted');
+    expect(cnvGeneCountMode('BND')).toBe('disrupted');
+    expect(cnvGeneCountMode('INS')).toBe('disrupted');
   });
 
   it('suggests 2H for a constrained-gene loss', () => {

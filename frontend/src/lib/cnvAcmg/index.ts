@@ -13,7 +13,14 @@ export {
   cnvCriterionMap,
 } from './criteria';
 export { computeCnvClassification, classKeyForPoints } from './score';
-export { evaluateCnv, cnvKindForType, type CnvVariantInput } from './evaluate';
+export {
+  evaluateCnv,
+  cnvKindForType,
+  cnvGeneCountMode,
+  cnvGeneCountHint,
+  type CnvVariantInput,
+  type CnvGeneCountMode,
+} from './evaluate';
 
 interface SavedCnvCriterion {
   code: string;

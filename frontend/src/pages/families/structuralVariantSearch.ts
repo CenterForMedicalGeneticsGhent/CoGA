@@ -233,7 +233,8 @@ export const createEmptyStructuralFilters = (): StructuralFilterState => ({
   review_tags: '',
   exclude_review_tags: '',
   has_notes: '',
-  prioritize: '',
+  // Phenotype prioritization is on by default for the SV workbench.
+  prioritize: 'true',
 });
 
 const parseCommaSeparatedValues = (value: string) =>
@@ -295,7 +296,6 @@ const buildPresetSampleFilters = (
         gt = member.affected
           ? [...STRUCTURAL_HET_GT_GROUP, ...STRUCTURAL_HOM_GT_GROUP]
           : [...STRUCTURAL_REF_GT_GROUP];
-        read_support = '5';
       } else if (preset === 'recessive') {
         if (member.role === 'father' || member.role === 'mother') {
           gt = [...STRUCTURAL_HET_GT_GROUP];
@@ -304,7 +304,6 @@ const buildPresetSampleFilters = (
         } else {
           gt = [...STRUCTURAL_REF_GT_GROUP, ...STRUCTURAL_HET_GT_GROUP];
         }
-        read_support = '5';
       } else if (preset === 'any_affected') {
         gt = member.affected
           ? [...STRUCTURAL_HET_GT_GROUP, ...STRUCTURAL_HOM_GT_GROUP]
@@ -312,6 +311,8 @@ const buildPresetSampleFilters = (
       }
 
       qual = member.affected ? '20' : '';
+      // Require solid support for the call in affected individuals (proband ≥ 4).
+      read_support = member.affected ? '4' : '';
       filter = '';
       return [member.sample_id, { gt, qual, read_support, filter }];
     }),
@@ -322,8 +323,9 @@ const countActiveFilters = (
   sampleFilters: Record<string, StructuralSampleFilter>,
 ) => {
   const topLevel =
-    Object.entries(filters).filter(([key, value]) => key !== 'locus' && value.trim()).length +
-    (filters.locus.trim() ? 1 : 0);
+    Object.entries(filters).filter(
+      ([key, value]) => key !== 'locus' && key !== 'prioritize' && value.trim(),
+    ).length + (filters.locus.trim() ? 1 : 0);
 
   const sampleLevel = Object.values(sampleFilters).reduce((sum, filter) => {
     const genotypeActive =
@@ -468,6 +470,9 @@ const buildActiveFilterChips = (
   (Object.entries(filters) as [keyof StructuralFilterState, string][]).forEach(([key, value]) => {
     if (!value) return;
     if (skipDerivedLocusKeys?.has(key)) return;
+    // `prioritize` is a ranking mode shown in the Phenotype section, not a removable
+    // filter chip.
+    if (key === 'prioritize') return;
     chips.push({
       id: `top:${key}`,
       label:
@@ -661,6 +666,8 @@ export const useStructuralVariantSearchState = ({
   const applyPreset = (preset: StructuralPreset) => {
     if (!orderedMembers.length) return;
     setSampleDraftFilters(buildPresetSampleFilters(preset, orderedMembers));
+    // Inheritance presets are always paired with a rare population-frequency cut (<1%).
+    setDraftFilters((prev) => ({ ...prev, max_population_af: '0.01' }));
   };
 
   const applySavedPreset = (preset: StructuralVariantFilterPreset) => {

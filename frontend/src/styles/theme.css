@@ -10436,6 +10436,82 @@ a.button-danger:hover {
   color: var(--color-accent);
 }
 
+/* ClinGen CNV classification modal — compact, column-aligned criteria. */
+.acmg-criteria-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.cnv-section-hint {
+  font-size: 0.68rem;
+  color: var(--color-accent);
+  margin: 0;
+}
+
+.cnv-criteria-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.cnv-criterion-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.2rem minmax(7rem, 1.1fr);
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-grid);
+  border-radius: 7px;
+  background: var(--color-surface);
+  font-size: 0.72rem;
+}
+
+.cnv-criterion-row--active {
+  border-color: var(--color-accent);
+  background: rgba(130, 147, 163, 0.12);
+}
+
+.cnv-criterion-main {
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin: 0;
+}
+
+.cnv-criterion-text {
+  line-height: 1.25;
+}
+
+.cnv-auto-chip {
+  margin-left: 0.35rem;
+  font-size: 0.55rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cnv-points-input {
+  width: 100%;
+  padding: 0.15rem 0.3rem;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cnv-evidence-field {
+  width: 100%;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.7rem;
+}
+
+@media (max-width: 640px) {
+  .cnv-criterion-row {
+    grid-template-columns: minmax(0, 1fr) 4rem;
+  }
+  .cnv-evidence-field {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Family columns — scale from 2 up to 7 (one per ACMG family) so a wide modal
    shows every family side by side in a single row, keeping the modal short. */
 .acmg-family-grid {

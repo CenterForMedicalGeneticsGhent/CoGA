@@ -226,35 +226,40 @@ const StructuralVariantFilterForm = ({
             </button>
             <select
               className="variant-saved-filter-select"
-              aria-label="Saved search"
+              aria-label="Preset or saved search"
               value={selectedPreset}
               onChange={(event) => {
                 const value = event.target.value;
                 setSelectedPreset(value);
                 if (!value) return;
-                const preset = presets.find((entry) => entry._id === value);
-                // Selecting a saved search populates the draft; the single
+                // Selecting a preset/saved search populates the draft; the single
                 // "Apply filters" button runs the search.
+                if (value.startsWith('built-in:')) {
+                  applyPreset(value.replace('built-in:', '') as StructuralPreset);
+                  return;
+                }
+                const preset = presets.find((entry) => `saved:${entry._id}` === value);
                 if (preset) applySavedPreset(preset);
               }}
             >
-              <option value="">Saved filters</option>
-              {presets.map((preset) => (
-                <option key={preset._id} value={preset._id}>
-                  {preset.name} ({getPresetScopeLabel(preset.scope)}, {countPresetRules(preset)})
-                </option>
-              ))}
+              <option value="">Preset or saved search</option>
+              <optgroup label="Inheritance presets (rare, &lt;1% population AF)">
+                {PRESETS.map((preset) => (
+                  <option key={preset.value} value={`built-in:${preset.value}`}>
+                    {preset.label}
+                  </option>
+                ))}
+              </optgroup>
+              {presets.length ? (
+                <optgroup label="Saved searches">
+                  {presets.map((preset) => (
+                    <option key={preset._id} value={`saved:${preset._id}`}>
+                      {preset.name} ({getPresetScopeLabel(preset.scope)}, {countPresetRules(preset)})
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </select>
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                className="analysis-pill analysis-pill-button"
-                onClick={() => applyPreset(preset.value)}
-              >
-                {preset.label}
-              </button>
-            ))}
             <button type="button" className="button-secondary" onClick={handleReset}>
               Clear all filters
             </button>
@@ -317,12 +322,11 @@ const StructuralVariantFilterForm = ({
               <button
                 key={chip.id}
                 type="button"
-                className="variant-filter-chip"
+                className="badge-chip variant-filter-chip"
                 onClick={() => removeActiveFilterChip(chip)}
                 title="Remove filter"
               >
                 {getActiveChipLabel(chip)}
-                <span aria-hidden="true">×</span>
               </button>
             ))}
           </div>
