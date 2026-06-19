@@ -1303,6 +1303,24 @@ class AcmgClassificationPayload(BaseModel):
     vus_tier: Optional[str] = None
 
 
+class CnvAcmgCriterion(BaseModel):
+    code: str
+    points: float = 0.0
+    accepted: bool = False
+    evidence: Optional[str] = None
+    auto_suggested: bool = False
+
+
+class CnvAcmgClassificationPayload(BaseModel):
+    """ClinGen 2019 copy-number classification (structural variants only)."""
+
+    kind: Literal["loss", "gain"] = "loss"
+    criteria: List[CnvAcmgCriterion] = Field(default_factory=list)
+    # Derived fields; recomputed server-side on write so they cannot drift.
+    point_total: Optional[float] = None
+    classification: Optional[str] = None
+
+
 class SmallVariantReviewOut(BaseModel):
     variant_id: str
     classification: Optional[str] = None
@@ -1313,6 +1331,8 @@ class SmallVariantReviewOut(BaseModel):
     updated_at: Optional[datetime] = None
     compound_het: Optional[SmallVariantCompoundHetReviewOut] = None
     acmg: Optional[AcmgClassificationPayload] = None
+    # CNV (ClinGen) classification — only populated for structural-variant reviews.
+    cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
 
 
 class SmallVariantReviewUpdate(BaseModel):
@@ -1321,6 +1341,8 @@ class SmallVariantReviewUpdate(BaseModel):
     note: Optional[str] = None
     compound_het: Optional[SmallVariantCompoundHetReviewUpdate] = None
     acmg: Optional[AcmgClassificationPayload] = None
+    # CNV (ClinGen) classification — only populated for structural-variant reviews.
+    cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
 
 
 class SmallVariantReviewSummaryOut(BaseModel):
