@@ -213,10 +213,12 @@ export default function StructuralVariantTable({
               const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
               const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
               const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
+              const hasReportTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
               const visibleReviewTags = sortedReviewTags.filter(
                 (tagKey) =>
                   tagKey !== COLLABORATION_QUICK_TAGS.review &&
-                  tagKey !== COLLABORATION_QUICK_TAGS.excluded,
+                  tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
+                  tagKey !== COLLABORATION_QUICK_TAGS.report,
               );
               const normalizedClassification = normalizeReviewClassification(
                 variant.review?.classification,
@@ -326,6 +328,17 @@ export default function StructuralVariantTable({
                         }}
                       >
                         Exclude
+                      </button>
+                      <button
+                        type="button"
+                        className={`variant-quick-toggle${hasReportTag ? ' variant-quick-toggle--active' : ''}`}
+                        disabled={reviewIsPending || !onToggleReviewTag}
+                        title="Flag this SV for the family clinical report"
+                        onClick={() => {
+                          void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.report);
+                        }}
+                      >
+                        Report
                       </button>
                       <button
                         type="button"

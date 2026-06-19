@@ -4691,6 +4691,37 @@ async def export_family_small_variants(
     return rows[:limit]
 
 
+_MAX_STRUCTURAL_VARIANT_EXPORT_ROWS = 50_000
+
+
+async def export_family_structural_variants(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    limit: int = _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS,
+    prioritize: bool = False,
+    **filters: Any,
+) -> list[VariantOut]:
+    """Fetch up to ``limit`` filtered structural variants for CSV export.
+
+    Reuses :func:`get_family_structural_variants_page` with the same filters as the
+    table (so ``review_tag=report`` exports exactly the reported set), but requests a
+    single large page instead of paginating.
+    """
+
+    limit = max(1, min(limit, _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS))
+    page = await get_family_structural_variants_page(
+        session,
+        context=context,
+        page=1,
+        page_size=limit,
+        prioritize=prioritize,
+        track_mode=False,
+        **filters,
+    )
+    return page.variants[:limit]
+
+
 def _structural_segregation_modes(annotation_extra: dict[str, Any]) -> list[str]:
     """Derive coarse segregation modes from the SV's annotated inheritance.
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import api from '../../lib/api';
 import ResultsPagination from './ResultsPagination';
 import StructuralVariantCards from './StructuralVariantCards';
 import StructuralVariantColumnControls from './StructuralVariantColumnControls';
@@ -59,6 +60,8 @@ export default function StructuralVariantResults({
 }: StructuralVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<StructuralVariant | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [visible, setVisible] = useState({
     chr: true,
     start: true,
@@ -114,6 +117,33 @@ export default function StructuralVariantResults({
   const toggleColumn = (key: string) =>
     setVisible((current) => ({ ...current, [key]: !current[key as keyof typeof current] }));
 
+  const handleDownloadCsv = async () => {
+    if (!familyId) return;
+    setExportError(null);
+    setIsExporting(true);
+    try {
+      const exportSearch = linkSearch || '';
+      const separator = exportSearch ? '&' : '?';
+      const projectSuffix = projectId ? `${separator}project_id=${projectId}` : '';
+      const res = await api.get(
+        `/families/${familyId}/structural-variants/export${exportSearch}${projectSuffix}`,
+        { responseType: 'blob' },
+      );
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `family-${familyId}-structural-variants.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setExportError('Could not export structural variants. Try narrowing your filters and retry.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <>
       <section className="surface-card space-y-4">
@@ -125,25 +155,42 @@ export default function StructuralVariantResults({
               SVs. Auto view switches to cards at {CARD_VIEW_THRESHOLD} results.
             </p>
           </div>
-          <div className="variant-results-toggle" role="tablist" aria-label="SV display mode">
-            {[
-              { value: 'auto', label: 'Auto' },
-              { value: 'table', label: 'Table' },
-              { value: 'cards', label: 'Cards' },
-            ].map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="tab"
-                aria-selected={viewMode === option.value}
-                className={`pill-toggle ${viewMode === option.value ? 'pill-toggle--active' : ''}`}
-                onClick={() => setViewMode(option.value as ResultViewMode)}
-              >
-                {option.label}
-              </button>
-            ))}
+          <div className="variant-results-toolbar-actions">
+            <button
+              type="button"
+              className="button-secondary variant-explorer-download"
+              onClick={handleDownloadCsv}
+              disabled={isExporting || !variants.length}
+              title="Download all filtered structural variants with annotation data as CSV"
+            >
+              {isExporting ? 'Preparing…' : 'Download CSV'}
+            </button>
+            <div className="variant-results-toggle" role="tablist" aria-label="SV display mode">
+              {[
+                { value: 'auto', label: 'Auto' },
+                { value: 'table', label: 'Table' },
+                { value: 'cards', label: 'Cards' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={viewMode === option.value}
+                  className={`pill-toggle ${viewMode === option.value ? 'pill-toggle--active' : ''}`}
+                  onClick={() => setViewMode(option.value as ResultViewMode)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
+
+        {exportError ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--error">
+            {exportError}
+          </div>
+        ) : null}
 
         <StructuralVariantSummaryTable summary={summary} />
 
