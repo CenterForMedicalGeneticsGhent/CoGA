@@ -46,6 +46,24 @@ On save the computed class is written to the variant's `classification` and the
 matching `acmg_class_N` review tag (so cards and summaries reflect it), and the
 full per-criterion blob is persisted for audit and reuse.
 
+### VUS sub-tiers (hot / warm / cold)
+
+Following the MAGI-ACMG approach, the VUS band (points 0–5) is split into three
+tiers by proximity to the Likely-Pathogenic threshold (6):
+
+| Points | VUS sub-tier | Tag             | Reading                                   |
+| ------ | ------------ | --------------- | ----------------------------------------- |
+| 4 … 5  | **Hot**      | `acmg_vus_hot`  | Leans pathogenic; chase more evidence.    |
+| 2 … 3  | **Warm**     | `acmg_vus_warm` | Intermediate / mixed evidence.            |
+| 0 … 1  | **Cold**     | `acmg_vus_cold` | Little pathogenic support.                |
+
+The tier is computed alongside the class (frontend `score.vusTierForPoints`,
+backend `acmg_points.vus_tier_for_points`, kept in parity) and is `null` for any
+non-VUS class. It is shown as a chip on the scale bar and, on save, written back as
+an `acmg_vus_<tier>` review tag next to `acmg_class_3` — so a "hot VUS" is
+filterable through the ordinary review-tag pipeline. Reclassifying a variant out of
+the VUS band clears the tier and its tag.
+
 ---
 
 ## Criterion states
@@ -86,7 +104,7 @@ HPO annotations (`GET /families/{id}/hpo`).
 | **BP7** | Applied (Supporting) | Synonymous variant with SpliceAI max Δ < 0.1 (no predicted splice impact). |
 | **PP5** | Applied (Supporting) | ClinVar reports this exact variant pathogenic / likely pathogenic. Flags **BP6** *argues against*. |
 | **BP6** | Applied (Supporting) | ClinVar reports this exact variant benign / likely benign. Flags **PP5** *argues against*. |
-| **PP4** | Applied (Supporting) | Proband "present" HPO terms overlap the gene's HPO associations. |
+| **PP4** | Applied (Supporting / Moderate) | Phenotype specific for the gene. When a Monarch gene↔proband phenotype-match score is present (set by phenotype prioritisation), strength scales: ≥ 0.6 Moderate, ≥ 0.3 Supporting, below that not suggested. Without a score, falls back to a direct proband-HPO ∩ gene-HPO overlap at Supporting. Auto-capped at Moderate; raise to Strong manually for a highly specific single-gene phenotype. |
 | **PM6** | Applied (Moderate) | Trio: variant present in the proband, absent in **both** sequenced parents (assumed de novo; parentage not molecularly confirmed — upgrade to PS2 manually if it is). |
 | **PP1** | Consider (Supporting) | Variant carried by ≥ 2 affected family members (cosegregation). |
 | **BS4** | Consider (Strong) | An affected relative does **not** carry the variant (lack of segregation). |
@@ -161,6 +179,35 @@ analyst:
 
 ---
 
+## Mitochondrial (mtDNA) variants
+
+Opening **ACMG classify** on a variant from the family **mtDNA analysis** routes
+to a dedicated mt-specific evaluator (`frontend/src/lib/acmg/evaluateMito.ts`,
+after the ClinGen/Wong–McCormick 2020 mtDNA specifications) instead of the nuclear
+`evaluate.ts`. The selection is by `chr === 'MT'`; the points scale, the five
+classes and the VUS sub-tiers are identical — only the pre-evaluation changes,
+because mtDNA is haploid and maternally inherited and the nuclear in-silico
+predictors are not computed for it.
+
+| Criterion | mtDNA behaviour |
+| --------- | --------------- |
+| **PVS1** | Applies only to predicted-null changes in a **protein-coding** mt gene; `not_applicable` for tRNA / rRNA / control-region loci. |
+| **PM2 / BS1 / BA1** | gnomAD-MT thresholds: `MT_BA1_AF = 0.005` (stand-alone), `MT_BS1_AF = 2e-4`, `MT_PM2_AF = 2e-5` / absent. A MITOMAP common polymorphism (or haplogroup marker) is routed to **BS1**. |
+| **PP5 / BP6** | From MITOMAP / ClinVar `clinical_significance` (pathogenic → PP5; benign / polymorphism → BP6), mutually contraindicating. |
+| **PP3 / BP4** | `not_applicable` — mt predictors (MitoTIP / APOGEE / HmtVar) are not yet loaded, so nothing is auto-applied. |
+| **PM1** | `consider` (Moderate) for tRNA loci. |
+| **PS2 / PM6** | `not_applicable` — maternally inherited, so de novo does not apply. |
+| **PP1 / BS4** | Maternal segregation from the maternal-line calls + heteroplasmy/zygosity (≥ 2 affected maternal carriers → PP1; an affected relative lacking the variant → BS4). |
+| **PP4** | Proband HPO ∩ gene HPO, noting the proband's heteroplasmy level. |
+| Nuclear-only (PP2, PM5, PM3, PM4, BP1–3, BP7, BS2) | `not_applicable`. |
+
+mt context (locus category, MITOMAP status, disorders, maternal transmission,
+haplogroup, per-call heteroplasmy) is carried on `SmallVariant.mito`, populated by
+the `toSmallVariantForAcmg` adapter in
+`frontend/src/pages/families/FamilyMitoDNAAnalysisPage.tsx`.
+
+---
+
 ## External evidence links
 
 The modal header carries quick links for the variant:
@@ -180,13 +227,19 @@ The modal header carries quick links for the variant:
 - The save reuses `PUT /families/{family_id}/small-variants/{variant_id}/review`.
   The server validates criterion codes and **recomputes** `acmg_point_total` /
   `acmg_class` from the submitted criteria (`backend/app/services/acmg_points.py`,
-  which mirrors the frontend scorer and is parity-tested).
+  which mirrors the frontend scorer and is parity-tested). The recomputed blob also
+  stores `vus_tier` (`acmg_points.vus_tier_for_points`).
+- The VUS-tier tags (`acmg_vus_hot` / `acmg_vus_warm` / `acmg_vus_cold`) are system
+  tags seeded from `DEFAULT_SMALL_VARIANT_TAGS` in
+  `backend/app/services/small_variant_review_pg.py` — no migration needed. The modal
+  manages them automatically alongside the `acmg_class_*` tags.
 - Frontend engine: `frontend/src/lib/acmg/` (`criteria.ts`, `score.ts`,
-  `evaluate.ts`, `index.ts`) — pure and unit-tested. UI:
+  `evaluate.ts`, `evaluateMito.ts`, `index.ts`) — pure and unit-tested. UI:
   `frontend/src/pages/families/AcmgClassificationModal.tsx` +
   `AcmgScaleBar.tsx`.
 
-### Scope (v1)
+### Scope
 
-Family small-variants page only. The global Variant Explorer and structural
-variants share the review payload type and are a straightforward follow-up.
+Family small-variants page **and** the family mtDNA analysis page (via the
+mt-specific evaluator). The global Variant Explorer and structural variants share
+the review payload type and are a straightforward follow-up.
