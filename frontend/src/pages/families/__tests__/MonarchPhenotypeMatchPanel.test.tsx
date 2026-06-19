@@ -42,6 +42,8 @@ describe('MonarchPhenotypeMatchPanel', () => {
             category: 'biolink:Gene',
             symbol: 'TG',
             gene_in_platform: true,
+            matching_phenotypes: [{ hpo_id: 'HP:0000851', label: 'Congenital hypothyroidism' }],
+            extra_phenotypes: [{ hpo_id: 'HP:0000823', label: 'Delayed puberty' }],
           },
           {
             rank: 2,
@@ -51,6 +53,8 @@ describe('MonarchPhenotypeMatchPanel', () => {
             category: 'biolink:Gene',
             symbol: 'IYD',
             gene_in_platform: false,
+            matching_phenotypes: [],
+            extra_phenotypes: [],
           },
         ],
       },
@@ -69,7 +73,12 @@ describe('MonarchPhenotypeMatchPanel', () => {
       '/genes?gene=TG&family_id=fam-1&project_id=proj-1',
     );
     expect(screen.getByText(/Ranked from 2 observed phenotypes/i)).toBeInTheDocument();
-    expect(screen.getByText(/score 12.34/i)).toBeInTheDocument();
+    // Four-column table: gene, score, matching and extra HPO terms.
+    expect(screen.getByRole('columnheader', { name: /matching hpo terms/i })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /extra hpo terms/i })).toBeInTheDocument();
+    expect(screen.getByText('12.34')).toBeInTheDocument();
+    expect(screen.getByText('Congenital hypothyroidism')).toBeInTheDocument();
+    expect(screen.getByText('Delayed puberty')).toBeInTheDocument();
     // Not-in-platform gene is shown but not linked.
     expect(screen.queryByRole('link', { name: 'IYD' })).not.toBeInTheDocument();
     expect(screen.getByText(/not in platform/i)).toBeInTheDocument();

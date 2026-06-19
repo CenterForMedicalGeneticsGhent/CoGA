@@ -581,6 +581,84 @@ async def family_observed_phenotype_closure(
     return observed
 
 
+async def phenotype_closure(
+    session: AsyncSession, hpo_ids: Iterable[str]
+) -> set[str]:
+    """Expand a set of HPO ids to include all of their ancestors.
+
+    A disease/gene phenotype term counts as observed by the family when the family
+    has that term or any more specific descendant of it, so we match against the
+    ancestor closure of the family's present terms.
+    """
+    ids = sorted({hpo_id for hpo_id in hpo_ids if hpo_id})
+    if not ids:
+        return set()
+    result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT ancestor_id
+            FROM hpo_closure
+            WHERE hpo_id = ANY(:ids)
+            """
+        ),
+        {"ids": ids},
+    )
+    closure = {row["ancestor_id"] for row in result.mappings().all()}
+    closure.update(ids)  # exact terms count even without self-closure rows
+    return closure
+
+
+async def gene_phenotype_breakdown(
+    session: AsyncSession,
+    *,
+    symbols: Iterable[str],
+    observed_closure: set[str],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Split each gene's Monarch phenotypes into family-matching vs extra.
+
+    For every symbol, unions the expected phenotypes across the gene's Monarch
+    diseases and partitions them by whether the term is in ``observed_closure`` (the
+    family's observed phenotypes plus their ancestors). Returns
+    ``{UPPER_SYMBOL: {"matching": [{hpo_id, label}], "extra": [...]}}`` with each
+    list sorted by label.
+    """
+    upper_symbols = sorted({symbol.upper() for symbol in symbols if symbol})
+    out: dict[str, dict[str, list[dict[str, Any]]]] = {
+        symbol: {"matching": [], "extra": []} for symbol in upper_symbols
+    }
+    if not upper_symbols:
+        return out
+
+    result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT gd.gene_symbol, dp.hpo_id, dp.phenotype_label
+            FROM monarch_gene_disease gd
+            JOIN monarch_disease_phenotype dp ON dp.mondo_id = gd.mondo_id
+            WHERE upper(gd.gene_symbol) = ANY(:symbols)
+              AND dp.negated = FALSE
+            """
+        ),
+        {"symbols": upper_symbols},
+    )
+    seen: dict[str, set[str]] = {symbol: set() for symbol in upper_symbols}
+    for row in result.mappings().all():
+        key = (row["gene_symbol"] or "").upper()
+        bucket = out.get(key)
+        if bucket is None:
+            continue
+        hpo_id = row["hpo_id"]
+        if hpo_id in seen[key]:
+            continue
+        seen[key].add(hpo_id)
+        term = {"hpo_id": hpo_id, "label": row["phenotype_label"]}
+        bucket["matching" if hpo_id in observed_closure else "extra"].append(term)
+    for bucket in out.values():
+        for terms in bucket.values():
+            terms.sort(key=lambda item: (item["label"] or item["hpo_id"]).lower())
+    return out
+
+
 async def summarize_disease_phenotypes(
     session: AsyncSession,
     *,
