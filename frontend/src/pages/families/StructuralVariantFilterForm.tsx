@@ -220,10 +220,22 @@ const StructuralVariantFilterForm = ({
       <div className="variant-search-header">
         <div className="variant-search-meta">
           <div className="variant-search-toolbar">
+            <button type="submit" className="form-button">
+              Apply filters
+            </button>
             <select
               className="variant-saved-filter-select"
+              aria-label="Saved search"
               value={selectedPreset}
-              onChange={(event) => setSelectedPreset(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedPreset(value);
+                if (!value) return;
+                const preset = presets.find((entry) => entry._id === value);
+                // Selecting a saved search populates the draft; the single
+                // "Apply filters" button runs the search.
+                if (preset) applySavedPreset(preset);
+              }}
             >
               <option value="">Saved filters</option>
               {presets.map((preset) => (
@@ -232,17 +244,6 @@ const StructuralVariantFilterForm = ({
                 </option>
               ))}
             </select>
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={!selectedPreset}
-              onClick={() => {
-                const preset = presets.find((entry) => entry._id === selectedPreset);
-                if (preset) applySavedPreset(preset);
-              }}
-            >
-              Apply saved
-            </button>
             {PRESETS.map((preset) => (
               <button
                 key={preset.value}
@@ -750,12 +751,6 @@ const StructuralVariantFilterForm = ({
           </details>
         </div>
       </section>
-
-      <div className="variant-search-actions">
-        <button type="submit" className="form-button">
-          Apply filters
-        </button>
-      </div>
     </form>
   );
 };

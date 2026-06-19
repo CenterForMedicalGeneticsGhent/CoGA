@@ -660,7 +660,9 @@ export const useStructuralVariantSearchState = ({
     if (!orderedMembers.length) return;
     const nextFilters = deserializeStructuralPresetFilters(preset.filters);
     const nextSampleFilters = resolveStructuralSampleFiltersFromPreset(preset, orderedMembers);
-    applySearchState(nextFilters, nextSampleFilters, 1);
+    // Populate the draft only; the single "Apply filters" button runs the search.
+    setDraftFilters(nextFilters);
+    setSampleDraftFilters(cloneSampleFilters(nextSampleFilters));
   };
 
   const handleSearch = (event: FormEvent) => {
