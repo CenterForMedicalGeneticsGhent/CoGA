@@ -351,19 +351,20 @@ const SmallVariantFilterForm = ({
     return Number(value) === Number(target);
   };
 
-  const applySelectedQuickPreset = () => {
-    if (!selectedQuickPreset) return;
-    if (selectedQuickPreset.startsWith('built-in:')) {
-      applyPreset(selectedQuickPreset.replace('built-in:', '') as SmallPreset);
-      setSelectedQuickPreset('');
+  // Selecting a preset populates the draft filters immediately (chips + sample
+  // thresholds update) so the user can review/tweak before hitting Apply. The
+  // single "Apply filters" button is what actually runs the search.
+  const populateFromQuickPreset = (value: string) => {
+    setSelectedQuickPreset(value);
+    if (!value) return;
+    if (value.startsWith('built-in:')) {
+      applyPreset(value.replace('built-in:', '') as SmallPreset);
       return;
     }
-
-    const preset = presets.find((entry) => `saved:${entry._id}` === selectedQuickPreset);
+    const preset = presets.find((entry) => `saved:${entry._id}` === value);
     if (preset) {
       applySavedPreset(preset);
     }
-    setSelectedQuickPreset('');
   };
 
   const setSampleQualityThresholds = (thresholds: {
@@ -757,12 +758,15 @@ const SmallVariantFilterForm = ({
       <div className="variant-search-header">
         <div className="variant-search-meta">
           <div className="variant-search-toolbar">
+            <button type="submit" className="form-button">
+              Apply filters
+            </button>
             {familyAware ? (
               <>
                 <select
                   aria-label="Preset or saved search"
                   value={selectedQuickPreset}
-                  onChange={(event) => setSelectedQuickPreset(event.target.value)}
+                  onChange={(event) => populateFromQuickPreset(event.target.value)}
                 >
                   <option value="">Preset or saved search</option>
                   <optgroup label="Built-in presets">
@@ -782,14 +786,6 @@ const SmallVariantFilterForm = ({
                     </optgroup>
                   ) : null}
                 </select>
-                <button
-                  type="button"
-                  className="button-secondary"
-                  disabled={!selectedQuickPreset}
-                  onClick={applySelectedQuickPreset}
-                >
-                  Apply selection
-                </button>
                 <button
                   type="button"
                   className="button-secondary"
@@ -865,7 +861,7 @@ const SmallVariantFilterForm = ({
               <button
                 key={chip.id}
                 type="button"
-                className="variant-filter-chip"
+                className="badge-chip variant-filter-chip"
                 onClick={() => removeActiveFilterChip(chip)}
               >
                 {getActiveChipLabel(chip)}
@@ -1761,12 +1757,6 @@ const SmallVariantFilterForm = ({
           </details>
         </div>
       </section>
-
-      <div className="variant-search-actions">
-        <button type="submit" className="form-button">
-          Apply filters
-        </button>
-      </div>
     </form>
   );
 };
