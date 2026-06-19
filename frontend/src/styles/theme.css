@@ -8475,6 +8475,14 @@ a.button-danger:hover {
   color: var(--color-text-muted);
 }
 
+.field-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--color-text-muted);
+}
+
 .eyebrow-label {
   font-size: 0.7rem;
   font-weight: 700;

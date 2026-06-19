@@ -229,6 +229,7 @@ const FamilyPackageImportPanel: React.FC = () => {
         folder_path: folderPath.trim(),
         manifest_yaml: manifestYaml,
         overwrite: manifestOverwrite,
+        family_id: targetFamilyId || null,
       });
       return response.data as ManifestWriteResult;
     },
@@ -422,13 +423,19 @@ const FamilyPackageImportPanel: React.FC = () => {
 
         <div className="grid gap-4 xl:grid-cols-4">
           <label className="field-label" htmlFor="family-package-ped">
-            PED path
+            PED path{targetMode === 'existing' ? ' (optional)' : ''}
             <input
               id="family-package-ped"
               value={pedPath}
               onChange={(event) => setPedPath(event.target.value)}
-              placeholder="family.ped"
+              placeholder={targetMode === 'existing' ? 'Defaults to existing family structure' : 'family.ped'}
             />
+            {targetMode === 'existing' ? (
+              <span className="field-hint">
+                Not required — the pedigree is taken from the configured family. Provide a PED only
+                to override it; mismatched samples are rejected.
+              </span>
+            ) : null}
           </label>
           <label className="field-label" htmlFor="family-package-scheme">
             Naming scheme

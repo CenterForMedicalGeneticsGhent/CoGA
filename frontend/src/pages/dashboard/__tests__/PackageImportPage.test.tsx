@@ -212,6 +212,7 @@ describe('PackageImportPage', () => {
         folder_path: '/data/FAM-100',
         manifest_yaml: 'schema_version: 1\nfamily_id: FAM-100\nped: family.ped\n',
         overwrite: false,
+        family_id: null,
       })
     );
     expect(screen.getByText(/wrote \/data\/fam-100\/manifest.yaml/i)).toBeInTheDocument();

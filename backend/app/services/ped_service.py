@@ -126,6 +126,91 @@ def _build_ped_text_from_manual_family(family: ManualPedFamilyCreate) -> str:
     )
 
 
+_PED_ROLE_SORT_RANK = {"father": 0, "mother": 1, "proband": 2, "sibling": 3}
+
+
+async def build_pedigree_text(session: AsyncSession, *, family_id: str) -> str:
+    """Reconstruct PED text for a family from its current database structure.
+
+    Uses the live ``family_members`` / ``family_relationships`` / ``samples`` rows
+    rather than the stored ``families.pedigree`` blob, so the result reflects any
+    edits made through the family workspace after the original import.
+    """
+    member_result = await session.execute(
+        text(
+            """
+            SELECT
+                s.sample_id,
+                s.sex,
+                fm.clinical_status,
+                fm.role
+            FROM families f
+            JOIN family_members fm ON fm.family_id = f.id
+            JOIN samples s ON s.id = fm.sample_id
+            WHERE f.family_id = :family_id
+              AND fm.active IS NOT FALSE
+            ORDER BY
+                CASE fm.role
+                    WHEN 'father' THEN 0
+                    WHEN 'mother' THEN 1
+                    WHEN 'proband' THEN 2
+                    WHEN 'sibling' THEN 3
+                    ELSE 4
+                END,
+                lower(s.sample_id)
+            """
+        ),
+        {"family_id": family_id},
+    )
+    members = member_result.mappings().all()
+    if not members:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Family '{family_id}' was not found or has no members",
+        )
+
+    relationship_result = await session.execute(
+        text(
+            """
+            SELECT
+                sa.sample_id AS parent_id,
+                sb.sample_id AS child_id,
+                fr.role_a
+            FROM families f
+            JOIN family_relationships fr ON fr.family_id = f.id
+            JOIN samples sa ON sa.id = fr.sample_id_a
+            JOIN samples sb ON sb.id = fr.sample_id_b
+            WHERE f.family_id = :family_id
+              AND fr.relationship_type = 'parent_child'
+              AND fr.active IS NOT FALSE
+            """
+        ),
+        {"family_id": family_id},
+    )
+    father_by_child: dict[str, str] = {}
+    mother_by_child: dict[str, str] = {}
+    for row in relationship_result.mappings().all():
+        if row["role_a"] == "father":
+            father_by_child[row["child_id"]] = row["parent_id"]
+        elif row["role_a"] == "mother":
+            mother_by_child[row["child_id"]] = row["parent_id"]
+
+    lines = [
+        " ".join(
+            [
+                family_id,
+                member["sample_id"],
+                father_by_child.get(member["sample_id"], "0"),
+                mother_by_child.get(member["sample_id"], "0"),
+                _sex_code_from_label(member["sex"]),
+                _phenotype_code_from_clinical_status(member["clinical_status"] or "unknown"),
+            ]
+        )
+        for member in members
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _manual_clinical_status(member: ManualPedMemberCreate) -> str:
     if member.clinical_status != "unknown":
         return member.clinical_status

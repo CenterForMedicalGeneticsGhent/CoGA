@@ -90,6 +90,20 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
   const assignedProjects = projects.filter((project) => normalizedDraftProjectIds.includes(project.id));
   const unassignedProjectCount = projects.length - assignedProjects.length;
 
+  const downloadPedigree = async () => {
+    const response = await api.get(`/admin/families/${selectedFamily.family_id}/ped`, {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(response.data as Blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedFamily.family_id}.ped`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   return (
     <section className="surface-card admin-data-detail">
       <div className="space-y-8">
@@ -104,6 +118,9 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
             </p>
           </div>
           <div className="inline-actions">
+            <button type="button" className="button-secondary" onClick={downloadPedigree}>
+              Download PED
+            </button>
             <button type="button" className="button-danger" onClick={onRequestDeleteFamily}>
               Delete entire family
             </button>

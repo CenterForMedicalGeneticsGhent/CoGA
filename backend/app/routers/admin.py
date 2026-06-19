@@ -3,7 +3,7 @@ from typing import Dict, List
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -65,6 +65,7 @@ from ..services.clinical_cnv_kb_jobs import (
     get_clinical_cnv_kb_status,
     queue_clinical_cnv_kb_rebuild,
 )
+from ..services.ped_service import build_pedigree_text
 from ..services.monarch_ingest import monarch_status, refresh_monarch
 from ..services.gene_info_jobs_pg import (
     list_gene_reference_admin_status,
@@ -186,6 +187,22 @@ async def get_family_data(
     return await get_family_data_inventory_detail(
         session,
         family_id=family_id,
+    )
+
+
+@router.get("/families/{family_id}/ped")
+async def download_family_pedigree(
+    family_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> Response:
+    ped_text = await build_pedigree_text(session, family_id=family_id)
+    return Response(
+        content=ped_text,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{family_id}.ped"',
+        },
     )
 
 
