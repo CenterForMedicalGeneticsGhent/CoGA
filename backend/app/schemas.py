@@ -1046,6 +1046,18 @@ class MonarchRefreshSummaryOut(BaseModel):
     duration_seconds: float = 0.0
 
 
+class MonarchStatusOut(BaseModel):
+    release_version: Optional[str] = None
+    gene_disease_pairs: int = 0
+    genes: int = 0
+    diseases: int = 0
+    causal_pairs: int = 0
+    disease_phenotype_pairs: int = 0
+    phenotype_diseases: int = 0
+    phenotypes: int = 0
+    last_updated_at: Optional[datetime] = None
+
+
 class GeneBulkRefreshOut(BaseModel):
     human_assemblies: int
     gene_symbols: int

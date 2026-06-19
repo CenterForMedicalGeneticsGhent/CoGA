@@ -457,6 +457,64 @@ async def refresh_monarch(session: AsyncSession) -> dict[str, Any]:
     return summary
 
 
+async def monarch_status(session: AsyncSession) -> dict[str, Any]:
+    """Summarize the currently loaded Monarch tables for the admin dashboard.
+
+    Reads directly from the tables (no network) so the admin page can show what
+    release is loaded and how big it is before deciding to refresh.
+    """
+    gene_disease = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    count(*) AS gene_disease_pairs,
+                    count(DISTINCT hgnc_id) AS genes,
+                    count(DISTINCT mondo_id) AS diseases,
+                    count(*) FILTER (WHERE causal) AS causal_pairs,
+                    max(release_version) AS release_version,
+                    max(updated_at) AS updated_at
+                FROM monarch_gene_disease
+                """
+            )
+        )
+    ).mappings().one()
+
+    disease_phenotype = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    count(*) AS disease_phenotype_pairs,
+                    count(DISTINCT mondo_id) AS phenotype_diseases,
+                    count(DISTINCT hpo_id) AS phenotypes,
+                    max(release_version) AS release_version,
+                    max(updated_at) AS updated_at
+                FROM monarch_disease_phenotype
+                """
+            )
+        )
+    ).mappings().one()
+
+    updated_candidates = [
+        value
+        for value in (gene_disease["updated_at"], disease_phenotype["updated_at"])
+        if value is not None
+    ]
+    return {
+        "release_version": gene_disease["release_version"]
+        or disease_phenotype["release_version"],
+        "gene_disease_pairs": gene_disease["gene_disease_pairs"] or 0,
+        "genes": gene_disease["genes"] or 0,
+        "diseases": gene_disease["diseases"] or 0,
+        "causal_pairs": gene_disease["causal_pairs"] or 0,
+        "disease_phenotype_pairs": disease_phenotype["disease_phenotype_pairs"] or 0,
+        "phenotype_diseases": disease_phenotype["phenotype_diseases"] or 0,
+        "phenotypes": disease_phenotype["phenotypes"] or 0,
+        "last_updated_at": max(updated_candidates) if updated_candidates else None,
+    }
+
+
 async def list_monarch_gene_disease(
     session: AsyncSession, *, symbol: str
 ) -> list[dict[str, Any]]:
