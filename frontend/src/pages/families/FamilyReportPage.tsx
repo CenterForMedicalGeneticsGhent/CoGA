@@ -493,7 +493,7 @@ const FamilyReportPage: React.FC = () => {
 
               <div className="report-section">
                 <h3 className="report-subheading">Variant description</h3>
-                <p className="report-paragraph">{buildStructuralVariantSentence(variant, members)}</p>
+                <p className="report-paragraph">{buildStructuralVariantSentence(variant)}</p>
                 <p className="report-paragraph">The variant {describeStructuralFrequency(variant)}.</p>
                 {segregation ? <p className="report-paragraph">{segregation}</p> : null}
               </div>

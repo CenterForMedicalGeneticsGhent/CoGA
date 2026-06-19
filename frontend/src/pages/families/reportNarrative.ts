@@ -241,10 +241,7 @@ const structuralTypeLabel = (type?: string): string => {
   return STRUCTURAL_TYPE_LABELS[type.trim().toUpperCase()] || `${type} structural variant`;
 };
 
-export const buildStructuralVariantSentence = (
-  variant: StructuralVariant,
-  _members: StructuralVariantFamilyMember[] = [],
-): string => {
+export const buildStructuralVariantSentence = (variant: StructuralVariant): string => {
   const typeLabel = structuralTypeLabel(variant.type);
   const size = formatStructuralLengthText(variant.length);
   const locus = `${variant.chr}:${variant.start.toLocaleString()}-${variant.end.toLocaleString()}`;
