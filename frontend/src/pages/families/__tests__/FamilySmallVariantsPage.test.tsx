@@ -549,7 +549,6 @@ describe('FamilySmallVariantsPage', () => {
     fireEvent.change(await screen.findByRole('combobox', { name: /preset or saved search/i }), {
       target: { value: 'built-in:phenotype_priority' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /apply selection/i }));
     fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {
@@ -910,7 +909,6 @@ describe('FamilySmallVariantsPage', () => {
     fireEvent.change(presetSelect, {
       target: { value: 'built-in:expanded_carrier_screening' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /apply selection/i }));
     fireEvent.click(screen.getByText('Inheritance'));
     expect(
       screen.getByLabelText(/Couple-based expanded carrier screening/i),
@@ -977,7 +975,6 @@ describe('FamilySmallVariantsPage', () => {
     fireEvent.change(presetSelect, {
       target: { value: 'built-in:expanded_carrier_screening' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /apply selection/i }));
     fireEvent.click(screen.getByText('Inheritance'));
     expect(
       screen.getByLabelText(/Couple-based expanded carrier screening/i),
@@ -1041,7 +1038,6 @@ describe('FamilySmallVariantsPage', () => {
     fireEvent.change(presetSelect, {
       target: { value: 'built-in:dominant_strict' },
     });
-    fireEvent.click(screen.getByRole('button', { name: /apply selection/i }));
     fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
 
     await waitFor(() => {

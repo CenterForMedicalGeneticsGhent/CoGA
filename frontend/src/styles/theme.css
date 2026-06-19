@@ -3813,26 +3813,46 @@ tbody tr:hover {
   justify-content: flex-end;
 }
 
+.variant-filter-collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.variant-filter-collapse-toggle:hover,
+.variant-filter-collapse-toggle:active {
+  background: none;
+  color: var(--color-heading);
+  transform: none;
+}
+
+.variant-filter-collapse-toggle .variant-filter-dropdown-caret {
+  color: var(--color-heading);
+}
+
+.variant-filter-collapse-toggle[aria-expanded='true'] .variant-filter-dropdown-caret {
+  transform: rotate(180deg);
+}
+
 .variant-filter-chip-list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.28rem;
 }
 
+/* Active-filter chips reuse the `.badge-chip` look; this only adds the
+   removable-button affordance (cursor + red hover). */
 .variant-filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  border: 1px solid rgba(10, 11, 12, 0.12);
-  border-radius: 999px;
-  background: rgba(10, 11, 12, 0.035);
-  color: var(--color-text-muted);
-  padding: 0 0.36rem;
-  height: 0.92rem;
-  font-size: 0.56rem;
-  line-height: 1;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  min-height: 0;
+  font-family: inherit;
+  cursor: pointer;
   transition:
     background 120ms ease,
     border-color 120ms ease,
@@ -3840,6 +3860,7 @@ tbody tr:hover {
 }
 
 .variant-filter-chip:hover {
+  transform: none;
   border-color: rgba(166, 26, 46, 0.3);
   background: rgba(166, 26, 46, 0.08);
   color: var(--color-signature-red);
@@ -8219,6 +8240,12 @@ button.table-link:hover {
   animation: spin 1s linear infinite;
 }
 
+.viz-loading-spinner--lg {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-width: 3px;
+}
+
 .viz-empty-overlay {
   position: absolute;
   left: 0.75rem;
@@ -9677,29 +9704,55 @@ a.button-danger:hover {
   position: relative;
 }
 
-.variant-results-loading-bar {
-  position: sticky;
-  top: 0;
-  z-index: 6;
+.variant-results-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  border-radius: 0.75rem;
+  background: rgba(248, 250, 252, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+/* Centered in the viewport like a modal so it sits in the middle of the
+   visible screen regardless of scroll position. Must not be nested inside the
+   blurred overlay above (backdrop-filter would trap the fixed positioning). */
+.variant-results-loading-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  padding: 0.55rem 0.75rem;
-  margin-bottom: 0.75rem;
-  border-radius: 0.6rem;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(17, 17, 17, 0.08);
-  box-shadow: 0 1px 3px rgba(17, 17, 17, 0.06);
-  color: var(--color-text-muted);
-  font-size: 0.72rem;
+  gap: 1rem;
+  padding: 1.25rem 1.75rem;
+  border-radius: 0.9rem;
+  background: #fff;
+  border: 1px solid rgba(166, 26, 46, 0.18);
+  box-shadow: 0 18px 48px rgba(17, 17, 17, 0.28);
+}
+
+.variant-results-overlay-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.variant-results-overlay-title {
+  font-size: 0.92rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--color-signature-red);
+}
+
+.variant-results-overlay-sub {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
 }
 
 .variant-results-fetching {
-  opacity: 0.55;
+  opacity: 0.4;
   pointer-events: none;
   transition: opacity 0.15s ease;
 }

@@ -413,11 +413,14 @@ const FamilySmallVariantsPage: React.FC = () => {
         <div className="variant-filter-collapse-bar">
           <button
             type="button"
-            className="button-secondary"
+            className="variant-filter-collapse-toggle"
             aria-expanded={!filtersCollapsed}
             onClick={() => setFiltersCollapsed((current) => !current)}
           >
-            {filtersCollapsed ? 'Show filters' : 'Hide filters'}
+            <span className="variant-filter-dropdown-caret" aria-hidden="true">
+              ▾
+            </span>
+            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
           </button>
         </div>
         {!filtersCollapsed && (
@@ -450,10 +453,26 @@ const FamilySmallVariantsPage: React.FC = () => {
 
       <div className="variant-results-region">
         {isFetching ? (
-          <div className="variant-results-loading-bar" role="status" aria-live="polite">
-            <span className="viz-loading-spinner" aria-hidden="true" />
-            <span>Loading variants…</span>
-          </div>
+          <>
+            <div className="variant-results-overlay" aria-hidden="true" />
+            <div
+              className="variant-results-loading-card"
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <span
+                className="viz-loading-spinner viz-loading-spinner--lg"
+                aria-hidden="true"
+              />
+              <div className="variant-results-overlay-text">
+                <span className="variant-results-overlay-title">Loading variants…</span>
+                <span className="variant-results-overlay-sub">
+                  Applying your filters to this family’s small-variant calls.
+                </span>
+              </div>
+            </div>
+          </>
         ) : null}
         <div className={isFetching ? 'variant-results-fetching' : undefined} aria-busy={isFetching}>
       <SmallVariantResults

@@ -807,7 +807,13 @@ const buildPresetState = (
     filters.max_gnomad_hemi_count = '10';
     filters.clinvar_overrides_frequency = 'true';
     filters.exclude_clinvar = 'Benign, Likely benign';
-    setAffectedGenotypes([...HOM_GT_GROUP, ...HET_GT_GROUP]);
+    // Standard proband QC: GQ/QUAL >= 20, DP >= 10, AF >= 0.2, AD alt >= 4.
+    setAffectedGenotypes([...HOM_GT_GROUP, ...HET_GT_GROUP], {
+      qual: '20',
+      dp: '10',
+      af: '0.2',
+      ad_alt: '4',
+    });
   } else if (preset === 'compound_het') {
     filters.inheritance = 'compound_het';
     filters.max_gnomad_af = '0.02';
@@ -964,9 +970,6 @@ export const buildSmallVariantQueryParams = (
   if (currentFilters.expanded_carrier_screening === 'true') {
     params.set('expanded_carrier_screening', 'true');
   }
-  if (currentFilters.prioritize === 'true') {
-    params.set('prioritize', 'true');
-  }
   if (currentFilters.type) params.set('type', currentFilters.type);
   if (currentFilters.source) params.set('source', currentFilters.source);
   if (currentFilters.transcript) params.set('transcript', currentFilters.transcript);
@@ -988,6 +991,8 @@ export const buildSmallVariantQueryParams = (
     'clinvar_overrides_frequency',
     currentFilters.clinvar_overrides_frequency === 'true' ? 'true' : 'false',
   );
+  // Standard on: only an explicit "false" turns phenotype prioritization off.
+  params.set('prioritize', currentFilters.prioritize === 'true' ? 'true' : 'false');
   parseCommaSeparatedValues(currentFilters.exclude_review_tags).forEach((value) => {
     params.append('exclude_review_tag', value);
   });
@@ -1048,6 +1053,19 @@ export const buildActiveFilterChips = (
   sampleFilters: Record<string, SmallVariantSampleFilter>,
 ): ActiveSmallFilterChip[] => {
   const chips: ActiveSmallFilterChip[] = [];
+
+  // Phenotype prioritization is family-aware; surface it as a removable chip
+  // (it is hidden from the family-agnostic global explorer, which has no HPO).
+  if (filters.prioritize === 'true' && members.length > 0) {
+    chips.push({
+      id: 'top:prioritize',
+      label: SMALL_FILTER_LABELS.prioritize,
+      kind: 'top',
+      key: 'prioritize',
+      value: 'true',
+    });
+  }
+
   const skipDerivedLocusKeys = filters.locus
     ? new Set<keyof SmallFilterState>(['chr', 'start', 'end', 'gene'])
     : null;
@@ -1327,8 +1345,9 @@ export const useSmallVariantSearchState = ({
         return;
       }
       if (key === 'prioritize') {
+        // Standard on: only an explicit "false" turns it off; absence keeps the default.
         initialFilters.prioritize =
-          params.get('prioritize') === 'true' ? 'true' : '';
+          params.get('prioritize') === 'false' ? '' : 'true';
         return;
       }
       if (key === 'clinvar_overrides_frequency') {
@@ -1470,7 +1489,9 @@ export const useSmallVariantSearchState = ({
     if (!members.length) return;
     const nextFilters = deserializePresetFilters(preset.filters);
     const nextSampleFilters = resolveSampleFiltersFromPreset(preset, members);
-    applySearchState(nextFilters, nextSampleFilters, 1);
+    // Populate the draft only; the single "Apply filters" button runs the search.
+    setDraftFilters(nextFilters);
+    setSampleDraftFilters(cloneSampleFilters(nextSampleFilters));
   };
 
   const handleApply = (event: FormEvent) => {
