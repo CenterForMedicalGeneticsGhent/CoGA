@@ -91,6 +91,27 @@ describe('evaluateAcmg', () => {
     );
   });
 
+  it('scales PP4 strength by the Monarch phenotype-specificity score', () => {
+    const variant: AcmgVariantInput = { effect: 'missense_variant' };
+    const gene = { geneHpoIds: ['HP:0001250'] };
+    // High specificity → Moderate.
+    expect(
+      find(evaluateAcmg(variant, gene, { probandHpoIds: [], phenotypeScore: 0.7 }), 'PP4')?.strength,
+    ).toBe('moderate');
+    // Meaningful but lower specificity → Supporting.
+    expect(
+      find(evaluateAcmg(variant, gene, { probandHpoIds: [], phenotypeScore: 0.4 }), 'PP4')?.strength,
+    ).toBe('supporting');
+    // Below threshold and no overlap → not suggested.
+    expect(
+      codes(evaluateAcmg(variant, gene, { probandHpoIds: [], phenotypeScore: 0.1 })),
+    ).not.toContain('PP4');
+    // No score → falls back to HPO overlap at Supporting.
+    expect(
+      find(evaluateAcmg(variant, gene, { probandHpoIds: ['HP:0001250'] }), 'PP4')?.strength,
+    ).toBe('supporting');
+  });
+
   it('rules out criteria that cannot apply to the molecular class', () => {
     // Missense: PVS1, PM4, BP7 are not applicable.
     const missense = evaluateAcmg({ effect: 'missense_variant' });

@@ -10,6 +10,7 @@ import {
   buildInitialSelections,
   computeClassification,
   evaluateAcmg,
+  evaluateMitoAcmg,
   type AcmgCriterionCode,
   type AcmgCriterionDef,
   type AcmgGeneContext,
@@ -24,7 +25,8 @@ import {
   getReviewTagStyle,
 } from './smallVariantResultUtils';
 import {
-  ACMG_CLASSIFICATION_TAG_KEYS,
+  ACMG_AUTO_MANAGED_TAG_KEYS,
+  ACMG_VUS_TIER_TAG_BY_TIER,
   getTagDefinitionMap,
   normalizeTagKeys,
   sortTagDefinitions,
@@ -129,8 +131,8 @@ export default function AcmgClassificationModal({
   // Tags the analyst can toggle by hand — everything except the auto-managed
   // ACMG class tags, which the selected criteria own.
   const editableTagDefinitions = useMemo(() => {
-    const classKeys = ACMG_CLASSIFICATION_TAG_KEYS as readonly string[];
-    return sortTagDefinitions(tagDefinitions).filter((def) => !classKeys.includes(def.key));
+    const autoKeys = ACMG_AUTO_MANAGED_TAG_KEYS as readonly string[];
+    return sortTagDefinitions(tagDefinitions).filter((def) => !autoKeys.includes(def.key));
   }, [tagDefinitions]);
   const toggleReviewTag = (tagKey: string) =>
     setReviewTags((current) =>
@@ -216,17 +218,23 @@ export default function AcmgClassificationModal({
 
   // (Re)seed selections when the variant changes or gene/HPO context arrives.
   useEffect(() => {
-    const suggestions = evaluateAcmg(
-      variant,
-      geneContext,
-      { probandHpoIds: probandHpo.ids },
-      familyContext,
-    );
+    // PP4: pass the Monarch phenotype-specificity score when prioritization
+    // populated it on the variant (otherwise PP4 falls back to HPO overlap).
+    const phenotypeContext = {
+      probandHpoIds: probandHpo.ids,
+      phenotypeScore: variant.priority?.phenotype_score ?? null,
+      phenotypeMatches: variant.priority?.phenotype_matches,
+    };
+    // Mitochondrial variants use the mt-specific evaluator (McCormick 2020).
+    const suggestions =
+      variant.chr === 'MT' && variant.mito
+        ? evaluateMitoAcmg(variant, variant.mito, geneContext, phenotypeContext)
+        : evaluateAcmg(variant, geneContext, phenotypeContext, familyContext);
     const initial = buildInitialSelections(suggestions, savedSelections(variant.review?.acmg));
     setSelections(Object.fromEntries(initial.map((s) => [s.code, s])));
     setNote(variant.review?.note ?? '');
-    const classKeys = ACMG_CLASSIFICATION_TAG_KEYS as readonly string[];
-    setReviewTags((variant.review?.tags ?? []).filter((tag) => !classKeys.includes(tag)));
+    const autoKeys = ACMG_AUTO_MANAGED_TAG_KEYS as readonly string[];
+    setReviewTags((variant.review?.tags ?? []).filter((tag) => !autoKeys.includes(tag)));
   }, [variant, geneContext, familyContext, probandHpo]);
 
   const selectionList = useMemo(() => Object.values(selections), [selections]);
@@ -278,13 +286,18 @@ export default function AcmgClassificationModal({
       criteria,
       point_total: classification.points,
       classification: classification.label,
+      vus_tier: classification.vusTier,
     };
 
     // Reflect the computed class in the review tags so variant cards and summaries
     // pick it up — combine the analyst's manually-toggled tags with the computed
-    // acmg_class_* tag (the manual set already excludes any class tag).
+    // acmg_class_* tag and, for a VUS, the matching acmg_vus_* tier tag (the manual
+    // set already excludes any auto-managed ACMG tag).
+    const autoTags = classification.vusTier
+      ? [classification.classKey, ACMG_VUS_TIER_TAG_BY_TIER[classification.vusTier]]
+      : [classification.classKey];
     const tags = accepted.length
-      ? normalizeTagKeys([...reviewTags, classification.classKey])
+      ? normalizeTagKeys([...reviewTags, ...autoTags])
       : normalizeTagKeys(reviewTags);
 
     const payload: SmallVariantReviewSavePayload = {

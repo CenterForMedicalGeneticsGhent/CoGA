@@ -67,3 +67,30 @@ describe('computeClassification', () => {
     expect(result.classKey).toBe('acmg_class_1');
   });
 });
+
+describe('VUS hot/warm/cold sub-tier', () => {
+  it('0–1 points → cold', () => {
+    expect(computeClassification([]).vusTier).toBe('cold');
+    expect(computeClassification([sel('PM2', 'supporting')]).vusTier).toBe('cold');
+  });
+
+  it('2–3 points → warm', () => {
+    expect(computeClassification([sel('PM2', 'moderate')]).vusTier).toBe('warm');
+    expect(
+      computeClassification([sel('PM2', 'moderate'), sel('PP3', 'supporting')]).vusTier,
+    ).toBe('warm');
+  });
+
+  it('4–5 points → hot (one supporting from Likely Pathogenic)', () => {
+    expect(computeClassification([sel('PS1', 'strong')]).vusTier).toBe('hot');
+    expect(
+      computeClassification([sel('PS1', 'strong'), sel('PP3', 'supporting')]).vusTier,
+    ).toBe('hot');
+  });
+
+  it('is null outside the VUS band', () => {
+    expect(computeClassification([sel('PVS1', 'very_strong')]).vusTier).toBeNull(); // LP
+    expect(computeClassification([sel('BP4', 'supporting')]).vusTier).toBeNull(); // LB
+    expect(computeClassification([sel('BA1', 'stand_alone')]).vusTier).toBeNull(); // Benign
+  });
+});

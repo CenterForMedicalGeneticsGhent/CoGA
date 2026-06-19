@@ -6,7 +6,12 @@ import {
   ACMG_CRITERIA_BY_CODE,
   STRENGTH_POINTS,
 } from './criteria';
-import type { AcmgClassification, AcmgClassKey, AcmgSelection } from './types';
+import type {
+  AcmgClassification,
+  AcmgClassKey,
+  AcmgSelection,
+  AcmgVusTier,
+} from './types';
 
 // Signed point value of a single accepted selection.
 export function selectionPoints(selection: AcmgSelection): number {
@@ -24,6 +29,16 @@ function classKeyForPoints(points: number): AcmgClassKey {
   return 'acmg_class_1';
 }
 
+// MAGI-ACMG VUS sub-tier over the Tavtigian VUS band (points 0–5), by proximity
+// to the Likely-Pathogenic threshold (6). Keep these cut-offs in parity with the
+// backend (acmg_points.vus_tier_for): 4–5 hot · 2–3 warm · 0–1 cold.
+export function vusTierForPoints(points: number, classKey: AcmgClassKey): AcmgVusTier | null {
+  if (classKey !== 'acmg_class_3') return null;
+  if (points >= 4) return 'hot';
+  if (points >= 2) return 'warm';
+  return 'cold';
+}
+
 export function computeClassification(selections: AcmgSelection[]): AcmgClassification {
   const accepted = selections.filter((selection) => selection.accepted);
   const points = accepted.reduce((sum, selection) => sum + selectionPoints(selection), 0);
@@ -37,5 +52,6 @@ export function computeClassification(selections: AcmgSelection[]): AcmgClassifi
     classKey,
     label: ACMG_CLASS_LABELS[classKey],
     standAloneBenign,
+    vusTier: vusTierForPoints(points, classKey),
   };
 }

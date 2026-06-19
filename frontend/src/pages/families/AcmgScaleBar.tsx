@@ -22,15 +22,29 @@ function positionPct(points: number): number {
   return ((clamped - DOMAIN_MIN) / (DOMAIN_MAX - DOMAIN_MIN)) * 100;
 }
 
+const VUS_TIER_LABELS: Record<NonNullable<AcmgClassification['vusTier']>, string> = {
+  hot: 'Hot',
+  warm: 'Warm',
+  cold: 'Cold',
+};
+
 export default function AcmgScaleBar({ classification }: AcmgScaleBarProps) {
-  const { points, label, standAloneBenign } = classification;
+  const { points, label, standAloneBenign, vusTier } = classification;
   const arrowPct = standAloneBenign ? 0 : positionPct(points);
   const pointsLabel = standAloneBenign ? 'BA1' : points > 0 ? `+${points}` : `${points}`;
+  const ariaLabel = `ACMG classification: ${label}${
+    vusTier ? ` (${VUS_TIER_LABELS[vusTier]} VUS)` : ''
+  }, ${pointsLabel} points`;
 
   return (
-    <div className="acmg-scalebar" role="img" aria-label={`ACMG classification: ${label}, ${pointsLabel} points`}>
+    <div className="acmg-scalebar" role="img" aria-label={ariaLabel}>
       <div className="acmg-scalebar-readout">
         <span className="acmg-scalebar-class">{label}</span>
+        {vusTier ? (
+          <span className={`acmg-vus-tier-chip acmg-vus-tier-chip--${vusTier}`}>
+            {VUS_TIER_LABELS[vusTier]} VUS
+          </span>
+        ) : null}
         <span className="acmg-scalebar-points">{pointsLabel} pts</span>
       </div>
       <div className="acmg-scalebar-track">

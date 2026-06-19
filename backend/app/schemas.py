@@ -1299,6 +1299,8 @@ class AcmgClassificationPayload(BaseModel):
     # Derived fields; recomputed server-side on write so they cannot drift.
     point_total: Optional[int] = None
     classification: Optional[str] = None
+    # MAGI-ACMG VUS sub-tier (hot/warm/cold); only set when the class is VUS.
+    vus_tier: Optional[str] = None
 
 
 class SmallVariantReviewOut(BaseModel):

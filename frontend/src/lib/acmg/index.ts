@@ -11,8 +11,9 @@ export {
   STRENGTH_POINTS,
   isAcmgCriterionCode,
 } from './criteria';
-export { computeClassification, selectionPoints } from './score';
+export { computeClassification, selectionPoints, vusTierForPoints } from './score';
 export { evaluateAcmg, type AcmgVariantInput } from './evaluate';
+export { evaluateMitoAcmg } from './evaluateMito';
 
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
 import type { AcmgSelection, AcmgSuggestion } from './types';

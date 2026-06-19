@@ -21,6 +21,8 @@ import type {
 // structurally, so callers pass the variant directly.
 export interface AcmgVariantInput {
   effect?: string;
+  // Gene/locus symbol (used by the mt evaluator for evidence strings).
+  gene?: string;
   impact?: string;
   clinvar?: string;
   lof?: string;
@@ -55,7 +57,13 @@ const SPLICEAI_NO_IMPACT = 0.1; // below this, no predicted splice effect
 // gnomAD missense-Z constraint for PP2.
 const PP2_MISSENSE_Z = 3.09;
 
-const LOF_EFFECTS = [
+// PP4 phenotype-specificity (Monarch Resnik best-match-average score in [0, 1]).
+// Per ClinGen PP1/PP4 guidance, a more specific gene↔phenotype match warrants a
+// stronger PP4. Auto caps at Moderate; the analyst may still raise it to Strong.
+const PP4_MODERATE_SCORE = 0.6; // highly specific match → PP4_Moderate
+const PP4_SUPPORTING_SCORE = 0.3; // meaningful match → PP4_Supporting
+
+export const LOF_EFFECTS = [
   'stop_gained',
   'frameshift_variant',
   'splice_acceptor_variant',
@@ -71,7 +79,7 @@ const PROTEIN_LENGTH_EFFECTS = [
   'protein_altering_variant',
 ];
 
-function effectIncludes(effect: string | undefined, needles: string[]): boolean {
+export function effectIncludes(effect: string | undefined, needles: string[]): boolean {
   if (!effect) return false;
   const lower = effect.toLowerCase();
   return needles.some((needle) => lower.includes(needle));
@@ -98,7 +106,7 @@ function isRecessiveGene(gene?: AcmgGeneContext): boolean {
   );
 }
 
-function fmtAf(af: number): string {
+export function fmtAf(af: number): string {
   return af < 1e-4 ? af.toExponential(1) : `${(af * 100).toPrecision(3)}%`;
 }
 
@@ -145,7 +153,7 @@ const NOT_APPLICABLE: Record<MolecularClass, { codes: AcmgCriterionCode[]; reaso
 // ---- Trio / segregation genotype helpers ----
 
 // Number of alternate alleles in a VCF genotype, or null if missing/unparseable.
-function altAlleleCount(gt?: string): number | null {
+export function altAlleleCount(gt?: string): number | null {
   if (!gt) return null;
   const normalized = gt.replace(/\|/g, '/').trim();
   if (!normalized || normalized.includes('.')) return null;
@@ -275,15 +283,10 @@ export function evaluateAcmg(
     against('PP5', `ClinVar reports ${variant.clinvar}, not pathogenic.`);
   }
 
-  // ---- PP4: proband phenotype matches the gene ----
-  const probandHpo = phenotype?.probandHpoIds ?? [];
-  const geneHpo = new Set(gene?.geneHpoIds ?? []);
-  if (probandHpo.length && geneHpo.size) {
-    const overlap = probandHpo.filter((id) => geneHpo.has(id));
-    if (overlap.length) {
-      add('PP4', 'supporting', `Proband HPO term(s) overlap the gene's phenotype (${overlap.length} shared).`);
-    }
-  }
+  // ---- PP4: proband phenotype specific for the gene ----
+  // Prefer the Monarch phenotype-specificity score (scales strength); fall back to
+  // a direct HPO-ID overlap when no score is available (no prioritization run).
+  pp4Suggestion(gene, phenotype).forEach((suggestion) => out.push(suggestion));
 
   // ---- Trio / segregation: de novo (PS2/PM6), cosegregation (PP1/BS4) ----
   evaluateFamily(family, add, notApplicable);
@@ -364,6 +367,50 @@ function evaluateFamily(
   } else {
     notApplicable('BS4', 'No affected relative lacking the variant — lack of segregation cannot be shown.');
   }
+}
+
+// PP4: phenotype specific for the gene. Scales strength from the Monarch
+// gene↔proband phenotype score when present, otherwise falls back to a binary
+// HPO-ID overlap at Supporting. Returns at most one suggestion.
+function pp4Suggestion(
+  gene: AcmgGeneContext | undefined,
+  phenotype: AcmgPhenotypeContext | undefined,
+): AcmgSuggestion[] {
+  const probandHpo = phenotype?.probandHpoIds ?? [];
+  const geneHpo = new Set(gene?.geneHpoIds ?? []);
+  const overlap = probandHpo.filter((id) => geneHpo.has(id));
+  const score = phenotype?.phenotypeScore;
+
+  const matchedLabels = (phenotype?.phenotypeMatches ?? [])
+    .map((m) => m.label || m.hpo_id)
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (score != null && score >= PP4_SUPPORTING_SCORE) {
+    const strength: AcmgStrength = score >= PP4_MODERATE_SCORE ? 'moderate' : 'supporting';
+    const detail = matchedLabels.length ? ` Top matches: ${matchedLabels.join(', ')}.` : '';
+    return [
+      {
+        code: 'PP4',
+        strength,
+        evidence: `Gene–phenotype specificity score ${score.toFixed(2)} (Monarch) supports a gene-specific phenotype.${detail}`,
+        disposition: 'applies',
+      },
+    ];
+  }
+
+  // No usable score → fall back to direct HPO-ID overlap (Supporting).
+  if (overlap.length) {
+    return [
+      {
+        code: 'PP4',
+        strength: 'supporting',
+        evidence: `Proband HPO term(s) overlap the gene's phenotype (${overlap.length} shared).`,
+        disposition: 'applies',
+      },
+    ];
+  }
+  return [];
 }
 
 // In-silico evidence: a positive PP3/BP4 suggestion plus an explicit

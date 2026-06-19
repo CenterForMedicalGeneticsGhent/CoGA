@@ -99,6 +99,11 @@ export type AcmgClassKey =
   | 'acmg_class_4'
   | 'acmg_class_5';
 
+// MAGI-ACMG VUS sub-tier by proximity to the Likely-Pathogenic threshold,
+// drawn over the Tavtigian point band for VUS (0–5): 4–5 hot · 2–3 warm · 0–1 cold.
+// Only set when classKey === 'acmg_class_3'; null otherwise.
+export type AcmgVusTier = 'hot' | 'warm' | 'cold';
+
 export interface AcmgClassification {
   // Signed point total over accepted selections.
   points: number;
@@ -107,6 +112,8 @@ export interface AcmgClassification {
   label: string;
   // True when an accepted BA1 forced the Benign call (stand-alone override).
   standAloneBenign: boolean;
+  // VUS sub-tier (hot/warm/cold) when the class is VUS, else null.
+  vusTier: AcmgVusTier | null;
 }
 
 // Minimal slice of the gene profile the evaluator needs (mirrors fields from
@@ -119,9 +126,15 @@ export interface AcmgGeneContext {
   geneHpoIds?: string[];
 }
 
-// Phenotype context for PP4 (proband HPO terms observed as present).
+// Phenotype context for PP4 (proband HPO terms observed as present), plus the
+// optional Monarch gene–phenotype specificity score used to scale PP4 strength.
 export interface AcmgPhenotypeContext {
   probandHpoIds?: string[];
+  // Resnik best-match-average gene↔proband phenotype score in [0, 1]; present
+  // only when phenotype prioritization ran for this variant (variant.priority).
+  phenotypeScore?: number | null;
+  // Top matched HPO terms behind the score (for the PP4 evidence string).
+  phenotypeMatches?: { hpo_id: string; label?: string | null }[];
 }
 
 // One family member's genotype call for this variant (for de-novo / segregation).
@@ -134,4 +147,35 @@ export interface AcmgFamilyMemberCall {
 
 export interface AcmgFamilyContext {
   members: AcmgFamilyMemberCall[];
+}
+
+// mtDNA locus category from the MT_LOCI map (drives mt-specific criteria).
+export type AcmgMitoCategory =
+  | 'protein coding'
+  | 'tRNA'
+  | 'rRNA'
+  | 'control'
+  | 'intergenic';
+
+// One sample's mtDNA call: heteroplasmy level and classified zygosity.
+export interface AcmgMitoCall {
+  sampleId: string;
+  role?: string;
+  affected?: boolean;
+  // 'homoplasmic' | 'heteroplasmic' | 'low_level' | 'reference' | 'no_call' | 'unknown'
+  zygosity?: string;
+  alleleFraction?: number | null;
+}
+
+// mtDNA-specific context for the maternally-inherited, haploid ACMG path
+// (McCormick 2020). Carried on SmallVariant.mito for MT variants.
+export interface AcmgMitoContext {
+  category?: AcmgMitoCategory | null;
+  // Aggregated MITOMAP/ClinVar status, e.g. 'pathogenic' | 'polymorphism' | …
+  clinicalSignificance?: string | null;
+  disorders?: string[];
+  // 'maternal_shared' | 'maternal_only' | 'father_only' | 'family_private' | …
+  maternalTransmission?: string | null;
+  probandHaplogroup?: string | null;
+  calls?: AcmgMitoCall[];
 }

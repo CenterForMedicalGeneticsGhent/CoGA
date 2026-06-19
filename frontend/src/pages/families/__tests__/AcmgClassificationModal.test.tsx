@@ -112,4 +112,39 @@ describe('AcmgClassificationModal', () => {
     expect(payload.acmg?.point_total).toBe(9);
     expect(payload.acmg?.criteria.some((c) => c.code === 'PVS1' && c.accepted)).toBe(true);
   });
+
+  it('emits the VUS sub-tier tag for a variant that lands in the VUS band', async () => {
+    // Missense, absent from gnomAD → only PM2 (1 pt) auto-applies → VUS cold.
+    const vusVariant: SmallVariant = {
+      _id: 'chr2-200-C-G',
+      chr: 'chr2',
+      start: 200,
+      end: 200,
+      type: 'SNV',
+      gene: 'GENEY',
+      gene_id: 'ENSG0002',
+      effect: 'missense_variant',
+      hgvsp: 'p.Ala67Gly',
+      genotypes: [],
+    };
+    const onSave: ReturnType<typeof vi.fn> = vi.fn(async () => undefined);
+    const client = createTestQueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <AcmgClassificationModal variant={vusVariant} familyId="F1" onClose={vi.fn()} onSave={onSave} />
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+
+    await screen.findByText('PM2');
+    await waitFor(() => expect(screen.getByText('VUS - class 3')).toBeInTheDocument());
+    expect(screen.getByText('Cold VUS')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /save classification/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const payload = onSave.mock.calls[0][0] as SmallVariantReviewSavePayload;
+    expect(payload.tags).toContain('acmg_class_3');
+    expect(payload.tags).toContain('acmg_vus_cold');
+    expect(payload.acmg?.vus_tier).toBe('cold');
+  });
 });
