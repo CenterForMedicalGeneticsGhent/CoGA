@@ -4,6 +4,7 @@ import {
   buildInitialCnvSelections,
   classKeyForPoints,
   cnvGeneCountMode,
+  cnvGeneCountTier,
   cnvKindForType,
   computeCnvClassification,
   evaluateCnv,
@@ -46,6 +47,28 @@ describe('cnvAcmg evaluate', () => {
     expect(cnvGeneCountMode('INV')).toBe('disrupted');
     expect(cnvGeneCountMode('BND')).toBe('disrupted');
     expect(cnvGeneCountMode('INS')).toBe('disrupted');
+  });
+
+  it('tiers section-3 gene counts per ClinGen thresholds', () => {
+    expect(cnvGeneCountTier('loss', 10).code).toBe('3A');
+    expect(cnvGeneCountTier('loss', 30).code).toBe('3B');
+    expect(cnvGeneCountTier('loss', 40).code).toBe('3C');
+    // Gains use the higher thresholds.
+    expect(cnvGeneCountTier('gain', 40).code).toBe('3B');
+    expect(cnvGeneCountTier('gain', 60).code).toBe('3C');
+  });
+
+  it('auto-scores section 3 from gene content for a multi-gene deletion', () => {
+    const suggestions = evaluateCnv({ type: 'DEL', gene: 'GENE1', geneCount: 40 });
+    const tier = suggestions.find((s) => s.code.startsWith('3'));
+    expect(tier?.code).toBe('3C');
+    expect(tier?.points).toBe(0.9);
+  });
+
+  it('does not auto-score section 3 above 3A for inversions', () => {
+    const suggestions = evaluateCnv({ type: 'INV', gene: 'GENE1', geneCount: 40 });
+    const tier = suggestions.find((s) => s.code.startsWith('3'));
+    expect(tier?.code).toBe('3A');
   });
 
   it('suggests 2H for a constrained-gene loss', () => {

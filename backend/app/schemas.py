@@ -1464,6 +1464,10 @@ class VariantOut(ApiDocumentModel):
     ps: Optional[int] = None
     gene: Optional[str] = None
     gene_id: Optional[str] = None
+    # Structural variants only: every overlapped gene symbol + the count, used to
+    # drive ClinGen CNV section-3 gene-content scoring.
+    gene_symbols: List[str] = Field(default_factory=list)
+    gene_count: Optional[int] = None
     transcript_id: Optional[str] = None
     feature_type: Optional[str] = None
     transcript_biotype: Optional[str] = None

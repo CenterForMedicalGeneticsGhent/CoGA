@@ -1261,7 +1261,13 @@ def _structural_record_matches_sample_filters(
             if call.qual is None or call.qual < sample_filter.minimum_quality:
                 return False
         if sample_filter.read_support is not None:
-            if call.read_support is None or str(call.read_support) != str(sample_filter.read_support):
+            try:
+                read_support_threshold: float | None = float(sample_filter.read_support)
+            except (TypeError, ValueError):
+                read_support_threshold = None
+            if read_support_threshold is not None and (
+                call.read_support is None or call.read_support < read_support_threshold
+            ):
                 return False
         if sample_filter.filter_text and not _contains_casefold(call.filter, sample_filter.filter_text):
             return False
@@ -2277,6 +2283,8 @@ def _structural_variant_out(
         remote_chr=record.remote_chr,
         remote_start=record.remote_start,
         gene=record.gene_symbols[0] if record.gene_symbols else None,
+        gene_symbols=list(record.gene_symbols),
+        gene_count=len(record.gene_symbols),
         gene_pli=annotation_extra.get("pli") if isinstance(annotation_extra.get("pli"), (int, float)) else None,
         population_frequencies=population_frequencies if isinstance(population_frequencies, dict) else {},
         annotation_extra=annotation_extra,

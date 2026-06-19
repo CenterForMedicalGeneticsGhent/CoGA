@@ -18,6 +18,7 @@ export {
   cnvKindForType,
   cnvGeneCountMode,
   cnvGeneCountHint,
+  cnvGeneCountTier,
   type CnvVariantInput,
   type CnvGeneCountMode,
 } from './evaluate';

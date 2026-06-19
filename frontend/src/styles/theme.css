@@ -10449,22 +10449,24 @@ a.button-danger:hover {
   margin: 0;
 }
 
+/* Dense, multi-column criterion grid (mirrors the ACMG family grid density). */
 .cnv-criteria-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  gap: 0.25rem 0.5rem;
+  align-items: start;
 }
 
 .cnv-criterion-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 4.2rem minmax(7rem, 1.1fr);
-  gap: 0.45rem;
+  grid-template-columns: 3.6rem 3.4rem minmax(0, 1fr);
+  gap: 0.35rem;
   align-items: center;
-  padding: 0.2rem 0.4rem;
+  padding: 0.15rem 0.35rem;
   border: 1px solid var(--color-grid);
   border-radius: 7px;
   background: var(--color-surface);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
 }
 
 .cnv-criterion-row--active {
@@ -10473,43 +10475,28 @@ a.button-danger:hover {
 }
 
 .cnv-criterion-main {
-  gap: 0.4rem;
-  align-items: flex-start;
+  gap: 0.25rem;
+  align-items: center;
   margin: 0;
 }
 
-.cnv-criterion-text {
-  line-height: 1.25;
-}
-
-.cnv-auto-chip {
-  margin-left: 0.35rem;
-  font-size: 0.55rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.cnv-criterion-code {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
 .cnv-points-input {
   width: 100%;
-  padding: 0.15rem 0.3rem;
-  font-size: 0.72rem;
+  padding: 0.12rem 0.25rem;
+  font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 
 .cnv-evidence-field {
   width: 100%;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.7rem;
-}
-
-@media (max-width: 640px) {
-  .cnv-criterion-row {
-    grid-template-columns: minmax(0, 1fr) 4rem;
-  }
-  .cnv-evidence-field {
-    grid-column: 1 / -1;
-  }
+  padding: 0.12rem 0.35rem;
+  font-size: 0.68rem;
 }
 
 /* Family columns — scale from 2 up to 7 (one per ACMG family) so a wide modal

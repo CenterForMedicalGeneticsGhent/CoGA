@@ -38,6 +38,10 @@ export default function CnvAcmgClassificationModal({
   const savedKind = variant.review?.cnv_acmg?.kind;
   const [kind, setKind] = useState<CnvKind>(savedKind ?? cnvKindForType(variant.type));
 
+  const geneCount =
+    typeof variant.gene_count === 'number'
+      ? variant.gene_count
+      : variant.gene_symbols?.length ?? null;
   const suggestions = useMemo(
     () =>
       evaluateCnv({
@@ -45,8 +49,9 @@ export default function CnvAcmgClassificationModal({
         gene: variant.gene,
         genePli: variant.gene_pli ?? variant.annotation_extra?.pli ?? null,
         inheritance: variant.annotation_extra?.inheritance ?? null,
+        geneCount,
       }),
-    [variant],
+    [variant, geneCount],
   );
 
   // Re-seed selections whenever the kind changes; saved selections apply only when
@@ -162,25 +167,34 @@ export default function CnvAcmgClassificationModal({
                   const selection = selectionMap[def.code];
                   if (!selection) return null;
                   const adjustable = def.minPoints !== def.maxPoints;
+                  const rangeLabel = adjustable
+                    ? `allowed ${formatPoints(def.minPoints)} … ${formatPoints(def.maxPoints)}`
+                    : `fixed ${formatPoints(def.defaultPoints)}`;
                   return (
                     <div
                       key={def.code}
                       className={`cnv-criterion-row${selection.accepted ? ' cnv-criterion-row--active' : ''}`}
+                      // The full criterion text lives in the tooltip so the row stays compact.
+                      title={`${def.code} — ${def.name} (${rangeLabel})`}
                     >
                       <label className="analysis-checkbox cnv-criterion-main">
                         <input
                           type="checkbox"
                           checked={selection.accepted}
+                          aria-label={`${def.code}: ${def.name}`}
                           onChange={(event) =>
                             updateSelection(def.code, { accepted: event.target.checked })
                           }
                         />
-                        <span className="cnv-criterion-text">
-                          <strong>{def.code}</strong> — {def.name}
-                          {selection.autoSuggested ? (
-                            <span className="table-chip cnv-auto-chip">auto</span>
-                          ) : null}
-                        </span>
+                        <span className="cnv-criterion-code">{def.code}</span>
+                        {selection.autoSuggested ? (
+                          <span
+                            className="acmg-criterion-flag acmg-criterion-flag--consider"
+                            aria-label="Auto-suggested"
+                          >
+                            ●
+                          </span>
+                        ) : null}
                       </label>
                       <input
                         className="cnv-points-input"
@@ -190,7 +204,7 @@ export default function CnvAcmgClassificationModal({
                         max={def.maxPoints}
                         value={selection.points}
                         disabled={!adjustable}
-                        title={`Allowed range ${formatPoints(def.minPoints)} … ${formatPoints(def.maxPoints)}`}
+                        title={rangeLabel}
                         onChange={(event) =>
                           updateSelection(def.code, {
                             points: Math.max(
@@ -202,7 +216,7 @@ export default function CnvAcmgClassificationModal({
                       />
                       <input
                         className="cnv-evidence-field"
-                        placeholder="Evidence / note"
+                        placeholder="Note"
                         value={selection.evidence ?? ''}
                         onChange={(event) =>
                           updateSelection(def.code, { evidence: event.target.value })

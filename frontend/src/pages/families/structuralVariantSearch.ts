@@ -39,6 +39,8 @@ export interface StructuralVariant {
   remote_chr?: string;
   remote_start?: number;
   gene?: string;
+  gene_symbols?: string[];
+  gene_count?: number;
   gene_pli?: number;
   population_frequencies?: Record<string, number>;
   annotation_extra?: StructuralVariantAnnotationExtra;
@@ -310,8 +312,9 @@ const buildPresetSampleFilters = (
           : [...STRUCTURAL_ALL_GT_GROUPS];
       }
 
-      qual = member.affected ? '20' : '';
-      // Require solid support for the call in affected individuals (proband ≥ 4).
+      // SV calls don't carry a usable QUAL, so presets don't set a QUAL cut.
+      qual = '';
+      // Require solid read support for the call in affected individuals (proband ≥ 4).
       read_support = member.affected ? '4' : '';
       filter = '';
       return [member.sample_id, { gt, qual, read_support, filter }];

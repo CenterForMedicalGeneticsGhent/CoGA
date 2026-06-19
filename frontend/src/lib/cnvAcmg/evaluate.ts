@@ -11,7 +11,25 @@ export interface CnvVariantInput {
   gene?: string | null;
   genePli?: number | null;
   inheritance?: string | null;
+  /** Number of protein-coding genes the event overlaps (for section-3 scoring). */
+  geneCount?: number | null;
 }
+
+// Section-3 gene-count tiers (ClinGen): losses 0–24 / 25–34 / 35+; gains use the
+// higher 0–34 / 35–49 / 50+ thresholds.
+export const cnvGeneCountTier = (
+  kind: CnvKind,
+  count: number,
+): { code: '3A' | '3B' | '3C'; points: number } => {
+  if (kind === 'gain') {
+    if (count >= 50) return { code: '3C', points: 0.9 };
+    if (count >= 35) return { code: '3B', points: 0.45 };
+    return { code: '3A', points: 0 };
+  }
+  if (count >= 35) return { code: '3C', points: 0.9 };
+  if (count >= 25) return { code: '3B', points: 0.45 };
+  return { code: '3A', points: 0 };
+};
 
 const GAIN_TYPES = new Set(['DUP', 'GAIN', 'CNV_GAIN', 'INS']);
 
@@ -40,13 +58,29 @@ export const evaluateCnv = (input: CnvVariantInput): CnvSuggestion[] => {
   const out: CnvSuggestion[] = [];
   const hasGene = Boolean(input.gene && input.gene.trim());
 
-  if (hasGene) {
-    out.push({ code: '1A', points: 0, evidence: `Overlaps ${input.gene}.` });
-    out.push({
-      code: '3A',
-      points: 0,
-      evidence: `Default gene-count tier — adjust if many genes qualify. ${cnvGeneCountHint(input.type)}`,
-    });
+  const geneCount = typeof input.geneCount === 'number' ? input.geneCount : null;
+  if (hasGene || (geneCount ?? 0) > 0) {
+    out.push({ code: '1A', points: 0, evidence: `Overlaps ${input.gene || 'a protein-coding gene'}.` });
+    if (geneCount !== null) {
+      if (cnvGeneCountMode(input.type) === 'all') {
+        // Copy-number events (DEL/DUP): the overlapped protein-coding gene count is
+        // the ClinGen section-3 count, so auto-score the tier.
+        const tier = cnvGeneCountTier(kind, geneCount);
+        out.push({
+          code: tier.code,
+          points: tier.points,
+          evidence: `${geneCount} overlapped protein-coding gene${geneCount === 1 ? '' : 's'}.`,
+        });
+      } else {
+        // Inversions/translocations/insertions: only breakpoint-disrupted genes
+        // count, which can't be derived from overlap — leave the tier at 3A.
+        out.push({
+          code: '3A',
+          points: 0,
+          evidence: `${geneCount} overlapped gene${geneCount === 1 ? '' : 's'}. ${cnvGeneCountHint(input.type)}`,
+        });
+      }
+    }
   } else {
     out.push({ code: '1B', points: -0.6, evidence: 'No protein-coding gene overlap detected.' });
   }
