@@ -96,6 +96,9 @@ const GeneReferenceAdminPage = lazy(
 const HpoTerminologyAdminPage = lazy(
   () => import('./pages/admin/HpoTerminologyAdminPage')
 );
+const MonarchDataAdminPage = lazy(
+  () => import('./pages/admin/MonarchDataAdminPage')
+);
 const ProjectsPage = lazy(() => import('./pages/projects/ProjectsPage'));
 const ReferenceCatalogPage = lazy(
   () => import('./pages/reference/ReferenceCatalogPage')
@@ -253,6 +256,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/reference/hpo"
                   element={routeElement(<HpoTerminologyAdminPage />)}
+                />
+                <Route
+                  path="/admin/reference/monarch"
+                  element={routeElement(<MonarchDataAdminPage />)}
                 />
                 <Route
                   path="/admin/hpo"

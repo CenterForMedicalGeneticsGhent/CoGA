@@ -34,6 +34,12 @@ const adminGroups: AdminGroup[] = [
         to: '/admin/reference/hpo',
         description: 'Ontology terms, synonyms, relationships, release status, and sync.',
       },
+      {
+        label: 'Monarch Data',
+        to: '/admin/reference/monarch',
+        description:
+          'Gene–disease and disease–phenotype associations from the Monarch knowledge graph: view the loaded release and update to the latest.',
+      },
     ],
   },
   {

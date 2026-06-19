@@ -28,6 +28,7 @@ from ..schemas import (
     HpoOntologySyncOut,
     HpoOntologySyncRequest,
     MonarchRefreshSummaryOut,
+    MonarchStatusOut,
     ProjectsUpdate,
     RawImportFileVerifyOut,
     SmallVariantFilterPresetOut,
@@ -64,7 +65,7 @@ from ..services.clinical_cnv_kb_jobs import (
     get_clinical_cnv_kb_status,
     queue_clinical_cnv_kb_rebuild,
 )
-from ..services.monarch_ingest import refresh_monarch
+from ..services.monarch_ingest import monarch_status, refresh_monarch
 from ..services.gene_info_jobs_pg import (
     list_gene_reference_admin_status,
     queue_gene_reference_refresh_job,
@@ -527,6 +528,16 @@ async def refresh_gene_reference(
         symbol=symbol,
         requested_by=user.email,
     )
+
+
+@router.get("/monarch/status", response_model=MonarchStatusOut)
+async def get_monarch_status(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> MonarchStatusOut:
+    """Return the currently loaded Monarch release and table sizes."""
+    del user
+    return MonarchStatusOut(**await monarch_status(session))
 
 
 @router.post("/monarch/refresh", response_model=MonarchRefreshSummaryOut)
