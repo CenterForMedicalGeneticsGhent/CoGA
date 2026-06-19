@@ -125,7 +125,7 @@ export default function CnvAcmgClassificationModal({
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <div
-        className="modal-surface surface-card variant-review-modal acmg-modal"
+        className="modal-surface surface-card variant-review-modal acmg-modal cnv-acmg-modal"
         role="dialog"
         aria-modal="true"
         onClick={(event) => event.stopPropagation()}
@@ -161,6 +161,7 @@ export default function CnvAcmgClassificationModal({
             </div>
           ) : null}
 
+          <div className="cnv-sections-grid">
           {sections.map(([section, defs]) => (
             <div key={section} className="acmg-criteria-section">
               <p className="variant-card-section-title">
@@ -238,6 +239,7 @@ export default function CnvAcmgClassificationModal({
               </div>
             </div>
           ))}
+          </div>
         </div>
 
         <div className="variant-search-actions variant-review-modal-actions">
