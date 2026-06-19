@@ -21,6 +21,7 @@ import type {
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import { formatStructuralLength } from './StructuralVariantTable';
+import VariantPriorityBlock from './VariantPriorityBlock';
 
 interface StructuralVariantCardsProps {
   familyId?: string;
@@ -209,6 +210,7 @@ export default function StructuralVariantCards({
                     </span>
                   ))}
                 </div>
+                {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
                 <div className="variant-card-section">
                   <p className="variant-card-section-title">Variant summary</p>
                   <dl className="variant-card-detail-list">

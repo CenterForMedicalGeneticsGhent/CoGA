@@ -48,6 +48,7 @@ from .variant_prioritization import (
     MODE_DOMINANT,
     MODE_HOM_RECESSIVE,
     MODE_X_LINKED,
+    score_structural_variant,
     score_variant,
 )
 from .structural_variant_review_pg import (
@@ -4690,6 +4691,201 @@ async def export_family_small_variants(
     return rows[:limit]
 
 
+def _structural_segregation_modes(annotation_extra: dict[str, Any]) -> list[str]:
+    """Derive coarse segregation modes from the SV's annotated inheritance.
+
+    SV calls carry an ``Inheritance`` annotation (de novo / maternal / paternal /
+    inherited) rather than per-sample genotype segregation, so we map a de-novo call
+    to the strong de-novo mode and an inherited call to the dominant mode. Anything
+    else is left neutral (empty), matching the small-variant ``segregation_weight``
+    semantics.
+    """
+    inheritance = (annotation_extra.get("inheritance") or "").strip().lower()
+    if not inheritance:
+        return []
+    if "de" in inheritance and "novo" in inheritance:
+        return [MODE_DE_NOVO]
+    if any(token in inheritance for token in ("maternal", "paternal", "inherited")):
+        return [MODE_DOMINANT]
+    return []
+
+
+async def _prioritized_structural_variants_page(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+    page: int,
+    page_size: int,
+    selected_samples: Sequence[str],
+) -> VariantPage:
+    """Phenotype-aware ranking of structural variants (Exomiser-style).
+
+    Mirrors ``_prioritized_small_variants_page``: fetch a candidate window, score each
+    SV by event class + overlapped-gene constraint + rarity + segregation, blend with
+    the best overlapped-gene HPO phenotype match, sort by combined score, then paginate.
+    """
+    include_regions: list[Region] = []
+    if filters.panel_id:
+        include_regions.extend(
+            await _fetch_panel_regions(session, filters.panel_id, assembly_id=context.assembly_id)
+        )
+        if not include_regions:
+            return VariantPage(total=0, variants=[], summary={})
+    if filters.gene:
+        gene_regions = await _fetch_gene_regions(
+            session, gene_query=filters.gene, assembly_id=context.assembly_id
+        )
+        if not gene_regions:
+            return VariantPage(total=0, variants=[], summary={})
+        include_regions.extend(gene_regions)
+
+    review_variant_ids = await list_matching_structural_variant_review_ids(
+        session,
+        family_uuid=context.family_uuid,
+        classifications=filters.review_classifications,
+        tags=filters.review_tags,
+        has_notes=filters.has_notes,
+    )
+    include_review_filter_active = bool(
+        filters.review_classifications or filters.review_tags or filters.has_notes
+    )
+    if include_review_filter_active and not review_variant_ids:
+        return VariantPage(total=0, variants=[], summary={})
+    excluded_review_variant_ids = (
+        await list_matching_structural_variant_review_ids(
+            session,
+            family_uuid=context.family_uuid,
+            tags=filters.exclude_review_tags,
+        )
+        if filters.exclude_review_tags
+        else set()
+    )
+
+    records = await _fetch_structural_variant_rows(
+        context, filters, limit=_PRIORITIZE_CANDIDATE_LIMIT + 1
+    )
+    capped = len(records) > _PRIORITIZE_CANDIDATE_LIMIT
+    if capped:
+        records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
+    filtered = [
+        record
+        for record in records
+        if record.variant_id not in excluded_review_variant_ids
+        and ((not include_review_filter_active) or record.variant_id in review_variant_ids)
+        and _structural_record_matches(record, filters, include_regions, selected_samples)
+    ]
+    if not filtered:
+        return VariantPage(total=0, variants=[], summary={})
+
+    affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
+    segregation_evaluated = bool(affected_names)
+    patient_terms, term_labels = await _affected_present_hpo(session, context)
+
+    # One phenotype-scoring pass over the union of every overlapped gene; each SV then
+    # takes its best-matching overlapped gene.
+    all_gene_symbols = {symbol for record in filtered for symbol in record.gene_symbols if symbol}
+    phenotype_scores = (
+        await score_genes_for_hpo(
+            session, gene_symbols=all_gene_symbols, patient_hpo_ids=patient_terms
+        )
+        if patient_terms and all_gene_symbols
+        else {}
+    )
+
+    scored_records: list[tuple[StructuralVariantRecord, VariantPriorityOut]] = []
+    for record in filtered:
+        annotation_extra = _structural_annotation_extra(record)
+        gene_pli = annotation_extra.get("pli")
+        gene_pli = float(gene_pli) if isinstance(gene_pli, (int, float)) else None
+
+        best_gene: str | None = None
+        best_gene_score = None
+        for symbol in record.gene_symbols:
+            candidate = phenotype_scores.get(symbol.upper()) if symbol else None
+            if candidate and (best_gene_score is None or candidate.score > best_gene_score.score):
+                best_gene_score = candidate
+                best_gene = symbol
+        phenotype_value = best_gene_score.score if best_gene_score else None
+
+        scored = score_structural_variant(
+            sv_type=record.sv_type,
+            gene_count=len([symbol for symbol in record.gene_symbols if symbol]),
+            control_af=_coerce_float(annotation_extra.get("control_af")),
+            population_af=_coerce_float(annotation_extra.get("population_af")),
+            segregation_modes=_structural_segregation_modes(annotation_extra),
+            segregation_evaluated=segregation_evaluated,
+            phenotype_score=phenotype_value,
+            gene_pli=gene_pli,
+        )
+        phenotype_matches = (
+            [
+                MonarchPhenotypeMatchOut(
+                    hpo_id=match["hpo_id"], label=term_labels.get(match["hpo_id"])
+                )
+                for match in best_gene_score.matched
+            ]
+            if best_gene_score
+            else []
+        )
+        priority = VariantPriorityOut(
+            combined_score=round(scored.combined_score, 4),
+            variant_score=round(scored.variant_score, 4),
+            pathogenicity_score=round(scored.pathogenicity, 4),
+            frequency_score=round(scored.frequency, 4),
+            segregation_weight=round(scored.segregation_weight, 4),
+            phenotype_score=round(phenotype_value, 4) if phenotype_value is not None else None,
+            segregation_modes=scored.segregation_modes,
+            phenotype_gene=best_gene if best_gene_score else None,
+            phenotype_matches=phenotype_matches,
+        )
+        scored_records.append((record, priority))
+
+    scored_records.sort(
+        key=lambda item: (item[1].combined_score, item[1].variant_score), reverse=True
+    )
+    for index, (_record, priority) in enumerate(scored_records, start=1):
+        priority.rank = index
+
+    summary: dict[str, dict[str, int]] = {}
+    for record, _priority in scored_records:
+        bucket = summary.setdefault(record.sv_type or "", {})
+        source_key = record.source or ""
+        bucket[source_key] = bucket.get(source_key, 0) + 1
+
+    total = len(scored_records)
+    skip = max(page - 1, 0) * page_size if page_size else 0
+    page_items = scored_records[skip : skip + page_size] if page_size else scored_records[skip:]
+    page_records = [record for record, _priority in page_items]
+    review_map = await get_structural_variant_review_map(
+        session,
+        family_uuid=context.family_uuid,
+        variant_ids=[record.variant_id for record in page_records],
+    )
+    cytoband_map = await _fetch_structural_cytoband_map(
+        session, assembly_id=context.assembly_id, records=page_records
+    )
+    variants = []
+    for record, priority in page_items:
+        variant = _structural_variant_out(
+            record,
+            selected_samples,
+            review_map.get(record.variant_id),
+            cytoband_map.get(record.variant_id),
+        )
+        variant.priority = priority
+        variants.append(variant)
+
+    return VariantPage(
+        total=total,
+        total_is_estimated=capped,
+        count_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
+        ranking_truncated=capped,
+        variants=variants,
+        summary=summary,
+    )
+
+
 async def get_family_structural_variants_page(
     session: AsyncSession,
     *,
@@ -4723,6 +4919,7 @@ async def get_family_structural_variants_page(
     exclude_review_tags: list[str] | None = None,
     has_notes: bool = False,
     overlap: bool = False,
+    prioritize: bool = False,
     track_mode: bool = False,
 ) -> VariantPage:
     filters = StructuralVariantQueryFilters(
@@ -4759,6 +4956,15 @@ async def get_family_structural_variants_page(
     selected_samples = _selected_structural_samples(context, filters.selected_samples)
     if selected_samples is None:
         return VariantPage(total=0, variants=[], summary={})
+    if prioritize and not track_mode:
+        return await _prioritized_structural_variants_page(
+            session,
+            context=context,
+            filters=filters,
+            page=page,
+            page_size=page_size,
+            selected_samples=selected_samples,
+        )
     if _can_use_structural_native_page(filters, track_mode=track_mode):
         total, summary = await _fetch_structural_variant_summary(context, filters)
         if total == 0:

@@ -612,6 +612,7 @@ async def get_family_structural_variants(
     has_notes: bool = False,
     project_id: str | None = None,
     overlap: bool = False,
+    prioritize: bool = False,
     track_mode: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -654,6 +655,7 @@ async def get_family_structural_variants(
         exclude_review_tags=exclude_review_tags,
         has_notes=has_notes,
         overlap=overlap,
+        prioritize=prioritize,
         track_mode=track_mode,
     )
 

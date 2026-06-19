@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ResultsPagination from './ResultsPagination';
 import StructuralVariantCards from './StructuralVariantCards';
 import StructuralVariantColumnControls from './StructuralVariantColumnControls';
@@ -81,6 +81,15 @@ export default function StructuralVariantResults({
   });
   const [sortKey, setSortKey] = useState<StructuralSortableKeys>('chr');
   const [sortAsc, setSortAsc] = useState(true);
+
+  const hasPriority = useMemo(() => variants.some((variant) => variant.priority), [variants]);
+  // When the backend returns prioritized results, default to the priority ranking.
+  useEffect(() => {
+    if (hasPriority) {
+      setSortKey('priority');
+      setSortAsc(true);
+    }
+  }, [hasPriority]);
 
   const sortedVariants = useMemo(
     () => sortStructuralVariants(variants, sortKey, sortAsc),
@@ -171,6 +180,7 @@ export default function StructuralVariantResults({
               variants={sortedVariants}
               sortKey={sortKey}
               sortAsc={sortAsc}
+              hasPriority={hasPriority}
               visible={visible}
               onSort={handleSort}
             />

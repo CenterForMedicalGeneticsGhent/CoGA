@@ -7,8 +7,10 @@ from backend.app.services.variant_prioritization import (
     combine,
     frequency_score,
     pathogenicity_score,
+    score_structural_variant,
     score_variant,
     segregation_weight,
+    structural_pathogenicity_score,
 )
 from backend.app.services.monarch_phenotype_score import phenomizer_score
 
@@ -165,6 +167,60 @@ def test_score_variant_end_to_end_ranks_phenotype_match_higher() -> None:
     assert with_pheno.combined_score > without_pheno.combined_score
     # Variant score (pre-phenotype) is identical.
     assert with_pheno.variant_score == without_pheno.variant_score
+
+
+def test_structural_pathogenicity_no_gene_is_capped_low() -> None:
+    # An SV that overlaps no gene is most likely non-coding for ranking purposes.
+    assert structural_pathogenicity_score(sv_type="DEL", gene_count=0) == 0.15
+
+
+def test_structural_pathogenicity_loss_of_constrained_gene_is_high() -> None:
+    base = structural_pathogenicity_score(sv_type="DEL", gene_count=1)
+    constrained = structural_pathogenicity_score(sv_type="DEL", gene_count=1, gene_pli=0.99)
+    assert constrained >= base
+    assert constrained == 0.9
+
+
+def test_structural_pathogenicity_gain_does_not_use_pli_floor() -> None:
+    # The haploinsufficiency floor only applies to copy-number losses.
+    gain = structural_pathogenicity_score(sv_type="DUP", gene_count=1, gene_pli=0.99)
+    assert gain == 0.5
+
+
+def test_structural_pathogenicity_multi_gene_bump_is_capped() -> None:
+    single = structural_pathogenicity_score(sv_type="DEL", gene_count=1)
+    multi = structural_pathogenicity_score(sv_type="DEL", gene_count=5)
+    assert multi > single
+    assert multi <= 0.9
+
+
+def test_score_structural_variant_ranks_phenotype_match_higher() -> None:
+    common = dict(
+        sv_type="DEL",
+        gene_count=1,
+        control_af=1e-6,
+        population_af=1e-6,
+        segregation_modes=[MODE_DE_NOVO],
+        gene_pli=0.99,
+    )
+    with_pheno = score_structural_variant(**common, phenotype_score=0.9)
+    without_pheno = score_structural_variant(**common, phenotype_score=None)
+    assert with_pheno.combined_score > without_pheno.combined_score
+    # The phenotype-independent variant score is unchanged.
+    assert with_pheno.variant_score == without_pheno.variant_score
+
+
+def test_score_structural_variant_common_event_scores_low() -> None:
+    rare = score_structural_variant(
+        sv_type="DEL", gene_count=1, control_af=0.0, population_af=0.0,
+        segregation_modes=[], phenotype_score=None,
+    )
+    common = score_structural_variant(
+        sv_type="DEL", gene_count=1, control_af=0.2, population_af=0.2,
+        segregation_modes=[], phenotype_score=None,
+    )
+    assert rare.combined_score > common.combined_score
+    assert common.frequency == 0.0
 
 
 def test_phenomizer_score_perfect_self_match_is_high() -> None:

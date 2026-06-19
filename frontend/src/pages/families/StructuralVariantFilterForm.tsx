@@ -124,6 +124,7 @@ const StructuralVariantFilterForm = ({
   toggleDraftFilterListValue,
 }: StructuralVariantFilterFormProps) => {
   const [openSections, setOpenSections] = useState({
+    phenotype: false,
     support: true,
     locations: false,
     classAndBreakpoints: false,
@@ -330,6 +331,45 @@ const StructuralVariantFilterForm = ({
 
       <section className="variant-search-section">
         <div className="variant-filter-dropdown-grid">
+          <details
+            className="variant-filter-dropdown"
+            open={openSections.phenotype}
+            onToggle={handleSectionToggle('phenotype')}
+          >
+            <summary className="variant-filter-dropdown-summary">
+              <span className="variant-filter-dropdown-summary-copy">
+                <span className="variant-filter-dropdown-title">Phenotype</span>
+                <span className="variant-filter-dropdown-meta">
+                  {draftFilters.prioritize === 'true' ? '1 active' : 'Prioritization off'}
+                </span>
+              </span>
+              <span
+                className="variant-filter-dropdown-summary-controls"
+                onMouseDown={stopSummaryInteraction}
+                onClick={stopSummaryInteraction}
+              >
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draftFilters.prioritize === 'true'}
+                    onChange={(event) =>
+                      setDraftFilterValue('prioritize', event.target.checked ? 'true' : '')
+                    }
+                  />
+                  <span>Phenotype prioritization</span>
+                </label>
+              </span>
+              <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
+            </summary>
+            <div className="variant-filter-dropdown-content">
+              <p className="table-subtle">
+                Rank structural variants by how well their overlapped gene(s) match the affected
+                individuals’ HPO phenotypes (Monarch / Exomiser-style), blended with event class,
+                gene constraint, rarity, and segregation.
+              </p>
+            </div>
+          </details>
+
           <details
             className="variant-filter-dropdown"
             open={openSections.support}

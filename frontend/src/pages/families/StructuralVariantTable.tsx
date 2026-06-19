@@ -20,6 +20,7 @@ import type {
   StructuralVariantGenotype,
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
+import VariantScoreCell from './VariantScoreCell';
 
 interface StructuralVariantTableProps {
   familyId?: string;
@@ -29,6 +30,7 @@ interface StructuralVariantTableProps {
   variants: StructuralVariant[];
   sortKey: StructuralSortableKeys;
   sortAsc: boolean;
+  hasPriority?: boolean;
   visible: Record<string, boolean>;
   onSort: (key: StructuralSortableKeys) => void;
   tags: SmallVariantTagDefinition[];
@@ -90,6 +92,7 @@ export default function StructuralVariantTable({
   variants,
   sortKey,
   sortAsc,
+  hasPriority = false,
   visible,
   onSort,
   tags,
@@ -104,6 +107,15 @@ export default function StructuralVariantTable({
       <table className="analysis-table table-sticky sv-results-table">
         <thead>
           <tr>
+            {hasPriority && (
+              <th
+                className="table-sortable"
+                onClick={() => onSort('priority')}
+                title="Exomiser-style priority: event class + gene constraint + rarity + segregation + gene–phenotype match"
+              >
+                Score {sortKey === 'priority' && (sortAsc ? '▲' : '▼')}
+              </th>
+            )}
             {visible.chr && (
               <th className="table-sortable" onClick={() => onSort('chr')}>
                 Chr {sortKey === 'chr' && (sortAsc ? '▲' : '▼')}
@@ -213,6 +225,7 @@ export default function StructuralVariantTable({
 
               return (
               <tr key={variant._id} className={isExcluded ? 'variant-table-row--excluded' : undefined}>
+                {hasPriority && <VariantScoreCell variant={variant} />}
                 {visible.chr && <td className="whitespace-nowrap">{variant.chr}</td>}
                 {visible.start && <td className="table-mono">{variant.start}</td>}
                 {visible.end && <td className="table-mono">{variant.end}</td>}
@@ -433,7 +446,7 @@ export default function StructuralVariantTable({
             })
           ) : (
             <tr>
-              <td colSpan={18}>
+              <td colSpan={hasPriority ? 19 : 18}>
                 <p className="table-empty">No structural variants match the current search.</p>
               </td>
             </tr>

@@ -11,6 +11,7 @@ import {
 } from '../../lib/sampleFilterState';
 import type {
   SmallVariantFilterPreset,
+  SmallVariantPriority,
   SmallVariantReview,
   SmallVariantReviewSavePayload,
   SmallVariantTagDefinition,
@@ -43,6 +44,7 @@ export interface StructuralVariant {
   annotation_extra?: StructuralVariantAnnotationExtra;
   genotypes: StructuralVariantGenotype[];
   review?: SmallVariantReview | null;
+  priority?: SmallVariantPriority | null;
 }
 
 export interface StructuralVariantAnnotationExtra {
@@ -98,7 +100,8 @@ export type StructuralSortableKeys =
   | 'inheritance'
   | 'control_af'
   | 'phenotype'
-  | 'region_flags';
+  | 'region_flags'
+  | 'priority';
 
 export type StructuralSampleFilter = {
   gt: string[];
@@ -133,6 +136,7 @@ export type StructuralFilterState = {
   review_tags: string;
   exclude_review_tags: string;
   has_notes: string;
+  prioritize: string;
 };
 
 export type ActiveStructuralFilterChip =
@@ -194,6 +198,7 @@ const STRUCTURAL_FILTER_LABELS: Record<keyof StructuralFilterState, string> = {
   review_tags: 'Review tags',
   exclude_review_tags: 'Exclude review tags',
   has_notes: 'Has notes',
+  prioritize: 'Phenotype prioritization',
 };
 
 const SAMPLE_FIELD_LABELS: Record<Exclude<keyof StructuralSampleFilter, 'gt'>, string> = {
@@ -228,6 +233,7 @@ export const createEmptyStructuralFilters = (): StructuralFilterState => ({
   review_tags: '',
   exclude_review_tags: '',
   has_notes: '',
+  prioritize: '',
 });
 
 const parseCommaSeparatedValues = (value: string) =>
@@ -437,6 +443,7 @@ export const buildStructuralVariantQueryParams = (
     params.append('exclude_review_tag', value);
   });
   if (currentFilters.has_notes === 'true') params.set('has_notes', 'true');
+  if (currentFilters.prioritize === 'true') params.set('prioritize', 'true');
 
   Object.entries(currentSampleFilters).forEach(([sample, filter]) => {
     const { gt, qual, read_support, filter: filterText } = filter;
@@ -768,6 +775,17 @@ export const sortStructuralVariants = (
   sortAsc: boolean,
 ) =>
   [...variants].sort((a, b) => {
+    if (sortKey === 'priority') {
+      // Higher combined score first; the sort toggle flips it. Falls back to the raw
+      // variant score, then leaves unscored variants last.
+      const leftScore = a.priority?.combined_score ?? -1;
+      const rightScore = b.priority?.combined_score ?? -1;
+      let diff = rightScore - leftScore;
+      if (diff === 0) {
+        diff = (b.priority?.variant_score ?? -1) - (a.priority?.variant_score ?? -1);
+      }
+      return sortAsc ? diff : -diff;
+    }
     const readValue = (variant: StructuralVariant) => {
       if (sortKey === 'inheritance') return variant.annotation_extra?.inheritance ?? '';
       if (sortKey === 'cytoband') return variant.annotation_extra?.cytoband ?? '';
