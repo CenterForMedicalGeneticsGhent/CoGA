@@ -125,6 +125,23 @@ def test_list_family_statuses_endpoint(family_metadata_client) -> None:
     assert [item["key"] for item in body] == ["solved"]
 
 
+def test_download_family_pedigree_endpoint(family_metadata_client) -> None:
+    client, monkeypatch = family_metadata_client
+
+    async def fake_build(session, *, family_id):
+        assert family_id == "FAM1"
+        return "FAM1 KID 0 0 1 2\n"
+
+    monkeypatch.setattr(admin_router, "build_pedigree_text", fake_build)
+
+    response = client.get("/api/admin/families/FAM1/ped")
+
+    assert response.status_code == 200
+    assert response.text == "FAM1 KID 0 0 1 2\n"
+    assert response.headers["content-type"].startswith("text/plain")
+    assert 'filename="FAM1.ped"' in response.headers["content-disposition"]
+
+
 def test_list_users_endpoint(family_metadata_client) -> None:
     client, monkeypatch = family_metadata_client
 

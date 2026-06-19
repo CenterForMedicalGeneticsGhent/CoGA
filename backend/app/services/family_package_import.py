@@ -1978,7 +1978,11 @@ def _validate_manifest_hpo_annotations(
     )
 
 
-def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
+def load_validated_family_package(
+    folder_path: str | Path,
+    *,
+    fallback_ped_text: str | None = None,
+) -> tuple[FamilyPackageValidationOut, FamilyPackageBundle | None]:
     try:
         root = _ensure_authorized_package_path(Path(folder_path))
     except HTTPException as exc:
@@ -2058,18 +2062,26 @@ def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackag
     family_id = (manifest.family_id or root.name).strip()
     ped_path = _resolve_package_path(root, manifest.ped)
     ped: ParsedPed | None = None
-    if ped_path is None:
-        errors.append(_issue("ped_missing_path", "Manifest must define a PED path", path=manifest_path))
-    elif not ped_path.is_file():
-        errors.append(_issue("ped_file_missing", "PED file does not exist", path=ped_path))
-    else:
+    ped_text: str | None = None
+    if ped_path is not None and ped_path.is_file():
         try:
             ped_text = ped_path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             errors.append(_issue("ped_decode_failed", f"PED file is not UTF-8 text: {exc}", path=ped_path))
-        else:
-            ped, ped_errors = _parse_ped_text_strict(ped_text)
-            errors.extend(ped_errors)
+    elif fallback_ped_text is not None:
+        # No PED on disk: fall back to the pedigree already configured in the
+        # database. This lets an incremental import add data to an existing
+        # family without re-supplying a PED file.
+        ped_text = fallback_ped_text
+        metadata["ped_source"] = "database"
+    elif ped_path is None:
+        errors.append(_issue("ped_missing_path", "Manifest must define a PED path", path=manifest_path))
+    else:
+        errors.append(_issue("ped_file_missing", "PED file does not exist", path=ped_path))
+
+    if ped_text is not None:
+        ped, ped_errors = _parse_ped_text_strict(ped_text)
+        errors.extend(ped_errors)
 
     if ped is not None:
         if len(ped.family_ids) > 1:
@@ -2168,10 +2180,47 @@ def load_validated_family_package(folder_path: str | Path) -> tuple[FamilyPackag
     )
 
 
-def validate_family_package(folder_path: str | Path) -> FamilyPackageValidationOut:
+def validate_family_package(
+    folder_path: str | Path,
+    *,
+    fallback_ped_text: str | None = None,
+) -> FamilyPackageValidationOut:
     with staged_package_source(folder_path) as (local_root, _source_uri):
-        validation, _bundle = load_validated_family_package(local_root)
+        validation, _bundle = load_validated_family_package(
+            local_root,
+            fallback_ped_text=fallback_ped_text,
+        )
     return validation
+
+
+async def db_pedigree_fallback(
+    session: AsyncSession | None,
+    requested_family_id: str | None,
+) -> str | None:
+    """PED text reconstructed from an existing family's database structure, or
+    ``None`` when there is no existing family to fall back to. Used so imports
+    that target an already-configured family do not require a PED file."""
+    if session is None or not requested_family_id:
+        return None
+    try:
+        return await ped_service.build_pedigree_text(session, family_id=requested_family_id)
+    except HTTPException:
+        return None
+
+
+async def existing_family_sample_ids(
+    session: AsyncSession,
+    family_id: str | None,
+) -> list[str]:
+    """Sample IDs of an already-configured family, or ``[]`` when it does not
+    exist. Used so manifest discovery can scan per-sample dataset files for an
+    incremental import without requiring a PED file."""
+    if not family_id:
+        return []
+    existing = await _fetch_existing_family(session, family_id=family_id)
+    if existing is None:
+        return []
+    return [str(sample_id) for sample_id in existing.get("sample_ids", []) if sample_id]
 
 
 def _format_pattern(pattern: str, *, family_id: str, sample_id: str | None = None) -> str:
@@ -2664,6 +2713,8 @@ def _build_manifest_payload(
 
 def discover_family_package_manifest(
     request: FamilyPackageManifestBuildRequest,
+    *,
+    db_sample_ids: list[str] | None = None,
 ) -> FamilyPackageManifestBuildOut:
     try:
         root = _ensure_authorized_package_path(Path(request.folder_path))
@@ -2721,19 +2772,36 @@ def discover_family_package_manifest(
         requested_ped_path=request.ped_path,
         family_id=family_id,
     )
-    errors.extend(ped_errors)
-    warnings.extend(ped_warnings)
     parsed_ped: ParsedPed | None = None
-    if ped_path is not None:
-        try:
-            parsed_ped, ped_parse_errors = _parse_ped_text_strict(
-                ped_path.read_text(encoding="utf-8")
+    use_db_structure = ped_path is None and bool(db_sample_ids)
+    if use_db_structure:
+        # Existing family with no PED on disk: take the sample list from the
+        # family already configured in the database instead of erroring.
+        warnings.append(
+            _issue(
+                "ped_from_database",
+                "No PED file found; using the family structure already configured in the database.",
+                path=root,
             )
-            errors.extend(ped_parse_errors)
-        except UnicodeDecodeError as exc:
-            errors.append(_issue("ped_decode_failed", f"PED file is not UTF-8 text: {exc}", path=ped_path))
+        )
+    else:
+        errors.extend(ped_errors)
+        warnings.extend(ped_warnings)
+        if ped_path is not None:
+            try:
+                parsed_ped, ped_parse_errors = _parse_ped_text_strict(
+                    ped_path.read_text(encoding="utf-8")
+                )
+                errors.extend(ped_parse_errors)
+            except UnicodeDecodeError as exc:
+                errors.append(_issue("ped_decode_failed", f"PED file is not UTF-8 text: {exc}", path=ped_path))
 
-    sample_ids = parsed_ped.sample_ids if parsed_ped is not None else []
+    if parsed_ped is not None:
+        sample_ids = parsed_ped.sample_ids
+    elif use_db_structure:
+        sample_ids = list(db_sample_ids or [])
+    else:
+        sample_ids = []
     if parsed_ped is not None:
         if len(parsed_ped.family_ids) > 1:
             errors.append(
@@ -2801,6 +2869,7 @@ def write_family_package_manifest(
     folder_path: str | Path,
     manifest_yaml: str,
     overwrite: bool,
+    fallback_ped_text: str | None = None,
 ) -> FamilyPackageManifestWriteOut:
     root = _ensure_authorized_package_path(Path(folder_path))
     if not root.exists() or not root.is_dir():
@@ -2818,7 +2887,7 @@ def write_family_package_manifest(
     manifest_path.write_text(manifest_yaml, encoding="utf-8")
     return FamilyPackageManifestWriteOut(
         manifest_path=str(manifest_path),
-        validation=validate_family_package(root),
+        validation=validate_family_package(root, fallback_ped_text=fallback_ped_text),
     )
 
 
@@ -6347,7 +6416,11 @@ async def _execute_family_package_import_local(
     conflict_mode: str = "cancel",
     progress: ProgressCallback | None = None,
 ) -> PackageExecutionResult:
-    validation, bundle = load_validated_family_package(folder_path)
+    fallback_ped_text = await db_pedigree_fallback(session, requested_family_id)
+    validation, bundle = load_validated_family_package(
+        folder_path,
+        fallback_ped_text=fallback_ped_text,
+    )
     if bundle is not None:
         bundle.source_uri = source_uri
     conflict_mode = _normalized_conflict_mode(conflict_mode)

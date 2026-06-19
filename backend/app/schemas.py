@@ -568,6 +568,7 @@ class FamilyPackageManifestWriteRequest(BaseModel):
     folder_path: str = Field(min_length=1)
     manifest_yaml: str = Field(min_length=1)
     overwrite: bool = False
+    family_id: Optional[str] = None
 
 
 class FamilyPackageManifestWriteOut(BaseModel):
