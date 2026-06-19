@@ -1,11 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 
-type GuideHighlight = {
-  title: string;
-  description: string;
-};
-
 type GuideLink = {
   label: string;
   to: string;
@@ -19,44 +14,6 @@ type GuideSection = {
   quickLinks?: GuideLink[];
   content: React.ReactNode;
 };
-
-const guideHighlights: GuideHighlight[] = [
-  {
-    title: 'Phenotype-driven, family-based analysis',
-    description:
-      'Start from the pedigree and the patient phenotype (HPO), then prioritise variants in the context of the whole family.',
-  },
-  {
-    title: 'Inheritance-aware prioritisation',
-    description:
-      'Apply de novo / dominant, recessive (homozygous and compound heterozygous), X-linked, and carrier-screening logic to variant searches.',
-  },
-  {
-    title: 'Phenotype matching and automatic ranking',
-    description:
-      'Match the patient’s HPO phenotypes to genes and diseases through the Monarch Initiative knowledge graph, and rank a family’s variants with an Exomiser-style score that blends phenotype fit, impact, rarity, and segregation.',
-  },
-  {
-    title: 'Evidence-rich interpretation',
-    description:
-      'See ClinVar, gnomAD frequencies, CADD / REVEL / SpliceAI, and MANE / canonical transcript context next to each candidate, then record an ACMG class, tags, and notes.',
-  },
-  {
-    title: 'Cohort and internal-frequency context',
-    description:
-      'Use the Global Small Variant Explorer to ask how often a variant or gene is seen across every project you can access, and which families carry it.',
-  },
-  {
-    title: 'Comprehensive genomic review',
-    description:
-      'Bring small variants, structural variants, repeat expansions (TRGT), Paraphase, and mitochondrial DNA together for one family.',
-  },
-  {
-    title: 'Reusable, auditable review state',
-    description:
-      'Classifications, tags, notes, and filter presets persist across sessions and analysts, and administrative actions are captured in audit logs.',
-  },
-];
 
 const guideSections: GuideSection[] = [
   {
@@ -634,6 +591,37 @@ const guideSections: GuideSection[] = [
           so a stored classification never depends on the browser.
         </p>
 
+        <h3>VUS sub-tiers: hot, warm, cold</h3>
+        <p>
+          A variant of uncertain significance is not a single bucket. Following the MAGI-ACMG
+          approach, CoGA splits the VUS point band (0–5) into three tiers by how close the evidence
+          sits to the Likely-Pathogenic threshold, so the clinically interesting “hot” VUS stand
+          apart from the rest:
+        </p>
+        <div className="content-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>VUS sub-tier</th>
+                <th>Points</th>
+                <th>Reading</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Hot</strong></td><td>4–5</td><td>Leans pathogenic — one supporting line of evidence from Likely Pathogenic. Worth chasing extra evidence (segregation, functional, parental testing).</td></tr>
+              <tr><td><strong>Warm</strong></td><td>2–3</td><td>Intermediate — mixed or partial evidence.</td></tr>
+              <tr><td><strong>Cold</strong></td><td>0–1</td><td>Little pathogenic support — closest to likely benign.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The tier is shown as a coloured chip on the scale-bar readout (“VUS · Hot”) and, on save,
+          is written back as a <code>VUS — Hot/Warm/Cold</code> review tag alongside the{' '}
+          <code>VUS - class 3</code> class tag. Because it is an ordinary review tag, you can filter
+          or exclude on it like any other — e.g. surface only <em>hot</em> VUS for follow-up. The tier
+          only exists while the variant is a VUS; reclassifying it out of the VUS band clears it.
+        </p>
+
         <h3>The four states a criterion can be in</h3>
         <p>Auto-evaluation positions every criterion into one of four states (all overridable):</p>
         <ul>
@@ -741,8 +729,16 @@ const guideSections: GuideSection[] = [
               </tr>
               <tr>
                 <td><strong>PP4</strong></td>
-                <td>Applied (Supporting)</td>
-                <td>The proband’s “present” HPO terms overlap the gene’s HPO associations.</td>
+                <td>Applied (Supporting → Moderate)</td>
+                <td>
+                  Phenotype specific for the gene. When the family ran with{' '}
+                  <a href="#variant-prioritisation">phenotype prioritisation</a>, the strength is
+                  scaled by the Monarch gene↔proband phenotype-match score — <strong>≥ 0.6</strong>{' '}
+                  Moderate, <strong>≥ 0.3</strong> (or a direct HPO-term overlap) Supporting, below
+                  that not suggested. Without a match score it falls back to a plain HPO-term overlap
+                  at Supporting. The evaluator caps PP4 at Moderate; raise it to Strong by hand for a
+                  highly specific, single-gene phenotype.
+                </td>
               </tr>
               <tr>
                 <td><strong>PM6</strong></td>
@@ -841,6 +837,42 @@ const guideSections: GuideSection[] = [
           <strong> PS4</strong> (case–control prevalence), <strong>PM1</strong> (hotspot / functional
           domain) and <strong>PM3 / BP2</strong> (in-trans phasing).
         </p>
+
+        <h3>Mitochondrial (mtDNA) variants</h3>
+        <p>
+          Opening <strong>ACMG classify</strong> on a variant from the{' '}
+          <a href="#specialised-analyses">mtDNA analysis</a> switches the evaluator to an
+          mtDNA-specific rule set (after the ClinGen/Wong–McCormick 2020 specifications), because the
+          mitochondrial genome is haploid and maternally inherited and the nuclear assumptions do not
+          hold. The points scale, classes and VUS sub-tiers are unchanged; only the pre-evaluation
+          differs:
+        </p>
+        <ul>
+          <li>
+            <strong>PVS1</strong> applies only to predicted-null changes in a protein-coding mt gene;
+            it is greyed out for tRNA, rRNA and control-region loci (no protein product).
+          </li>
+          <li>
+            <strong>Frequency (PM2 / BS1 / BA1)</strong> uses stricter mtDNA thresholds against
+            gnomAD-MT — BA1 ≥ 0.5%, BS1 ≥ 0.02%, PM2 below 0.002% / absent. A MITOMAP common
+            polymorphism or haplogroup marker is routed to BS1.
+          </li>
+          <li>
+            <strong>PP5 / BP6</strong> read MITOMAP / ClinVar status (confirmed pathogenic → PP5;
+            benign / polymorphism → BP6).
+          </li>
+          <li>
+            <strong>PP3 / BP4</strong> are left for manual review — the mt-specific predictors
+            (MitoTIP / APOGEE / HmtVar) are not yet wired in, so no in-silico call is auto-applied.
+          </li>
+          <li>
+            <strong>De novo (PS2 / PM6)</strong> does not apply; instead the evaluator assesses{' '}
+            <strong>maternal segregation</strong> from the maternal-line calls and heteroplasmy
+            (PP1 / BS4). <strong>PM1</strong> is offered as <em>consider</em> for tRNA loci, and PP4
+            notes the proband’s heteroplasmy level. Nuclear-only criteria (PP2, PM5, PM3, BP1–3, …)
+            are greyed out.
+          </li>
+        </ul>
 
         <h3>External evidence links</h3>
         <p>
@@ -1067,62 +1099,162 @@ const guideSections: GuideSection[] = [
     id: 'administration',
     title: 'Administration',
     summary:
-      'Projects and access, data management, reference sync, storage maintenance, tag/preset configuration, and audit logs.',
+      'The admin dashboard, grouped by operational domain: reference data, users & access, data management, variant configuration, database operations, and audit logs.',
     quickLinks: [
-      { label: 'Data management', to: '/admin/data', note: 'Families & uploads' },
-      { label: 'Projects', to: '/projects', note: 'Access' },
-      { label: 'Users', to: '/admin/users', note: 'Accounts' },
-      { label: 'Gene reference sync', to: '/admin/gene-reference', note: 'Reference' },
+      { label: 'Admin dashboard', to: '/admin', note: 'All tools' },
+      { label: 'Family & sample data', to: '/admin/data/families', note: 'Inventory & import' },
+      { label: 'Projects & access', to: '/admin/access/projects', note: 'Scoping' },
+      { label: 'Users', to: '/admin/access/users', note: 'Accounts' },
       { label: 'Audit logs', to: '/admin/monitoring/audit-logs', note: 'Activity' },
     ],
     content: (
       <>
         <p>
-          Administrative tooling lives behind admin access and keeps the platform healthy and
-          governed.
+          Administrative tooling lives behind admin access and keeps the platform governed, current
+          and healthy. Everything is reachable from the{' '}
+          <Link to="/admin">admin dashboard</Link>, which groups the workspaces into six operational
+          domains. The sections below describe what each one does.
+        </p>
+
+        <h3>1 · Reference data</h3>
+        <p>
+          The shared, system-wide datasets every project reads. These rarely change day to day, but
+          keeping them current is what makes annotations, gene context and phenotype matching
+          accurate.
         </p>
         <ul>
           <li>
-            <strong>Projects and access</strong> — define projects, their assembly, and which users
-            can see them. Access here is what scopes every query and cohort count.
+            <strong>Species &amp; assemblies</strong>{' '}
+            (<Link to="/admin/reference/assemblies">/admin/reference/assemblies</Link>) — the
+            reference genome builds (e.g. GRCh38) and their per-assembly layers: cytobands, gene and
+            transcript models, clinical CNVs, segmental duplications and DGV. Shows the status of each
+            dataset and lets you trigger a <strong>gene-metadata sync</strong> — refresh a single gene
+            by symbol or queue an all-human refresh — and watch the resulting jobs (progress, errors).
+            The same area rebuilds the <strong>clinical-CNV knowledge base</strong> from ClinVar and
+            DGV.
           </li>
           <li>
-            <strong>Data management</strong> — inventory families and samples, run imports, and
-            handle deletion workflows.
+            <strong>Gene panels</strong>{' '}
+            (<Link to="/admin/reference/gene-panels">/admin/reference/gene-panels</Link>) — the panel
+            catalogue, each panel’s source metadata and its gene membership. Panels chosen here are
+            what analysts pick from in <a href="#phenotypes-and-panels">case setup</a> and the
+            small-variant location filter.
           </li>
           <li>
-            <strong>Reference and gene sync</strong> — manage assemblies and reference layers and
-            queue gene-reference refreshes.
+            <strong>HPO terminology</strong>{' '}
+            (<Link to="/admin/reference/hpo">/admin/reference/hpo</Link>) — the Human Phenotype
+            Ontology release: term count, synonyms, relationships and sync status. Preview and apply a
+            new ontology release so phenotype entry and matching use current terms.
           </li>
           <li>
             <strong>Monarch knowledge graph</strong> — load the monthly Monarch release (gene–disease
             and disease–phenotype associations) that powers{' '}
             <a href="#phenotype-matching">phenotype matching</a> and{' '}
             <a href="#variant-prioritisation">variant prioritisation</a>. Run it once after deploy and
-            roughly monthly to stay current; until it is run, the phenotype blocks show an empty state.
+            roughly monthly to stay current; until it is run, the phenotype blocks show an empty
+            state.
+          </li>
+        </ul>
+
+        <h3>2 · Users &amp; access</h3>
+        <p>This is what scopes every query, cohort count and family list in the platform.</p>
+        <ul>
+          <li>
+            <strong>Users</strong>{' '}
+            (<Link to="/admin/access/users">/admin/access/users</Link>) — user accounts, their role,
+            and their activation status. Deactivate an account to revoke access without deleting its
+            history.
           </li>
           <li>
-            <strong>Storage maintenance</strong> — inspect and repair the per-assembly ClickHouse
-            variant tables (ensure / optimise).
+            <strong>Projects &amp; access</strong>{' '}
+            (<Link to="/admin/access/projects">/admin/access/projects</Link>) — the project catalogue
+            (each project pins an assembly) and the family/sample-to-project assignments. A user only
+            ever sees data in the projects they are granted, and the{' '}
+            <a href="#variant-explorer">Global Small Variant Explorer</a> counts only across those
+            projects, so access here directly defines each analyst’s and each cohort query’s scope.
+          </li>
+        </ul>
+
+        <h3>3 · Data management</h3>
+        <p>The imported family, sample and assay data, plus the workflow labels around it.</p>
+        <ul>
+          <li>
+            <strong>Family &amp; sample data</strong>{' '}
+            (<Link to="/admin/data/families">/admin/data/families</Link>) — search and page the full
+            inventory of families and samples, drill into a family’s members and per-assay layers,
+            and reassign a family or sample to different projects. Per-family <strong>raw import
+            files</strong> can be downloaded and integrity-verified. Deletion workflows are here too,
+            scoped precisely: remove a single assay layer for one sample, or an entire sample or
+            family. (Deletions are irreversible and audit-logged.)
           </li>
           <li>
-            <strong>Tags and presets</strong> — define the variant tags and shared filter presets
-            your team relies on.
+            <strong>Family statuses</strong>{' '}
+            (<Link to="/admin/data/family-statuses">/admin/data/family-statuses</Link>) — curate the
+            workflow statuses analysts assign to families (e.g. <em>new</em>, <em>in progress</em>,
+            <em> completed</em>): add, rename, recolour or remove them.
           </li>
           <li>
-            <strong>Audit logs</strong> — a full activity trail for inspection and platform
-            optimisation, split into two views. <strong>API requests</strong> records every backend
-            call: who, what, when, the response and duration, inferred data updates, and which search
-            filters a query used. <strong>UI interactions</strong> records client-side activity that
-            never reaches the backend — every button and link click and each in-app navigation.
+            <strong>Package import</strong>{' '}
+            (<Link to="/admin/data/upload">/admin/data/upload</Link>) — validate an import manifest
+            and run a package-based <strong>initial or incremental import</strong> from the browser
+            (the same flow available on the CLI). See <a href="#case-setup">case setup</a> for what an
+            import brings in.
+          </li>
+        </ul>
+
+        <h3>4 · Variant configuration</h3>
+        <p>The interpretation vocabulary and reusable filters shared across the team.</p>
+        <ul>
+          <li>
+            <strong>Variant tags</strong>{' '}
+            (<Link to="/admin/variants/tags">/admin/variants/tags</Link>) — define the review tags
+            analysts apply during <a href="#interpretation-and-review">interpretation</a>: create,
+            rename, recolour and remove them, and scope custom tags per project. The built-in ACMG
+            class tags and the VUS hot/warm/cold tier tags are managed automatically and appear here
+            for reference.
+          </li>
+          <li>
+            <strong>Preset filters</strong>{' '}
+            (<Link to="/admin/variants/presets">/admin/variants/presets</Link>) — review the built-in
+            and saved <a href="#small-variant-filtering">small-variant filter presets</a> the team
+            relies on for consistent review. Presets are authored from the family workspace; this view
+            is the catalogue.
+          </li>
+        </ul>
+
+        <h3>5 · Database &amp; operations</h3>
+        <ul>
+          <li>
+            <strong>ClickHouse tables &amp; operations</strong>{' '}
+            (<Link to="/admin/operations/clickhouse">/admin/operations/clickhouse</Link>) — the
+            per-assembly variant tables that back small-variant search, with their status and size,
+            plus manual maintenance: <strong>ensure</strong> (create or repair a missing/corrupt
+            table), <strong>optimise</strong> (compact storage, with an optional <em>final</em> pass)
+            and <strong>rebuild the small-variant gene index</strong> (the materialised view behind
+            gene-based lookups). Reach for these after a large import or if a gene-scoped query looks
+            incomplete.
+          </li>
+        </ul>
+
+        <h3>6 · Monitoring &amp; audit</h3>
+        <ul>
+          <li>
+            <strong>Audit logs</strong>{' '}
+            (<Link to="/admin/monitoring/audit-logs">/admin/monitoring/audit-logs</Link>) — a full
+            activity trail for inspection and platform optimisation, split into two views, each
+            filterable by user, path, method and status. <strong>API requests</strong> records every
+            backend call: who, what, when, the response and duration, inferred data updates, and which
+            search filters a query used. <strong>UI interactions</strong> records client-side activity
+            that never reaches the backend — every button and link click and each in-app navigation.
             Identifiers are masked (paths reduced to <em>:id</em>, query strings to their filter
             names), so the trail shows <em>how</em> the platform is used without exposing patient
             data.
           </li>
         </ul>
+
         <p>
-          Display preferences live on the <Link to="/settings">Settings</Link> page; release notes
-          are on the <Link to="/new-features">New features</Link> page.
+          Personal display preferences live on the <Link to="/settings">Settings</Link> page (not an
+          admin tool); release notes are on the <Link to="/new-features">New features</Link> page.
         </p>
       </>
     ),
@@ -1139,6 +1271,11 @@ const guideSections: GuideSection[] = [
           <li>
             <strong>ACMG class</strong> — five-tier variant classification: benign, likely benign,
             VUS, likely pathogenic, pathogenic.
+          </li>
+          <li>
+            <strong>VUS sub-tier (hot / warm / cold)</strong> — a finer split of the VUS band by
+            ACMG points (hot 4–5, warm 2–3, cold 0–1): how close an uncertain variant sits to Likely
+            Pathogenic. Hot VUS are the ones worth chasing more evidence for.
           </li>
           <li><strong>ClinVar</strong> — public archive of variant–condition interpretations.</li>
           <li><strong>gnomAD / TOPMed</strong> — population allele-frequency references.</li>
@@ -1213,18 +1350,6 @@ const UserGuidePage: React.FC = () => (
         and maps each step to the page that does the job.
       </p>
     </header>
-
-    <section className="user-guide-highlights" aria-label="Capabilities">
-      <p className="user-guide-eyebrow">What you can do in CoGA</p>
-      <div className="user-guide-highlight-grid">
-        {guideHighlights.map((highlight) => (
-          <div key={highlight.title} className="user-guide-highlight">
-            <p className="user-guide-highlight-title">{highlight.title}</p>
-            <p className="user-guide-highlight-copy">{highlight.description}</p>
-          </div>
-        ))}
-      </div>
-    </section>
 
     <div className="user-guide-layout">
       <aside id="user-guide-contents" className="user-guide-toc">
