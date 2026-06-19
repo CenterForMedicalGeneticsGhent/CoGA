@@ -36,6 +36,7 @@ interface StructuralVariantTableProps {
   tags: SmallVariantTagDefinition[];
   reviewIsPending?: boolean;
   onEditReview?: (variant: StructuralVariant) => void;
+  onClassifyCnv?: (variant: StructuralVariant) => void;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
 }
 
@@ -98,6 +99,7 @@ export default function StructuralVariantTable({
   tags,
   reviewIsPending = false,
   onEditReview,
+  onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantTableProps) {
   const tagMap = getTagDefinitionMap(tags);
@@ -339,6 +341,13 @@ export default function StructuralVariantTable({
                         }}
                       >
                         Report
+                      </button>
+                      <button
+                        type="button"
+                        className="variant-review-link"
+                        onClick={() => onClassifyCnv?.(variant)}
+                      >
+                        ACMG (CNV)
                       </button>
                       <button
                         type="button"

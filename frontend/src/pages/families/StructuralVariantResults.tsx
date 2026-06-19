@@ -6,6 +6,7 @@ import StructuralVariantColumnControls from './StructuralVariantColumnControls';
 import StructuralVariantSummaryTable from './StructuralVariantSummaryTable';
 import StructuralVariantTable from './StructuralVariantTable';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
+import CnvAcmgClassificationModal from './CnvAcmgClassificationModal';
 import {
   CARD_VIEW_THRESHOLD,
   sortStructuralVariants,
@@ -60,6 +61,7 @@ export default function StructuralVariantResults({
 }: StructuralVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<StructuralVariant | null>(null);
+  const [cnvAcmgVariant, setCnvAcmgVariant] = useState<StructuralVariant | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [visible, setVisible] = useState({
@@ -203,6 +205,10 @@ export default function StructuralVariantResults({
               onOpenReview?.();
               setSelectedVariant(variant);
             }}
+            onClassifyCnv={(variant) => {
+              onOpenReview?.();
+              setCnvAcmgVariant(variant);
+            }}
             onToggleReviewTag={onToggleReviewTag}
             projectId={projectId}
             reviewIsPending={reviewIsPending}
@@ -219,6 +225,10 @@ export default function StructuralVariantResults({
               onEditReview={(variant) => {
                 onOpenReview?.();
                 setSelectedVariant(variant);
+              }}
+              onClassifyCnv={(variant) => {
+                onOpenReview?.();
+                setCnvAcmgVariant(variant);
               }}
               projectId={projectId}
               reviewIsPending={reviewIsPending}
@@ -249,6 +259,18 @@ export default function StructuralVariantResults({
           onSave={async (payload) => {
             await onSaveReview(selectedVariant, payload);
             setSelectedVariant(null);
+          }}
+        />
+      ) : null}
+      {cnvAcmgVariant && onSaveReview ? (
+        <CnvAcmgClassificationModal
+          variant={cnvAcmgVariant}
+          isPending={reviewIsPending}
+          errorMessage={reviewError}
+          onClose={() => setCnvAcmgVariant(null)}
+          onSave={async (payload) => {
+            await onSaveReview(cnvAcmgVariant, payload);
+            setCnvAcmgVariant(null);
           }}
         />
       ) : null}

@@ -32,6 +32,7 @@ interface StructuralVariantCardsProps {
   tags: SmallVariantTagDefinition[];
   reviewIsPending?: boolean;
   onEditReview?: (variant: StructuralVariant) => void;
+  onClassifyCnv?: (variant: StructuralVariant) => void;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
 }
 
@@ -100,6 +101,7 @@ export default function StructuralVariantCards({
   tags,
   reviewIsPending = false,
   onEditReview,
+  onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantCardsProps) {
   const tagMap = getTagDefinitionMap(tags);
@@ -266,6 +268,13 @@ export default function StructuralVariantCards({
                         }}
                       >
                         Report
+                      </button>
+                      <button
+                        type="button"
+                        className="variant-review-link"
+                        onClick={() => onClassifyCnv?.(variant)}
+                      >
+                        ACMG (CNV)
                       </button>
                       <button
                         type="button"
