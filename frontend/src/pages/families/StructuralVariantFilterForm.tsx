@@ -52,6 +52,17 @@ const PRESETS: { value: StructuralPreset; label: string }[] = [
   { value: 'any_affected', label: 'Any affected' },
 ];
 
+const SV_TYPE_OPTIONS = [
+  { value: '', label: 'Any type' },
+  { value: 'DEL', label: 'DEL — deletion' },
+  { value: 'DUP', label: 'DUP — duplication' },
+  { value: 'INS', label: 'INS — insertion' },
+  { value: 'INV', label: 'INV — inversion' },
+  { value: 'CNV', label: 'CNV — copy number' },
+  { value: 'BND', label: 'BND — breakend' },
+  { value: 'TRA', label: 'TRA — translocation' },
+] as const;
+
 const REGION_FLAG_OPTIONS = [
   'CDS',
   'UTR',
@@ -125,7 +136,7 @@ const StructuralVariantFilterForm = ({
 }: StructuralVariantFilterFormProps) => {
   const [openSections, setOpenSections] = useState({
     phenotype: false,
-    support: true,
+    support: false,
     locations: false,
     classAndBreakpoints: false,
     needlr: false,
@@ -165,7 +176,7 @@ const StructuralVariantFilterForm = ({
     const thresholdActive = Boolean(filter.qual || filter.read_support || filter.filter);
     return count + (genotypeActive || thresholdActive ? 1 : 0);
   }, 0);
-  const supportFilterCount = sampleFilterCount + countNonEmpty(draftFilters.type, draftFilters.source);
+  const supportFilterCount = sampleFilterCount + countNonEmpty(draftFilters.inheritance);
   const locationFilterCount = countNonEmpty(
     draftFilters.locus,
     draftFilters.panel_id,
@@ -175,6 +186,8 @@ const StructuralVariantFilterForm = ({
     draftFilters.end,
   );
   const classFilterCount = countNonEmpty(
+    draftFilters.type,
+    draftFilters.source,
     draftFilters.minLength,
     draftFilters.length,
     draftFilters.remote_chr,
@@ -182,7 +195,6 @@ const StructuralVariantFilterForm = ({
   );
   const needlrFilterCount =
     countNonEmpty(
-      draftFilters.inheritance,
       draftFilters.phenotype,
       draftFilters.hpo,
       draftFilters.moi,
@@ -392,22 +404,18 @@ const StructuralVariantFilterForm = ({
                 onClick={stopSummaryInteraction}
               >
                 <label className="variant-summary-select-field">
-                  <span>SV type</span>
-                  <input
-                    name="type"
-                    placeholder="Any"
-                    value={draftFilters.type}
+                  <span>Inheritance</span>
+                  <select
+                    name="inheritance"
+                    value={draftFilters.inheritance}
                     onChange={handleDraftFieldChange}
-                  />
-                </label>
-                <label className="variant-summary-select-field">
-                  <span>Source</span>
-                  <input
-                    name="source"
-                    placeholder="Any"
-                    value={draftFilters.source}
-                    onChange={handleDraftFieldChange}
-                  />
+                  >
+                    <option value="">Any</option>
+                    <option value="de_novo">De novo</option>
+                    <option value="maternal">Maternal</option>
+                    <option value="paternal">Paternal</option>
+                    <option value="inherited">Inherited</option>
+                  </select>
                 </label>
               </span>
               <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
@@ -559,10 +567,32 @@ const StructuralVariantFilterForm = ({
                   {summarizeSection(classFilterCount)}
                 </span>
               </span>
+              <span
+                className="variant-filter-dropdown-summary-controls"
+                onMouseDown={stopSummaryInteraction}
+                onClick={stopSummaryInteraction}
+              >
+                <label className="variant-summary-select-field">
+                  <span>SV type</span>
+                  <select name="type" value={draftFilters.type} onChange={handleDraftFieldChange}>
+                    {SV_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </span>
               <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
             </summary>
             <div className="variant-filter-dropdown-content">
               <div className="analysis-filter-grid analysis-filter-grid--5">
+                <input
+                  name="source"
+                  placeholder="Callset / source"
+                  value={draftFilters.source}
+                  onChange={handleDraftFieldChange}
+                />
                 <input
                   name="minLength"
                   placeholder="Min length"
@@ -602,26 +632,6 @@ const StructuralVariantFilterForm = ({
                 <span className="variant-filter-dropdown-meta">
                   {summarizeSection(needlrFilterCount)}
                 </span>
-              </span>
-              <span
-                className="variant-filter-dropdown-summary-controls"
-                onMouseDown={stopSummaryInteraction}
-                onClick={stopSummaryInteraction}
-              >
-                <label className="variant-summary-select-field">
-                  <span>Inheritance</span>
-                  <select
-                    name="inheritance"
-                    value={draftFilters.inheritance}
-                    onChange={handleDraftFieldChange}
-                  >
-                    <option value="">Any</option>
-                    <option value="de_novo">De novo</option>
-                    <option value="maternal">Maternal</option>
-                    <option value="paternal">Paternal</option>
-                    <option value="inherited">Inherited</option>
-                  </select>
-                </label>
               </span>
               <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
             </summary>

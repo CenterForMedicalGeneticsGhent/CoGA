@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 
 import {
   buildInitialCnvSelections,
@@ -94,6 +94,13 @@ export default function CnvAcmgClassificationModal({
     [selections],
   );
 
+  const [tip, setTip] = useState<{ text: string; top: number; left: number } | null>(null);
+  const showTip = (text: string) => (event: MouseEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTip({ text, top: rect.bottom + 6, left: rect.left });
+  };
+  const hideTip = () => setTip(null);
+
   const handleSave = async () => {
     const payload: StructuralVariantReviewSavePayload = {
       classification: classification.classLabel,
@@ -170,12 +177,15 @@ export default function CnvAcmgClassificationModal({
                   const rangeLabel = adjustable
                     ? `allowed ${formatPoints(def.minPoints)} … ${formatPoints(def.maxPoints)}`
                     : `fixed ${formatPoints(def.defaultPoints)}`;
+                  const tipText = `${def.code} — ${def.name} (${rangeLabel})`;
                   return (
                     <div
                       key={def.code}
-                      className={`cnv-criterion-row${selection.accepted ? ' cnv-criterion-row--active' : ''}`}
-                      // The full criterion text lives in the tooltip so the row stays compact.
-                      title={`${def.code} — ${def.name} (${rangeLabel})`}
+                      className={`cnv-criterion-row${selection.accepted ? ' cnv-criterion-row--active' : ''}${
+                        adjustable ? '' : ' cnv-criterion-row--fixed'
+                      }`}
+                      onMouseEnter={showTip(tipText)}
+                      onMouseLeave={hideTip}
                     >
                       <label className="analysis-checkbox cnv-criterion-main">
                         <input
@@ -238,6 +248,12 @@ export default function CnvAcmgClassificationModal({
             {isPending ? 'Saving…' : 'Save classification'}
           </button>
         </div>
+
+        {tip ? (
+          <div className="cnv-tooltip" style={{ top: tip.top, left: tip.left }} role="tooltip">
+            {tip.text}
+          </div>
+        ) : null}
       </div>
     </div>
   );
