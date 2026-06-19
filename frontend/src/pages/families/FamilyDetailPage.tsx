@@ -1371,7 +1371,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 hasParaphase ||
                 hasMitoDna) && (
                 <div className="compact-toolbar family-toolbar family-variant-secondary">
-                  {hasSmallVariants && (
+                  {(hasSmallVariants || hasVariants) && (
                     <Link
                       to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
                       className="button-secondary hover:no-underline"

@@ -5,6 +5,10 @@
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
 import { formatLocus } from './smallVariantResultUtils';
 import type { FamilyMember, SmallVariant } from './smallVariantSearch';
+import type {
+  StructuralVariant,
+  StructuralVariantFamilyMember,
+} from './structuralVariantSearch';
 
 export type Zygosity =
   | 'homozygous'
@@ -211,6 +215,72 @@ export const collectReportCriteria = (variant: SmallVariant): ReportCriterion[] 
 
 export const acmgClassificationLabel = (variant: SmallVariant): string | null =>
   variant.review?.acmg?.classification ?? variant.review?.classification ?? null;
+
+// --- Structural-variant narrative -----------------------------------------
+
+const formatStructuralLengthText = (length?: number | null): string => {
+  if (typeof length !== 'number' || !Number.isFinite(length)) return 'an unknown size';
+  const value = Math.abs(length);
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} Mb`;
+  if (value > 1_000) return `${(value / 1_000).toFixed(1)} kb`;
+  return `${value} bp`;
+};
+
+const STRUCTURAL_TYPE_LABELS: Record<string, string> = {
+  DEL: 'deletion',
+  DUP: 'duplication',
+  INS: 'insertion',
+  INV: 'inversion',
+  BND: 'breakend / translocation',
+  TRA: 'translocation',
+  CNV: 'copy-number variant',
+};
+
+const structuralTypeLabel = (type?: string): string => {
+  if (!type) return 'structural variant';
+  return STRUCTURAL_TYPE_LABELS[type.trim().toUpperCase()] || `${type} structural variant`;
+};
+
+export const buildStructuralVariantSentence = (variant: StructuralVariant): string => {
+  const typeLabel = structuralTypeLabel(variant.type);
+  const size = formatStructuralLengthText(variant.length);
+  const locus = `${variant.chr}:${variant.start.toLocaleString()}-${variant.end.toLocaleString()}`;
+  const geneClause = variant.gene
+    ? ` overlapping ${variant.gene}`
+    : ' in an intergenic region';
+  const remoteClause =
+    variant.remote_chr && variant.remote_start
+      ? ` with a remote breakpoint at ${variant.remote_chr}:${variant.remote_start.toLocaleString()}`
+      : '';
+  return `A ${size} ${typeLabel} at ${locus}${geneClause}${remoteClause}.`;
+};
+
+export const describeStructuralFrequency = (variant: StructuralVariant): string => {
+  const controlAf = variant.annotation_extra?.control_af;
+  const populationAf = variant.annotation_extra?.population_af;
+  const parts: string[] = [];
+  if (typeof controlAf === 'number') {
+    parts.push(`control cohort allele frequency ${formatAlleleFrequency(controlAf)}`);
+  }
+  if (typeof populationAf === 'number') {
+    parts.push(`population allele frequency ${formatAlleleFrequency(populationAf)}`);
+  }
+  if (!parts.length) return 'has no reported control or population allele frequency';
+  return `has a ${joinWithAnd(parts)}`;
+};
+
+export const buildStructuralSegregationSentence = (
+  variant: StructuralVariant,
+  members: StructuralVariantFamilyMember[] = [],
+): string | null => {
+  const inheritance = variant.annotation_extra?.inheritance?.trim();
+  if (!inheritance) return null;
+  const affected = members.filter((member) => member.affected).map((member) => member.sample_id);
+  const affectedClause = affected.length
+    ? ` in ${joinWithAnd(affected)}`
+    : '';
+  return `The call is annotated as ${inheritance.replace(/_/g, ' ')}${affectedClause}.`;
+};
 
 // Joins ["a", "b", "c"] → "a, b and c"; ["a", "b"] → "a and b".
 export function joinWithAnd(items: string[]): string {

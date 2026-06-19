@@ -36,6 +36,21 @@ export interface AcmgReviewPayload {
   vus_tier?: string | null;
 }
 
+export interface CnvAcmgReviewCriterion {
+  code: string;
+  points: number;
+  accepted: boolean;
+  evidence?: string | null;
+  auto_suggested: boolean;
+}
+
+export interface CnvAcmgReviewPayload {
+  kind: 'loss' | 'gain';
+  criteria: CnvAcmgReviewCriterion[];
+  point_total?: number | null;
+  classification?: string | null;
+}
+
 export interface SmallVariantReview {
   variant_id: string;
   classification?: string | null;
@@ -46,6 +61,8 @@ export interface SmallVariantReview {
   updated_at?: string | null;
   compound_het?: SmallVariantCompoundHetReview | null;
   acmg?: AcmgReviewPayload | null;
+  // ClinGen CNV classification — only populated for structural-variant reviews.
+  cnv_acmg?: CnvAcmgReviewPayload | null;
 }
 
 export interface SmallVariantReviewTagMetadata {
@@ -214,6 +231,7 @@ export type SmallVariantReviewSavePayload = {
     note?: string;
   };
   acmg?: AcmgReviewPayload;
+  cnv_acmg?: CnvAcmgReviewPayload;
 };
 
 export interface SmallVariantFilterPreset {

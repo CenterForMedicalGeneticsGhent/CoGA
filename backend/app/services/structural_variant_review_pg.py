@@ -11,12 +11,14 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import (
+    CnvAcmgClassificationPayload,
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
     SmallVariantReviewOut,
     SmallVariantReviewSummaryOut,
     SmallVariantReviewUpdate,
 )
+from . import cnv_acmg_points
 from .family_metadata_context import FamilyMetadataContext
 from .metadata_service import CurrentUser
 from .review_pg_utils import (
@@ -28,6 +30,66 @@ from .review_pg_utils import (
 from .small_variant_review_pg import list_small_variant_tag_definitions
 
 
+def _normalize_cnv_acmg_payload(
+    payload: CnvAcmgClassificationPayload | None,
+) -> tuple[dict[str, Any] | None, float | None, str | None]:
+    """Validate submitted CNV criteria and recompute class/points server-side.
+
+    Returns ``(blob, point_total, class_key)`` — ``blob`` is the JSON to store, or
+    ``None`` to clear. The client-supplied total is ignored.
+    """
+
+    if payload is None or not payload.criteria:
+        return None, None, None
+    kind = (payload.kind or "loss").strip().lower()
+    if not cnv_acmg_points.is_valid_kind(kind):
+        raise HTTPException(status_code=400, detail=f"Invalid CNV kind: {payload.kind}")
+    normalized_criteria: list[dict[str, Any]] = []
+    for criterion in payload.criteria:
+        code = (criterion.code or "").strip()
+        if not cnv_acmg_points.is_valid_code(kind, code):
+            raise HTTPException(status_code=400, detail=f"Unknown CNV criterion: {criterion.code}")
+        normalized_criteria.append(
+            {
+                "code": code,
+                "points": cnv_acmg_points.clamp_points(kind, code, criterion.points),
+                "accepted": bool(criterion.accepted),
+                "evidence": (criterion.evidence or "").strip() or None,
+                "auto_suggested": bool(criterion.auto_suggested),
+            }
+        )
+    point_total, class_key, class_label = cnv_acmg_points.compute_classification(
+        kind, normalized_criteria
+    )
+    blob = {
+        "kind": kind,
+        "criteria": normalized_criteria,
+        "point_total": point_total,
+        "classification": class_label,
+    }
+    return blob, point_total, class_key
+
+
+def _cnv_json_or_none(value: Any) -> str | None:
+    if not value:
+        return None
+    return _json_payload(value)
+
+
+def _deserialize_cnv_acmg(value: Any) -> CnvAcmgClassificationPayload | None:
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return None
+    try:
+        return CnvAcmgClassificationPayload.model_validate(value)
+    except Exception:  # noqa: BLE001 - tolerate legacy/partial blobs
+        return None
+
+
 def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
     return SmallVariantReviewOut(
         variant_id=str(document.get("variant_id") or ""),
@@ -37,6 +99,7 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
         note=document.get("note"),
         updated_by=document.get("updated_by"),
         updated_at=document.get("updated_at"),
+        cnv_acmg=_deserialize_cnv_acmg(document.get("cnv_acmg")),
     )
 
 
@@ -73,6 +136,9 @@ async def _fetch_review_row(
                 tags,
                 tag_metadata,
                 note,
+                cnv_acmg,
+                cnv_point_total,
+                cnv_class,
                 updated_by,
                 updated_at
             FROM structural_variant_reviews
@@ -104,6 +170,9 @@ async def get_structural_variant_review_map(
                 tags,
                 tag_metadata,
                 note,
+                cnv_acmg,
+                cnv_point_total,
+                cnv_class,
                 updated_by,
                 updated_at
             FROM structural_variant_reviews
@@ -237,6 +306,7 @@ async def upsert_structural_variant_review(
 
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
+    cnv_blob, cnv_point_total, cnv_class = _normalize_cnv_acmg_payload(payload.cnv_acmg)
     existing = await _fetch_review_row(
         session,
         family_uuid=context.family_uuid,
@@ -244,7 +314,12 @@ async def upsert_structural_variant_review(
     )
     now = datetime.now(timezone.utc)
 
-    if normalized_note is None and normalized_classification is None and not normalized_tags:
+    if (
+        normalized_note is None
+        and normalized_classification is None
+        and not normalized_tags
+        and cnv_blob is None
+    ):
         if existing is not None:
             await session.execute(
                 text("DELETE FROM structural_variant_reviews WHERE id = CAST(:review_id AS uuid)"),
@@ -267,6 +342,9 @@ async def upsert_structural_variant_review(
             )
         ),
         "note": normalized_note,
+        "cnv_acmg_json": _cnv_json_or_none(cnv_blob),
+        "cnv_point_total": cnv_point_total,
+        "cnv_class": cnv_class,
         "updated_by": user.username,
         "updated_at": now,
     }
@@ -280,6 +358,9 @@ async def upsert_structural_variant_review(
                     tags = CAST(:tags_json AS jsonb),
                     tag_metadata = CAST(:tag_metadata_json AS jsonb),
                     note = :note,
+                    cnv_acmg = CAST(:cnv_acmg_json AS jsonb),
+                    cnv_point_total = :cnv_point_total,
+                    cnv_class = :cnv_class,
                     updated_by = :updated_by,
                     updated_at = :updated_at
                 WHERE id = CAST(:review_id AS uuid)
@@ -298,6 +379,9 @@ async def upsert_structural_variant_review(
                     tags,
                     tag_metadata,
                     note,
+                    cnv_acmg,
+                    cnv_point_total,
+                    cnv_class,
                     updated_by,
                     created_at,
                     updated_at
@@ -309,6 +393,9 @@ async def upsert_structural_variant_review(
                     CAST(:tags_json AS jsonb),
                     CAST(:tag_metadata_json AS jsonb),
                     :note,
+                    CAST(:cnv_acmg_json AS jsonb),
+                    :cnv_point_total,
+                    :cnv_class,
                     :updated_by,
                     :created_at,
                     :updated_at

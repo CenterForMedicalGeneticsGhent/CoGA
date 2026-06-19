@@ -10436,6 +10436,132 @@ a.button-danger:hover {
   color: var(--color-accent);
 }
 
+/* ClinGen CNV classification modal — compact, column-aligned criteria. */
+.acmg-criteria-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.cnv-section-hint {
+  font-size: 0.68rem;
+  color: var(--color-accent);
+  margin: 0;
+}
+
+/* The CNV modal is wider than the small-variant ACMG modal so the five ClinGen
+   sections can sit side by side as columns. */
+.modal-surface.cnv-acmg-modal {
+  width: min(1480px, calc(100vw - 1.5rem));
+  max-width: min(1480px, calc(100vw - 1.5rem));
+}
+
+/* Sections (1–5) are the top-level columns and always sit side by side in a
+   single row; each holds a vertical list of criteria. */
+.cnv-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  /* Too narrow for five columns — fall back to a horizontal scroll so the
+     sections still stay on one row instead of stacking. */
+  .cnv-sections-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(13rem, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+  }
+}
+
+.acmg-criteria-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.cnv-criteria-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* Each criterion: tickmark · score · note. */
+.cnv-criterion-row {
+  display: grid;
+  grid-template-columns: auto 4rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--color-grid);
+  border-radius: 7px;
+  background: var(--color-surface);
+  font-size: 0.72rem;
+}
+
+.cnv-criterion-row--active {
+  border-color: var(--color-accent);
+  background: rgba(130, 147, 163, 0.12);
+}
+
+/* Fixed-point criteria can't be edited — dim the score as a hint. */
+.cnv-criterion-row--fixed .cnv-points-input {
+  opacity: 0.5;
+  background: var(--color-grid);
+  cursor: not-allowed;
+}
+
+.cnv-criterion-main {
+  gap: 0.3rem;
+  align-items: center;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.cnv-criterion-code {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.cnv-points-input {
+  width: 100%;
+  padding: 0.18rem 0.3rem;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cnv-points-input:disabled {
+  opacity: 0.5;
+  background: var(--color-grid);
+  cursor: not-allowed;
+}
+
+.cnv-evidence-field {
+  width: 100%;
+  padding: 0.16rem 0.4rem;
+  font-size: 0.7rem;
+}
+
+/* Hover tooltip carrying the full criterion text + allowed range. */
+.cnv-tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: 22rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 7px;
+  border: 1px solid var(--color-grid);
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-size: 0.7rem;
+  line-height: 1.3;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
 /* Family columns — scale from 2 up to 7 (one per ACMG family) so a wide modal
    shows every family side by side in a single row, keeping the modal short. */
 .acmg-family-grid {

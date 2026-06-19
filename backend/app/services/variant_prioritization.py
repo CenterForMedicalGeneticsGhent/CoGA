@@ -184,6 +184,88 @@ def combine(variant_score: float, phenotype_score: float | None) -> float:
     return (1.0 - _PHENOTYPE_WEIGHT) * variant_score + _PHENOTYPE_WEIGHT * phenotype
 
 
+# --- Structural / copy-number variant scoring -------------------------------
+#
+# SVs lack the per-variant predictors (CADD/REVEL/SpliceAI) used above, so their
+# predicted impact is derived from the event class, the number of overlapped genes,
+# and gene-level constraint (a copy-number loss of a LoF-intolerant gene mimics
+# haploinsufficiency). Frequency, segregation, and phenotype combine exactly like
+# small variants, so the combined score is directly comparable for ranking.
+_SV_TYPE_BASE = {
+    "DEL": 0.7,
+    "LOSS": 0.7,
+    "CNV_LOSS": 0.7,
+    "DUP": 0.5,
+    "GAIN": 0.5,
+    "CNV_GAIN": 0.5,
+    "INS": 0.5,
+    "INV": 0.45,
+    "BND": 0.6,
+    "TRA": 0.6,
+}
+_SV_DEFAULT_BASE = 0.4
+# An SV that overlaps no gene is most likely non-coding / benign for ranking purposes.
+_SV_NO_GENE_CAP = 0.15
+# Copy-number loss event types where a high-pLI overlap implies haploinsufficiency.
+_SV_LOSS_TYPES = frozenset({"DEL", "LOSS", "CNV_LOSS"})
+_SV_MULTI_GENE_THRESHOLD = 3
+_SV_MULTI_GENE_BUMP = 0.1
+
+
+def structural_pathogenicity_score(
+    *,
+    sv_type: str | None,
+    gene_count: int,
+    gene_pli: float | None = None,
+) -> float:
+    """Predicted impact of a structural variant in [0, 1]."""
+    if gene_count <= 0:
+        return _SV_NO_GENE_CAP
+    sv_upper = (sv_type or "").strip().upper()
+    score = _SV_TYPE_BASE.get(sv_upper, _SV_DEFAULT_BASE)
+    if (
+        sv_upper in _SV_LOSS_TYPES
+        and gene_pli is not None
+        and _PLI_CONSTRAINED <= gene_pli <= 1.0
+    ):
+        score = max(score, _CONSTRAINED_LOF_FLOOR)
+    if gene_count >= _SV_MULTI_GENE_THRESHOLD:
+        score = score + _SV_MULTI_GENE_BUMP
+    return min(_MAX_PREDICTOR_PATHOGENICITY, score)
+
+
+def score_structural_variant(
+    *,
+    sv_type: str | None,
+    gene_count: int,
+    control_af: float | None,
+    population_af: float | None,
+    segregation_modes: list[str],
+    phenotype_score: float | None,
+    segregation_evaluated: bool = True,
+    gene_pli: float | None = None,
+) -> VariantScore:
+    """Rank-oriented score for a structural variant (see module docstring)."""
+    pathogenicity = structural_pathogenicity_score(
+        sv_type=sv_type, gene_count=gene_count, gene_pli=gene_pli
+    )
+    # Rarer is more interesting: prefer the population AF, fall back to the cohort
+    # control AF (reusing the small-variant rarity bands).
+    frequency = frequency_score(gnomad_popmax_af=population_af, gnomad_af=control_af)
+    seg_weight = segregation_weight(segregation_modes, evaluated=segregation_evaluated)
+    variant_score = pathogenicity * frequency * seg_weight
+    combined = combine(variant_score, phenotype_score)
+    return VariantScore(
+        pathogenicity=pathogenicity,
+        frequency=frequency,
+        segregation_weight=seg_weight,
+        variant_score=variant_score,
+        phenotype_score=phenotype_score,
+        combined_score=combined,
+        segregation_modes=list(segregation_modes),
+    )
+
+
 def score_variant(
     *,
     impact: str | None,

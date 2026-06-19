@@ -52,6 +52,16 @@ const PRESETS: { value: StructuralPreset; label: string }[] = [
   { value: 'any_affected', label: 'Any affected' },
 ];
 
+const SV_TYPE_OPTIONS = [
+  { value: 'DEL', label: 'DEL' },
+  { value: 'DUP', label: 'DUP' },
+  { value: 'INS', label: 'INS' },
+  { value: 'INV', label: 'INV' },
+  { value: 'CNV', label: 'CNV' },
+  { value: 'BND', label: 'BND' },
+  { value: 'TRA', label: 'TRA' },
+] as const;
+
 const REGION_FLAG_OPTIONS = [
   'CDS',
   'UTR',
@@ -124,7 +134,8 @@ const StructuralVariantFilterForm = ({
   toggleDraftFilterListValue,
 }: StructuralVariantFilterFormProps) => {
   const [openSections, setOpenSections] = useState({
-    support: true,
+    phenotype: false,
+    support: false,
     locations: false,
     classAndBreakpoints: false,
     needlr: false,
@@ -164,7 +175,7 @@ const StructuralVariantFilterForm = ({
     const thresholdActive = Boolean(filter.qual || filter.read_support || filter.filter);
     return count + (genotypeActive || thresholdActive ? 1 : 0);
   }, 0);
-  const supportFilterCount = sampleFilterCount + countNonEmpty(draftFilters.type, draftFilters.source);
+  const supportFilterCount = sampleFilterCount + countNonEmpty(draftFilters.inheritance);
   const locationFilterCount = countNonEmpty(
     draftFilters.locus,
     draftFilters.panel_id,
@@ -173,15 +184,17 @@ const StructuralVariantFilterForm = ({
     draftFilters.start,
     draftFilters.end,
   );
-  const classFilterCount = countNonEmpty(
-    draftFilters.minLength,
-    draftFilters.length,
-    draftFilters.remote_chr,
-    draftFilters.remote_start,
-  );
+  const classFilterCount =
+    splitSelectedValues(draftFilters.type).length +
+    countNonEmpty(
+      draftFilters.source,
+      draftFilters.minLength,
+      draftFilters.length,
+      draftFilters.remote_chr,
+      draftFilters.remote_start,
+    );
   const needlrFilterCount =
     countNonEmpty(
-      draftFilters.inheritance,
       draftFilters.phenotype,
       draftFilters.hpo,
       draftFilters.moi,
@@ -220,39 +233,45 @@ const StructuralVariantFilterForm = ({
       <div className="variant-search-header">
         <div className="variant-search-meta">
           <div className="variant-search-toolbar">
+            <button type="submit" className="form-button">
+              Apply filters
+            </button>
             <select
               className="variant-saved-filter-select"
+              aria-label="Preset or saved search"
               value={selectedPreset}
-              onChange={(event) => setSelectedPreset(event.target.value)}
-            >
-              <option value="">Saved filters</option>
-              {presets.map((preset) => (
-                <option key={preset._id} value={preset._id}>
-                  {preset.name} ({getPresetScopeLabel(preset.scope)}, {countPresetRules(preset)})
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={!selectedPreset}
-              onClick={() => {
-                const preset = presets.find((entry) => entry._id === selectedPreset);
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedPreset(value);
+                if (!value) return;
+                // Selecting a preset/saved search populates the draft; the single
+                // "Apply filters" button runs the search.
+                if (value.startsWith('built-in:')) {
+                  applyPreset(value.replace('built-in:', '') as StructuralPreset);
+                  return;
+                }
+                const preset = presets.find((entry) => `saved:${entry._id}` === value);
                 if (preset) applySavedPreset(preset);
               }}
             >
-              Apply saved
-            </button>
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                className="analysis-pill analysis-pill-button"
-                onClick={() => applyPreset(preset.value)}
-              >
-                {preset.label}
-              </button>
-            ))}
+              <option value="">Preset or saved search</option>
+              <optgroup label="Inheritance presets (rare, &lt;1% population AF)">
+                {PRESETS.map((preset) => (
+                  <option key={preset.value} value={`built-in:${preset.value}`}>
+                    {preset.label}
+                  </option>
+                ))}
+              </optgroup>
+              {presets.length ? (
+                <optgroup label="Saved searches">
+                  {presets.map((preset) => (
+                    <option key={preset._id} value={`saved:${preset._id}`}>
+                      {preset.name} ({getPresetScopeLabel(preset.scope)}, {countPresetRules(preset)})
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
             <button type="button" className="button-secondary" onClick={handleReset}>
               Clear all filters
             </button>
@@ -315,12 +334,11 @@ const StructuralVariantFilterForm = ({
               <button
                 key={chip.id}
                 type="button"
-                className="variant-filter-chip"
+                className="badge-chip variant-filter-chip"
                 onClick={() => removeActiveFilterChip(chip)}
                 title="Remove filter"
               >
                 {getActiveChipLabel(chip)}
-                <span aria-hidden="true">×</span>
               </button>
             ))}
           </div>
@@ -329,6 +347,45 @@ const StructuralVariantFilterForm = ({
 
       <section className="variant-search-section">
         <div className="variant-filter-dropdown-grid">
+          <details
+            className="variant-filter-dropdown"
+            open={openSections.phenotype}
+            onToggle={handleSectionToggle('phenotype')}
+          >
+            <summary className="variant-filter-dropdown-summary">
+              <span className="variant-filter-dropdown-summary-copy">
+                <span className="variant-filter-dropdown-title">Phenotype</span>
+                <span className="variant-filter-dropdown-meta">
+                  {draftFilters.prioritize === 'true' ? '1 active' : 'Prioritization off'}
+                </span>
+              </span>
+              <span
+                className="variant-filter-dropdown-summary-controls"
+                onMouseDown={stopSummaryInteraction}
+                onClick={stopSummaryInteraction}
+              >
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draftFilters.prioritize === 'true'}
+                    onChange={(event) =>
+                      setDraftFilterValue('prioritize', event.target.checked ? 'true' : '')
+                    }
+                  />
+                  <span>Phenotype prioritization</span>
+                </label>
+              </span>
+              <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
+            </summary>
+            <div className="variant-filter-dropdown-content">
+              <p className="table-subtle">
+                Rank structural variants by how well their overlapped gene(s) match the affected
+                individuals’ HPO phenotypes (Monarch / Exomiser-style), blended with event class,
+                gene constraint, rarity, and segregation.
+              </p>
+            </div>
+          </details>
+
           <details
             className="variant-filter-dropdown"
             open={openSections.support}
@@ -347,22 +404,18 @@ const StructuralVariantFilterForm = ({
                 onClick={stopSummaryInteraction}
               >
                 <label className="variant-summary-select-field">
-                  <span>SV type</span>
-                  <input
-                    name="type"
-                    placeholder="Any"
-                    value={draftFilters.type}
+                  <span>Inheritance</span>
+                  <select
+                    name="inheritance"
+                    value={draftFilters.inheritance}
                     onChange={handleDraftFieldChange}
-                  />
-                </label>
-                <label className="variant-summary-select-field">
-                  <span>Source</span>
-                  <input
-                    name="source"
-                    placeholder="Any"
-                    value={draftFilters.source}
-                    onChange={handleDraftFieldChange}
-                  />
+                  >
+                    <option value="">Any</option>
+                    <option value="de_novo">De novo</option>
+                    <option value="maternal">Maternal</option>
+                    <option value="paternal">Paternal</option>
+                    <option value="inherited">Inherited</option>
+                  </select>
                 </label>
               </span>
               <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
@@ -517,7 +570,28 @@ const StructuralVariantFilterForm = ({
               <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
             </summary>
             <div className="variant-filter-dropdown-content">
+              <div className="variant-filter-choice-group">
+                <p className="variant-filter-choice-title">SV type</p>
+                <div className="variant-checkbox-grid variant-checkbox-grid--small">
+                  {SV_TYPE_OPTIONS.map((option) => (
+                    <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={splitSelectedValues(draftFilters.type).includes(option.value)}
+                        onChange={() => toggleDraftFilterListValue('type', option.value)}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div className="analysis-filter-grid analysis-filter-grid--5">
+                <input
+                  name="source"
+                  placeholder="Callset / source"
+                  value={draftFilters.source}
+                  onChange={handleDraftFieldChange}
+                />
                 <input
                   name="minLength"
                   placeholder="Min length"
@@ -557,26 +631,6 @@ const StructuralVariantFilterForm = ({
                 <span className="variant-filter-dropdown-meta">
                   {summarizeSection(needlrFilterCount)}
                 </span>
-              </span>
-              <span
-                className="variant-filter-dropdown-summary-controls"
-                onMouseDown={stopSummaryInteraction}
-                onClick={stopSummaryInteraction}
-              >
-                <label className="variant-summary-select-field">
-                  <span>Inheritance</span>
-                  <select
-                    name="inheritance"
-                    value={draftFilters.inheritance}
-                    onChange={handleDraftFieldChange}
-                  >
-                    <option value="">Any</option>
-                    <option value="de_novo">De novo</option>
-                    <option value="maternal">Maternal</option>
-                    <option value="paternal">Paternal</option>
-                    <option value="inherited">Inherited</option>
-                  </select>
-                </label>
               </span>
               <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
             </summary>
@@ -750,12 +804,6 @@ const StructuralVariantFilterForm = ({
           </details>
         </div>
       </section>
-
-      <div className="variant-search-actions">
-        <button type="submit" className="form-button">
-          Apply filters
-        </button>
-      </div>
     </form>
   );
 };

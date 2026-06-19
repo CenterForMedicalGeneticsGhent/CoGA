@@ -11,6 +11,7 @@ import {
 } from '../../lib/sampleFilterState';
 import type {
   SmallVariantFilterPreset,
+  SmallVariantPriority,
   SmallVariantReview,
   SmallVariantReviewSavePayload,
   SmallVariantTagDefinition,
@@ -38,11 +39,14 @@ export interface StructuralVariant {
   remote_chr?: string;
   remote_start?: number;
   gene?: string;
+  gene_symbols?: string[];
+  gene_count?: number;
   gene_pli?: number;
   population_frequencies?: Record<string, number>;
   annotation_extra?: StructuralVariantAnnotationExtra;
   genotypes: StructuralVariantGenotype[];
   review?: SmallVariantReview | null;
+  priority?: SmallVariantPriority | null;
 }
 
 export interface StructuralVariantAnnotationExtra {
@@ -98,7 +102,8 @@ export type StructuralSortableKeys =
   | 'inheritance'
   | 'control_af'
   | 'phenotype'
-  | 'region_flags';
+  | 'region_flags'
+  | 'priority';
 
 export type StructuralSampleFilter = {
   gt: string[];
@@ -133,6 +138,7 @@ export type StructuralFilterState = {
   review_tags: string;
   exclude_review_tags: string;
   has_notes: string;
+  prioritize: string;
 };
 
 export type ActiveStructuralFilterChip =
@@ -194,6 +200,7 @@ const STRUCTURAL_FILTER_LABELS: Record<keyof StructuralFilterState, string> = {
   review_tags: 'Review tags',
   exclude_review_tags: 'Exclude review tags',
   has_notes: 'Has notes',
+  prioritize: 'Phenotype prioritization',
 };
 
 const SAMPLE_FIELD_LABELS: Record<Exclude<keyof StructuralSampleFilter, 'gt'>, string> = {
@@ -228,6 +235,8 @@ export const createEmptyStructuralFilters = (): StructuralFilterState => ({
   review_tags: '',
   exclude_review_tags: '',
   has_notes: '',
+  // Phenotype prioritization is on by default for the SV workbench.
+  prioritize: 'true',
 });
 
 const parseCommaSeparatedValues = (value: string) =>
@@ -289,7 +298,6 @@ const buildPresetSampleFilters = (
         gt = member.affected
           ? [...STRUCTURAL_HET_GT_GROUP, ...STRUCTURAL_HOM_GT_GROUP]
           : [...STRUCTURAL_REF_GT_GROUP];
-        read_support = '5';
       } else if (preset === 'recessive') {
         if (member.role === 'father' || member.role === 'mother') {
           gt = [...STRUCTURAL_HET_GT_GROUP];
@@ -298,14 +306,16 @@ const buildPresetSampleFilters = (
         } else {
           gt = [...STRUCTURAL_REF_GT_GROUP, ...STRUCTURAL_HET_GT_GROUP];
         }
-        read_support = '5';
       } else if (preset === 'any_affected') {
         gt = member.affected
           ? [...STRUCTURAL_HET_GT_GROUP, ...STRUCTURAL_HOM_GT_GROUP]
           : [...STRUCTURAL_ALL_GT_GROUPS];
       }
 
-      qual = member.affected ? '20' : '';
+      // SV calls don't carry a usable QUAL, so presets don't set a QUAL cut.
+      qual = '';
+      // Require solid read support for the call in affected individuals (proband ≥ 4).
+      read_support = member.affected ? '4' : '';
       filter = '';
       return [member.sample_id, { gt, qual, read_support, filter }];
     }),
@@ -316,8 +326,9 @@ const countActiveFilters = (
   sampleFilters: Record<string, StructuralSampleFilter>,
 ) => {
   const topLevel =
-    Object.entries(filters).filter(([key, value]) => key !== 'locus' && value.trim()).length +
-    (filters.locus.trim() ? 1 : 0);
+    Object.entries(filters).filter(
+      ([key, value]) => key !== 'locus' && key !== 'prioritize' && value.trim(),
+    ).length + (filters.locus.trim() ? 1 : 0);
 
   const sampleLevel = Object.values(sampleFilters).reduce((sum, filter) => {
     const genotypeActive =
@@ -437,6 +448,7 @@ export const buildStructuralVariantQueryParams = (
     params.append('exclude_review_tag', value);
   });
   if (currentFilters.has_notes === 'true') params.set('has_notes', 'true');
+  if (currentFilters.prioritize === 'true') params.set('prioritize', 'true');
 
   Object.entries(currentSampleFilters).forEach(([sample, filter]) => {
     const { gt, qual, read_support, filter: filterText } = filter;
@@ -461,6 +473,9 @@ const buildActiveFilterChips = (
   (Object.entries(filters) as [keyof StructuralFilterState, string][]).forEach(([key, value]) => {
     if (!value) return;
     if (skipDerivedLocusKeys?.has(key)) return;
+    // `prioritize` is a ranking mode shown in the Phenotype section, not a removable
+    // filter chip.
+    if (key === 'prioritize') return;
     chips.push({
       id: `top:${key}`,
       label:
@@ -601,7 +616,7 @@ export const useStructuralVariantSearchState = ({
   const toggleDraftFilterListValue = (
     key: Extract<
       keyof StructuralFilterState,
-      'classification' | 'review_tags' | 'exclude_review_tags' | 'region_flags'
+      'classification' | 'review_tags' | 'exclude_review_tags' | 'region_flags' | 'type'
     >,
     value: string,
   ) => {
@@ -654,13 +669,17 @@ export const useStructuralVariantSearchState = ({
   const applyPreset = (preset: StructuralPreset) => {
     if (!orderedMembers.length) return;
     setSampleDraftFilters(buildPresetSampleFilters(preset, orderedMembers));
+    // Inheritance presets are always paired with a rare population-frequency cut (<1%).
+    setDraftFilters((prev) => ({ ...prev, max_population_af: '0.01' }));
   };
 
   const applySavedPreset = (preset: StructuralVariantFilterPreset) => {
     if (!orderedMembers.length) return;
     const nextFilters = deserializeStructuralPresetFilters(preset.filters);
     const nextSampleFilters = resolveStructuralSampleFiltersFromPreset(preset, orderedMembers);
-    applySearchState(nextFilters, nextSampleFilters, 1);
+    // Populate the draft only; the single "Apply filters" button runs the search.
+    setDraftFilters(nextFilters);
+    setSampleDraftFilters(cloneSampleFilters(nextSampleFilters));
   };
 
   const handleSearch = (event: FormEvent) => {
@@ -766,6 +785,17 @@ export const sortStructuralVariants = (
   sortAsc: boolean,
 ) =>
   [...variants].sort((a, b) => {
+    if (sortKey === 'priority') {
+      // Higher combined score first; the sort toggle flips it. Falls back to the raw
+      // variant score, then leaves unscored variants last.
+      const leftScore = a.priority?.combined_score ?? -1;
+      const rightScore = b.priority?.combined_score ?? -1;
+      let diff = rightScore - leftScore;
+      if (diff === 0) {
+        diff = (b.priority?.variant_score ?? -1) - (a.priority?.variant_score ?? -1);
+      }
+      return sortAsc ? diff : -diff;
+    }
     const readValue = (variant: StructuralVariant) => {
       if (sortKey === 'inheritance') return variant.annotation_extra?.inheritance ?? '';
       if (sortKey === 'cytoband') return variant.annotation_extra?.cytoband ?? '';

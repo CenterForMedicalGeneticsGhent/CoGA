@@ -17,10 +17,10 @@ import {
 import type {
   StructuralVariant,
   StructuralVariantFamilyMember,
-  StructuralVariantGenotype,
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import { formatStructuralLength } from './StructuralVariantTable';
+import VariantPriorityBlock from './VariantPriorityBlock';
 
 interface StructuralVariantCardsProps {
   familyId?: string;
@@ -31,13 +31,9 @@ interface StructuralVariantCardsProps {
   tags: SmallVariantTagDefinition[];
   reviewIsPending?: boolean;
   onEditReview?: (variant: StructuralVariant) => void;
+  onClassifyCnv?: (variant: StructuralVariant) => void;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
 }
-
-const compactText = (value?: string, maxLength = 96) => {
-  if (!value) return '—';
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
-};
 
 const parseHpoTerms = (value?: string | number | boolean | string[]) => {
   if (!value) return [];
@@ -54,40 +50,13 @@ const buildHpoHref = (terms: string[], familyId?: string) => {
   return `/hpo?${params.toString()}`;
 };
 
-const orderGenotypesForCard = (
-  members: StructuralVariantFamilyMember[],
-  genotypes: StructuralVariantGenotype[],
-) => {
-  const genotypeMap = new Map(
-    genotypes
-      .filter((entry) => entry.sample)
-      .map((entry) => [entry.sample as string, entry]),
-  );
-  const orderedMembers = [...members].sort((left, right) => {
-    if (left.affected !== right.affected) return left.affected ? -1 : 1;
-    if (left.role === 'proband' && right.role !== 'proband') return -1;
-    if (right.role === 'proband' && left.role !== 'proband') return 1;
-    return left.sample_id.localeCompare(right.sample_id);
-  });
-  const seen = new Set<string>();
-  const memberEntries = orderedMembers.map((member) => {
-    seen.add(member.sample_id);
-    return {
-      key: member.sample_id,
-      sampleId: member.sample_id,
-      member,
-      genotype: genotypeMap.get(member.sample_id),
-    };
-  });
-  const extraEntries = genotypes
-    .filter((entry) => !entry.sample || !seen.has(entry.sample))
-    .map((entry, index) => ({
-      key: `${entry.sample || 'sample'}-${index}`,
-      sampleId: entry.sample || 'Sample',
-      member: null,
-      genotype: entry,
-    }));
-  return [...memberEntries, ...extraEntries];
+const genotypeZygosity = (gt?: string): 'na' | 'ref' | 'hom' | 'het' => {
+  if (!gt) return 'na';
+  const normalized = gt.replace(/\|/g, '/');
+  if (normalized === './.' || normalized === 'absent') return 'na';
+  if (normalized === '0/0') return 'ref';
+  if (normalized === '1/1') return 'hom';
+  return 'het';
 };
 
 export default function StructuralVariantCards({
@@ -99,6 +68,7 @@ export default function StructuralVariantCards({
   tags,
   reviewIsPending = false,
   onEditReview,
+  onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantCardsProps) {
   const tagMap = getTagDefinitionMap(tags);
@@ -121,12 +91,6 @@ export default function StructuralVariantCards({
           variant,
         });
         const phenotype = extra.omim_phenotype || extra.gencc_phenotype || 'No disease annotation';
-        const controlFrequency =
-          typeof extra.control_af === 'number'
-            ? extra.control_af
-            : typeof extra.population_af === 'number'
-              ? extra.population_af
-              : undefined;
         const regionFlags = Array.isArray(extra.region_flags) ? extra.region_flags : [];
         const populationFrequencies = Object.entries(extra.population_frequencies || {}).filter(
           ([, value]) => typeof value === 'number' && Number.isFinite(value),
@@ -136,67 +100,94 @@ export default function StructuralVariantCards({
         const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
         const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
         const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
+        const isReported = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
         const visibleReviewTags = sortedReviewTags.filter(
           (tagKey) =>
             tagKey !== COLLABORATION_QUICK_TAGS.review &&
-            tagKey !== COLLABORATION_QUICK_TAGS.excluded,
+            tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
+            tagKey !== COLLABORATION_QUICK_TAGS.report,
         );
         const normalizedClassification = normalizeReviewClassification(
           variant.review?.classification,
           variant.review?.tags,
         );
 
+        const freqRows = [
+          { label: 'Control', value: formatFrequency(extra.control_af) },
+          { label: 'Population', value: formatFrequency(extra.population_af) },
+          ...populationFrequencies
+            .slice(0, 6)
+            .map(([label, value]) => ({ label: label.replace(/_/g, ' '), value: formatFrequency(value) })),
+        ];
+
+        const gtMembers = members.length
+          ? members
+          : variant.genotypes
+              .map((genotype) => ({
+                sample_id: genotype.sample || 'Sample',
+                role: '',
+                sex: undefined,
+                affected: false,
+              }) as unknown as StructuralVariantFamilyMember);
+
         return (
           <article
             key={variant._id}
             className={`variant-card${isExcluded ? ' variant-card--excluded' : ''}`}
           >
-            <div className="variant-card-topbar">
-              <div className="variant-card-topline">
-                <span className="variant-card-toplabel">Needlr SV</span>
-                <span className="variant-card-banner variant-card-banner--neutral">
-                  {variant.type}
-                </span>
-                <span className="variant-card-banner variant-card-banner--strong">
+            <div className="variant-card-head">
+              <div className="variant-card-headline">
+                <span className="variant-card-gene">{variant.gene || 'Intergenic SV'}</span>
+                <span className="variant-card-locus">{locus}</span>
+                <span className="variant-card-subtitle">{phenotype}</span>
+              </div>
+              <div className="variant-card-headtags">
+                <span className="variant-card-chip variant-card-chip--impact">{variant.type || 'SV'}</span>
+                <span className="variant-card-chip variant-card-chip--soft">
                   {formatStructuralLength(variant.length)}
                 </span>
-                <span className="variant-card-locus">{locus}</span>
-                {extra.cytoband ? (
-                  <span className="variant-card-banner variant-card-banner--neutral">
-                    {extra.cytoband}
-                  </span>
-                ) : null}
                 {extra.inheritance ? (
-                  <span className="variant-card-banner variant-card-banner--strong">
-                    {extra.inheritance}
+                  <span className="variant-card-chip variant-card-chip--strong">{extra.inheritance}</span>
+                ) : null}
+                {normalizedClassification ? (
+                  <span
+                    className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
+                      normalizedClassification,
+                    )}`}
+                  >
+                    {normalizedClassification}
                   </span>
                 ) : null}
-              </div>
-              <div className="variant-card-actions">
-                <Link to={igvHref} className="button-secondary">
-                  Open in IGV
-                </Link>
-                <Link to={viewHref} className="button-secondary">
-                  Chromosome view
-                </Link>
               </div>
             </div>
 
-            <div className="variant-card-body sv-card-body">
-              <div className="variant-card-column variant-card-column--primary">
-                <div className="space-y-2">
-                  <div className="variant-card-title-row">
-                    <h3 className="variant-card-title">{variant.gene || 'Intergenic SV'}</h3>
-                  </div>
-                  <p className="variant-card-subtitle">{phenotype}</p>
-                </div>
+            {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
 
+            {visibleReviewTags.length ? (
+              <div className="variant-card-chip-row variant-card-tag-row">
+                {visibleReviewTags.map((tagKey) => (
+                  <span
+                    key={tagKey}
+                    className="variant-card-chip variant-card-chip--tag"
+                    style={getReviewTagStyle(tagKey, tagMap)}
+                    title={buildReviewTagTooltip({
+                      tagKey,
+                      tagMap,
+                      tagMetadata: variant.review?.tag_metadata,
+                    })}
+                  >
+                    {tagMap[tagKey]?.label || tagKey}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="variant-card-cols">
+              <section className="variant-card-col">
+                <p className="variant-card-col-title">Variant &amp; genotypes</p>
                 <div className="variant-card-chip-row">
                   <span className="variant-card-chip variant-card-chip--neutral">
                     Source {variant.source || '—'}
-                  </span>
-                  <span className="variant-card-chip variant-card-chip--soft">
-                    Control AF {formatFrequency(controlFrequency)}
                   </span>
                   {typeof variant.gene_pli === 'number' ? (
                     <span className="variant-card-chip variant-card-chip--strong">
@@ -204,117 +195,127 @@ export default function StructuralVariantCards({
                     </span>
                   ) : null}
                   {regionFlags.map((flag) => (
-                    <span key={flag} className="variant-card-chip variant-card-chip--neutral">
+                    <span key={flag} className="variant-card-chip variant-card-chip--soft">
                       {flag}
                     </span>
                   ))}
                 </div>
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Variant summary</p>
-                  <dl className="variant-card-detail-list">
-                    {[
-                      ['Type', variant.type || '—'],
-                      ['Length', formatStructuralLength(variant.length)],
-                      ['Remote', variant.remote_chr ? `${variant.remote_chr}:${variant.remote_start ?? '—'}` : '—'],
-                      ['Source', variant.source || '—'],
-                    ].map(([label, value]) => (
-                      <div key={label} className="variant-card-detail-row">
-                        <dt>{label}</dt>
-                        <dd>{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              </div>
-
-              <div className="variant-card-column variant-card-column--middle">
-                <div className="variant-card-review-panel">
-                  <div className="variant-card-review-header variant-card-review-header--compact">
-                    <p className="variant-card-section-title">Review</p>
-                    <div className="variant-card-review-actions">
-                      <button
-                        type="button"
-                        className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
-                        disabled={reviewIsPending || !onToggleReviewTag}
-                        onClick={() => {
-                          void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.review);
-                        }}
-                      >
-                        Review
-                      </button>
-                      <button
-                        type="button"
-                        className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
-                        disabled={reviewIsPending || !onToggleReviewTag}
-                        onClick={() => {
-                          void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.excluded);
-                        }}
-                      >
-                        Exclude
-                      </button>
-                      <button
-                        type="button"
-                        className="variant-review-link"
-                        onClick={() => onEditReview?.(variant)}
-                      >
-                        More tags
-                      </button>
-                    </div>
+                <dl className="variant-card-mini-dl">
+                  <div>
+                    <dt>Type</dt>
+                    <dd>{variant.type || '—'}</dd>
                   </div>
-                  {visibleReviewTags.length ? (
-                    <div className="variant-card-chip-row">
-                      {visibleReviewTags.map((tagKey) => (
-                        <span
-                          key={tagKey}
-                          className="variant-card-chip variant-card-chip--tag"
-                          style={getReviewTagStyle(tagKey, tagMap)}
-                          title={buildReviewTagTooltip({
-                            tagKey,
-                            tagMap,
-                            tagMetadata: variant.review?.tag_metadata,
-                          })}
-                        >
-                          {tagMap[tagKey]?.label || tagKey}
-                        </span>
-                      ))}
+                  <div>
+                    <dt>Length</dt>
+                    <dd>{formatStructuralLength(variant.length)}</dd>
+                  </div>
+                  <div>
+                    <dt>Cytoband</dt>
+                    <dd>{extra.cytoband || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>Remote</dt>
+                    <dd>
+                      {variant.remote_chr
+                        ? `${variant.remote_chr}:${variant.remote_start ?? '—'}`
+                        : '—'}
+                    </dd>
+                  </div>
+                </dl>
+                {gtMembers.length ? (
+                  <div className="variant-card-gtlist">
+                    <div className="variant-card-gthead">
+                      <span>Sample</span>
+                      <span>Role</span>
+                      <span>GT</span>
+                      <span>QUAL</span>
+                      <span>Reads</span>
+                      <span>Filter</span>
                     </div>
-                  ) : null}
-                  {normalizedClassification &&
-                  !visibleReviewTags.some((tagKey) => tagMap[tagKey]?.group === 'classification') ? (
-                      <span
-                        className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
-                          normalizedClassification,
-                        )}`}
-                      >
-                        {normalizedClassification}
-                      </span>
-                  ) : null}
-                  {variant.review?.note ? (
-                    <p className="variant-card-review-note">{variant.review.note}</p>
-                  ) : null}
-                </div>
+                    {gtMembers.map((member) => {
+                      const genotype = variant.genotypes.find(
+                        (entry) => entry.sample === member.sample_id,
+                      );
+                      const gt = genotype ? formatGt(genotype.gt) : '—';
+                      const zygosity = genotypeZygosity(genotype?.gt);
+                      const sexSymbol =
+                        member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚥';
+                      return (
+                        <div
+                          key={member.sample_id}
+                          className={`variant-card-gtline variant-card-gtline--${zygosity}${
+                            member.affected ? ' is-affected' : ''
+                          }${member.role === 'proband' ? ' is-proband' : ''}`}
+                        >
+                          <span className="variant-card-gtline-sample">
+                            <span
+                              className={`variant-card-gtline-sex variant-card-gtline-sex--${
+                                member.sex || 'und'
+                              }`}
+                              title={member.sex || 'unknown sex'}
+                            >
+                              {sexSymbol}
+                            </span>
+                            {member.sample_id}
+                          </span>
+                          <span className="variant-card-gtline-role">{member.role || '—'}</span>
+                          <span className="variant-card-gtline-gt">{gt}</span>
+                          <span className="variant-card-gtline-metric">{genotype?.qual ?? '—'}</span>
+                          <span className="variant-card-gtline-metric">
+                            {genotype?.read_support ?? '—'}
+                          </span>
+                          <span className="variant-card-gtline-metric">{genotype?.filter || '—'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </section>
 
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Disease context</p>
-                <dl className="variant-card-detail-list">
-                  {[
-                    ['OMIM', extra.omim_phenotype || '—'],
-                    ['GenCC', extra.gencc_phenotype || '—'],
-                    ['GenCC support', extra.gencc_support || '—'],
-                    ['MOI', extra.omim_moi || extra.gencc_moi || '—'],
-                  ].map(([label, value]) => (
-                    <div key={label} className="variant-card-detail-row">
-                      <dt>{label}</dt>
-                      <dd>{value}</dd>
+              <section className="variant-card-col">
+                <p className="variant-card-col-title">Frequencies</p>
+                <dl className="variant-card-mini-dl">
+                  {freqRows.map((row) => (
+                    <div key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
                     </div>
                   ))}
-                  <div className="variant-card-detail-row">
+                </dl>
+                {extra.control_support ? (
+                  <div className="variant-card-coga">
+                    <span className="variant-card-col-key">Control support</span>
+                    <span className="variant-card-coga-value">{extra.control_support}</span>
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="variant-card-col">
+                <p className="variant-card-col-title">Disease &amp; predictors</p>
+                <dl className="variant-card-mini-dl">
+                  <div>
+                    <dt>OMIM</dt>
+                    <dd>{extra.omim_phenotype || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>GenCC</dt>
+                    <dd>{extra.gencc_phenotype || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>GenCC support</dt>
+                    <dd>{extra.gencc_support || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt>MOI</dt>
+                    <dd>{extra.omim_moi || extra.gencc_moi || '—'}</dd>
+                  </div>
+                  <div>
                     <dt>HPO</dt>
                     <dd>
                       {hpoTerms.length ? (
                         <Link
                           to={buildHpoHref(hpoTerms, familyId)}
-                          className="variant-card-inline-link"
+                          className="variant-card-resource variant-card-resource--clinical"
                           title={hpoTerms.join(', ')}
                         >
                           {visibleHpoTerms.join(', ')}
@@ -327,69 +328,60 @@ export default function StructuralVariantCards({
                       )}
                     </dd>
                   </div>
-                  <div className="variant-card-detail-row">
-                    <dt>Control support</dt>
-                    <dd title={String(extra.control_support || '')}>
-                      {compactText(extra.control_support, 72)}
-                    </dd>
-                  </div>
                 </dl>
-                </div>
-              </div>
-
-              <div className="variant-card-column variant-card-column--metrics">
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Population</p>
-                  <dl className="variant-card-stat-list">
-                    {populationFrequencies.length ? (
-                      populationFrequencies.slice(0, 8).map(([label, value]) => (
-                        <div key={label} className="variant-card-stat-row">
-                          <dt>{label.replace(/_/g, ' ')}</dt>
-                          <dd>{formatFrequency(value)}</dd>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="variant-card-stat-row">
-                        <dt>Frequency</dt>
-                        <dd>—</dd>
-                      </div>
-                    )}
-                  </dl>
-                </div>
-              </div>
+              </section>
             </div>
 
-            <div className="variant-card-section">
-              <p className="variant-card-section-title">Family genotypes</p>
-              <div className="variant-card-genotype-strip sv-card-genotype-strip">
-                {orderGenotypesForCard(members, variant.genotypes).map(({ key, sampleId, member, genotype }) => (
-                  <div
-                    key={key}
-                    className={`variant-card-genotype-tile${
-                      member?.affected ? ' variant-card-genotype-tile--affected' : ''
-                    }${member?.role === 'proband' ? ' variant-card-genotype-tile--proband' : ''}`}
-                  >
-                    <div className="variant-card-genotype-header">
-                      <span className="variant-card-genotype-sample">{sampleId}</span>
-                      {member ? (
-                        <>
-                          <span className={`table-chip ${member.affected ? 'badge-chip--signature' : ''}`}>
-                            {member.affected ? 'affected' : 'unaffected'}
-                          </span>
-                          <span className="table-chip">{member.role}</span>
-                        </>
-                      ) : null}
-                    </div>
-                    <div className="variant-card-genotype-body">
-                      <span className="variant-card-genotype-value">
-                        {genotype ? formatGt(genotype.gt) : '—'}
-                      </span>
-                      <span>QUAL {genotype?.qual ?? '—'}</span>
-                      <span>Reads {genotype?.read_support ?? '—'}</span>
-                      <span>Filter {genotype?.filter || '—'}</span>
-                    </div>
-                  </div>
-                ))}
+            {variant.review?.note ? (
+              <p className="variant-card-review-note">{variant.review.note}</p>
+            ) : null}
+
+            <div className="variant-card-footer">
+              <div className="variant-card-quick">
+                <button
+                  type="button"
+                  className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
+                  disabled={reviewIsPending || !onToggleReviewTag}
+                  onClick={() => {
+                    void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.review);
+                  }}
+                >
+                  Review
+                </button>
+                <button
+                  type="button"
+                  className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
+                  disabled={reviewIsPending || !onToggleReviewTag}
+                  onClick={() => {
+                    void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.excluded);
+                  }}
+                >
+                  Exclude
+                </button>
+                <button
+                  type="button"
+                  className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
+                  disabled={reviewIsPending || !onToggleReviewTag}
+                  onClick={() => {
+                    void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.report);
+                  }}
+                >
+                  Report
+                </button>
+                <button type="button" className="variant-review-link" onClick={() => onEditReview?.(variant)}>
+                  Tags &amp; notes
+                </button>
+                <button type="button" className="variant-review-link" onClick={() => onClassifyCnv?.(variant)}>
+                  ACMG (CNV)
+                </button>
+              </div>
+              <div className="variant-card-nav">
+                <Link to={igvHref} className="variant-card-resource variant-card-resource--clinical">
+                  IGV
+                </Link>
+                <Link to={viewHref} className="variant-card-resource variant-card-resource--clinical">
+                  Chromosome view
+                </Link>
               </div>
             </div>
           </article>

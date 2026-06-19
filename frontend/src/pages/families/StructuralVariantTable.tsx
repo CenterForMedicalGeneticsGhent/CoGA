@@ -20,6 +20,7 @@ import type {
   StructuralVariantGenotype,
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
+import VariantScoreCell from './VariantScoreCell';
 
 interface StructuralVariantTableProps {
   familyId?: string;
@@ -29,11 +30,13 @@ interface StructuralVariantTableProps {
   variants: StructuralVariant[];
   sortKey: StructuralSortableKeys;
   sortAsc: boolean;
+  hasPriority?: boolean;
   visible: Record<string, boolean>;
   onSort: (key: StructuralSortableKeys) => void;
   tags: SmallVariantTagDefinition[];
   reviewIsPending?: boolean;
   onEditReview?: (variant: StructuralVariant) => void;
+  onClassifyCnv?: (variant: StructuralVariant) => void;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
 }
 
@@ -90,11 +93,13 @@ export default function StructuralVariantTable({
   variants,
   sortKey,
   sortAsc,
+  hasPriority = false,
   visible,
   onSort,
   tags,
   reviewIsPending = false,
   onEditReview,
+  onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantTableProps) {
   const tagMap = getTagDefinitionMap(tags);
@@ -104,6 +109,15 @@ export default function StructuralVariantTable({
       <table className="analysis-table table-sticky sv-results-table">
         <thead>
           <tr>
+            {hasPriority && (
+              <th
+                className="table-sortable"
+                onClick={() => onSort('priority')}
+                title="Exomiser-style priority: event class + gene constraint + rarity + segregation + gene–phenotype match"
+              >
+                Score {sortKey === 'priority' && (sortAsc ? '▲' : '▼')}
+              </th>
+            )}
             {visible.chr && (
               <th className="table-sortable" onClick={() => onSort('chr')}>
                 Chr {sortKey === 'chr' && (sortAsc ? '▲' : '▼')}
@@ -201,10 +215,12 @@ export default function StructuralVariantTable({
               const sortedReviewTags = sortReviewTagKeys(variant.review?.tags || [], tagMap);
               const hasReviewTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.review);
               const isExcluded = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.excluded);
+              const hasReportTag = sortedReviewTags.includes(COLLABORATION_QUICK_TAGS.report);
               const visibleReviewTags = sortedReviewTags.filter(
                 (tagKey) =>
                   tagKey !== COLLABORATION_QUICK_TAGS.review &&
-                  tagKey !== COLLABORATION_QUICK_TAGS.excluded,
+                  tagKey !== COLLABORATION_QUICK_TAGS.excluded &&
+                  tagKey !== COLLABORATION_QUICK_TAGS.report,
               );
               const normalizedClassification = normalizeReviewClassification(
                 variant.review?.classification,
@@ -213,6 +229,7 @@ export default function StructuralVariantTable({
 
               return (
               <tr key={variant._id} className={isExcluded ? 'variant-table-row--excluded' : undefined}>
+                {hasPriority && <VariantScoreCell variant={variant} />}
                 {visible.chr && <td className="whitespace-nowrap">{variant.chr}</td>}
                 {visible.start && <td className="table-mono">{variant.start}</td>}
                 {visible.end && <td className="table-mono">{variant.end}</td>}
@@ -313,6 +330,24 @@ export default function StructuralVariantTable({
                         }}
                       >
                         Exclude
+                      </button>
+                      <button
+                        type="button"
+                        className={`variant-quick-toggle${hasReportTag ? ' variant-quick-toggle--active' : ''}`}
+                        disabled={reviewIsPending || !onToggleReviewTag}
+                        title="Flag this SV for the family clinical report"
+                        onClick={() => {
+                          void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.report);
+                        }}
+                      >
+                        Report
+                      </button>
+                      <button
+                        type="button"
+                        className="variant-review-link"
+                        onClick={() => onClassifyCnv?.(variant)}
+                      >
+                        ACMG (CNV)
                       </button>
                       <button
                         type="button"
@@ -433,7 +468,7 @@ export default function StructuralVariantTable({
             })
           ) : (
             <tr>
-              <td colSpan={18}>
+              <td colSpan={hasPriority ? 19 : 18}>
                 <p className="table-empty">No structural variants match the current search.</p>
               </td>
             </tr>

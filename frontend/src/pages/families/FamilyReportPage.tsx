@@ -7,21 +7,26 @@ import PageState from '../../components/PageState';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
 import {
+  normalizeReviewClassification,
   REPORT_TAG_KEY,
   type FamilyMember,
   type SmallVariant,
   type SmallVariantFamily,
   type SmallVariantPage,
 } from './smallVariantSearch';
+import { type StructuralVariant } from './structuralVariantSearch';
 import {
   acmgClassificationLabel,
   buildSegregationSentence,
+  buildStructuralSegregationSentence,
+  buildStructuralVariantSentence,
   buildVariantSentence,
   collectInSilicoPredictions,
   collectReportCriteria,
   describeClinvar,
   describeGnomadFrequency,
   describeInSilico,
+  describeStructuralFrequency,
   joinWithAnd,
 } from './reportNarrative';
 
@@ -57,6 +62,20 @@ interface FamilyHpoAnnotation {
 
 const memberName = (member: FamilyMember): string =>
   member.role?.trim() ? `${member.role} (${member.sample_id})` : member.sample_id;
+
+const STRUCTURAL_TYPE_HEADINGS: Record<string, string> = {
+  DEL: 'Deletion',
+  DUP: 'Duplication',
+  INS: 'Insertion',
+  INV: 'Inversion',
+  BND: 'Breakend / translocation',
+  TRA: 'Translocation',
+  CNV: 'Copy-number variant',
+};
+
+const structuralTypeHeading = (variant: StructuralVariant): string =>
+  STRUCTURAL_TYPE_HEADINGS[(variant.type || '').trim().toUpperCase()] ||
+  (variant.type ? `${variant.type} structural variant` : 'Structural variant');
 
 const uniqueGeneSymbols = (variants: SmallVariant[]): string[] =>
   Array.from(
@@ -149,7 +168,27 @@ const FamilyReportPage: React.FC = () => {
   });
 
   const variants = useMemo(() => reportPage?.variants ?? [], [reportPage]);
-  const geneSymbols = useMemo(() => uniqueGeneSymbols(variants), [variants]);
+
+  const { data: structuralReportPage } = useQuery<{ variants: StructuralVariant[] }>({
+    queryKey: ['family', familyId, 'report-structural-variants', reportQueryString],
+    enabled: variantQueryReady,
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/structural-variants?${reportQueryString}`);
+      return res.data as { variants: StructuralVariant[] };
+    },
+  });
+  const structuralVariants = useMemo(
+    () => structuralReportPage?.variants ?? [],
+    [structuralReportPage],
+  );
+
+  const geneSymbols = useMemo(() => {
+    const symbols = new Set(uniqueGeneSymbols(variants));
+    structuralVariants.forEach((variant) => {
+      if (variant.gene?.trim()) symbols.add(variant.gene.trim());
+    });
+    return Array.from(symbols);
+  }, [variants, structuralVariants]);
 
   const geneProfileQueries = useQueries({
     queries: geneSymbols.map((symbol) => ({
@@ -238,8 +277,9 @@ const FamilyReportPage: React.FC = () => {
 
       <section className="surface-card report-intro">
         <p className="report-paragraph">
-          This report summarises {variants.length} variant
-          {variants.length === 1 ? '' : 's'} selected for reporting (tagged{' '}
+          This report summarises {variants.length} small variant
+          {variants.length === 1 ? '' : 's'} and {structuralVariants.length} structural variant
+          {structuralVariants.length === 1 ? '' : 's'} selected for reporting (tagged{' '}
           <strong>report</strong>) in family <strong>{familyId}</strong>
           {members.length ? `, comprising ${members.map(memberName).join(', ')}` : ''}. Each variant
           is described together with its consequence and the ACMG/AMP criteria that motivated its
@@ -251,15 +291,17 @@ const FamilyReportPage: React.FC = () => {
         </p>
       </section>
 
-      {variants.length === 0 ? (
+      {variants.length === 0 && structuralVariants.length === 0 ? (
         <section className="surface-card report-empty">
           <p className="report-paragraph">
             No variants are currently tagged for reporting. Tag variants with the{' '}
-            <strong>Report</strong> chip on the small-variant table to include them here.
+            <strong>Report</strong> chip on the small-variant or structural-variant table to
+            include them here.
           </p>
         </section>
       ) : (
-        variants.map((variant) => {
+        <>
+        {variants.map((variant) => {
           const profile = variant.gene ? geneProfiles.get(variant.gene) : undefined;
           const criteria = collectReportCriteria(variant);
           const classification = acmgClassificationLabel(variant);
@@ -415,7 +457,102 @@ const FamilyReportPage: React.FC = () => {
               </p>
             </article>
           );
-        })
+        })}
+
+        {structuralVariants.map((variant) => {
+          const profile = variant.gene ? geneProfiles.get(variant.gene) : undefined;
+          const classification = normalizeReviewClassification(
+            variant.review?.classification,
+            variant.review?.tags,
+          );
+          const segregation = buildStructuralSegregationSentence(variant, members);
+          const geneHpoTerms = profile?.extra?.hpo_terms ?? [];
+          const overlappingHpo = geneHpoTerms
+            .map((term) => term.hpo_id?.trim())
+            .filter((id): id is string => Boolean(id) && presentHpoTerms.has(id as string))
+            .map((id) => ({ id, label: presentHpoTerms.get(id) || id }));
+          const omim = omimDiseaseTitles(profile);
+          const gencc = genccDiseases(profile);
+          const moi = modesOfInheritance(profile);
+          const diseases = Array.from(new Set([...omim, ...gencc]));
+
+          return (
+            <article key={`sv-${variant._id}`} className="surface-card report-variant">
+              <div className="report-variant-head">
+                <h2 className="section-title">
+                  {`${structuralTypeHeading(variant)}${variant.gene ? ` — ${variant.gene}` : ''}`}
+                </h2>
+                {classification ? (
+                  <span className="table-chip report-classification-chip">{classification}</span>
+                ) : (
+                  <span className="table-chip report-classification-chip report-classification-chip--none">
+                    Not classified
+                  </span>
+                )}
+              </div>
+
+              <div className="report-section">
+                <h3 className="report-subheading">Variant description</h3>
+                <p className="report-paragraph">{buildStructuralVariantSentence(variant)}</p>
+                <p className="report-paragraph">The variant {describeStructuralFrequency(variant)}.</p>
+                {segregation ? <p className="report-paragraph">{segregation}</p> : null}
+              </div>
+
+              <div className="report-section">
+                <h3 className="report-subheading">Gene</h3>
+                {profile?.summary ? (
+                  <p className="report-paragraph">
+                    <strong>{profile.display_name || variant.gene}</strong> — {profile.summary}
+                  </p>
+                ) : (
+                  <p className="report-paragraph">
+                    No curated description is available for{' '}
+                    <strong>{variant.gene || 'this region'}</strong>.
+                  </p>
+                )}
+                {diseases.length ? (
+                  <p className="report-paragraph">
+                    Associated condition{diseases.length === 1 ? '' : 's'}: {joinWithAnd(diseases)}
+                    {moi.length ? ` (${joinWithAnd(moi)})` : ''}.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="report-section">
+                <h3 className="report-subheading">Phenotype (HPO)</h3>
+                {presentHpoTerms.size === 0 ? (
+                  <p className="report-paragraph">
+                    No HPO phenotype terms have been recorded for this family.
+                  </p>
+                ) : overlappingHpo.length ? (
+                  <p className="report-paragraph">
+                    The patient phenotype overlaps the gene&rsquo;s known HPO associations for{' '}
+                    {joinWithAnd(overlappingHpo.map((term) => `${term.label} (${term.id})`))},
+                    supporting a phenotypic match.
+                  </p>
+                ) : (
+                  <p className="report-paragraph">
+                    The family&rsquo;s recorded phenotype does not directly overlap the
+                    gene&rsquo;s annotated HPO terms; clinical correlation is advised.
+                  </p>
+                )}
+              </div>
+
+              {variant.review?.note ? (
+                <div className="report-section">
+                  <h3 className="report-subheading">Analyst note</h3>
+                  <p className="report-paragraph report-note">{variant.review.note}</p>
+                </div>
+              ) : null}
+
+              <p className="report-variant-locus">
+                {variant.chr}:{variant.start.toLocaleString()}-{variant.end.toLocaleString()} ·{' '}
+                {variant.type || 'SV'}
+              </p>
+            </article>
+          );
+        })}
+        </>
       )}
     </div>
   );

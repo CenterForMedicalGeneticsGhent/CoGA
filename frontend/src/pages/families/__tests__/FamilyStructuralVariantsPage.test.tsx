@@ -116,7 +116,7 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(screen.getByText(/Tag library 2/)).toBeInTheDocument();
     expect(screen.getByText('1p36.33')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Gene or region')).toBeInTheDocument();
-    expect(screen.getByText(/Saved filters/)).toBeInTheDocument();
+    expect(screen.getByText(/Preset or saved search/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /apply filters/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /review/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: /clear all filters/i }).length).toBeGreaterThan(0);

@@ -51,6 +51,7 @@ from ..schemas import (
 )
 from ..services.clickhouse_family_variants import (
     export_family_small_variants,
+    export_family_structural_variants,
     get_family_compound_het_candidates as get_family_compound_het_candidates_clickhouse,
     get_family_small_variants_page as get_family_small_variants_clickhouse,
     get_family_structural_variants_page as get_family_structural_variants_clickhouse,
@@ -612,6 +613,7 @@ async def get_family_structural_variants(
     has_notes: bool = False,
     project_id: str | None = None,
     overlap: bool = False,
+    prioritize: bool = False,
     track_mode: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -654,6 +656,7 @@ async def get_family_structural_variants(
         exclude_review_tags=exclude_review_tags,
         has_notes=has_notes,
         overlap=overlap,
+        prioritize=prioritize,
         track_mode=track_mode,
     )
 
@@ -875,6 +878,143 @@ async def export_family_small_variants_csv(
         writer.writerow([_family_export_cell(variant, field) for field, _ in columns])
 
     filename = f"family-{family_id}-small-variants.csv"
+    return StreamingResponse(
+        iter([buffer.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# CSV column order for the family structural-variant export. Mirrors the on-screen
+# table plus the annotation fields that don't fit in the UI.
+_FAMILY_SV_EXPORT_COLUMNS: list[tuple[str, str]] = [
+    ("chr", "Chromosome"),
+    ("start", "Start"),
+    ("end", "End"),
+    ("type", "Type"),
+    ("length", "Length"),
+    ("source", "Source"),
+    ("gene", "Gene"),
+    ("cytoband", "Cytoband"),
+    ("inheritance", "Inheritance"),
+    ("control_af", "Control AF"),
+    ("population_af", "Population AF"),
+    ("gene_pli", "pLI"),
+    ("region_flags", "Region flags"),
+    ("classification", "Classification"),
+    ("tags", "Tags"),
+    ("genotypes", "Genotypes"),
+]
+
+
+def _family_sv_export_cell(variant: VariantOut, field: str) -> str:
+    extra = variant.annotation_extra or {}
+    if field == "priority_score":
+        return f"{variant.priority.combined_score:.4f}" if variant.priority else ""
+    if field == "priority_rank":
+        return str(variant.priority.rank) if variant.priority and variant.priority.rank else ""
+    if field == "classification":
+        return variant.review.classification or "" if variant.review else ""
+    if field == "tags":
+        return "; ".join(variant.review.tags) if variant.review else ""
+    if field == "genotypes":
+        return "; ".join(f"{gt.sample}={gt.gt}" for gt in variant.genotypes)
+    if field in {"cytoband", "inheritance", "control_af", "population_af"}:
+        value = extra.get(field)
+        return "" if value is None else str(value)
+    if field == "region_flags":
+        flags = extra.get("region_flags") or []
+        return "; ".join(str(flag) for flag in flags) if isinstance(flags, list) else str(flags)
+    value = getattr(variant, field, None)
+    return "" if value is None else str(value)
+
+
+@router.get("/{family_id}/structural-variants/export")
+async def export_family_structural_variants_csv(
+    family_id: str,
+    project_id: str | None = None,
+    prioritize: bool = False,
+    chr: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+    length: int | None = None,
+    min_length: int | None = None,
+    type: str | None = None,
+    source: str | None = None,
+    sample_filters: List[str] = Query(default_factory=list, alias="sample_filter"),
+    samples: List[str] = Query(default_factory=list, alias="sample"),
+    remote_chr: str | None = None,
+    remote_start: int | None = None,
+    gene: str | None = None,
+    panel_id: str | None = None,
+    inheritance: str | None = None,
+    phenotype: str | None = None,
+    hpo: str | None = None,
+    moi: str | None = None,
+    gencc_support: str | None = None,
+    region_flags: List[str] = Query(default_factory=list, alias="region_flag"),
+    max_control_af: float | None = None,
+    max_population_af: float | None = None,
+    min_pli: float | None = None,
+    classifications: List[str] = Query(default_factory=list, alias="classification"),
+    review_tags: List[str] = Query(default_factory=list, alias="review_tag"),
+    exclude_review_tags: List[str] = Query(default_factory=list, alias="exclude_review_tag"),
+    has_notes: bool = False,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download every filtered structural variant for this family as a CSV file."""
+
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    rows = await export_family_structural_variants(
+        session,
+        context=context,
+        prioritize=prioritize,
+        chr=chr,
+        start=start,
+        end=end,
+        length=length,
+        min_length=min_length,
+        type=type,
+        source=source,
+        sample_filters=sample_filters,
+        samples=samples,
+        remote_chr=remote_chr,
+        remote_start=remote_start,
+        gene=gene,
+        panel_id=panel_id,
+        inheritance=inheritance,
+        phenotype=phenotype,
+        hpo=hpo,
+        moi=moi,
+        gencc_support=gencc_support,
+        region_flags=region_flags,
+        max_control_af=max_control_af,
+        max_population_af=max_population_af,
+        min_pli=min_pli,
+        review_classifications=classifications,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
+        has_notes=has_notes,
+    )
+
+    columns = (
+        [("priority_score", "Priority"), ("priority_rank", "Rank"), *_FAMILY_SV_EXPORT_COLUMNS]
+        if prioritize
+        else _FAMILY_SV_EXPORT_COLUMNS
+    )
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([label for _, label in columns])
+    for variant in rows:
+        writer.writerow([_family_sv_export_cell(variant, field) for field, _ in columns])
+
+    filename = f"family-{family_id}-structural-variants.csv"
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv",

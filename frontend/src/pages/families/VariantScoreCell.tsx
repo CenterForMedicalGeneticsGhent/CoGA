@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
-import { type SmallVariant } from './smallVariantSearch';
+import { type SmallVariantPriority } from './smallVariantSearch';
 import VariantPriorityBlock from './VariantPriorityBlock';
 
 const VIEWPORT_MARGIN = 8;
@@ -17,7 +17,11 @@ type TriggerRect = { top: number; bottom: number; left: number };
  * scrolled); after it renders we measure it and clamp/flip it so it always stays
  * within the viewport.
  */
-export default function VariantScoreCell({ variant }: { variant: SmallVariant }) {
+export default function VariantScoreCell({
+  variant,
+}: {
+  variant: { priority?: SmallVariantPriority | null };
+}) {
   const [trigger, setTrigger] = useState<TriggerRect | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
