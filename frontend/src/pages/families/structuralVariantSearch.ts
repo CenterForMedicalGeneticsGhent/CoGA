@@ -616,7 +616,7 @@ export const useStructuralVariantSearchState = ({
   const toggleDraftFilterListValue = (
     key: Extract<
       keyof StructuralFilterState,
-      'classification' | 'review_tags' | 'exclude_review_tags' | 'region_flags'
+      'classification' | 'review_tags' | 'exclude_review_tags' | 'region_flags' | 'type'
     >,
     value: string,
   ) => {

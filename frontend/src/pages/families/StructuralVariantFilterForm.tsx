@@ -53,14 +53,13 @@ const PRESETS: { value: StructuralPreset; label: string }[] = [
 ];
 
 const SV_TYPE_OPTIONS = [
-  { value: '', label: 'Any type' },
-  { value: 'DEL', label: 'DEL — deletion' },
-  { value: 'DUP', label: 'DUP — duplication' },
-  { value: 'INS', label: 'INS — insertion' },
-  { value: 'INV', label: 'INV — inversion' },
-  { value: 'CNV', label: 'CNV — copy number' },
-  { value: 'BND', label: 'BND — breakend' },
-  { value: 'TRA', label: 'TRA — translocation' },
+  { value: 'DEL', label: 'DEL' },
+  { value: 'DUP', label: 'DUP' },
+  { value: 'INS', label: 'INS' },
+  { value: 'INV', label: 'INV' },
+  { value: 'CNV', label: 'CNV' },
+  { value: 'BND', label: 'BND' },
+  { value: 'TRA', label: 'TRA' },
 ] as const;
 
 const REGION_FLAG_OPTIONS = [
@@ -185,14 +184,15 @@ const StructuralVariantFilterForm = ({
     draftFilters.start,
     draftFilters.end,
   );
-  const classFilterCount = countNonEmpty(
-    draftFilters.type,
-    draftFilters.source,
-    draftFilters.minLength,
-    draftFilters.length,
-    draftFilters.remote_chr,
-    draftFilters.remote_start,
-  );
+  const classFilterCount =
+    splitSelectedValues(draftFilters.type).length +
+    countNonEmpty(
+      draftFilters.source,
+      draftFilters.minLength,
+      draftFilters.length,
+      draftFilters.remote_chr,
+      draftFilters.remote_start,
+    );
   const needlrFilterCount =
     countNonEmpty(
       draftFilters.phenotype,
@@ -567,25 +567,24 @@ const StructuralVariantFilterForm = ({
                   {summarizeSection(classFilterCount)}
                 </span>
               </span>
-              <span
-                className="variant-filter-dropdown-summary-controls"
-                onMouseDown={stopSummaryInteraction}
-                onClick={stopSummaryInteraction}
-              >
-                <label className="variant-summary-select-field">
-                  <span>SV type</span>
-                  <select name="type" value={draftFilters.type} onChange={handleDraftFieldChange}>
-                    {SV_TYPE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </span>
               <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
             </summary>
             <div className="variant-filter-dropdown-content">
+              <div className="variant-filter-choice-group">
+                <p className="variant-filter-choice-title">SV type</p>
+                <div className="variant-checkbox-grid variant-checkbox-grid--small">
+                  {SV_TYPE_OPTIONS.map((option) => (
+                    <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={splitSelectedValues(draftFilters.type).includes(option.value)}
+                        onChange={() => toggleDraftFilterListValue('type', option.value)}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div className="analysis-filter-grid analysis-filter-grid--5">
                 <input
                   name="source"

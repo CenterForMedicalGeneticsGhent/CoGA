@@ -1426,8 +1426,12 @@ def _structural_record_matches(
             return False
         if filters.end is not None and record.end > filters.end:
             return False
-    if filters.variant_type and not _contains_casefold(record.sv_type, filters.variant_type):
-        return False
+    if filters.variant_type:
+        wanted_types = [value.strip() for value in filters.variant_type.split(",") if value.strip()]
+        if wanted_types and not any(
+            _contains_casefold(record.sv_type, value) for value in wanted_types
+        ):
+            return False
     if filters.source and not _contains_casefold(record.source, filters.source):
         return False
     if filters.length is not None and abs(record.end - record.start) != filters.length:
