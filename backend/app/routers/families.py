@@ -84,6 +84,7 @@ from ..services.hpo_service import (
     query_family_hpo_annotations,
     update_individual_hpo_annotation,
 )
+from ..services.monarch_ingest import gene_phenotype_breakdown, phenotype_closure
 from ..services.monarch_semsim import (
     DEFAULT_GROUP,
     DEFAULT_LIMIT,
@@ -460,10 +461,20 @@ async def family_phenotype_match(
         )
         in_platform = {row["hgnc_symbol"] for row in platform_result.mappings().all()}
 
+    # Enrich each gene with which of its Monarch phenotypes the family exhibits
+    # (matching) versus the rest (extra), using the local Monarch tables. The match
+    # is against the ancestor closure of the family's present terms, so a general
+    # gene phenotype counts when the family has it or a more specific descendant.
+    observed_closure = await phenotype_closure(session, present)
+    breakdown = await gene_phenotype_breakdown(
+        session, symbols=gene_symbols, observed_closure=observed_closure
+    )
+
     results = []
     for entry in raw_results:
         is_gene = (entry.get("category") or "").endswith("Gene")
         symbol = entry.get("name") if is_gene else None
+        gene_terms = breakdown.get(symbol.upper(), {}) if symbol else {}
         results.append(
             PhenotypeMatchResultOut(
                 rank=entry["rank"],
@@ -473,6 +484,8 @@ async def family_phenotype_match(
                 category=entry.get("category"),
                 symbol=symbol,
                 gene_in_platform=bool(symbol and symbol in in_platform),
+                matching_phenotypes=gene_terms.get("matching", []),
+                extra_phenotypes=gene_terms.get("extra", []),
             )
         )
 

@@ -4,6 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 
+interface PhenotypeTermRef {
+  hpo_id: string;
+  label?: string | null;
+}
+
 interface PhenotypeMatchResult {
   rank: number;
   score?: number | null;
@@ -12,6 +17,8 @@ interface PhenotypeMatchResult {
   category?: string | null;
   symbol?: string | null;
   gene_in_platform?: boolean;
+  matching_phenotypes?: PhenotypeTermRef[];
+  extra_phenotypes?: PhenotypeTermRef[];
 }
 
 interface FamilyPhenotypeMatch {
@@ -27,12 +34,56 @@ type Props = {
   projectId?: string;
 };
 
+const EXTRA_PREVIEW_COUNT = 8;
+
 const buildGeneHref = (symbol: string, familyId?: string, projectId?: string) => {
   const params = new URLSearchParams({ gene: symbol });
   if (familyId) params.set('family_id', familyId);
   if (projectId) params.set('project_id', projectId);
   return `/genes?${params.toString()}`;
 };
+
+function TermChips({
+  terms,
+  tone,
+  truncateTo,
+}: {
+  terms: PhenotypeTermRef[];
+  tone: 'success' | 'neutral';
+  truncateTo?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (terms.length === 0) {
+    return <span className="dashboard-link-note">—</span>;
+  }
+
+  const collapsed = truncateTo !== undefined && !expanded && terms.length > truncateTo;
+  const shown = collapsed ? terms.slice(0, truncateTo) : terms;
+
+  return (
+    <div className="family-hpo-chip-list family-hpo-chip-list--compact">
+      {shown.map((term) => (
+        <span
+          key={term.hpo_id}
+          className={`table-chip table-chip--${tone}`}
+          title={term.hpo_id}
+        >
+          {term.label || term.hpo_id}
+        </span>
+      ))}
+      {truncateTo !== undefined && terms.length > truncateTo ? (
+        <button
+          type="button"
+          className="button-ghost"
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {collapsed ? `+${terms.length - truncateTo} more` : 'Show fewer'}
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Props) {
   const [enabled, setEnabled] = useState(false);
@@ -90,31 +141,54 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
               Ranked from {data.query_hpo_ids.length} observed phenotype
               {data.query_hpo_ids.length === 1 ? '' : 's'}.
             </p>
-            <ol className="gene-compact-list">
-              {data.results.map((result) => (
-                <li key={result.id}>
-                  <span className="table-chip">#{result.rank}</span>{' '}
-                  {result.symbol && result.gene_in_platform ? (
-                    <Link
-                      className="gene-compact-link"
-                      to={buildGeneHref(result.symbol, familyId, projectId)}
-                    >
-                      {result.symbol}
-                    </Link>
-                  ) : (
-                    <span>{result.name}</span>
-                  )}
-                  <span className="gene-compact-list-meta">
-                    {[
-                      typeof result.score === 'number' ? `score ${result.score.toFixed(2)}` : null,
-                      result.symbol && !result.gene_in_platform ? 'not in platform' : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                </li>
-              ))}
-            </ol>
+            <div className="data-table-shell overflow-x-auto">
+              <table className="analysis-table table-sticky">
+                <thead>
+                  <tr>
+                    <th>Gene</th>
+                    <th>Score</th>
+                    <th>Matching HPO terms</th>
+                    <th>Extra HPO terms</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.results.map((result) => (
+                    <tr key={result.id}>
+                      <td>
+                        {result.symbol && result.gene_in_platform ? (
+                          <Link
+                            className="gene-compact-link"
+                            to={buildGeneHref(result.symbol, familyId, projectId)}
+                          >
+                            {result.symbol}
+                          </Link>
+                        ) : (
+                          <span>
+                            {result.name}
+                            {result.symbol && !result.gene_in_platform ? (
+                              <span className="dashboard-link-note"> (not in platform)</span>
+                            ) : null}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {typeof result.score === 'number' ? result.score.toFixed(2) : '—'}
+                      </td>
+                      <td>
+                        <TermChips terms={result.matching_phenotypes ?? []} tone="success" />
+                      </td>
+                      <td>
+                        <TermChips
+                          terms={result.extra_phenotypes ?? []}
+                          tone="neutral"
+                          truncateTo={EXTRA_PREVIEW_COUNT}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </>
         )
       ) : null}

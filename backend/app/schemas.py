@@ -437,6 +437,11 @@ class HpoFamilyQueryOut(BaseModel):
     annotations: List[HpoAnnotationOut] = Field(default_factory=list)
 
 
+class PhenotypeTermRefOut(BaseModel):
+    hpo_id: str
+    label: Optional[str] = None
+
+
 class PhenotypeMatchResultOut(BaseModel):
     rank: int
     score: Optional[float] = None
@@ -445,6 +450,8 @@ class PhenotypeMatchResultOut(BaseModel):
     category: Optional[str] = None
     symbol: Optional[str] = None
     gene_in_platform: bool = False
+    matching_phenotypes: List[PhenotypeTermRefOut] = Field(default_factory=list)
+    extra_phenotypes: List[PhenotypeTermRefOut] = Field(default_factory=list)
 
 
 class FamilyPhenotypeMatchOut(BaseModel):
