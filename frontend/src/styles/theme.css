@@ -10456,13 +10456,24 @@ a.button-danger:hover {
   max-width: min(1480px, calc(100vw - 1.5rem));
 }
 
-/* Sections (1–5) become the top-level columns; each holds a vertical list of
-   criteria. Columns wrap on narrower viewports. */
+/* Sections (1–5) are the top-level columns and always sit side by side in a
+   single row; each holds a vertical list of criteria. */
 .cnv-sections-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
-  gap: 0.6rem 0.7rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
   align-items: start;
+}
+
+@media (max-width: 720px) {
+  /* Too narrow for five columns — fall back to a horizontal scroll so the
+     sections still stay on one row instead of stacking. */
+  .cnv-sections-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(13rem, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+  }
 }
 
 .acmg-criteria-section {
