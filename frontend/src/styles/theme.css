@@ -2038,6 +2038,25 @@ tbody tr:hover {
   color: #466592;
 }
 
+/* Monarch phenotype-match term chips: keep every chip the same height by holding
+   each to a single line and a shared min-height, vertically centered in the row. */
+.phenotype-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.phenotype-chip {
+  min-height: 1.55rem;
+  white-space: nowrap;
+}
+
+.phenotype-chip-toggle {
+  min-height: 1.55rem;
+  padding: 0.18rem 0.4rem;
+}
+
 .family-member-name-button {
   min-height: 0;
   padding: 0;

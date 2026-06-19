@@ -35,6 +35,9 @@ type Props = {
 };
 
 const EXTRA_PREVIEW_COUNT = 8;
+// Monarch's semsim search caps the request at 50 candidates, so this is the most
+// the live ranking can return.
+const GENE_LIMIT = 50;
 
 const buildGeneHref = (symbol: string, familyId?: string, projectId?: string) => {
   const params = new URLSearchParams({ gene: symbol });
@@ -62,11 +65,11 @@ function TermChips({
   const shown = collapsed ? terms.slice(0, truncateTo) : terms;
 
   return (
-    <div className="family-hpo-chip-list family-hpo-chip-list--compact">
+    <div className="phenotype-chip-list">
       {shown.map((term) => (
         <span
           key={term.hpo_id}
-          className={`table-chip table-chip--${tone}`}
+          className={`table-chip phenotype-chip table-chip--${tone}`}
           title={term.hpo_id}
         >
           {term.label || term.hpo_id}
@@ -75,7 +78,7 @@ function TermChips({
       {truncateTo !== undefined && terms.length > truncateTo ? (
         <button
           type="button"
-          className="button-ghost"
+          className="button-ghost phenotype-chip-toggle"
           onClick={() => setExpanded((value) => !value)}
         >
           {collapsed ? `+${terms.length - truncateTo} more` : 'Show fewer'}
@@ -94,7 +97,7 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
     staleTime: 1000 * 60 * 30,
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/phenotype-match`, {
-        params: { group: 'Human Genes', limit: 20 },
+        params: { group: 'Human Genes', limit: GENE_LIMIT },
       });
       return res.data as FamilyPhenotypeMatch;
     },
@@ -138,8 +141,12 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
         ) : (
           <>
             <p className="dashboard-link-note">
-              Ranked from {data.query_hpo_ids.length} observed phenotype
-              {data.query_hpo_ids.length === 1 ? '' : 's'}.
+              Top {data.results.length} candidate gene{data.results.length === 1 ? '' : 's'},
+              ranked from {data.query_hpo_ids.length} observed phenotype
+              {data.query_hpo_ids.length === 1 ? '' : 's'}
+              {data.results.length >= GENE_LIMIT
+                ? ` (Monarch returns at most ${GENE_LIMIT}).`
+                : '.'}
             </p>
             <div className="data-table-shell overflow-x-auto">
               <table className="analysis-table table-sticky">

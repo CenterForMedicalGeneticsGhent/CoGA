@@ -72,6 +72,12 @@ describe('MonarchPhenotypeMatchPanel', () => {
       'href',
       '/genes?gene=TG&family_id=fam-1&project_id=proj-1',
     );
+    // Requests the full candidate set the Monarch semsim API allows.
+    expect(api.get).toHaveBeenCalledWith(
+      '/families/fam-1/phenotype-match',
+      expect.objectContaining({ params: expect.objectContaining({ limit: 50 }) }),
+    );
+    expect(screen.getByText(/Top 2 candidate genes/i)).toBeInTheDocument();
     expect(screen.getByText(/Ranked from 2 observed phenotypes/i)).toBeInTheDocument();
     // Four-column table: gene, score, matching and extra HPO terms.
     expect(screen.getByRole('columnheader', { name: /matching hpo terms/i })).toBeInTheDocument();
