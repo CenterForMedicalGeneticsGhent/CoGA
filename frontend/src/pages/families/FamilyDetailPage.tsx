@@ -261,6 +261,28 @@ interface FamilyDetailPageProps {
   embedded?: boolean;
 }
 
+/**
+ * A variant-workspace navigation control. Renders as a real link when its data
+ * type is available, and as a disabled (greyed-out) button when not, so every
+ * data type stays visible and the user can see at a glance what this family has.
+ */
+const VariantWorkspaceLink: React.FC<{
+  active: boolean;
+  to: string;
+  className: string;
+  disabledTitle: string;
+  children: React.ReactNode;
+}> = ({ active, to, className, disabledTitle, children }) =>
+  active ? (
+    <Link to={to} className={`${className} hover:no-underline`}>
+      {children}
+    </Link>
+  ) : (
+    <button type="button" className={className} disabled title={disabledTitle}>
+      {children}
+    </button>
+  );
+
 const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   editable = false,
   familyId: familyIdProp,
@@ -1305,16 +1327,18 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               <p className="family-workspace-card-subtitle">Filter, review and curate variant calls</p>
             </div>
           </div>
-          {hasAnyVariantData && (
+          {variantCountsLoaded ? (
             <div className="family-variant-links">
-              {hasSmallVariants && (
-                <div className="family-variant-row">
-                  <Link
-                    to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
-                    className="form-button family-variant-link hover:no-underline"
-                  >
-                    Small variants
-                  </Link>
+              <div className="family-variant-row">
+                <VariantWorkspaceLink
+                  active={hasSmallVariants}
+                  to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
+                  className="form-button family-variant-link"
+                  disabledTitle="No small variant data is loaded for this family."
+                >
+                  Small variants
+                </VariantWorkspaceLink>
+                {hasSmallVariants && (
                   <div className="family-variant-curation" aria-label="Small variant curation">
                     <span className="family-review-summary-label">Curation</span>
                     <span className="table-chip family-review-summary-chip">
@@ -1334,16 +1358,18 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       </span>
                     ))}
                   </div>
-                </div>
-              )}
-              {hasVariants && (
-                <div className="family-variant-row">
-                  <Link
-                    to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
-                    className="form-button family-variant-link hover:no-underline"
-                  >
-                    Structural variants
-                  </Link>
+                )}
+              </div>
+              <div className="family-variant-row">
+                <VariantWorkspaceLink
+                  active={hasVariants}
+                  to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
+                  className="form-button family-variant-link"
+                  disabledTitle="No structural variant data is loaded for this family."
+                >
+                  Structural variants
+                </VariantWorkspaceLink>
+                {hasVariants && (
                   <div className="family-variant-curation" aria-label="Structural variant curation">
                     <span className="family-review-summary-label">Curation</span>
                     <span className="table-chip family-review-summary-chip">
@@ -1363,63 +1389,59 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                       </span>
                     ))}
                   </div>
-                </div>
-              )}
-              {(hasSmallVariants ||
-                hasVariantSummary ||
-                hasRepeatExpansions ||
-                hasParaphase ||
-                hasMitoDna) && (
-                <div className="compact-toolbar family-toolbar family-variant-secondary">
-                  {(hasSmallVariants || hasVariants) && (
-                    <Link
-                      to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
-                      className="button-secondary hover:no-underline"
-                    >
-                      Report
-                    </Link>
-                  )}
-                  {hasVariantSummary && (
-                    <Link
-                      to={`/families/${data.family_id}/variant-summary`}
-                      className="button-secondary hover:no-underline"
-                    >
-                      Variant summary
-                    </Link>
-                  )}
-                  {hasRepeatExpansions && (
-                    <Link
-                      to={`/families/${data.family_id}/repeat-expansions`}
-                      className="button-secondary hover:no-underline"
-                    >
-                      Repeat expansions
-                    </Link>
-                  )}
-                  {hasParaphase && (
-                    <Link
-                      to={`/families/${data.family_id}/paraphase`}
-                      className="button-secondary hover:no-underline"
-                    >
-                      Paraphase
-                    </Link>
-                  )}
-                  {hasMitoDna && (
-                    <Link
-                      to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
-                      className="button-secondary hover:no-underline"
-                    >
-                      mtDNA analysis
-                    </Link>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
+              <div className="compact-toolbar family-toolbar family-variant-secondary">
+                <VariantWorkspaceLink
+                  active={hasSmallVariants || hasVariants}
+                  to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
+                  className="button-secondary"
+                  disabledTitle="Load small or structural variant data to generate a report."
+                >
+                  Report
+                </VariantWorkspaceLink>
+                <VariantWorkspaceLink
+                  active={hasVariantSummary}
+                  to={`/families/${data.family_id}/variant-summary`}
+                  className="button-secondary"
+                  disabledTitle="No variant data is loaded to summarize."
+                >
+                  Variant summary
+                </VariantWorkspaceLink>
+                <VariantWorkspaceLink
+                  active={hasRepeatExpansions}
+                  to={`/families/${data.family_id}/repeat-expansions`}
+                  className="button-secondary"
+                  disabledTitle="No repeat expansion data is loaded for this family."
+                >
+                  Repeat expansions
+                </VariantWorkspaceLink>
+                <VariantWorkspaceLink
+                  active={hasParaphase}
+                  to={`/families/${data.family_id}/paraphase`}
+                  className="button-secondary"
+                  disabledTitle="No Paraphase data is loaded for this family."
+                >
+                  Paraphase
+                </VariantWorkspaceLink>
+                <VariantWorkspaceLink
+                  active={hasMitoDna}
+                  to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
+                  className="button-secondary"
+                  disabledTitle="No mtDNA data is loaded for this family."
+                >
+                  mtDNA analysis
+                </VariantWorkspaceLink>
+              </div>
             </div>
-          )}
-          {!variantCountsLoaded && (
+          ) : (
             <p className="dashboard-link-note">Checking available family data…</p>
           )}
           {variantCountsLoaded && !hasAnyVariantData && (
-            <p className="dashboard-link-note">No family variant data is loaded yet.</p>
+            <p className="dashboard-link-note">
+              No variant data is loaded for this family yet — each type activates
+              automatically once its data is imported.
+            </p>
           )}
         </article>
 
