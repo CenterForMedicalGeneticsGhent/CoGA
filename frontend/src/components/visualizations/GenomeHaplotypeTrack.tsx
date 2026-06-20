@@ -30,6 +30,9 @@ interface Segment {
   hap1: string;
   hap2: string;
   ps?: number | null;
+  // Pedigree-aware colour class per lane; see getHaplotypeLaneSignature.
+  hap1_lineage?: string | null;
+  hap2_lineage?: string | null;
 }
 
 interface HaplotypeSourceSample {

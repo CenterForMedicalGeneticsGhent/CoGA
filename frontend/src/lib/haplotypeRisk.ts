@@ -9,6 +9,15 @@ export type HaplotypeInheritanceMode =
 export type DiseaseHaplotypeKind = 'dominant' | 'recessive-maternal' | 'recessive-paternal' | 'x-linked';
 export type HaplotypeRiskState = 'affected_or_at_risk' | 'carrier' | 'unaffected_non_carrier' | 'uninformative';
 
+/**
+ * Pedigree-aware colour class the backend assigns to each lane. When present it
+ * overrides the role-based origin inference below — essential for relatives
+ * (e.g. a grandparent) whose flat role does not encode their place in the
+ * pedigree. ``untransmitted``/``unknown`` lanes carry no founder identity and are
+ * rendered grey.
+ */
+export type HaplotypeLineage = 'paternal' | 'maternal' | 'untransmitted' | 'unknown';
+
 export interface HaplotypeSegmentLike {
   chr?: string | null;
   start: number;
@@ -16,6 +25,8 @@ export interface HaplotypeSegmentLike {
   hap1: string;
   hap2: string;
   ps?: number | null;
+  hap1_lineage?: HaplotypeLineage | string | null;
+  hap2_lineage?: HaplotypeLineage | string | null;
 }
 
 export interface HaplotypeSampleLike {
@@ -137,6 +148,11 @@ export const getRenderableHaplotypeLanes = (
   return ['hap1', 'hap2'];
 };
 
+const laneLineage = (segment: HaplotypeSegmentLike, lane: HaplotypeLane): string =>
+  String((lane === 'hap1' ? segment.hap1_lineage : segment.hap2_lineage) ?? '')
+    .trim()
+    .toLowerCase();
+
 export const getHaplotypeLaneSignature = (
   member: HaplotypeMemberLike,
   segment: HaplotypeSegmentLike,
@@ -145,6 +161,13 @@ export const getHaplotypeLaneSignature = (
 ): HaplotypeSignature | null => {
   const value = haplotypeValue(segment, lane);
   if (!isInformativeHaplotypeValue(value)) return null;
+
+  // A pedigree-aware lineage tag, when present, is authoritative — it already
+  // accounts for transmission through the pedigree, which `role` cannot.
+  const lineage = laneLineage(segment, lane);
+  if (lineage === 'paternal') return { origin: 'paternal', value };
+  if (lineage === 'maternal') return { origin: 'maternal', value };
+  if (lineage === 'untransmitted' || lineage === 'unknown') return null;
 
   const role = normalizeRole(member.role);
   let origin: HaplotypeOrigin;
@@ -206,13 +229,19 @@ const intersectCandidateKeys = (
   let intersection: Set<string> | null = null;
   for (const member of members) {
     const keys = carriedSignatureKeysForMember(member, segmentsBySample, region, origin);
-    if (keys.size === 0) return [];
+    // A member that contributes no in-region signatures (e.g. a relative greyed by
+    // the lineage service — unknown/untransmitted on both lanes, or off-region) is
+    // simply non-informative for this intersection, NOT a hard zeroing event. The
+    // previous `return []` let one greyed affected relative collapse an otherwise
+    // resolvable disease call to uninformative (a missed clinical highlight).
+    if (keys.size === 0) continue;
     if (!intersection) {
       intersection = new Set(keys);
       continue;
     }
     intersection = new Set(Array.from(intersection).filter((key) => keys.has(key)));
   }
+  // Only when NO member contributed any signature is the call genuinely empty.
   return Array.from(intersection || []);
 };
 
