@@ -13,11 +13,14 @@ interface LegendEntry {
 }
 
 // The four parental homologs (P1/P2 paternal, M1/M2 maternal) are always shown.
+// "Untransmitted" (grey) marks a relative's homolog that was not passed down the
+// line to the affected family — irrelevant to tracking the disease allele.
 const HOMOLOG_ENTRIES: LegendEntry[] = [
   { label: 'P1', color: 'var(--color-haplotype-father-dark)' },
   { label: 'P2', color: 'var(--color-haplotype-father-light)' },
   { label: 'M1', color: 'var(--color-haplotype-mother-dark)' },
   { label: 'M2', color: 'var(--color-haplotype-mother-light)' },
+  { label: 'Untransmitted', color: 'var(--color-haplotype-unknown)' },
 ];
 
 const riskEntriesForModel = (inheritanceModel?: string | null): LegendEntry[] => {

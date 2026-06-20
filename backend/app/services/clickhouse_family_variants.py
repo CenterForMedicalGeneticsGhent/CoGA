@@ -3644,11 +3644,12 @@ async def fetch_imputed_phased_genotypes(
     start: int,
     end: int,
     limit: int,
-) -> list[tuple[int, list[str], list[str]]]:
-    """Lean, family-scoped fetch of imputed (GLIMPSE2) variant positions and the
-    per-sample phased genotype strings in a region — no annotation hydration, so
-    it stays cheap even for tens of thousands of sites. Used by the phased-marker
-    parent-of-origin computation."""
+) -> list[tuple[int, str, str, list[str], list[str]]]:
+    """Lean, family-scoped fetch of imputed (GLIMPSE2) variant positions, the
+    ref/alt alleles, and the per-sample phased genotype strings in a region — no
+    annotation hydration, so it stays cheap even for tens of thousands of sites.
+    Used by the phased-marker parent-of-origin computation and relative haplotype
+    colouring. Each row is ``(pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
     filters = SmallVariantQueryFilters(
@@ -3663,7 +3664,8 @@ async def fetch_imputed_phased_genotypes(
     where_clauses, params, _ = _small_query_filter_parts(context, filters)
     entries_table = _small_table_name(context.assembly_name, "entries")
     query = f"""
-        SELECT e.pos AS pos, e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts
+        SELECT e.pos AS pos, e.ref AS ref, e.alt AS alt,
+               e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts
         FROM {entries_table} AS e
         WHERE {' AND '.join(where_clauses)}
         ORDER BY e.pos
@@ -3672,7 +3674,7 @@ async def fetch_imputed_phased_genotypes(
     params["phased_limit"] = int(limit)
     rows = await _execute_clickhouse(query, params)
     return [
-        (int(row[0]), [str(s) for s in row[1]], [str(g) for g in row[2]])
+        (int(row[0]), str(row[1]), str(row[2]), [str(s) for s in row[3]], [str(g) for g in row[4]])
         for row in rows
     ]
 

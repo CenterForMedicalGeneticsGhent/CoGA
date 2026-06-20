@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import gzip
 import json
@@ -22,6 +23,15 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .haplotype_lineage_service import annotate_lineage
+
+# Ceiling for the on-demand phased-genotype fetch that drives relative haplotype
+# colouring. Generous for a region-of-interest; whole-chromosome batch views fetch
+# per chromosome.
+LINEAGE_PHASED_FETCH_LIMIT = 500_000
+# Upper bound for a whole-chromosome phased-genotype fetch (no human chromosome
+# approaches this length).
+_WHOLE_CHROMOSOME_END = 2_000_000_000
 
 VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 
@@ -541,6 +551,53 @@ async def fetch_bed_batch_json(
     return JSONResponse({"bed_type": bed_type, "items": records})
 
 
+async def _apply_haplotype_lineage(
+    context: FamilyMetadataContext,
+    *,
+    segments_by_uuid: dict[str, list[dict[str, Any]]],
+    chrom: str,
+    start: int | None,
+    end: int | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Re-colour relatives by pedigree-aware IBD matching and tag the nuclear core
+    by role. Falls back to the stored (uuid-keyed) segments untouched if anything
+    is missing, so the haplotype view degrades gracefully rather than failing."""
+    # Imported lazily to avoid a heavy import at module load and any import cycle.
+    from .clickhouse_family_variants import fetch_imputed_phased_genotypes
+
+    genotype_rows: list[tuple[int, list[str], list[str]]] = []
+    if start is not None and end is not None and end > start and context.assembly_name:
+        genotype_rows = await fetch_imputed_phased_genotypes(
+            context,
+            chrom=chrom,
+            start=int(start),
+            end=int(end),
+            limit=LINEAGE_PHASED_FETCH_LIMIT,
+        )
+    segments_by_name = {
+        context.sample_uuid_to_name[sample_uuid]: segs
+        for sample_uuid, segs in segments_by_uuid.items()
+    }
+    annotated = annotate_lineage(
+        sample_rows=context.sample_rows,
+        relationship_rows=context.relationship_rows,
+        segments_by_name=segments_by_name,
+        genotype_rows=genotype_rows,
+        chrom=chrom,
+        region_start=start,
+        region_end=end,
+        # Even in a bounded region the fetch can cap; do not colour relatives past the
+        # last fetched site within the window.
+        genotype_truncated=len(genotype_rows) >= LINEAGE_PHASED_FETCH_LIMIT,
+    )
+    name_to_uuid = context.sample_name_to_uuid
+    return {
+        name_to_uuid[name]: segs
+        for name, segs in annotated.items()
+        if name in name_to_uuid
+    }
+
+
 async def get_family_haplotypes_response(
     session: AsyncSession,
     *,
@@ -573,6 +630,9 @@ async def get_family_haplotypes_response(
                 "ps": row.get("ps"),
             }
         )
+    segments = await _apply_haplotype_lineage(
+        context, segments_by_uuid=segments, chrom=chr, start=start, end=end
+    )
     return HaplotypeResponse(
         chr=chr,
         start=start,
@@ -580,7 +640,7 @@ async def get_family_haplotypes_response(
         samples=[
             {
                 "sample": context.sample_uuid_to_name[sample_uuid],
-                "segments": segments[sample_uuid],
+                "segments": segments.get(sample_uuid, []),
             }
             for sample_uuid in sample_ids
         ],
@@ -617,16 +677,100 @@ async def get_family_haplotypes_batch_response(
                 "ps": row.get("ps"),
             }
         )
+    # Genome-wide view: tag the nuclear core by role and recolour relatives by
+    # per-chromosome IBD matching (with recombination segmentation).
+    segments = await _apply_haplotype_lineage_genomewide(
+        context, segments_by_uuid=segments, chromosomes=chromosomes
+    )
     return HaplotypeResponse(
         chr="genome",
         samples=[
             {
                 "sample": context.sample_uuid_to_name[sample_uuid],
-                "segments": segments[sample_uuid],
+                "segments": segments.get(sample_uuid, []),
             }
             for sample_uuid in sample_ids
         ],
     )
+
+
+async def _apply_haplotype_lineage_genomewide(
+    context: FamilyMetadataContext,
+    *,
+    segments_by_uuid: dict[str, list[dict[str, Any]]],
+    chromosomes: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Re-colour relatives genome-wide by matching them per chromosome. The nuclear
+    core is always tagged by role (cheap); the (heavier) phased-genotype fetch +
+    IBD matching only runs when the family actually has relatives outside the core,
+    so ordinary trios keep the fast stored-block path."""
+    from .clickhouse_family_variants import fetch_imputed_phased_genotypes
+    from .haplotype_lineage_service import build_pedigree, identify_core
+
+    segments_by_name = {
+        context.sample_uuid_to_name[sample_uuid]: segs
+        for sample_uuid, segs in segments_by_uuid.items()
+    }
+    core = identify_core(build_pedigree(context.sample_rows, context.relationship_rows))
+    has_relatives = any(name not in core.members for name in segments_by_name)
+    # In a single-parent (donor) family the embryos are coloured by IBD against the
+    # one known parent (not role-tagged), so they also need the phased-genotype fetch
+    # even when there are no other relatives.
+    single_parent = bool(core.father) != bool(core.mother) and bool(core.children)
+    needs_genotypes = has_relatives or single_parent
+
+    if not needs_genotypes or not context.assembly_name:
+        annotated = annotate_lineage(
+            sample_rows=context.sample_rows,
+            relationship_rows=context.relationship_rows,
+            segments_by_name=segments_by_name,
+            genotype_rows=[],
+            chrom="genome",
+        )
+        return _segments_by_uuid(context, annotated)
+
+    async def annotate_chrom(chrom: str) -> dict[str, list[dict[str, Any]]]:
+        norm = normalize_chromosome(chrom)
+        chrom_segments = {
+            name: [seg for seg in segs if normalize_chromosome(str(seg.get("chr") or "")) == norm]
+            for name, segs in segments_by_name.items()
+        }
+        if not any(chrom_segments.values()):
+            return {}
+        genotype_rows = await fetch_imputed_phased_genotypes(
+            context, chrom=chrom, start=0, end=_WHOLE_CHROMOSOME_END, limit=LINEAGE_PHASED_FETCH_LIMIT
+        )
+        # The fetch is `ORDER BY pos LIMIT LINEAGE_PHASED_FETCH_LIMIT`, so a chromosome
+        # with more sites than the cap (routine for imputed GLIMPSE2 data on chr1/2)
+        # only yields the lowest-coordinate p-arm. Flag it so relatives are not coloured
+        # across the q-arm with zero genotype evidence (they are greyed past the last
+        # fetched site), mirroring the marker path's truncation guard.
+        return annotate_lineage(
+            sample_rows=context.sample_rows,
+            relationship_rows=context.relationship_rows,
+            segments_by_name=chrom_segments,
+            genotype_rows=genotype_rows,
+            chrom=chrom,
+            genotype_truncated=len(genotype_rows) >= LINEAGE_PHASED_FETCH_LIMIT,
+        )
+
+    per_chrom = await asyncio.gather(*(annotate_chrom(chrom) for chrom in chromosomes))
+    merged_by_name: dict[str, list[dict[str, Any]]] = {name: [] for name in segments_by_name}
+    for annotated in per_chrom:
+        for name, segs in annotated.items():
+            merged_by_name.setdefault(name, []).extend(segs)
+    return _segments_by_uuid(context, merged_by_name)
+
+
+def _segments_by_uuid(
+    context: FamilyMetadataContext,
+    segments_by_name: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    return {
+        context.sample_name_to_uuid[name]: segs
+        for name, segs in segments_by_name.items()
+        if name in context.sample_name_to_uuid
+    }
 
 
 async def get_track_presence_by_sample(

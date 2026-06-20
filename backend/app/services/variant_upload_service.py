@@ -40,6 +40,7 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .haplotype_lineage_service import build_pedigree, identify_core
 from .family_variant_filters import StructuralVariantQueryFilters
 from .structural_variant_ingest import (
     ParsedStructuralVariant,
@@ -749,7 +750,12 @@ def _close_haplotype_state(
     states[sample_name] = _empty_haplotype_state()
 
 
-def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:
+def _role_first_parent_names(
+    context: FamilyMetadataContext,
+) -> tuple[str | None, str | None]:
+    """First sample (in ``sample_rows`` order) tagged with the flat ``father`` /
+    ``mother`` role. Used only as a fallback when the pedigree cannot resolve the
+    index couple."""
     father_name: str | None = None
     mother_name: str | None = None
     for row in context.sample_rows:
@@ -760,6 +766,27 @@ def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, st
         elif role == "mother" and sample_name:
             mother_name = mother_name or sample_name
     return father_name, mother_name
+
+
+def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:
+    """Resolve the *index couple* — the father/mother who co-parent the index
+    children — so the marker overlay and the upload block builder agree with the
+    pedigree-aware lineage path (``identify_core``).
+
+    The flat role model reuses ``father`` / ``mother`` for *any* parent (a paternal
+    grandfather and the index father can both be ``role = "father"``), so the naive
+    role-first match can pick the wrong individual. We instead derive the index
+    parent(s) from the pedigree graph: ``identify_core`` selects the parents of the
+    embryos. This returns ``None`` for the donor side of a SINGLE-PARENT family — we
+    must preserve that ``None`` (not back-fill it with a role-first match, which would
+    grab a grandparent). We fall back to the role-first match only when no index
+    parent can be identified from the pedigree at all (missing relationships)."""
+    if context.relationship_rows:
+        pedigree = build_pedigree(context.sample_rows, context.relationship_rows)
+        core = identify_core(pedigree)
+        if core.children and (core.father or core.mother):
+            return core.father, core.mother
+    return _role_first_parent_names(context)
 
 
 def _transmitted_parent_haplotype(

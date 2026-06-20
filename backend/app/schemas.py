@@ -1672,6 +1672,12 @@ class HaplotypeSegment(BaseModel):
     hap1: str
     hap2: str
     ps: Optional[int] = None
+    # Pedigree-aware colour class for each lane: "paternal"/"maternal" (coloured
+    # by the hap value's shade), "untransmitted"/"unknown" (grey). Absent for
+    # data that predates lineage tagging — the frontend then falls back to the
+    # role-based colourer.
+    hap1_lineage: Optional[str] = None
+    hap2_lineage: Optional[str] = None
 
 
 class HaplotypeSample(BaseModel):
@@ -1704,9 +1710,47 @@ class PhasedMarker(BaseModel):
     hap2: Optional[int] = None
 
 
+class PhasedSampleQc(BaseModel):
+    """Per-child phasing QC summary for one region.
+
+    Computed only for the index couple's own children (the members for whom
+    parent-of-origin is defined). ``informative_sites`` counts sites where both
+    parents and the child carry a valid phased genotype (the joint-informative
+    denominator). ``mendel_errors`` counts the subset of those sites whose child
+    genotype is impossible given the parents' alleles — a true Mendelian
+    inconsistency (likely sample swap / wrong pedigree), NOT mere parent-of-origin
+    ambiguity. ``mendel_rate`` = mendel_errors / informative_sites (0 when none)."""
+
+    informative_sites: int = 0
+    mendel_errors: int = 0
+    mendel_rate: float = 0.0
+
+
 class PhasedMarkerSample(BaseModel):
     sample: str
     markers: List[PhasedMarker] = Field(default_factory=list)
+    # True for the index parents, whose marker lanes are their own ref/alt alleles
+    # (the reference phasing) rather than inherited-homolog indices. The client
+    # colours these by their haplotype block (constant per lane) instead of by the
+    # allele value, so they match the blocks.
+    reference: bool = False
+    # Per-child QC (informative-site count + Mendelian-error signal). Absent for
+    # parents/relatives, for whom parent-of-origin (and thus a Mendel check) is
+    # undefined.
+    qc: Optional["PhasedSampleQc"] = None
+
+
+class PhasedSite(BaseModel):
+    """Raw phased genotypes at one imputed site, for the marker hover tooltip.
+
+    ``gts`` is aligned to the response's ``samples`` order; each entry is that
+    member's phased ``a|b`` genotype (allele indices as a string), decoded to
+    nucleotides client-side via ``ref``/``alt``."""
+
+    pos: int
+    ref: str
+    alt: str
+    gts: List[str] = Field(default_factory=list)
 
 
 class PhasedMarkerResponse(BaseModel):
@@ -1714,6 +1758,15 @@ class PhasedMarkerResponse(BaseModel):
     start: Optional[int] = None
     end: Optional[int] = None
     samples: List[PhasedMarkerSample] = Field(default_factory=list)
+    sites: List[PhasedSite] = Field(default_factory=list)
+    # The per-site fetch is capped (ORDER BY pos LIMIT) and deterministically drops
+    # the highest-coordinate tail when the region holds more sites than the cap, so
+    # a partial overlay would silently stop part-way across a full-length block. When
+    # this is True the client must NOT render the markers/sites (which cover only
+    # ``covered`` = [min_pos, max_pos] of the requested window) and should instead
+    # prompt the user to zoom in. Blocks remain fully renderable.
+    truncated: bool = False
+    covered: Optional[List[int]] = None
 
 
 class TrackAvailabilityOut(BaseModel):
