@@ -654,7 +654,7 @@ async def get_family_structural_variants(
         user=user,
         project_id=project_id,
     )
-    return await get_family_structural_variants_clickhouse(
+    result = await get_family_structural_variants_clickhouse(
         session,
         context=context,
         page=page,
@@ -689,6 +689,17 @@ async def get_family_structural_variants(
         prioritize=prioritize,
         track_mode=track_mode,
     )
+    if track_mode:
+        # The genome SV track reads only chr/start/end/type/source + per-sample
+        # genotype. VariantOut has 59 fields, ~46 of them null for an SV; dropping the
+        # nulls (exclude_none) shrinks the per-member payload ~3x more on top of the
+        # annotation slim (182 MB -> ~9 MB for this family). Return raw JSON so the
+        # VariantPage response_model does not re-inflate the null fields.
+        return Response(
+            content=result.model_dump_json(exclude_none=True),
+            media_type="application/json",
+        )
+    return result
 
 
 def _family_small_variant_filters(

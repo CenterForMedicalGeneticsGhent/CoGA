@@ -1019,7 +1019,15 @@ async def _fetch_structural_cytoband_map(
     return cytobands
 
 
-def _structural_annotation_extra(record: StructuralVariantRecord) -> dict[str, Any]:
+def _structural_annotation_extra(
+    record: StructuralVariantRecord, *, track_mode: bool = False
+) -> dict[str, Any]:
+    # The genome SV track draws one rectangle per variant from chr/start/end/type and
+    # the per-sample genotype; it never reads annotation_extra or population_frequencies.
+    # Parsing the (often multi-KB) per-variant annotation JSON for tens of thousands of
+    # SVs is what made the track payload ~182 MB / 8.7s per member, so skip it entirely.
+    if track_mode:
+        return {}
     population_frequencies = _structural_population_frequencies(record)
     region_flags = _structural_region_flags(record)
     read_depths = {
@@ -2265,12 +2273,14 @@ def _structural_variant_out(
     selected_samples: Sequence[str],
     review: SmallVariantReviewOut | None = None,
     cytoband: str | None = None,
+    *,
+    track_mode: bool = False,
 ) -> VariantOut:
     allowed_samples = set(selected_samples)
     calls = [call for call in record.calls if not allowed_samples or call.sample in allowed_samples]
     length = record.sv_len if record.sv_len is not None else record.end - record.start
-    annotation_extra = _structural_annotation_extra(record)
-    if cytoband:
+    annotation_extra = _structural_annotation_extra(record, track_mode=track_mode)
+    if cytoband and not track_mode:
         annotation_extra["cytoband"] = cytoband
     population_frequencies = annotation_extra.get("population_frequencies")
     return VariantOut(
@@ -3685,12 +3695,18 @@ async def _fetch_structural_variant_rows(
     *,
     limit: int | None = None,
     offset: int = 0,
+    track_mode: bool = False,
 ) -> list[StructuralVariantRecord]:
     if not context.assembly_name:
         return []
     entries_table = _structural_table_name(context.assembly_name, "entries")
     details_table = _structural_table_name(context.assembly_name, "variants/details")
     where_clauses, params = _structural_variant_where_clauses(context, filters)
+    # The genome track never uses the (multi-KB-per-variant) annotation JSON, and we set
+    # annotations=[] for it below; not selecting the column means ClickHouse never reads
+    # it off disk — the bulk of the remaining per-member fetch time for tens of
+    # thousands of SVs. The details join stays so detail-column WHERE filters still work.
+    annotations_col = "'' AS annotations_json" if track_mode else "any(d.annotationsJson) AS annotations_json"
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -3704,7 +3720,7 @@ async def _fetch_structural_variant_rows(
             any(d.remoteStart) AS remote_start,
             any(d.svLen) AS sv_len,
             any(d.filters) AS filters,
-            any(d.annotationsJson) AS annotations_json,
+            {annotations_col},
             any(e.gene_symbols) AS gene_symbols,
             any(e.calls.sampleId) AS sample_ids,
             any(e.calls.gt) AS sample_gts,
@@ -3773,7 +3789,10 @@ async def _fetch_structural_variant_rows(
                 sv_len=_coerce_int(sv_len),
                 filters=_string_list(filters_raw),
                 gene_symbols=_string_list(gene_symbols),
-                annotations=_collect_annotations(_decode_json_payload(annotations_json)),
+                # Track mode never reads annotations downstream (annotation_extra is
+                # zeroed); skipping the multi-KB-per-variant JSON decode is the bulk of
+                # the speed-up for tens of thousands of SVs.
+                annotations=[] if track_mode else _collect_annotations(_decode_json_payload(annotations_json)),
                 calls=calls,
             )
         )
@@ -5083,7 +5102,7 @@ async def get_family_structural_variants_page(
         else set()
     )
     records = await _fetch_structural_variant_rows(
-        context, filters, limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1
+        context, filters, limit=_SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP + 1, track_mode=track_mode
     )
     total_is_estimated = len(records) > _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP
     if total_is_estimated:
@@ -5103,15 +5122,25 @@ async def get_family_structural_variants_page(
     total = len(filtered)
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_records = filtered[skip: skip + page_size] if page_size else filtered[skip:]
-    review_map = await get_structural_variant_review_map(
-        session,
-        family_uuid=context.family_uuid,
-        variant_ids=[record.variant_id for record in page_records],
+    # The genome track shows neither review status nor cytoband, so skip those two
+    # Postgres round-trips (over thousands of variant ids) when track_mode is on.
+    review_map = (
+        {}
+        if track_mode
+        else await get_structural_variant_review_map(
+            session,
+            family_uuid=context.family_uuid,
+            variant_ids=[record.variant_id for record in page_records],
+        )
     )
-    cytoband_map = await _fetch_structural_cytoband_map(
-        session,
-        assembly_id=context.assembly_id,
-        records=page_records,
+    cytoband_map = (
+        {}
+        if track_mode
+        else await _fetch_structural_cytoband_map(
+            session,
+            assembly_id=context.assembly_id,
+            records=page_records,
+        )
     )
     variants = [
         _structural_variant_out(
@@ -5119,6 +5148,7 @@ async def get_family_structural_variants_page(
             selected_samples,
             review_map.get(record.variant_id),
             cytoband_map.get(record.variant_id),
+            track_mode=track_mode,
         )
         for record in page_records
     ]
