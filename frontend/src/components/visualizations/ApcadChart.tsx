@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
 import { TRACK_DOT_RADIUS } from '../../lib/trackSampling';
@@ -126,9 +127,6 @@ const ApcadChart: React.FC<Props> = ({
   layout,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [hasData, setHasData] = useState<boolean | null>(null);
-  const [trackData, setTrackData] = useState<ApcadTrackData | null>(null);
   const [hoverSegment, setHoverSegment] = useState<{
     x: number;
     y: number;
@@ -145,125 +143,58 @@ const ApcadChart: React.FC<Props> = ({
   const stablePcfUrls = useMemo(() => splitKey(pcfUrlKey), [pcfUrlKey]);
   const stableChroms = useMemo(() => splitKey(chromKey), [chromKey]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let active = true;
-
-    const load = async () => {
-      if (stableApcadUrls.length === 0 && stablePcfUrls.length === 0) {
-        if (active) {
-          setTrackData(null);
-          setHasData(false);
-          setLoading(false);
-        }
-        return;
-      }
-
-      if (active) {
-        setLoading(true);
-      }
-
+  // React Query caches/dedupes by URL across re-renders and navigation (was a raw
+  // fetch in useEffect). The data is static per family, so it is held indefinitely.
+  const { data: trackData = null, isLoading } = useQuery<ApcadTrackData>({
+    queryKey: ['genome-apcad', apcadUrlKey, pcfUrlKey, chromKey],
+    enabled: stableApcadUrls.length > 0 || stablePcfUrls.length > 0,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    queryFn: async ({ signal }) => {
       const headers: Record<string, string> = {};
       const token = storage.getItem('token');
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
-      try {
-        const allowedChroms = new Set(stableChroms.map(normalizeChrom));
-        const [apcadPayloads, pcfPayloads] = await Promise.all([
-          Promise.all(
-            stableApcadUrls.map((url) =>
-              fetchJsonOrNull<ApcadBin>(url, headers, controller.signal),
-            ),
-          ),
-          Promise.all(
-            stablePcfUrls.map((url) =>
-              fetchJsonOrNull<ApcadSegment>(url, headers, controller.signal),
-            ),
-          ),
-        ]);
-
-        if (!active) {
-          return;
-        }
-
-        const bins: ApcadBin[] = [];
-        const segments: ApcadSegment[] = [];
-        apcadPayloads.forEach((payload) => {
-          if (!payload) {
-            return;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const allowedChroms = new Set(stableChroms.map(normalizeChrom));
+      const [apcadPayloads, pcfPayloads] = await Promise.all([
+        Promise.all(stableApcadUrls.map((url) => fetchJsonOrNull<ApcadBin>(url, headers, signal))),
+        Promise.all(stablePcfUrls.map((url) => fetchJsonOrNull<ApcadSegment>(url, headers, signal))),
+      ]);
+      const bins: ApcadBin[] = [];
+      const segments: ApcadSegment[] = [];
+      apcadPayloads.forEach((payload) => {
+        payload?.items.forEach((item) => {
+          const chromName = normalizeChrom(item.chr);
+          const origin = (item.origin || 'und').toLowerCase();
+          if (allowedChroms.has(chromName) && (origin === 'paternal' || origin === 'maternal')) {
+            bins.push({ chr: chromName, start: item.start, end: item.end, value: item.value, origin });
           }
-          payload.items.forEach((item) => {
-            const chromName = normalizeChrom(item.chr);
-            if (!allowedChroms.has(chromName)) {
-              return;
-            }
-            const origin = (item.origin || 'und').toLowerCase();
-            if (origin !== 'paternal' && origin !== 'maternal') {
-              return;
-            }
-            bins.push({
-              chr: chromName,
-              start: item.start,
-              end: item.end,
-              value: item.value,
-              origin,
-            });
-          });
         });
-        pcfPayloads.forEach((payload) => {
-          if (!payload) {
-            return;
+      });
+      pcfPayloads.forEach((payload) => {
+        payload?.items.forEach((item) => {
+          const chromName = normalizeChrom(item.chr);
+          const origin = (item.origin || 'und').toLowerCase();
+          if (
+            allowedChroms.has(chromName) &&
+            (origin === 'paternal' || origin === 'maternal') &&
+            Number.isFinite(item.value)
+          ) {
+            segments.push({ chr: chromName, start: item.start, end: item.end, value: item.value, origin });
           }
-          payload.items.forEach((item) => {
-            const chromName = normalizeChrom(item.chr);
-            if (!allowedChroms.has(chromName)) {
-              return;
-            }
-            const origin = (item.origin || 'und').toLowerCase();
-            if (origin !== 'paternal' && origin !== 'maternal') {
-              return;
-            }
-            if (!Number.isFinite(item.value)) {
-              return;
-            }
-            segments.push({
-              chr: chromName,
-              start: item.start,
-              end: item.end,
-              value: item.value,
-              origin,
-            });
-          });
         });
-
-        if (active) {
-          setTrackData({ bins, segments });
-          setHasData(bins.length > 0 || segments.length > 0);
-        }
-      } catch {
-        if (controller.signal.aborted) {
-          return;
-        }
-        if (active) {
-          setTrackData(null);
-          setHasData(false);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    load();
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [stableApcadUrls, stableChroms, stablePcfUrls]);
+      });
+      return { bins, segments };
+    },
+  });
+  const hasUrls = stableApcadUrls.length > 0 || stablePcfUrls.length > 0;
+  const loading = isLoading && hasUrls;
+  const hasData = !hasUrls
+    ? false
+    : trackData
+      ? trackData.bins.length > 0 || trackData.segments.length > 0
+      : loading
+        ? null
+        : false;
 
   useEffect(() => {
     const canvas = canvasRef.current;

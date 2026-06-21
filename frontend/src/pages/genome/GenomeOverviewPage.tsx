@@ -132,9 +132,17 @@ const GenomeOverviewPage: React.FC = () => {
   const trackHeight = 120;
   const svTrackHeight = 80;
   const win = useMemo(() => getGenomeWindow(), []);
-  const binLimit = useMemo(() => getTrackBinLimit(trackWidth), [trackWidth]);
-  const apcadPointLimit = useMemo(() => getApcadPointLimit(trackWidth), [trackWidth]);
-  const segmentLimit = useMemo(() => getTrackSegmentLimit(trackWidth), [trackWidth]);
+  // Quantise the width that feeds the per-track row limits to coarse (100px) steps,
+  // so small ResizeObserver jitter — and the initial 0 -> measured settle — does not
+  // change the fetch URLs and re-fire every per-sample track request. `trackWidth`
+  // itself stays precise for canvas rendering.
+  const limitWidth = useMemo(
+    () => Math.max(Math.round(trackWidth / 100) * 100, DEFAULT_TRACK_WIDTH),
+    [trackWidth],
+  );
+  const binLimit = useMemo(() => getTrackBinLimit(limitWidth), [limitWidth]);
+  const apcadPointLimit = useMemo(() => getApcadPointLimit(limitWidth), [limitWidth]);
+  const segmentLimit = useMemo(() => getTrackSegmentLimit(limitWidth), [limitWidth]);
   const projectIdParam = new URLSearchParams(location.search).get('project_id') || undefined;
 
   const {
