@@ -8190,6 +8190,179 @@ button.table-link:hover {
   border-left-color: var(--color-haplotype-carrier);
 }
 
+/* Derived embryo segregation card (Family Workspace) */
+.segregation-note {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #64748b);
+}
+.segregation-note--error {
+  color: var(--color-haplotype-affected);
+}
+.segregation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.segregation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.segregation-sample {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  min-width: 7rem;
+}
+/* Derived segregation chip: same size/layout as the ped/user-defined status
+   table-chips, keeping the risk colour (tinted like .table-chip--critical/warning). */
+.segregation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.24rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  padding: 0.18rem 0.46rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: help;
+}
+.info-tip-popover {
+  z-index: 9999;
+  background: #1f2937;
+  color: #f8fafc;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 6px 9px;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+  pointer-events: none;
+}
+.segregation-badge--affected_or_at_risk {
+  border-color: rgba(198, 31, 45, 0.22);
+  background: rgba(198, 31, 45, 0.1);
+  color: var(--color-haplotype-affected);
+}
+.segregation-badge--carrier {
+  border-color: rgba(217, 130, 46, 0.22);
+  background: rgba(217, 130, 46, 0.12);
+  color: #8d6020;
+}
+.segregation-badge--unaffected_non_carrier {
+  border-color: rgba(56, 106, 85, 0.22);
+  background: rgba(56, 106, 85, 0.1);
+  color: var(--color-haplotype-mother-dark);
+}
+.segregation-badge--uninformative {
+  border-color: var(--color-border);
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--color-haplotype-unknown);
+}
+.segregation-warning {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-haplotype-carrier);
+  cursor: help;
+}
+
+/* ROI marker review table */
+.roi-markers-summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.roi-markers-table-wrap {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 8px;
+}
+.roi-markers-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.72rem;
+}
+.roi-markers-table th,
+.roi-markers-table td {
+  border-right: 1px solid var(--color-border, #eef2f7);
+  border-bottom: 1px solid var(--color-border, #eef2f7);
+  white-space: nowrap;
+}
+.roi-markers-corner,
+.roi-markers-namecol {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-surface, #fff);
+  text-align: left;
+  padding: 2px 8px;
+}
+.roi-markers-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface, #fff);
+  font-weight: 500;
+  padding: 2px 4px;
+  transform: rotate(0);
+}
+.roi-markers-corner {
+  z-index: 3;
+}
+.roi-markers-poscol {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted, #64748b);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  height: 5.5rem;
+  font-size: 0.62rem;
+}
+.roi-markers-poscol--roi,
+.roi-markers-cell--roi {
+  background: rgba(214, 69, 61, 0.07);
+}
+.roi-markers-name {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+.roi-markers-role {
+  color: var(--color-text-muted, #64748b);
+}
+.roi-markers-row--embryo .roi-markers-namecol {
+  font-weight: 700;
+}
+.roi-markers-mendel {
+  color: var(--color-haplotype-affected);
+  font-weight: 700;
+}
+.roi-markers-cell {
+  position: relative;
+  padding: 1px 3px 1px 7px;
+  text-align: center;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+}
+.roi-markers-cell--uninformative {
+  opacity: 0.45;
+}
+.roi-markers-lanes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+.roi-markers-gt {
+  letter-spacing: 0.5px;
+}
+
 .viewer-track-interactive {
   position: relative;
   overflow: hidden;

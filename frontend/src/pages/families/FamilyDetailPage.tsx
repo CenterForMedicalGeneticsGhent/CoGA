@@ -3,6 +3,9 @@ import { useParams, Link, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
+import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
+import { segregationStateLabel } from '../../lib/embryoSegregation';
+import InfoTip from '../../components/InfoTip';
 import type {
   ApiFamilyRecord,
   ApiFamilyMemberBatchUpdateItem,
@@ -557,6 +560,15 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     () => sortFamilyMembersProbandFirst(data?.members || []),
     [data?.members],
   );
+  // Derived embryo segregation at the ROI (carrier/affected/unaffected), shown per
+  // embryo in the Family members table below. Derived from the haplotype analysis.
+  const { byEmbryo: embryoSegregation } = useEmbryoSegregation({
+    familyId: data?.family_id ?? '',
+    roi: data?.roi ?? null,
+    members: data?.members ?? [],
+    inheritanceModel: (data?.metadata?.pgt as { inheritance_model?: string } | undefined)
+      ?.inheritance_model,
+  });
   const hpoAnnotationsBySample = useMemo(() => {
     return hpoAnnotations.reduce<Record<string, ApiHpoAnnotation[]>>((acc, annotation) => {
       acc[annotation.sample_id] = acc[annotation.sample_id] || [];
@@ -1504,6 +1516,19 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     'No region of interest set'
                   )}
                 </p>
+                {data.roi && (
+                  <p className="family-workspace-card-subtitle">
+                    <Link
+                      to={`/families/${data.family_id}/roi-markers${
+                        projectId ? `?project_id=${projectId}` : ''
+                      }`}
+                      className="family-roi-link"
+                      title="Review all phased markers across the ROI ± 1 Mb"
+                    >
+                      Review ROI markers →
+                    </Link>
+                  </p>
+                )}
               </div>
             </div>
             {canEditRoi && (
@@ -1646,6 +1671,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   : carrierStatusForMember(displayMember);
                 const affected = clinicalStatus === 'affected';
                 const annotations = hpoAnnotationsBySample[member.sample_id] || [];
+                const embryoClass =
+                  String(displayMember.role).toLowerCase() === 'embryo'
+                    ? embryoSegregation.get(member.sample_id)
+                    : undefined;
                 return (
                   <tr key={member.sample_id}>
                     <td>
@@ -1830,6 +1859,30 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                             <span className="table-chip table-chip--warning">
                               {displayMember.carrier_type || 'carrier'}
                             </span>
+                          )}
+                          {embryoClass && (
+                            <InfoTip
+                              className={`segregation-badge segregation-badge--${embryoClass.state}`}
+                              label="Derived from the haplotype analysis at the ROI — not entered by an analyst."
+                            >
+                              {segregationStateLabel(embryoClass.state)}
+                            </InfoTip>
+                          )}
+                          {embryoClass?.recombinationNearRoi && (
+                            <InfoTip
+                              className="segregation-warning"
+                              label="A recombination falls inside or close to the ROI — the call across the locus is uncertain. Review the ROI markers."
+                            >
+                              ⚠ recombination
+                            </InfoTip>
+                          )}
+                          {embryoClass?.uninformative && !embryoClass.recombinationNearRoi && (
+                            <InfoTip
+                              className="segregation-warning"
+                              label="No disease haplotype could be resolved at the ROI (uninformative markers)."
+                            >
+                              ⚠ uninformative
+                            </InfoTip>
                           )}
                         </div>
                       )}
