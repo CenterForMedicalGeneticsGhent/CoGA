@@ -44,6 +44,9 @@ const FamilyStructuralVariantsPage = lazy(
 const FamilyVariantSummaryPage = lazy(
   () => import('./pages/families/FamilyVariantSummaryPage')
 );
+const FamilyRoiMarkersPage = lazy(
+  () => import('./pages/families/FamilyRoiMarkersPage')
+);
 const FamilyReportPage = lazy(
   () => import('./pages/families/FamilyReportPage')
 );
@@ -176,6 +179,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <Route
                 path="/families/:familyId/small-variants"
                 element={routeElement(<FamilySmallVariantsPage />)}
+              />
+              <Route
+                path="/families/:familyId/roi-markers"
+                element={routeElement(<FamilyRoiMarkersPage />)}
               />
               <Route
                 path="/families/:familyId/report"

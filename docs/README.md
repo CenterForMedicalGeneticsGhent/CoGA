@@ -26,6 +26,8 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
   - Drafting a clinical report from variants tagged `report`: variant description, ACMG motivation, gene context and HPO phenotype coupling.
 - [Family Member Management](family-member-management.md)
   - How phenotype/carrier/structure edits propagate, what is preserved versus marked stale, and the batch-update flow.
+- [Haplotype Segregation Analysis](haplotype-segregation-analysis.md)
+  - The PGT haplotype track: pedigree-aware IBD founder colouring, the raw phased-marker overlay, the four-founder + grey + risk colour code, single-parent (donor) families, the derived embryo classification (affected/carrier/unaffected/uninformative) with recombination/uninformative-marker warnings, and the ROI marker overview + QC signals.
 - [Demo Quartet Walkthrough](../demo/quartet_family/README.md)
   - File inventory and usage notes for the bundled synthetic family dataset.
 
