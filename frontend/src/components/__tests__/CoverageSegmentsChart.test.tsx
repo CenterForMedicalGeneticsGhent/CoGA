@@ -1,4 +1,7 @@
 import { render, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { type ReactElement, type ReactNode } from 'react';
+import { createTestQueryClient } from '../../test/createTestQueryClient';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CoverageSegmentsChart from '../visualizations/CoverageSegmentsChart';
 import { storage } from '../../lib/storage';
@@ -16,6 +19,14 @@ const createCanvasContext = (): CanvasRenderingContext2D =>
     save: vi.fn(),
     restore: vi.fn(),
   }) as unknown as CanvasRenderingContext2D;
+
+const renderWithClient = (ui: ReactElement) => {
+  const client = createTestQueryClient();
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(ui, { wrapper: Wrapper });
+};
 
 describe('CoverageSegmentsChart', () => {
   let canvasContext: CanvasRenderingContext2D;
@@ -52,7 +63,7 @@ describe('CoverageSegmentsChart', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const { rerender } = render(
+    const { rerender } = renderWithClient(
       <CoverageSegmentsChart
         coverageUrls={['https://example.test/coverage']}
         segmentsUrls={['https://example.test/segments']}
@@ -87,7 +98,7 @@ describe('CoverageSegmentsChart', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(
+    renderWithClient(
       <CoverageSegmentsChart
         coverageUrls={['https://example.test/coverage']}
         chroms={['1']}
@@ -120,7 +131,7 @@ describe('CoverageSegmentsChart', () => {
       ),
     );
 
-    render(
+    renderWithClient(
       <CoverageSegmentsChart
         coverageUrls={['https://example.test/coverage']}
         chroms={['1']}
@@ -148,7 +159,7 @@ describe('CoverageSegmentsChart', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    render(
+    renderWithClient(
       <CoverageSegmentsChart
         coverageUrls={['https://example.test/coverage']}
         segmentsUrls={['https://example.test/segments']}

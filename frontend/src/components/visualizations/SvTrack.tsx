@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { storage } from '../../lib/storage';
@@ -53,8 +54,6 @@ const SvTrack: React.FC<Props> = ({
   width = 800,
   height = 40,
 }) => {
-  const [variants, setVariants] = useState<Variant[]>([]);
-  const [loading, setLoading] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const typeColors = useMemo<Record<string, string>>(
     () => ({
@@ -67,67 +66,33 @@ const SvTrack: React.FC<Props> = ({
     [],
   );
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let active = true;
-
-    async function load() {
-      if (!layout) {
-        if (active) {
-          setVariants([]);
-          setLoading(false);
-        }
-        return;
-      }
-      if (active) {
-      setLoading(true);
-      }
+  // React Query caches/dedupes by URL (was a raw fetch in useEffect that ALSO
+  // re-fetched on every layout / sampleId / typeColors change). Fetch only depends
+  // on the URL now; the per-sample filtering is a cheap memo below.
+  const { data: rawVariants = [], isLoading } = useQuery<Variant[]>({
+    queryKey: ['genome-sv', url],
+    enabled: !!layout && !!url,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    queryFn: async ({ signal }) => {
       const headers: Record<string, string> = {};
       const token = storage.getItem('token');
       if (token) headers.Authorization = `Bearer ${token}`;
-      try {
-        const res = await fetch(url, { headers, signal: controller.signal });
-        if (!res.ok) {
-          throw new Error(`SV track request failed with ${res.status}`);
-        }
-        const json = await res.json();
-        const vars: Variant[] = (json.variants || [])
-          .filter((v: Variant) =>
-            Object.prototype.hasOwnProperty.call(typeColors, v.type)
-          )
-          .map((v: Variant) => ({
-            ...v,
-            genotypes: v.genotypes?.filter((g) => g.sample === sampleId),
-          }))
-          .filter(
-            (v: Variant) =>
-              v.genotypes &&
-              v.genotypes.length > 0 &&
-              hasAltAllele(v.genotypes[0].gt)
-          );
-        if (active) {
-          setVariants(vars);
-        }
-      } catch {
-        if (controller.signal.aborted) {
-          return;
-        }
-        if (active) {
-          setVariants([]);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
-    load();
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [url, layout, sampleId, typeColors]);
+      const res = await fetch(url, { headers, signal });
+      if (!res.ok) throw new Error(`SV track request failed with ${res.status}`);
+      const json = await res.json();
+      return (json.variants || []) as Variant[];
+    },
+  });
+  const variants = useMemo(
+    () =>
+      rawVariants
+        .filter((v) => Object.prototype.hasOwnProperty.call(typeColors, v.type))
+        .map((v) => ({ ...v, genotypes: v.genotypes?.filter((g) => g.sample === sampleId) }))
+        .filter((v) => v.genotypes && v.genotypes.length > 0 && hasAltAllele(v.genotypes[0].gt)),
+    [rawVariants, typeColors, sampleId],
+  );
+  const loading = isLoading && !!layout && !!url;
 
   const rowHeight = useMemo(() => height / TYPE_ORDER.length, [height]);
 

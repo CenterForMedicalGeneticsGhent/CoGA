@@ -1,4 +1,7 @@
 import { render, waitFor } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { type ReactElement, type ReactNode } from 'react';
+import { createTestQueryClient } from '../../test/createTestQueryClient';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ApcadChart from '../visualizations/ApcadChart';
 
@@ -15,6 +18,14 @@ const createCanvasContext = (): CanvasRenderingContext2D =>
     save: vi.fn(),
     restore: vi.fn(),
   }) as unknown as CanvasRenderingContext2D;
+
+const renderWithClient = (ui: ReactElement) => {
+  const client = createTestQueryClient();
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(ui, { wrapper: Wrapper });
+};
 
 describe('ApcadChart', () => {
   let canvasContext: CanvasRenderingContext2D;
@@ -42,7 +53,7 @@ describe('ApcadChart', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { rerender } = render(
+    const { rerender } = renderWithClient(
       <ApcadChart
         apcadUrls={['https://example.test/apcad']}
         chroms={['1']}
@@ -79,7 +90,7 @@ describe('ApcadChart', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    render(
+    renderWithClient(
       <ApcadChart
         apcadUrls={['https://example.test/apcad']}
         pcfUrls={['https://example.test/pcf']}

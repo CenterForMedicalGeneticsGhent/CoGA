@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 import gzip
 import json
@@ -29,9 +28,6 @@ from .haplotype_lineage_service import annotate_lineage
 # colouring. Generous for a region-of-interest; whole-chromosome batch views fetch
 # per chromosome.
 LINEAGE_PHASED_FETCH_LIMIT = 500_000
-# Upper bound for a whole-chromosome phased-genotype fetch (no human chromosome
-# approaches this length).
-_WHOLE_CHROMOSOME_END = 2_000_000_000
 
 VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 
@@ -700,66 +696,34 @@ async def _apply_haplotype_lineage_genomewide(
     segments_by_uuid: dict[str, list[dict[str, Any]]],
     chromosomes: list[str],
 ) -> dict[str, list[dict[str, Any]]]:
-    """Re-colour relatives genome-wide by matching them per chromosome. The nuclear
-    core is always tagged by role (cheap); the (heavier) phased-genotype fetch +
-    IBD matching only runs when the family actually has relatives outside the core,
-    so ordinary trios keep the fast stored-block path."""
-    from .clickhouse_family_variants import fetch_imputed_phased_genotypes
-    from .haplotype_lineage_service import build_pedigree, identify_core
+    """Genome-OVERVIEW lineage: tag the nuclear core by role and grey relatives.
 
+    The zoomed-out overview is a genome-wide thumbnail where per-site IBD breakpoints
+    are invisible at that scale, so we deliberately do NOT run genome-wide IBD
+    matching here. That path fetched millions of phased-genotype rows and re-ran
+    per-chromosome Python IBD on every overview load (~58s for a family with any
+    relative), with no caching — see the genome-view performance investigation.
+
+    Instead: the nuclear core (father/mother + their children/embryos) keeps its
+    role-based colours from the stored blocks, and relatives (and single-parent
+    donor lanes) are greyed — "not resolved at this zoom". Their precise blue/green
+    lineage is computed in the bounded chromosome / region-of-interest view
+    (`get_family_haplotypes_response`), which fetches only the visible window and so
+    stays cheap. ``annotate_lineage`` with no genotypes + ``chrom="genome"`` does
+    exactly this (role-tag the core, grey everyone else)."""
+    _ = chromosomes  # the overview spans every stored chromosome; no per-chrom work
     segments_by_name = {
         context.sample_uuid_to_name[sample_uuid]: segs
         for sample_uuid, segs in segments_by_uuid.items()
     }
-    core = identify_core(build_pedigree(context.sample_rows, context.relationship_rows))
-    has_relatives = any(name not in core.members for name in segments_by_name)
-    # In a single-parent (donor) family the embryos are coloured by IBD against the
-    # one known parent (not role-tagged), so they also need the phased-genotype fetch
-    # even when there are no other relatives.
-    single_parent = bool(core.father) != bool(core.mother) and bool(core.children)
-    needs_genotypes = has_relatives or single_parent
-
-    if not needs_genotypes or not context.assembly_name:
-        annotated = annotate_lineage(
-            sample_rows=context.sample_rows,
-            relationship_rows=context.relationship_rows,
-            segments_by_name=segments_by_name,
-            genotype_rows=[],
-            chrom="genome",
-        )
-        return _segments_by_uuid(context, annotated)
-
-    async def annotate_chrom(chrom: str) -> dict[str, list[dict[str, Any]]]:
-        norm = normalize_chromosome(chrom)
-        chrom_segments = {
-            name: [seg for seg in segs if normalize_chromosome(str(seg.get("chr") or "")) == norm]
-            for name, segs in segments_by_name.items()
-        }
-        if not any(chrom_segments.values()):
-            return {}
-        genotype_rows = await fetch_imputed_phased_genotypes(
-            context, chrom=chrom, start=0, end=_WHOLE_CHROMOSOME_END, limit=LINEAGE_PHASED_FETCH_LIMIT
-        )
-        # The fetch is `ORDER BY pos LIMIT LINEAGE_PHASED_FETCH_LIMIT`, so a chromosome
-        # with more sites than the cap (routine for imputed GLIMPSE2 data on chr1/2)
-        # only yields the lowest-coordinate p-arm. Flag it so relatives are not coloured
-        # across the q-arm with zero genotype evidence (they are greyed past the last
-        # fetched site), mirroring the marker path's truncation guard.
-        return annotate_lineage(
-            sample_rows=context.sample_rows,
-            relationship_rows=context.relationship_rows,
-            segments_by_name=chrom_segments,
-            genotype_rows=genotype_rows,
-            chrom=chrom,
-            genotype_truncated=len(genotype_rows) >= LINEAGE_PHASED_FETCH_LIMIT,
-        )
-
-    per_chrom = await asyncio.gather(*(annotate_chrom(chrom) for chrom in chromosomes))
-    merged_by_name: dict[str, list[dict[str, Any]]] = {name: [] for name in segments_by_name}
-    for annotated in per_chrom:
-        for name, segs in annotated.items():
-            merged_by_name.setdefault(name, []).extend(segs)
-    return _segments_by_uuid(context, merged_by_name)
+    annotated = annotate_lineage(
+        sample_rows=context.sample_rows,
+        relationship_rows=context.relationship_rows,
+        segments_by_name=segments_by_name,
+        genotype_rows=[],
+        chrom="genome",
+    )
+    return _segments_by_uuid(context, annotated)
 
 
 def _segments_by_uuid(

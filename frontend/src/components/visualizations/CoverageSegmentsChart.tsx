@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   defaultCoverageRange,
   getCoverageLowerThreshold,
@@ -148,9 +149,6 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragStart = useRef<number | null>(null);
   const [dragCurrent, setDragCurrent] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [hasData, setHasData] = useState<boolean | null>(null);
-  const [trackData, setTrackData] = useState<CoverageTrackData | null>(null);
   const layoutRef = useRef<Layout>({ offsets: {}, lengths: {}, total: 0 });
 
   const coverageUrlKey = coverageUrls.join('\n');
@@ -161,109 +159,55 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   const stableSegmentsUrls = useMemo(() => splitKey(segmentUrlKey), [segmentUrlKey]);
   const stableChroms = useMemo(() => splitKey(chromKey), [chromKey]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let active = true;
-
-    const load = async () => {
-      if (stableCoverageUrls.length === 0) {
-        if (active) {
-          setTrackData(null);
-          setHasData(false);
-          setLoading(false);
-        }
-        return;
-      }
-
-      if (active) {
-        setLoading(true);
-      }
-
+  // React Query caches/dedupes by URL across re-renders and navigation (was a raw
+  // fetch in useEffect that re-ran on every mount/resize). The data is static per
+  // family, so it is held indefinitely.
+  const { data: trackData = null, isLoading } = useQuery<CoverageTrackData>({
+    queryKey: ['genome-coverage', coverageUrlKey, segmentUrlKey, chromKey],
+    enabled: stableCoverageUrls.length > 0,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    queryFn: async ({ signal }) => {
       const headers: Record<string, string> = {};
       const token = storage.getItem('token');
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
-      try {
-        const allowedChroms = new Set(stableChroms.map(normalizeChrom));
-        const [coveragePayloads, segmentPayloads] = await Promise.all([
-          Promise.all(
-            stableCoverageUrls.map((url) =>
-              fetchJsonOrNull<CoverageBin>(url, headers, controller.signal),
-            ),
-          ),
-          Promise.all(
-            stableSegmentsUrls.map((url) =>
-              fetchJsonOrNull<Segment>(url, headers, controller.signal),
-            ),
-          ),
-        ]);
-
-        if (!active) {
-          return;
-        }
-
-        const bins: CoverageBin[] = [];
-        coveragePayloads.forEach((payload) => {
-          payloadItems(payload).forEach((item) => {
-            const chromName = normalizeChrom(item.chr);
-            if (!allowedChroms.has(chromName)) {
-              return;
-            }
-            bins.push({
-              chr: chromName,
-              start: item.start,
-              end: item.end,
-              value: item.value,
-            });
-          });
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const allowedChroms = new Set(stableChroms.map(normalizeChrom));
+      const [coveragePayloads, segmentPayloads] = await Promise.all([
+        Promise.all(stableCoverageUrls.map((url) => fetchJsonOrNull<CoverageBin>(url, headers, signal))),
+        Promise.all(stableSegmentsUrls.map((url) => fetchJsonOrNull<Segment>(url, headers, signal))),
+      ]);
+      const bins: CoverageBin[] = [];
+      coveragePayloads.forEach((payload) => {
+        payloadItems(payload).forEach((item) => {
+          const chromName = normalizeChrom(item.chr);
+          if (allowedChroms.has(chromName)) {
+            bins.push({ chr: chromName, start: item.start, end: item.end, value: item.value });
+          }
         });
-
-        const segments: Segment[] = [];
-        segmentPayloads.forEach((payload) => {
-          payloadItems(payload).forEach((item) => {
-            const chromName = normalizeChrom(item.chr);
-            if (!allowedChroms.has(chromName)) {
-              return;
-            }
-            segments.push({
-              chr: chromName,
-              start: item.start,
-              end: item.end,
-              value: item.value,
-            });
-          });
+      });
+      const segments: Segment[] = [];
+      segmentPayloads.forEach((payload) => {
+        payloadItems(payload).forEach((item) => {
+          const chromName = normalizeChrom(item.chr);
+          if (allowedChroms.has(chromName)) {
+            segments.push({ chr: chromName, start: item.start, end: item.end, value: item.value });
+          }
         });
-
-        if (active) {
-          setTrackData({ bins, segments });
-          // Render when either track has data: a missing/empty segments (or
-          // coverage) response must not blank the whole chart.
-          setHasData(bins.length > 0 || segments.length > 0);
-        }
-      } catch {
-        if (controller.signal.aborted) {
-          return;
-        }
-        if (active) {
-          setTrackData(null);
-          setHasData(false);
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    load();
-
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [stableChroms, stableCoverageUrls, stableSegmentsUrls]);
+      });
+      return { bins, segments };
+    },
+  });
+  const loading = isLoading && stableCoverageUrls.length > 0;
+  // null while loading (don't blank the chart), false when there are no URLs or the
+  // payloads are empty, true when either track has data.
+  const hasData =
+    stableCoverageUrls.length === 0
+      ? false
+      : trackData
+        ? trackData.bins.length > 0 || trackData.segments.length > 0
+        : loading
+          ? null
+          : false;
 
   useEffect(() => {
     const canvas = canvasRef.current;
