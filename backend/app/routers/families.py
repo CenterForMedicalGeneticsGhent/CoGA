@@ -2,7 +2,7 @@ import csv
 import io
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -94,6 +94,7 @@ from ..services.monarch_semsim import (
     semsim_search,
 )
 from ..services.metadata_service import CurrentUser
+from ..services.bed_service import precompute_family_lineage_safe
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.paraphase_pg import get_family_paraphase_table_response
@@ -267,16 +268,22 @@ async def update_family_structure(
 async def update_family_members_batch(
     family_id: str,
     update: FamilyMemberBatchUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberBatchUpdateOut:
     try:
-        return await update_family_members_batch_for_admin(
+        result = await update_family_members_batch_for_admin(
             session,
             family_id=family_id,
             update=update,
             user=user,
         )
+        # Roles / affected status drive the haplotype lineage colours; refresh the
+        # precomputed genome-overview lineage in the background (the hash guard keeps
+        # the overview safe-but-grey until the new precompute lands).
+        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
         raise
@@ -317,17 +324,22 @@ async def update_family_member(
     family_id: str,
     sample_id: str,
     update: FamilyMemberUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberUpdateOut:
     try:
-        return await update_family_member_for_admin(
+        result = await update_family_member_for_admin(
             session,
             family_id=family_id,
             sample_id=sample_id,
             update=update,
             user=user,
         )
+        # Role / affected status feed the haplotype lineage colours — refresh the
+        # precomputed genome-overview lineage in the background.
+        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
         raise
@@ -337,18 +349,23 @@ async def update_family_member(
 async def delete_family_member(
     family_id: str,
     sample_id: str,
+    background_tasks: BackgroundTasks,
     confirm: bool = Query(False),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberDeleteOut:
     try:
-        return await delete_family_member_for_admin(
+        result = await delete_family_member_for_admin(
             session,
             family_id=family_id,
             sample_id=sample_id,
             confirmed=confirm,
             user=user,
         )
+        # Removing a member changes the pedigree — refresh the precomputed
+        # genome-overview lineage in the background.
+        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
         raise

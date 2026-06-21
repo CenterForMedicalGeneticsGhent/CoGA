@@ -76,6 +76,7 @@ from .repeat_expansion_pg import (
     ingest_trgt_text,
 )
 from .variant_upload_service import upload_family_small_variant_file
+from .bed_service import precompute_family_haplotype_lineage
 
 logger = logging.getLogger(__name__)
 
@@ -6653,6 +6654,27 @@ async def run_family_import_job(
                     completed=True,
                 )
                 return
+            # Warm the genome-overview lineage cache so the first view is instant and
+            # precise (precise relative colours genome-wide). Best-effort and run
+            # once per import: a failure here simply leaves the overview on its fast
+            # grey-relatives fallback, so it must never fail the import.
+            if result.family_id and not bool(job_row["dry_run"]):
+                try:
+                    lineage_context = await build_family_metadata_context(
+                        session, family_identifier=str(result.family_id), user=user
+                    )
+                    stored_blocks = await precompute_family_haplotype_lineage(lineage_context)
+                    logger.info(
+                        "Precomputed genome-wide haplotype lineage for family %s: %s blocks",
+                        result.family_id,
+                        stored_blocks,
+                    )
+                except Exception:  # pragma: no cover - precompute is best-effort
+                    logger.exception(
+                        "Haplotype lineage precompute failed for family %s; genome "
+                        "overview will use the fast grey-relatives fallback",
+                        result.family_id,
+                    )
             await _update_job_progress(
                 session,
                 job_id=job_id,

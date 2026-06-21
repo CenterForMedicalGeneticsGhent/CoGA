@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 import gzip
 import json
+import logging
 from typing import Any
 
 from fastapi import HTTPException, UploadFile
@@ -16,6 +18,7 @@ from .clickhouse_interval_tracks import (
     delete_interval_tracks,
     fetch_apcad_downsampled,
     fetch_interval_track_rows,
+    get_interval_track_lineage_hash,
     get_interval_track_presence_by_sample,
     insert_interval_track_rows,
     upsert_interval_track_source,
@@ -24,10 +27,21 @@ from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .haplotype_lineage_service import annotate_lineage
 
+logger = logging.getLogger(__name__)
+
 # Ceiling for the on-demand phased-genotype fetch that drives relative haplotype
 # colouring. Generous for a region-of-interest; whole-chromosome batch views fetch
 # per chromosome.
 LINEAGE_PHASED_FETCH_LIMIT = 500_000
+# Effectively-uncapped fetch for the one-time, background UPLOAD-TIME precompute of
+# the genome-wide lineage (no human chromosome has this many imputed sites), so the
+# stored overview lineage is coloured genome-wide with no truncated q-arm.
+LINEAGE_PRECOMPUTE_FETCH_LIMIT = 5_000_000
+# Interval track-type holding the precomputed genome-wide lineage. The two per-lane
+# lineage tags are packed into the existing `origin` column as "hap1l|hap2l" so no
+# ClickHouse schema change is needed; `metadata_json.lineage_hash` records the
+# pedigree/status fingerprint the colours were computed for (staleness guard).
+LINEAGE_TRACK_TYPE = "haplotype_lineage"
 
 VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 
@@ -690,27 +704,260 @@ async def get_family_haplotypes_batch_response(
     )
 
 
+def _lineage_hash(context: FamilyMetadataContext) -> str:
+    """Fingerprint of the inputs that determine the lineage colours: the pedigree
+    edges, each member's role, and the affected set. If this changes, a stored
+    precompute is stale and must not be served."""
+    pedigree = sorted(
+        (
+            str(r.get("relationship_type") or ""),
+            str(r.get("sample_id_a") or ""),
+            str(r.get("sample_id_b") or ""),
+            str(r.get("role_a") or ""),
+            str(r.get("role_b") or ""),
+        )
+        for r in context.relationship_rows
+    )
+    roles = sorted(
+        (str(row.get("sample_id") or ""), str(row.get("role") or ""))
+        for row in context.sample_rows
+    )
+    payload = json.dumps(
+        {"pedigree": pedigree, "roles": roles, "affected": sorted(context.affected_sample_names)},
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+async def _compute_genomewide_lineage(
+    context: FamilyMetadataContext,
+    *,
+    segments_by_name: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    """The heavy genome-wide IBD lineage, per chromosome with an (effectively)
+    uncapped genotype fetch. Mirrors the bounded `_apply_haplotype_lineage` but over
+    every stored chromosome — run ONCE at upload (background), never per request."""
+    from .clickhouse_family_variants import fetch_imputed_phased_genotypes
+
+    chroms = sorted(
+        {
+            normalize_chromosome(str(seg.get("chr") or ""))
+            for segs in segments_by_name.values()
+            for seg in segs
+        }
+        - {""}
+    )
+    merged: dict[str, list[dict[str, Any]]] = {name: [] for name in segments_by_name}
+    for chrom in chroms:
+        chrom_segments = {
+            name: [seg for seg in segs if normalize_chromosome(str(seg.get("chr") or "")) == chrom]
+            for name, segs in segments_by_name.items()
+        }
+        if not any(chrom_segments.values()):
+            continue
+        genotype_rows = await fetch_imputed_phased_genotypes(
+            context, chrom=chrom, start=0, end=2_000_000_000, limit=LINEAGE_PRECOMPUTE_FETCH_LIMIT
+        )
+        annotated = annotate_lineage(
+            sample_rows=context.sample_rows,
+            relationship_rows=context.relationship_rows,
+            segments_by_name=chrom_segments,
+            genotype_rows=genotype_rows,
+            chrom=chrom,
+            genotype_truncated=len(genotype_rows) >= LINEAGE_PRECOMPUTE_FETCH_LIMIT,
+        )
+        for name, segs in annotated.items():
+            merged[name].extend(segs)
+    return merged
+
+
+def _lineage_interval_rows(
+    context: FamilyMetadataContext,
+    segments_by_name: dict[str, list[dict[str, Any]]],
+    *,
+    lineage_hash: str,
+) -> list[dict[str, Any]]:
+    """Convert lineage-tagged blocks into interval rows for the haplotype_lineage
+    track: shade in hap1/hap2, the two lineage tags packed into ``origin`` as
+    ``"hap1l|hap2l"``, and the fingerprint stored in ``metadata_json``."""
+    metadata_json = json.dumps({"lineage_hash": lineage_hash, "filename": LINEAGE_TRACK_TYPE})
+    rows: list[dict[str, Any]] = []
+    for name, segs in segments_by_name.items():
+        sample_uuid = context.sample_name_to_uuid.get(name)
+        if not sample_uuid:
+            continue
+        for seg in segs:
+            rows.append(
+                {
+                    "sample_id": sample_uuid,
+                    "family_id": context.family_uuid,
+                    "track_type": LINEAGE_TRACK_TYPE,
+                    "source": "glimpse2_lineage",
+                    "filename": LINEAGE_TRACK_TYPE,
+                    "chr": seg.get("chr") or "",
+                    "start": int(seg["start"]),
+                    "end": int(seg["end"]),
+                    "hap1": seg.get("hap1"),
+                    "hap2": seg.get("hap2"),
+                    "ps": seg.get("ps"),
+                    "origin": f"{seg.get('hap1_lineage') or ''}|{seg.get('hap2_lineage') or ''}",
+                    "value": None,
+                    "record_id": None,
+                    "metadata_json": metadata_json,
+                }
+            )
+    return rows
+
+
+async def precompute_family_haplotype_lineage(context: FamilyMetadataContext) -> int:
+    """Compute the genome-wide lineage once and persist it as the haplotype_lineage
+    interval track (replacing any prior one), so the genome overview can serve
+    precise relative colours without recomputing IBD on every request. Returns the
+    number of stored blocks. Intended to run in the background (upload / pedigree
+    edit); callers should log-and-ignore failures so a precompute hiccup never fails
+    the surrounding operation."""
+    if not context.assembly_name:
+        return 0
+    sample_uuids = list(context.sample_uuid_to_name)
+    if not sample_uuids:
+        return 0
+    rows = await fetch_interval_track_rows(
+        context.assembly_name,
+        family_uuid=context.family_uuid,
+        sample_uuids=sample_uuids,
+        track_type="haplotype",
+        chromosomes=[],  # every stored chromosome
+    )
+    segments_by_name: dict[str, list[dict[str, Any]]] = {
+        context.sample_uuid_to_name[uuid]: [] for uuid in sample_uuids
+    }
+    for row in rows:
+        name = context.sample_uuid_to_name.get(row["sample_uuid"])
+        if name is None:
+            continue
+        segments_by_name[name].append(
+            {
+                "chr": row["chr"],
+                "start": int(row["start"]),
+                "end": int(row["end"]),
+                "hap1": str(row.get("hap1") or ""),
+                "hap2": str(row.get("hap2") or ""),
+                "ps": row.get("ps"),
+            }
+        )
+    annotated = await _compute_genomewide_lineage(context, segments_by_name=segments_by_name)
+    lineage_rows = _lineage_interval_rows(context, annotated, lineage_hash=_lineage_hash(context))
+    await delete_interval_tracks(
+        context.assembly_name, family_uuid=context.family_uuid, track_type=LINEAGE_TRACK_TYPE
+    )
+    if lineage_rows:
+        await insert_interval_track_rows(context.assembly_name, lineage_rows)
+    return len(lineage_rows)
+
+
+async def precompute_family_lineage_safe(family_identifier: str, user: Any) -> None:
+    """Best-effort background (re)precompute after a pedigree/affected-status edit.
+
+    Scheduled via FastAPI BackgroundTasks, so it opens its OWN session — the request
+    that triggered it is long gone by the time this runs. Logs and swallows every
+    error: if it fails, the genome overview simply falls back to the fast
+    grey-relatives path, and the hash guard guarantees the now-stale precompute is
+    never served in the meantime. Until this finishes, the edited family's overview
+    shows grey relatives (hash mismatch); afterwards, precise colours return."""
+    from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
+    from .family_metadata_context import build_family_metadata_context
+
+    try:
+        get_postgres_engine()
+        async with get_postgres_sessionmaker()() as session:
+            context = await build_family_metadata_context(
+                session, family_identifier=family_identifier, user=user
+            )
+            stored = await precompute_family_haplotype_lineage(context)
+            logger.info(
+                "Re-precomputed genome-wide haplotype lineage for family %s: %s blocks",
+                family_identifier,
+                stored,
+            )
+    except Exception:  # pragma: no cover - background best-effort
+        logger.exception(
+            "Background haplotype lineage precompute failed for family %s; genome "
+            "overview will use the fast grey-relatives fallback",
+            family_identifier,
+        )
+
+
+async def _fetch_precomputed_lineage(
+    context: FamilyMetadataContext,
+) -> dict[str, list[dict[str, Any]]] | None:
+    """Return the stored genome-wide lineage as ``{uuid: segments}`` when it exists
+    AND matches the current pedigree/status fingerprint; otherwise None (caller then
+    falls back to the fast grey-relatives path). The hash guard means a pedigree or
+    affected-status edit never serves stale colours, even before a re-precompute."""
+    if not context.assembly_name:
+        return None
+    stored_hash = await get_interval_track_lineage_hash(
+        context.assembly_name, family_uuid=context.family_uuid, track_type=LINEAGE_TRACK_TYPE
+    )
+    if not stored_hash or stored_hash != _lineage_hash(context):
+        return None
+    rows = await fetch_interval_track_rows(
+        context.assembly_name,
+        family_uuid=context.family_uuid,
+        sample_uuids=list(context.sample_uuid_to_name),
+        track_type=LINEAGE_TRACK_TYPE,
+        chromosomes=[],  # every stored chromosome
+    )
+    if not rows:
+        return None
+    by_uuid: dict[str, list[dict[str, Any]]] = {uuid: [] for uuid in context.sample_uuid_to_name}
+    for row in rows:
+        uuid = row["sample_uuid"]
+        if uuid not in by_uuid:
+            continue
+        hap1_lineage, _, hap2_lineage = str(row.get("origin") or "").partition("|")
+        by_uuid[uuid].append(
+            {
+                "chr": row["chr"],
+                "start": int(row["start"]),
+                "end": int(row["end"]),
+                "hap1": str(row.get("hap1") or ""),
+                "hap2": str(row.get("hap2") or ""),
+                "ps": row.get("ps"),
+                "hap1_lineage": hap1_lineage or None,
+                "hap2_lineage": hap2_lineage or None,
+            }
+        )
+    return by_uuid
+
+
 async def _apply_haplotype_lineage_genomewide(
     context: FamilyMetadataContext,
     *,
     segments_by_uuid: dict[str, list[dict[str, Any]]],
     chromosomes: list[str],
 ) -> dict[str, list[dict[str, Any]]]:
-    """Genome-OVERVIEW lineage: tag the nuclear core by role and grey relatives.
+    """Genome-OVERVIEW lineage: serve the upload-time precompute when present, else
+    tag the nuclear core by role and grey relatives.
 
-    The zoomed-out overview is a genome-wide thumbnail where per-site IBD breakpoints
-    are invisible at that scale, so we deliberately do NOT run genome-wide IBD
-    matching here. That path fetched millions of phased-genotype rows and re-ran
-    per-chromosome Python IBD on every overview load (~58s for a family with any
-    relative), with no caching — see the genome-view performance investigation.
+    Genome-wide IBD matching is far too expensive to run per request — it fetches
+    millions of phased-genotype rows and re-runs per-chromosome Python IBD (~58s for
+    a family with any relative). So it runs ONCE at upload (background) and the result
+    is stored as the haplotype_lineage track; ``_fetch_precomputed_lineage`` returns
+    it here (a couple of cheap interval reads), hash-guarded so a pedigree/affected
+    edit never serves stale colours.
 
-    Instead: the nuclear core (father/mother + their children/embryos) keeps its
-    role-based colours from the stored blocks, and relatives (and single-parent
-    donor lanes) are greyed — "not resolved at this zoom". Their precise blue/green
-    lineage is computed in the bounded chromosome / region-of-interest view
-    (`get_family_haplotypes_response`), which fetches only the visible window and so
-    stays cheap. ``annotate_lineage`` with no genotypes + ``chrom="genome"`` does
-    exactly this (role-tag the core, grey everyone else)."""
+    When no (current) precompute exists — a family uploaded before this feature, or
+    one whose pedigree just changed — we fall back to the cheap path: the nuclear core
+    (father/mother + their children/embryos) keeps its role-based colours and
+    relatives (plus single-parent donor lanes) are greyed, "not resolved at this
+    zoom". Their precise blue/green lineage is still available in the bounded
+    chromosome / region-of-interest view (`get_family_haplotypes_response`), which
+    fetches only the visible window. ``annotate_lineage`` with no genotypes +
+    ``chrom="genome"`` does exactly this role-tag-and-grey."""
+    precomputed = await _fetch_precomputed_lineage(context)
+    if precomputed is not None:
+        return precomputed
     _ = chromosomes  # the overview spans every stored chromosome; no per-chrom work
     segments_by_name = {
         context.sample_uuid_to_name[sample_uuid]: segs

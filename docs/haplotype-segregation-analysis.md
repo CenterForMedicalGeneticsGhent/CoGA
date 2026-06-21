@@ -248,6 +248,30 @@ consistent, just uninformative, and is **not** counted as an error.
 
 ---
 
+## How the colours are served (precomputed overview vs. on-demand zoom)
+
+Pedigree IBD matching is expensive — it reads every phased site and re-derives each
+relative's colour. Running it on every page load made the genome **overview** (the
+zoomed-out, all-chromosomes thumbnail) slow. So the genome-wide colouring is computed
+**once, at upload** (in the background, after a family package / PED import finishes)
+and stored as a `haplotype_lineage` interval track. The overview then just reads that
+track — fast, and coloured genome-wide.
+
+- **Genome overview** — served from the upload-time precompute. Precise relative
+  colours across every autosome, no per-request IBD.
+- **Chromosome / ROI view** — still computed on demand for the visible window only,
+  which is cheap and gives the most precise, untruncated breakpoints where the
+  clinical call is made.
+
+**Staleness is guarded, not assumed.** The precompute records a fingerprint of the
+pedigree, member roles, and affected set it was computed for. If any of those change
+(a member edited, a PED re-applied), the stored colours no longer match and are **not
+served** — the overview falls back to the fast role-coloured-core / grey-relatives
+view until a background refresh re-runs the precompute. So an edit can briefly grey
+the relatives in the overview, but it can never show *stale* colours. Families
+uploaded before this feature show the same safe grey fallback until their next import
+or member edit warms the precompute.
+
 ## Known limitations
 
 - **Recessive single-parent (donor) families are uninformative at the ROI.**
@@ -277,6 +301,14 @@ consistent, just uninformative, and is **not** counted as an error.
   relative, greys non-autosomes / unplaceable members / truncation tails). Pure, no
   I/O; the callers in `bed_service` do the fetching, including the genome-wide
   `/haplotypes/batch` path.
+- **Upload-time genome-overview precompute** — `backend/app/services/bed_service.py`
+  (`precompute_family_haplotype_lineage`: runs the genome-wide IBD once with an
+  uncapped fetch and stores it as the `haplotype_lineage` interval track, the two
+  lineage tags packed into the `origin` column; `_fetch_precomputed_lineage`: the
+  hash-guarded read used by `_apply_haplotype_lineage_genomewide`;
+  `precompute_family_lineage_safe`: the best-effort background (re)compute). Triggered
+  after a family import (`family_package_import.py`) and on member edits / PED uploads
+  (`routers/families.py`, `routers/ped.py`).
 - **Raw phased-marker overlay + QC** —
   `backend/app/services/phased_marker_service.py`
   (`compute_phased_markers`: raw per-site lane values for the index couple's
