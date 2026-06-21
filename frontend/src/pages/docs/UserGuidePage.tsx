@@ -1016,6 +1016,158 @@ const guideSections: GuideSection[] = [
     ),
   },
   {
+    id: 'haplotype-segregation',
+    title: 'Haplotype segregation analysis',
+    summary:
+      'A PGT tool: trace the four grandparental haplotypes through the family to read off which embryos inherited the disease haplotype(s) — with the raw markers to catch recombinations and artifacts.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Opens in the chromosome view' }],
+    content: (
+      <>
+        <p>
+          The <strong>Haplotype track</strong> (in the chromosome view) is CoGA&apos;s
+          preimplantation-genetic-testing (PGT) surface. It colours every family member&apos;s two
+          haplotypes by which grandparental founder they descend from, identifies the haplotype that
+          carries the disease allele, and from that derives — <em>per embryo</em> — whether it
+          inherited it.
+        </p>
+        <div className="user-guide-callout">
+          <strong>Derived, not entered.</strong> The founder colours, the relatives&apos; colouring,
+          the disease haplotype, and each embryo&apos;s affected / carrier / unaffected call are all
+          <em> computed</em> from the phased genotypes and the pedigree. The only inputs are the
+          pedigree (roles, parentage, sex), the recorded affected / carrier status, the inheritance
+          model, and the region of interest.
+        </div>
+
+        <h3>The two layers</h3>
+        <ul>
+          <li>
+            <strong>Cleaned haplotype blocks</strong> — the colour-coded inheritance blocks. Each
+            member shows their two homologs; a block recolours at every recombination breakpoint.
+            This is the smoothed, easy-to-read interpretation layer.
+          </li>
+          <li>
+            <strong>Raw phased-marker overlay</strong> — one dot per informative imputed marker,{' '}
+            <strong>with no binning or smoothing</strong>, drawn over the blocks. This is the
+            diagnostic layer: it exposes isolated phasing switches, jitter at boundaries, and the
+            exact marker where a crossover occurs — so you can confirm a breakpoint is real and spot
+            artifacts before trusting a call.
+          </li>
+        </ul>
+
+        <h3>The colour code</h3>
+        <p>Colour encodes which of the four founder haplotypes (one per grandparent line) a block descends from:</p>
+        <div className="content-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Colour</th>
+                <th>Meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Dark blue</strong></td><td>Paternal founder homolog 0</td></tr>
+              <tr><td><strong>Light blue</strong></td><td>Paternal founder homolog 1</td></tr>
+              <tr><td><strong>Dark green</strong></td><td>Maternal founder homolog 0</td></tr>
+              <tr><td><strong>Light green</strong></td><td>Maternal founder homolog 1</td></tr>
+              <tr><td><strong>Grey</strong></td><td><em>Untransmitted</em> or <em>unknown</em> — a homolog not inherited from a placed founder, or one that could not be placed. No founder identity.</td></tr>
+              <tr><td><strong>Red (overlay)</strong></td><td>The <strong>dominant</strong> affected haplotype shared by the affected members at the locus.</td></tr>
+              <tr><td><strong>Orange (overlay)</strong></td><td>A <strong>recessive carrier</strong> haplotype — an affected individual has two, a carrier has one.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The dark/light split is the two grandparental haplotypes on a side. The absolute
+          dark-vs-light label is arbitrary (it comes from the raw phasing); what matters is{' '}
+          <strong>consistency</strong> — the same physical grandparental haplotype keeps its shade
+          across the whole family, so you can trace one haplotype from an affected grandparent down to
+          an embryo.
+        </p>
+
+        <h3>How relatives are coloured (pedigree IBD)</h3>
+        <p>
+          The stored blocks are only meaningful for the index nuclear family (the parents and their
+          children/embryos), where trio phasing grounds the four founders. A relative&apos;s stored
+          blocks are <em>not</em> trustworthy, and CoGA&apos;s flat role model would even paint a
+          paternal grandmother (stored as <code>role = mother</code>) entirely green. So CoGA{' '}
+          <strong>recomputes every relative from the raw phased genotypes</strong>: starting from the
+          coloured nuclear core, it walks the pedigree and identity-by-descent (IBD) matches each
+          relative&apos;s homologs against the connected member. The shared homolog inherits that
+          founder colour; the untransmitted homolog is greyed. A paternal grandmother thus gets one
+          homolog coloured (whichever the affected father shares) and one grey — which is exactly what
+          identifies <em>which</em> paternal haplotype carries the dominant allele. Matching is{' '}
+          recombination-aware (a haplotype keeps its colour but jumps lanes at a crossover), and any
+          member that cannot be confidently placed is left fully grey rather than mis-coloured.
+        </p>
+
+        <h3>Single-parent (donor) families</h3>
+        <p>
+          For embryos with only one known parent (e.g. a single woman or a couple using a donor
+          gamete) while the disorder segregates in the known parent&apos;s family, the core is
+          anchored on the embryos. The known parent&apos;s two homologs are the founders (traced up to
+          the affected grandparents, who phase them), and the embryos are coloured by IBD against the
+          known parent — the <strong>known-parent lane is coloured and the donor lane is greyed</strong>.
+        </p>
+
+        <h3>The derived embryo call (at the ROI)</h3>
+        <p>
+          CoGA infers the disease haplotype(s) from the affected/carrier members and the inheritance
+          model — for a dominant disorder, the single haplotype the affected members share at the
+          locus; for a recessive disorder, a carrier haplotype on each parental side; X-linked is
+          sex-aware. It then classifies each embryo at the ROI:
+        </p>
+        <ul>
+          <li><strong>Affected / at-risk</strong> — carries the disease haplotype as the model requires (the dominant haplotype, both recessive carrier haplotypes, or the sex-appropriate X-linked combination).</li>
+          <li><strong>Carrier</strong> — recessive: carries one of the two carrier haplotypes (X-linked female: on one side).</li>
+          <li><strong>Unaffected (non-carrier)</strong> — carries none of the disease haplotype(s).</li>
+          <li><strong>Uninformative</strong> — the disease model could not be resolved to a unique haplotype, so no call is made.</li>
+        </ul>
+        <div className="user-guide-callout">
+          <strong>Two warnings make a call unsafe — and the raw markers are how you catch them.</strong>{' '}
+          A <em>recombination close to the ROI</em> means the haplotype at the variant may differ from
+          the flanks; use the overlay to see exactly where the breakpoint falls. And{' '}
+          <em>uninformative markers at the ROI</em> mean the haplotype there is interpolated, not
+          observed — check the marker overview before trusting the call.
+        </div>
+
+        <h3>The ROI marker overview and QC</h3>
+        <p>
+          A members × markers grid shows the raw phased genotypes across the ROI, colour-coded by
+          haplotype, with each member&apos;s informative-marker count — the table to{' '}
+          <strong>re-check a surprising embryo call</strong> against the underlying genotypes and to
+          spot per-site artifacts (a lone marker disagreeing with its neighbours = phasing noise, not
+          a real crossover). Per child, CoGA also reports two QC numbers from the jointly-informative
+          sites: the <strong>informative-site count</strong> (more is stronger evidence) and the{' '}
+          <strong>Mendel-error rate</strong> — the fraction of sites where the child&apos;s genotype is
+          impossible given the parents&apos;. A non-trivial Mendel rate flags a likely sample swap or
+          wrong pedigree and should be resolved before any haplotype call is trusted. (The raw overlay
+          and overview are computed only for the index parents&apos; own children; relatives appear on
+          the track but carry no marker dots, as the parent-of-origin logic is meaningless for them.)
+        </p>
+
+        <h3>Known limitations</h3>
+        <ul>
+          <li>
+            <strong>Recessive single-parent families are uninformative at the ROI</strong> — a
+            recessive call needs both parental risk haplotypes, but the donor side is unknown, so the
+            embryo call is deliberately <em>uninformative</em> (the known-parent risk haplotype is
+            still coloured).
+          </li>
+          <li>
+            <strong>Relatives are greyed on the sex chromosomes and mtDNA</strong> — the IBD logic
+            assumes two homologs per site, which hemizygous X, the non-recombining Y, and the
+            mitochondrion break; the nuclear core keeps its role-based colouring there.
+          </li>
+          <li>
+            <strong>Very large regions truncate the overlay</strong> — when the whole-chromosome
+            marker fetch is capped, the raw overlay is suppressed (with a &ldquo;zoom in&rdquo; state)
+            rather than drawn part-way; the cleaned blocks still render. Zoom into the ROI to restore
+            it.
+          </li>
+        </ul>
+      </>
+    ),
+  },
+  {
     id: 'gene-explorer',
     title: 'Gene Explorer',
     summary:
