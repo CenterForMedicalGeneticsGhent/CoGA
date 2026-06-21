@@ -446,6 +446,32 @@ async def get_interval_track_presence_by_sample(
     return {sample_uuid_to_name[sample_uuid] for sample_uuid in present if sample_uuid in sample_uuid_to_name}
 
 
+async def get_interval_track_lineage_hash(
+    assembly_name: str,
+    *,
+    family_uuid: str,
+    track_type: str,
+) -> str | None:
+    """Return the ``metadata_json.lineage_hash`` stored on a family's precomputed
+    lineage track, or None if the track is absent. One cheap query so the genome
+    overview can confirm a precompute still matches the current pedigree before
+    serving its colours (and otherwise fall back to the fast grey path)."""
+    await ensure_clickhouse_interval_table(assembly_name)
+    rows = await _execute(
+        f"""
+        SELECT JSONExtractString(metadata_json, 'lineage_hash') AS lineage_hash
+        FROM {_interval_table_name(assembly_name)}
+        WHERE family_guid = %(family_uuid)s AND track_type = %(track_type)s
+        LIMIT 1
+        """,
+        {"family_uuid": str(family_uuid), "track_type": track_type},
+    )
+    if not rows:
+        return None
+    value = str(rows[0][0] or "").strip()
+    return value or None
+
+
 async def count_interval_track_source_rows(
     session: AsyncSession,
     *,
