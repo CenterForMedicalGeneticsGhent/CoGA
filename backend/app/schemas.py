@@ -186,6 +186,30 @@ class FamilyMetadataUpdate(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+class NiptFetalFractionOut(BaseModel):
+    """Fetal-fraction estimate for a monogenic NIPT family."""
+
+    ff: float
+    ff_computed: Optional[float] = None
+    ff_external: Optional[float] = None
+    ff_median: Optional[float] = None
+    ci_low: Optional[float] = None
+    ci_high: Optional[float] = None
+    n_sites: int
+    method: str
+    low_confidence: bool
+    disagreement: bool
+
+
+class NiptSummaryOut(BaseModel):
+    """Monogenic NIPT analysis summary: fetal fraction and category/filter counts."""
+
+    family_id: str
+    fetal_fraction: NiptFetalFractionOut
+    category_counts: Dict[int, int]
+    filter_counts: Dict[str, int]
+
+
 class FamilyStatusOut(BaseModel):
     """An admin-managed family status value."""
 

@@ -45,6 +45,8 @@ from ..schemas import (
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
+    NiptFetalFractionOut,
+    NiptSummaryOut,
     VariantLengthOut,
     VariantOut,
     VariantPage,
@@ -94,6 +96,7 @@ from ..services.monarch_semsim import (
     semsim_search,
 )
 from ..services.metadata_service import CurrentUser
+from ..services.nipt_service import run_family_nipt_analysis
 from ..services.bed_service import precompute_family_lineage_safe
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.raw_import_files_pg import record_upload_file_obj
@@ -830,6 +833,41 @@ async def get_family_small_variants(
         track_mode=track_mode,
         track_result_limit=track_result_limit,
         **filters,
+    )
+
+
+@router.get("/{family_id}/nipt/summary", response_model=NiptSummaryOut)
+async def get_family_nipt_summary(
+    family_id: str,
+    project_id: str | None = None,
+    external_ff: float | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptSummaryOut:
+    result = await run_family_nipt_analysis(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        external_ff=external_ff,
+    )
+    ff = result.fetal_fraction
+    return NiptSummaryOut(
+        family_id=family_id,
+        fetal_fraction=NiptFetalFractionOut(
+            ff=ff.ff,
+            ff_computed=ff.ff_computed,
+            ff_external=ff.ff_external,
+            ff_median=ff.ff_median,
+            ci_low=ff.ci_low,
+            ci_high=ff.ci_high,
+            n_sites=ff.n_sites,
+            method=ff.method,
+            low_confidence=ff.low_confidence,
+            disagreement=ff.disagreement,
+        ),
+        category_counts=result.category_counts,
+        filter_counts=result.filter_counts,
     )
 
 
