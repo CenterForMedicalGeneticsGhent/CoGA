@@ -10,6 +10,7 @@ from backend.app.services.clickhouse_family_variants import SmallVariantCall, Sm
 from backend.app.services.nipt_service import (
     build_nipt_observations,
     derive_father_state,
+    get_family_nipt_variants,
     run_family_nipt_analysis,
 )
 
@@ -228,3 +229,147 @@ async def test_run_family_nipt_analysis_rejects_non_nipt_family(
             user=None,  # type: ignore[arg-type]
         )
     assert "monogenic NIPT" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------- #
+# get_family_nipt_variants (I/O mocked)
+# --------------------------------------------------------------------------- #
+
+def _nipt_family() -> FamilyOut:
+    return FamilyOut(
+        id="family-uuid",
+        family_id="NIPT001",
+        created_at=datetime.now(timezone.utc),
+        members=[
+            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
+            FamilyMemberOut(
+                sample_id="cfdna-1",
+                role="mother",
+                affected=False,
+                sample_metadata={"assay": "nipt_cfdna"},
+            ),
+        ],
+        metadata={"analysis_type": "monogenic_nipt"},
+    )
+
+
+def _wire_variants_mocks(monkeypatch: pytest.MonkeyPatch, *, cohort, filtered) -> None:
+    async def fake_get_family_record(_session, _family_id, _user):
+        return _nipt_family()
+
+    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
+        return object()
+
+    async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
+        # The cohort (FF) load carries no gene filter; the variant load does.
+        return cohort if filters.gene is None else filtered
+
+    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
+    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
+
+
+def _cohort_cat7_records() -> list[SmallVariantRecord]:
+    return [
+        _record(
+            f"1-{i}-A-G",
+            start=i,
+            calls=[
+                _call("father-1", "0/1", dp=50, ad=[25, 25]),
+                _call("cfdna-1", "0/1", dp=400, af=[0.05], ad=[380, 20]),
+            ],
+        )
+        for i in range(40)
+    ]
+
+
+def _de_novo_and_cat3_records() -> list[SmallVariantRecord]:
+    de_novo = _record(
+        "1-9000-A-G",
+        start=9000,
+        calls=[
+            _call("father-1", "0/0", dp=50, ad=[50, 0]),
+            _call("cfdna-1", "0/1", dp=300, af=[0.05], ad=[285, 15]),
+        ],
+    )
+    cat3 = _record(
+        "1-9100-A-G",
+        start=9100,
+        calls=[
+            _call("father-1", "0/0", dp=50, ad=[50, 0]),
+            _call("cfdna-1", "0/1", dp=600, af=[0.5], ad=[300, 300]),
+        ],
+    )
+    return [de_novo, cat3]
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_classifies_filtered_subset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
+    )
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1"},
+    )
+
+    assert result.fetal_fraction.ff_computed == pytest.approx(0.10, abs=0.01)
+    assert result.total == 2
+    categories = {item.classification.category for item in result.variants}
+    assert categories == {1, 3}
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_category_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
+    )
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1"},
+        categories=[1],
+    )
+
+    assert result.total == 1
+    assert result.variants[0].classification.category == 1
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_de_novo_inheritance_preset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_de_novo_and_cat3_records()
+    )
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1"},
+        inheritance="de_novo",
+    )
+
+    assert {item.classification.category for item in result.variants} == {1}
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_rejects_unsupported_preset() -> None:
+    with pytest.raises(Exception) as excinfo:
+        await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            inheritance="recessive_at_risk",
+        )
+    assert "inheritance preset" in str(excinfo.value)

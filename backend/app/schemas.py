@@ -210,6 +210,36 @@ class NiptSummaryOut(BaseModel):
     filter_counts: Dict[str, int]
 
 
+class NiptVariantOut(BaseModel):
+    """A classified cfDNA variant for the monogenic NIPT variant list."""
+
+    variant_id: str
+    chr: str
+    pos: int
+    ref: str
+    alt: str
+    gene: Optional[str] = None
+    impact: Optional[str] = None
+    consequence: Optional[str] = None
+    category: Optional[int] = None
+    category_label: str
+    maternal_state: str
+    fetal_inheritance: str
+    expected_vaf: float
+    observed_vaf: Optional[float] = None
+    confidence: float
+    flags: List[str] = Field(default_factory=list)
+
+
+class NiptVariantPage(BaseModel):
+    """A page of classified cfDNA variants plus the family's fetal fraction."""
+
+    family_id: str
+    total: int
+    fetal_fraction: NiptFetalFractionOut
+    variants: List[NiptVariantOut]
+
+
 class FamilyStatusOut(BaseModel):
     """An admin-managed family status value."""
 
