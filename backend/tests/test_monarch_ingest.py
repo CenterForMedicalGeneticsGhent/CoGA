@@ -3,6 +3,7 @@
 from backend.app.services.monarch_ingest import (
     _Association,
     _DiseasePhenotype,
+    _escape_like,
     parse_disease_phenotype_tsv,
     parse_gene_disease_tsv,
 )
@@ -114,3 +115,9 @@ def test_disease_phenotype_keeps_pure_exclusions_and_filters_non_hp() -> None:
 
     assert set(phenotypes) == {("MONDO:3", "HP:3")}
     assert phenotypes[("MONDO:3", "HP:3")].negated is True
+
+
+def test_escape_like_neutralizes_wildcards() -> None:
+    # Backslash first so the wildcard escapes it introduces are not double-escaped.
+    assert _escape_like("type_2 50%") == r"type\_2 50\%"
+    assert _escape_like(r"a\b") == r"a\\b"

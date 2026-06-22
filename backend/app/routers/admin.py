@@ -28,6 +28,7 @@ from ..schemas import (
     HpoOntologySyncOut,
     HpoOntologySyncRequest,
     MonarchRefreshSummaryOut,
+    MonarchSearchOut,
     MonarchStatusOut,
     ProjectsUpdate,
     RawImportFileVerifyOut,
@@ -66,7 +67,11 @@ from ..services.clinical_cnv_kb_jobs import (
     queue_clinical_cnv_kb_rebuild,
 )
 from ..services.ped_service import build_pedigree_text
-from ..services.monarch_ingest import monarch_status, refresh_monarch
+from ..services.monarch_ingest import (
+    monarch_status,
+    refresh_monarch,
+    search_monarch_associations,
+)
 from ..services.gene_info_jobs_pg import (
     list_gene_reference_admin_status,
     queue_gene_reference_refresh_job,
@@ -555,6 +560,20 @@ async def get_monarch_status(
     """Return the currently loaded Monarch release and table sizes."""
     del user
     return MonarchStatusOut(**await monarch_status(session))
+
+
+@router.get("/monarch/search", response_model=MonarchSearchOut)
+async def search_monarch(
+    q: str = Query(default="", description="Disease name, MONDO id, phenotype name, or HP id"),
+    limit: int = Query(default=25, ge=1, le=100),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> MonarchSearchOut:
+    """Search Monarch diseases/phenotypes and return their linked genes and phenotypes."""
+    del user
+    return MonarchSearchOut(
+        **await search_monarch_associations(session, query=q, limit=limit)
+    )
 
 
 @router.post("/monarch/refresh", response_model=MonarchRefreshSummaryOut)
