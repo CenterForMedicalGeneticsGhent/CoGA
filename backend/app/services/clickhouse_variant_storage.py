@@ -561,6 +561,7 @@ def _small_variant_entry_rows(
                     bool(gene_symbols),
                     gene_symbols,
                     filters,
+                    record.qual,
                     sample_ids,
                     sample_gts,
                     sample_gqs,
@@ -862,6 +863,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `is_annotated_in_any_gene` Bool DEFAULT false,
             `gene_symbols` Array(String),
             `filters` Array(LowCardinality(String)),
+            `qual` Nullable(Float32),
             `calls.sampleId` Array(String),
             `calls.gt` Array(LowCardinality(String)),
             `calls.gq` Array(Nullable(UInt16)),
@@ -882,6 +884,10 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         ENGINE = CollapsingMergeTree(sign)
         PARTITION BY project_guid
         ORDER BY (project_guid, family_guid, xpos, key)
+        """,
+        f"""
+        ALTER TABLE {database}.`{dataset}/SNV_INDEL/entries`
+        ADD COLUMN IF NOT EXISTS `qual` Nullable(Float32) AFTER filters
         """,
         f"""
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/project_gt_stats`
@@ -1129,6 +1135,7 @@ async def insert_small_variant_records(
                 is_annotated_in_any_gene,
                 gene_symbols,
                 filters,
+                qual,
                 `calls.sampleId`,
                 `calls.gt`,
                 `calls.gq`,
