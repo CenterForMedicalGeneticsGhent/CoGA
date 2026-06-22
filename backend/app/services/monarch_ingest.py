@@ -542,6 +542,184 @@ async def list_monarch_gene_disease(
     return [dict(row) for row in result.mappings().all()]
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE/ILIKE wildcards so user text is matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# Per-disease caps on the returned overview lists. Counts are always the true totals;
+# these only bound the payload (a disease can carry hundreds of expected phenotypes).
+_SEARCH_GENE_CAP = 200
+_SEARCH_PHENOTYPE_CAP = 60
+
+
+async def search_monarch_associations(
+    session: AsyncSession, *, query: str, limit: int = 25
+) -> dict[str, Any]:
+    """Search Monarch diseases by name/MONDO id or by a linked phenotype name/HP id.
+
+    Returns the matched diseases, each with their linked genes and an overview of
+    their expected (present) phenotypes. A disease surfaces either because its own
+    label/MONDO id matches the query (``match_type`` ``disease``) or because one of
+    its phenotypes' label/HP id matches (``match_type`` ``phenotype``); ``both`` when
+    it matches on both. Matched phenotypes are flagged and listed first.
+    """
+    cleaned = (query or "").strip()
+    if not cleaned:
+        return {"query": "", "total": 0, "diseases": []}
+
+    pattern = f"%{_escape_like(cleaned)}%"
+    needle = cleaned.lower()
+
+    # Diseases whose own label or MONDO id matches (drawn from both tables so a
+    # disease with only phenotype rows still matches by name).
+    name_rows = (
+        await session.execute(
+            text(
+                r"""
+                SELECT mondo_id, max(disease_label) AS disease_label
+                FROM (
+                    SELECT mondo_id, disease_label
+                    FROM monarch_gene_disease
+                    WHERE disease_label ILIKE :pattern ESCAPE '\'
+                       OR mondo_id ILIKE :pattern ESCAPE '\'
+                    UNION ALL
+                    SELECT mondo_id, disease_label
+                    FROM monarch_disease_phenotype
+                    WHERE disease_label ILIKE :pattern ESCAPE '\'
+                       OR mondo_id ILIKE :pattern ESCAPE '\'
+                ) matches
+                GROUP BY mondo_id
+                """
+            ),
+            {"pattern": pattern},
+        )
+    ).mappings().all()
+    name_labels = {row["mondo_id"]: row["disease_label"] for row in name_rows}
+
+    # Diseases that present a phenotype whose label or HP id matches.
+    pheno_ids = set(
+        (
+            await session.execute(
+                text(
+                    r"""
+                    SELECT DISTINCT mondo_id
+                    FROM monarch_disease_phenotype
+                    WHERE negated = FALSE
+                      AND (phenotype_label ILIKE :pattern ESCAPE '\'
+                           OR hpo_id ILIKE :pattern ESCAPE '\')
+                    """
+                ),
+                {"pattern": pattern},
+            )
+        ).scalars().all()
+    )
+
+    all_ids = set(name_labels) | pheno_ids
+    total = len(all_ids)
+    if not all_ids:
+        return {"query": cleaned, "total": 0, "diseases": []}
+
+    def _rank(mondo_id: str) -> tuple[int, str]:
+        # Name matches rank ahead of phenotype-only matches; exact then prefix first.
+        label = (name_labels.get(mondo_id) or "").lower()
+        if mondo_id in name_labels:
+            if label == needle:
+                score = 0
+            elif label.startswith(needle):
+                score = 1
+            else:
+                score = 2
+        else:
+            score = 3
+        return (score, label or mondo_id.lower())
+
+    ordered = sorted(all_ids, key=_rank)[: max(1, limit)]
+
+    gene_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT mondo_id, gene_symbol, hgnc_id, predicate, causal
+                FROM monarch_gene_disease
+                WHERE mondo_id = ANY(:ids)
+                ORDER BY causal DESC, lower(gene_symbol)
+                """
+            ),
+            {"ids": ordered},
+        )
+    ).mappings().all()
+
+    pheno_rows = (
+        await session.execute(
+            text(
+                """
+                SELECT mondo_id, hpo_id, phenotype_label, disease_label
+                FROM monarch_disease_phenotype
+                WHERE mondo_id = ANY(:ids)
+                  AND negated = FALSE
+                ORDER BY lower(coalesce(phenotype_label, hpo_id))
+                """
+            ),
+            {"ids": ordered},
+        )
+    ).mappings().all()
+
+    genes_by_disease: dict[str, list[dict[str, Any]]] = {}
+    for row in gene_rows:
+        genes_by_disease.setdefault(row["mondo_id"], []).append(
+            {
+                "gene_symbol": row["gene_symbol"],
+                "hgnc_id": row["hgnc_id"],
+                "predicate": row["predicate"],
+                "causal": bool(row["causal"]),
+            }
+        )
+
+    phenos_by_disease: dict[str, list[dict[str, Any]]] = {}
+    pheno_labels: dict[str, str] = {}
+    for row in pheno_rows:
+        mondo_id = row["mondo_id"]
+        if row["disease_label"]:
+            pheno_labels.setdefault(mondo_id, row["disease_label"])
+        label = (row["phenotype_label"] or "").lower()
+        matched = needle in label or needle in (row["hpo_id"] or "").lower()
+        phenos_by_disease.setdefault(mondo_id, []).append(
+            {
+                "hpo_id": row["hpo_id"],
+                "phenotype_label": row["phenotype_label"],
+                "matched": matched,
+            }
+        )
+
+    diseases: list[dict[str, Any]] = []
+    for mondo_id in ordered:
+        genes = genes_by_disease.get(mondo_id, [])
+        phenos = phenos_by_disease.get(mondo_id, [])
+        # Stable sort keeps the label ordering within the matched / unmatched groups.
+        phenos_sorted = sorted(phenos, key=lambda item: not item["matched"])
+        matched_count = sum(1 for item in phenos if item["matched"])
+        in_name = mondo_id in name_labels
+        in_pheno = mondo_id in pheno_ids
+        match_type = (
+            "both" if in_name and in_pheno else ("disease" if in_name else "phenotype")
+        )
+        diseases.append(
+            {
+                "mondo_id": mondo_id,
+                "disease_label": name_labels.get(mondo_id) or pheno_labels.get(mondo_id),
+                "match_type": match_type,
+                "gene_count": len(genes),
+                "genes": genes[:_SEARCH_GENE_CAP],
+                "phenotype_count": len(phenos),
+                "matched_phenotype_count": matched_count,
+                "phenotypes": phenos_sorted[:_SEARCH_PHENOTYPE_CAP],
+            }
+        )
+
+    return {"query": cleaned, "total": total, "diseases": diseases}
+
+
 async def family_observed_phenotype_closure(
     session: AsyncSession, *, family_uuid: str
 ) -> set[str]:

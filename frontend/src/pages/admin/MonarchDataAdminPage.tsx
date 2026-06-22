@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import PageState from '../../components/PageState';
@@ -33,6 +33,46 @@ interface MonarchRefreshSummary {
   duration_seconds: number;
 }
 
+interface MonarchSearchGene {
+  gene_symbol: string;
+  hgnc_id: string;
+  predicate?: string | null;
+  causal: boolean;
+}
+
+interface MonarchSearchPhenotype {
+  hpo_id: string;
+  phenotype_label?: string | null;
+  matched: boolean;
+}
+
+type MonarchMatchType = 'disease' | 'phenotype' | 'both';
+
+interface MonarchSearchDisease {
+  mondo_id: string;
+  disease_label?: string | null;
+  match_type: MonarchMatchType;
+  gene_count: number;
+  genes: MonarchSearchGene[];
+  phenotype_count: number;
+  matched_phenotype_count: number;
+  phenotypes: MonarchSearchPhenotype[];
+}
+
+interface MonarchSearchResult {
+  query: string;
+  total: number;
+  diseases: MonarchSearchDisease[];
+}
+
+const SEARCH_LIMIT = 25;
+
+const matchTypeLabels: Record<MonarchMatchType, string> = {
+  disease: 'Disease name',
+  phenotype: 'Phenotype',
+  both: 'Disease & phenotype',
+};
+
 const formatTimestamp = (value?: string | null) => {
   if (!value) return '—';
   const date = new Date(value);
@@ -42,6 +82,9 @@ const formatTimestamp = (value?: string | null) => {
 const MonarchDataAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  const [search, setSearch] = useState('');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [selectedMondoId, setSelectedMondoId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<MonarchStatus>({
     queryKey: ['admin', 'monarch-status'],
@@ -51,6 +94,56 @@ const MonarchDataAdminPage: React.FC = () => {
     },
     retry: false,
   });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAppliedSearch(search.trim());
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const searchQuery = useQuery<MonarchSearchResult>({
+    queryKey: ['admin', 'monarch', 'search', appliedSearch],
+    queryFn: async ({ signal }: { signal?: AbortSignal }) => {
+      const response = await api.get('/admin/monarch/search', {
+        params: { q: appliedSearch, limit: SEARCH_LIMIT },
+        signal,
+      });
+      return response.data as MonarchSearchResult;
+    },
+    enabled: appliedSearch.length > 0,
+    retry: false,
+  });
+
+  const handleSearch = () => {
+    const trimmed = search.trim();
+    if (trimmed === appliedSearch) {
+      if (trimmed.length > 0) {
+        searchQuery.refetch();
+      }
+      return;
+    }
+    setAppliedSearch(trimmed);
+  };
+
+  const diseases = searchQuery.data?.diseases ?? [];
+  const selectedDisease = useMemo(
+    () => diseases.find((disease) => disease.mondo_id === selectedMondoId) ?? diseases[0] ?? null,
+    [diseases, selectedMondoId]
+  );
+
+  useEffect(() => {
+    if (!selectedDisease) {
+      setSelectedMondoId(null);
+      return;
+    }
+    setSelectedMondoId((current) =>
+      current && diseases.some((disease) => disease.mondo_id === current)
+        ? current
+        : selectedDisease.mondo_id
+    );
+  }, [diseases, selectedDisease]);
 
   const refreshMutation = useMutation({
     mutationFn: async () => {
@@ -66,6 +159,7 @@ const MonarchDataAdminPage: React.FC = () => {
           + `in ${summary.duration_seconds.toFixed(1)}s.`,
       });
       await queryClient.invalidateQueries({ queryKey: ['admin', 'monarch-status'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'monarch', 'search'] });
     },
     onError: (mutationError) => {
       setStatus({
@@ -96,6 +190,8 @@ const MonarchDataAdminPage: React.FC = () => {
   }
 
   const isEmpty = data.gene_disease_pairs === 0 && data.disease_phenotype_pairs === 0;
+  const total = searchQuery.data?.total ?? 0;
+  const hasMore = total > diseases.length;
 
   return (
     <div className="page-shell admin-compact space-y-5">
@@ -182,6 +278,168 @@ const MonarchDataAdminPage: React.FC = () => {
             {status.message}
           </div>
         ) : null}
+      </section>
+
+      <section className="surface-card space-y-4">
+        <div className="catalog-card-header">
+          <div className="space-y-2">
+            <h2 className="section-title">Search diseases &amp; phenotypes</h2>
+            <p className="section-copy">
+              Search by disease name, MONDO id, phenotype name, or HP id to see the linked genes
+              and expected phenotypes. Phenotype matches surface every disease that presents the
+              term.
+            </p>
+          </div>
+          {appliedSearch ? (
+            <span className="badge-chip">
+              {diseases.length}
+              {hasMore ? ` of ${formatCount(total)}` : ''} shown
+            </span>
+          ) : null}
+        </div>
+
+        <label className="field-label" htmlFor="monarch-admin-search">
+          Search term
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              id="monarch-admin-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleSearch();
+                }
+              }}
+              placeholder="MONDO:0007739, epilepsy, HP:0001250, seizure..."
+            />
+            <button type="button" className="button-secondary" onClick={handleSearch}>
+              Search
+            </button>
+          </div>
+        </label>
+
+        {searchQuery.error ? (
+          <p className="status-note status-note--error">
+            {getErrorMessage(searchQuery.error, 'Monarch search failed.')}
+          </p>
+        ) : null}
+
+        {!appliedSearch ? (
+          <p className="table-empty">Enter a disease or phenotype to search the knowledgebase.</p>
+        ) : (
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+            <div className="data-table-shell overflow-x-auto">
+              <table className="analysis-table table-sticky">
+                <thead>
+                  <tr>
+                    <th>MONDO ID</th>
+                    <th>Disease</th>
+                    <th>Match</th>
+                    <th>Genes</th>
+                    <th>Phenotypes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {diseases.map((disease) => (
+                    <tr
+                      key={disease.mondo_id}
+                      onClick={() => setSelectedMondoId(disease.mondo_id)}
+                      className="cursor-pointer"
+                    >
+                      <td className="font-mono text-xs">{disease.mondo_id}</td>
+                      <td>{disease.disease_label || '—'}</td>
+                      <td>{matchTypeLabels[disease.match_type]}</td>
+                      <td>{formatCount(disease.gene_count)}</td>
+                      <td>{formatCount(disease.phenotype_count)}</td>
+                    </tr>
+                  ))}
+                  {!searchQuery.isLoading && diseases.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="table-empty">
+                        No diseases or phenotypes match this search.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {searchQuery.isLoading ? (
+                    <tr>
+                      <td colSpan={5} className="table-empty">
+                        Searching…
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <aside className="surface-card-muted space-y-4">
+              {selectedDisease ? (
+                <>
+                  <div className="space-y-2">
+                    <p className="page-kicker">{selectedDisease.mondo_id}</p>
+                    <h3 className="section-title">{selectedDisease.disease_label || 'Unnamed disease'}</h3>
+                    <div className="admin-data-summary">
+                      <span className="badge-chip">{matchTypeLabels[selectedDisease.match_type]}</span>
+                      <span className="badge-chip">{formatCount(selectedDisease.gene_count)} genes</span>
+                      <span className="badge-chip">
+                        {formatCount(selectedDisease.phenotype_count)} phenotypes
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="table-subtle uppercase">Linked genes</h4>
+                    {selectedDisease.genes.length ? (
+                      <ul className="space-y-1 text-sm">
+                        {selectedDisease.genes.map((gene) => (
+                          <li key={gene.hgnc_id || gene.gene_symbol}>
+                            <span className="font-mono text-xs">{gene.gene_symbol}</span>{' '}
+                            {gene.causal ? <span className="badge-chip">causal</span> : null}{' '}
+                            <span className="table-subtle">
+                              {gene.predicate ? gene.predicate.replace(/_/g, ' ') : ''}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="table-subtle">No genes are linked to this disease in Monarch.</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="table-subtle uppercase">
+                      Expected phenotypes
+                      {selectedDisease.matched_phenotype_count > 0
+                        ? ` — ${formatCount(selectedDisease.matched_phenotype_count)} matched`
+                        : ''}
+                    </h4>
+                    {selectedDisease.phenotypes.length ? (
+                      <ul className="space-y-1 text-sm">
+                        {selectedDisease.phenotypes.map((phenotype) => (
+                          <li key={phenotype.hpo_id}>
+                            <span className="font-mono text-xs">{phenotype.hpo_id}</span>{' '}
+                            {phenotype.phenotype_label || ''}{' '}
+                            {phenotype.matched ? <span className="badge-chip">match</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="table-subtle">No expected phenotypes are stored for this disease.</p>
+                    )}
+                    {selectedDisease.phenotype_count > selectedDisease.phenotypes.length ? (
+                      <p className="table-subtle">
+                        Showing {selectedDisease.phenotypes.length} of{' '}
+                        {formatCount(selectedDisease.phenotype_count)} phenotypes.
+                      </p>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <p className="table-empty">Select a disease to view its genes and phenotypes.</p>
+              )}
+            </aside>
+          </div>
+        )}
       </section>
     </div>
   );

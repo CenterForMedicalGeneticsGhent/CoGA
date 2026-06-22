@@ -1066,6 +1066,36 @@ class MonarchStatusOut(BaseModel):
     last_updated_at: Optional[datetime] = None
 
 
+class MonarchSearchGeneOut(BaseModel):
+    gene_symbol: str
+    hgnc_id: str
+    predicate: Optional[str] = None
+    causal: bool = False
+
+
+class MonarchSearchPhenotypeOut(BaseModel):
+    hpo_id: str
+    phenotype_label: Optional[str] = None
+    matched: bool = False
+
+
+class MonarchSearchDiseaseOut(BaseModel):
+    mondo_id: str
+    disease_label: Optional[str] = None
+    match_type: Literal["disease", "phenotype", "both"]
+    gene_count: int = 0
+    genes: List[MonarchSearchGeneOut] = Field(default_factory=list)
+    phenotype_count: int = 0
+    matched_phenotype_count: int = 0
+    phenotypes: List[MonarchSearchPhenotypeOut] = Field(default_factory=list)
+
+
+class MonarchSearchOut(BaseModel):
+    query: str = ""
+    total: int = 0
+    diseases: List[MonarchSearchDiseaseOut] = Field(default_factory=list)
+
+
 class GeneBulkRefreshOut(BaseModel):
     human_assemblies: int
     gene_symbols: int

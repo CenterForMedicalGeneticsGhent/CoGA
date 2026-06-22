@@ -26,22 +26,22 @@ const renderPage = () => {
   );
 };
 
+const statusPayload = {
+  release_version: '2026-03-01',
+  gene_disease_pairs: 13200,
+  genes: 5463,
+  diseases: 8900,
+  causal_pairs: 7200,
+  disease_phenotype_pairs: 245814,
+  phenotype_diseases: 11230,
+  phenotypes: 9000,
+  last_updated_at: '2026-03-27T10:00:00Z',
+};
+
 describe('MonarchDataAdminPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    (api.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: {
-        release_version: '2026-03-01',
-        gene_disease_pairs: 13200,
-        genes: 5463,
-        diseases: 8900,
-        causal_pairs: 7200,
-        disease_phenotype_pairs: 245814,
-        phenotype_diseases: 11230,
-        phenotypes: 9000,
-        last_updated_at: '2026-03-27T10:00:00Z',
-      },
-    });
+    (api.get as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ data: statusPayload });
   });
 
   it('renders the loaded release and triggers a refresh', async () => {
@@ -71,5 +71,52 @@ describe('MonarchDataAdminPage', () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/monarch/refresh'));
     expect(await screen.findByText(/updated to monarch release 2026-04-01/i)).toBeInTheDocument();
+  });
+
+  it('searches diseases and shows linked genes and phenotypes', async () => {
+    (api.get as unknown as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url === '/admin/monarch/search') {
+        return Promise.resolve({
+          data: {
+            query: 'huntington',
+            total: 1,
+            diseases: [
+              {
+                mondo_id: 'MONDO:0007739',
+                disease_label: 'Huntington disease',
+                match_type: 'disease',
+                gene_count: 1,
+                genes: [
+                  { gene_symbol: 'HTT', hgnc_id: 'HGNC:4851', predicate: 'causes', causal: true },
+                ],
+                phenotype_count: 1,
+                matched_phenotype_count: 0,
+                phenotypes: [
+                  { hpo_id: 'HP:0002072', phenotype_label: 'Chorea', matched: false },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: statusPayload });
+    });
+
+    renderPage();
+
+    await screen.findByText('2026-03-01');
+    fireEvent.change(screen.getByPlaceholderText(/MONDO:0007739/i), {
+      target: { value: 'huntington' },
+    });
+
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith('/admin/monarch/search', expect.objectContaining({
+        params: { q: 'huntington', limit: 25 },
+      }))
+    );
+
+    expect(await screen.findByText('HTT')).toBeInTheDocument();
+    expect(await screen.findByText(/Chorea/)).toBeInTheDocument();
+    expect(screen.getAllByText('Huntington disease').length).toBeGreaterThan(0);
   });
 });
