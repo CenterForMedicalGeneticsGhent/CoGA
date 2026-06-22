@@ -64,7 +64,9 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
     The cfDNA sample is identified by its ``assay`` tag, falling back to the
     active ``mother`` member when no sample carries the tag (e.g. a family
     created before the assay was recorded). The father is the active ``father``
-    member; the fetus is the active ``embryo`` member, if present.
+    member; the fetus is the active ``embryo`` member, or the ``proband`` child
+    when no ``embryo`` is present (manual family creation labels the child
+    ``proband``), if present at all.
     """
     if not is_monogenic_nipt_family(family):
         return None
@@ -85,6 +87,8 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
         elif member.role == "mother":
             mother_sample_id = member.sample_id
         elif member.role == "embryo":
+            fetus_sample_id = member.sample_id
+        elif member.role == "proband" and fetus_sample_id is None:
             fetus_sample_id = member.sample_id
 
     if cfdna_sample_id is None:

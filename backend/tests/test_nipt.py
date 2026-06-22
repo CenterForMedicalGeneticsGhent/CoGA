@@ -66,6 +66,37 @@ def test_resolve_nipt_trio_identifies_cfdna_by_assay_tag() -> None:
     )
 
 
+def test_resolve_nipt_trio_treats_proband_child_as_the_fetus() -> None:
+    # Manual family creation labels the child of both parents `proband`, not
+    # `embryo`, so the resolver must accept a proband as the fetus.
+    family = _family(
+        [
+            _member("father-1", "father"),
+            _member("cfdna-1", "mother", assay=NIPT_CFDNA_ASSAY),
+            _member("fetus-1", "proband"),
+        ]
+    )
+
+    trio = resolve_nipt_trio(family)
+    assert trio is not None
+    assert trio.fetus_sample_id == "fetus-1"
+
+
+def test_resolve_nipt_trio_prefers_embryo_over_proband_for_fetus() -> None:
+    family = _family(
+        [
+            _member("father-1", "father"),
+            _member("cfdna-1", "mother", assay=NIPT_CFDNA_ASSAY),
+            _member("proband-1", "proband"),
+            _member("embryo-1", "embryo"),
+        ]
+    )
+
+    trio = resolve_nipt_trio(family)
+    assert trio is not None
+    assert trio.fetus_sample_id == "embryo-1"
+
+
 def test_resolve_nipt_trio_falls_back_to_mother_role_without_assay_tag() -> None:
     family = _family(
         [

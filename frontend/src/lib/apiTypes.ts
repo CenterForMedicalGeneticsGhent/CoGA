@@ -21,6 +21,7 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   carrier_type?: 'obligate' | 'proven' | 'reported' | 'inferred' | null;
   carrier_evidence?: Record<string, unknown>;
   active?: boolean;
+  sample_metadata?: Record<string, unknown>;
 }
 
 export interface ApiFamilyMemberImpact {

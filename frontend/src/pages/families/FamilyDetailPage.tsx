@@ -462,6 +462,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     repeatTable !== undefined &&
     paraphaseTable !== undefined &&
     mitoTable !== undefined;
+  // Monogenic NIPT families surface a dedicated analysis tab (see docs/monogenic-nipt.md).
+  const isMonogenicNipt = data?.metadata?.analysis_type === 'monogenic_nipt';
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion },
@@ -1444,6 +1446,16 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 >
                   mtDNA analysis
                 </VariantWorkspaceLink>
+                {isMonogenicNipt && (
+                  <VariantWorkspaceLink
+                    active
+                    to={`/families/${data.family_id}/nipt`}
+                    className="button-secondary"
+                    disabledTitle="Monogenic NIPT analysis."
+                  >
+                    Monogenic NIPT
+                  </VariantWorkspaceLink>
+                )}
               </div>
             </div>
           ) : (

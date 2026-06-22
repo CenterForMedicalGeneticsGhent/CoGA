@@ -616,6 +616,7 @@ class ManualPedMemberCreate(BaseModel):
     carrier_status: Literal["unknown", "not_carrier", "carrier"] = "unknown"
     carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
     carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ManualPedCoupleCreate(BaseModel):
@@ -629,6 +630,7 @@ class ManualPedFamilyCreate(BaseModel):
     members: List[ManualPedMemberCreate] = Field(min_length=1)
     couples: List[ManualPedCoupleCreate] = Field(default_factory=list)
     project_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ProjectCreate(BaseModel):
