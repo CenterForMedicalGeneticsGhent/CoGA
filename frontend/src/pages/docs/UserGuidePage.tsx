@@ -271,6 +271,43 @@ const guideSections: GuideSection[] = [
           press the button, so it never slows down opening a family. Results are cached briefly.
         </div>
 
+        <h3>How the ranking works — and why specific phenotypes matter</h3>
+        <p>
+          The ranking is <strong>not</strong> a yes/no “is this gene linked to this term” lookup —
+          if it were, a broad term such as <em>Intellectual disability</em> (linked to well over a
+          thousand genes) would return a flat, unordered list. Instead, each candidate gene gets a{' '}
+          <strong>phenotypic-similarity score</strong>: CoGA compares the gene’s expected phenotype
+          profile (the HPO terms of all the diseases Monarch links to it) against the patient’s{' '}
+          <em>whole</em> set of observed terms, and walks the HPO hierarchy so a specific patient
+          term still matches a more general expected one (and vice versa).
+        </p>
+        <p>
+          The decisive ingredient is <strong>information content</strong>: a phenotype that occurs
+          in only a handful of diseases is highly informative and counts heavily, while a phenotype
+          shared by a large fraction of diseases carries almost no weight. <em>Intellectual
+          disability</em> is one of the broadest terms in the ontology, so on its own it barely
+          separates those thousand-plus genes — they all look about equally good, the score
+          differences are tiny, and the order you see is close to arbitrary (and capped at the top
+          ~50 genes Monarch returns). This is expected, not a fault: a single very general term
+          simply does not carry enough information to rank on.
+        </p>
+        <p>
+          The ranking sharpens as you add the patient’s <strong>more specific, co-occurring
+          features</strong> — a particular seizure type, a dysmorphic feature, a metabolic finding,
+          an abnormal MRI. Each specific term is highly informative, so the genes whose diseases
+          actually explain those features rise to the top, while the genes that only share the
+          generic <em>Intellectual disability</em> term fall away. The same principle drives the
+          local phenotype score used for{' '}
+          <a href="#variant-prioritisation">variant prioritisation</a> (rarer, more specific shared
+          phenotypes count more).
+        </p>
+        <div className="user-guide-callout">
+          <strong>Practical takeaway.</strong> One broad term gives a weak ranking by design.
+          Record the affected individual’s distinctive phenotypes alongside the umbrella term — the
+          more specific HPO you provide, the more meaningful (and trustworthy) the gene ranking
+          becomes.
+        </div>
+
         <h3>Where the data comes from</h3>
         <p>
           The gene–disease and disease–phenotype tables are loaded by an administrator from the

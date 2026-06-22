@@ -305,6 +305,21 @@ dyshormonogenesis genes — all linkable to the gene profile.
 This is the symmetric, information-content phenotype similarity that Phase 2's
 one-directional overlap could not provide.
 
+**Ranking semantics (why a broad term ranks poorly).** The result is a *similarity
+score*, not a membership test: each gene is scored by how closely its expected
+phenotype profile resembles the patient's full HPO set, weighted by information
+content (IC = −ln(p), p = fraction of diseases annotated to the term or a descendant).
+Broad terms have high p and therefore near-zero IC. A single very general term such as
+*Intellectual disability* (HP:0001249) is annotated to a huge share of diseases and is
+linked to 1,000+ genes, so on its own it barely discriminates — every linked gene gets
+an almost identical low score, the order is close to arbitrary, and Monarch only returns
+the top ~50 anyway (`MAX_LIMIT`). This is inherent to IC-weighted similarity, not a bug.
+The ranking only becomes meaningful as more *specific* co-occurring terms (high IC) are
+added: the best-match-average then lifts the genes whose diseases explain those specific
+features above the ones sharing only the umbrella term. The same property governs the
+Phase 4 local Phenomizer score (which additionally bounds the patient set to the 60
+highest-IC terms, so a broad term is dropped first when truncating).
+
 ### Phase 4 — Exomiser-style variant prioritization (implemented)
 
 Uses the phenotype signal to rank a family's small variants, combining gene–phenotype
