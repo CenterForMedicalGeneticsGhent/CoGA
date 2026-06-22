@@ -59,10 +59,23 @@ interface MonarchSearchDisease {
   phenotypes: MonarchSearchPhenotype[];
 }
 
+interface MonarchGeneOverviewItem {
+  gene_symbol: string;
+  hgnc_id: string;
+  causal: boolean;
+  disease_count: number;
+}
+
+interface MonarchGeneOverview {
+  total: number;
+  genes: MonarchGeneOverviewItem[];
+}
+
 interface MonarchSearchResult {
   query: string;
   total: number;
   diseases: MonarchSearchDisease[];
+  gene_overview: MonarchGeneOverview;
 }
 
 const SEARCH_LIMIT = 25;
@@ -128,6 +141,7 @@ const MonarchDataAdminPage: React.FC = () => {
   };
 
   const diseases = searchQuery.data?.diseases ?? [];
+  const geneOverview = searchQuery.data?.gene_overview ?? null;
   const selectedDisease = useMemo(
     () => diseases.find((disease) => disease.mondo_id === selectedMondoId) ?? diseases[0] ?? null,
     [diseases, selectedMondoId]
@@ -286,8 +300,8 @@ const MonarchDataAdminPage: React.FC = () => {
             <h2 className="section-title">Search diseases &amp; phenotypes</h2>
             <p className="section-copy">
               Search by disease name, MONDO id, phenotype name, or HP id to see the linked genes
-              and expected phenotypes. Phenotype matches surface every disease that presents the
-              term.
+              and expected phenotypes. Phenotype matches are HPO-closure aware — searching a term
+              also surfaces diseases annotated with any more specific descendant term.
             </p>
           </div>
           {appliedSearch ? (
@@ -328,6 +342,46 @@ const MonarchDataAdminPage: React.FC = () => {
         {!appliedSearch ? (
           <p className="table-empty">Enter a disease or phenotype to search the knowledgebase.</p>
         ) : (
+          <>
+          {geneOverview && geneOverview.genes.length > 0 ? (
+            <div className="surface-card-muted space-y-3">
+              <div className="catalog-card-header">
+                <div className="space-y-1">
+                  <h3 className="section-title">Linked genes across all matches</h3>
+                  <p className="section-copy">
+                    Every gene tied to a matched disease, most-linked first. Causal links are
+                    flagged; the count is how many matched diseases each gene comes from.
+                  </p>
+                </div>
+                <span className="badge-chip">
+                  {geneOverview.genes.length}
+                  {geneOverview.total > geneOverview.genes.length
+                    ? ` of ${formatCount(geneOverview.total)}`
+                    : ''}{' '}
+                  genes
+                </span>
+              </div>
+              <ul className="flex flex-wrap gap-2">
+                {geneOverview.genes.map((gene) => (
+                  <li
+                    key={gene.hgnc_id || gene.gene_symbol}
+                    className={`badge-chip ${gene.causal ? 'badge-chip--success' : ''}`}
+                    title={`${gene.hgnc_id}${gene.causal ? ' · causal' : ''} · ${gene.disease_count} ${
+                      gene.disease_count === 1 ? 'disease' : 'diseases'
+                    }`}
+                  >
+                    {gene.gene_symbol}
+                    <span className="table-subtle">· {formatCount(gene.disease_count)}</span>
+                  </li>
+                ))}
+              </ul>
+              {geneOverview.total > geneOverview.genes.length ? (
+                <p className="table-subtle">
+                  Showing {geneOverview.genes.length} of {formatCount(geneOverview.total)} linked genes.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
             <div className="data-table-shell overflow-x-auto">
               <table className="analysis-table table-sticky">
@@ -439,6 +493,7 @@ const MonarchDataAdminPage: React.FC = () => {
               )}
             </aside>
           </div>
+          </>
         )}
       </section>
     </div>

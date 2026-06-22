@@ -90,12 +90,18 @@ describe('MonarchDataAdminPage', () => {
                   { gene_symbol: 'HTT', hgnc_id: 'HGNC:4851', predicate: 'causes', causal: true },
                 ],
                 phenotype_count: 1,
-                matched_phenotype_count: 0,
+                matched_phenotype_count: 1,
                 phenotypes: [
-                  { hpo_id: 'HP:0002072', phenotype_label: 'Chorea', matched: false },
+                  { hpo_id: 'HP:0002072', phenotype_label: 'Chorea', matched: true },
                 ],
               },
             ],
+            gene_overview: {
+              total: 1,
+              genes: [
+                { gene_symbol: 'HTT', hgnc_id: 'HGNC:4851', causal: true, disease_count: 1 },
+              ],
+            },
           },
         });
       }
@@ -115,7 +121,9 @@ describe('MonarchDataAdminPage', () => {
       }))
     );
 
-    expect(await screen.findByText('HTT')).toBeInTheDocument();
+    expect(await screen.findByText('Linked genes across all matches')).toBeInTheDocument();
+    // HTT appears both in the aggregated overview chip and the per-disease detail.
+    expect((await screen.findAllByText('HTT')).length).toBeGreaterThanOrEqual(2);
     expect(await screen.findByText(/Chorea/)).toBeInTheDocument();
     expect(screen.getAllByText('Huntington disease').length).toBeGreaterThan(0);
   });

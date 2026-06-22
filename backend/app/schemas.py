@@ -1090,10 +1090,23 @@ class MonarchSearchDiseaseOut(BaseModel):
     phenotypes: List[MonarchSearchPhenotypeOut] = Field(default_factory=list)
 
 
+class MonarchGeneOverviewItemOut(BaseModel):
+    gene_symbol: str
+    hgnc_id: str
+    causal: bool = False
+    disease_count: int = 0
+
+
+class MonarchGeneOverviewOut(BaseModel):
+    total: int = 0
+    genes: List[MonarchGeneOverviewItemOut] = Field(default_factory=list)
+
+
 class MonarchSearchOut(BaseModel):
     query: str = ""
     total: int = 0
     diseases: List[MonarchSearchDiseaseOut] = Field(default_factory=list)
+    gene_overview: MonarchGeneOverviewOut = Field(default_factory=MonarchGeneOverviewOut)
 
 
 class GeneBulkRefreshOut(BaseModel):
