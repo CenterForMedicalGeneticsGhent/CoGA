@@ -8278,6 +8278,34 @@ button.table-link:hover {
   align-items: center;
   flex-wrap: wrap;
 }
+/* Zoom / pan toolbar above the table. */
+.roi-markers-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.roi-markers-zoom {
+  display: inline-flex;
+  gap: 4px;
+}
+.roi-markers-zoom .button-ghost {
+  min-width: 2rem;
+  padding: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.roi-markers-range {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #64748b);
+}
+.roi-markers-range-span {
+  opacity: 0.8;
+}
+.roi-markers-updating {
+  color: var(--color-accent, #8293a3);
+  font-style: italic;
+}
 .roi-markers-table-wrap {
   overflow: auto;
   max-height: 70vh;
@@ -8322,11 +8350,9 @@ button.table-link:hover {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   height: 5.5rem;
+  width: 1.6rem;
+  min-width: 1.6rem;
   font-size: 0.62rem;
-}
-.roi-markers-poscol--roi,
-.roi-markers-cell--roi {
-  background: rgba(214, 69, 61, 0.07);
 }
 .roi-markers-name {
   font-family: var(--font-mono, monospace);
@@ -8335,32 +8361,79 @@ button.table-link:hover {
 .roi-markers-role {
   color: var(--color-text-muted, #64748b);
 }
+.roi-markers-namecol {
+  vertical-align: middle;
+}
 .roi-markers-row--embryo .roi-markers-namecol {
   font-weight: 700;
 }
 .roi-markers-mendel {
   color: var(--color-haplotype-affected);
   font-weight: 700;
+  cursor: help;
 }
-.roi-markers-cell {
-  position: relative;
-  padding: 1px 3px 1px 7px;
+/* One member = two stacked homolog bands; the allele sits on its lineage-coloured band. */
+.roi-markers-band {
+  width: 1.6rem;
+  min-width: 1.6rem;
+  height: 1.15rem;
+  padding: 0;
   text-align: center;
   font-family: var(--font-mono, monospace);
   font-weight: 700;
+  font-size: 0.7rem;
+  line-height: 1.15rem;
+  letter-spacing: 0.3px;
+  /* band colour is set inline; a faint seam keeps adjacent markers countable */
+  border-right: 1px solid rgba(255, 255, 255, 0.4);
+  border-bottom: none;
 }
-.roi-markers-cell--uninformative {
-  opacity: 0.45;
+/* IGV nucleotide colour set inline. */
+.roi-markers-allele {
+  display: inline-block;
+  font-weight: 800;
 }
-.roi-markers-lanes {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
+/* Uninformative alleles are muted — lighter weight on top of the grey colour. */
+.roi-markers-allele--muted {
+  font-weight: 600;
+  opacity: 0.85;
 }
-.roi-markers-gt {
-  letter-spacing: 0.5px;
+/* The ROI stands at full strength; flanking context (only shown when zoomed out) is
+   lightly muted but kept readable, and in-ROI position headers get a soft tint. */
+.roi-markers-table thead th.roi-markers-poscol--roi {
+  background: var(--color-accent-soft, #e6ecf1);
+}
+.roi-markers-band--flank {
+  opacity: 0.85;
+}
+/* The two bands of a member touch; members are separated by a spacer row. */
+.roi-markers-bandrow .roi-markers-namecol {
+  border-bottom: none;
+}
+.roi-markers-spacer td {
+  height: 7px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  line-height: 0;
+}
+/* In the inter-member gap, the flanks stay blank while the ROI columns carry a 2 px
+   orange line — so the ROI reads as a continuous bracket down the table. The
+   `td.` qualifier outweighs `.roi-markers-spacer td { background: transparent }`. */
+.roi-markers-spacer td.roi-markers-spacer-cell--roi {
+  background: linear-gradient(#f97316, #f97316) center / 100% 2px no-repeat;
+}
+/* Inner layout for the hover tooltip; the box itself is styled by .viz-tooltip. */
+.roi-markers-tip-head {
+  margin-bottom: 3px;
+}
+.roi-markers-tip-change {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+}
+.roi-markers-tip-region,
+.roi-markers-tip-role {
+  color: var(--color-text-muted, #64748b);
 }
 
 .viewer-track-interactive {
