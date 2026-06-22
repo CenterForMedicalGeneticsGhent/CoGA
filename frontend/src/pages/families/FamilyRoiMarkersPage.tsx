@@ -1,23 +1,21 @@
 import React, { useMemo, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import PageState from '../../components/PageState';
+import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
+import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 
-// Window padding either side of the ROI (the spec: ROI ± 1 Mb).
-const ROI_FLANK = 1_000_000;
+// Floor on the zoomed-in window so the view can't collapse to nothing.
+const MIN_SPAN = 2_000;
 // Cap rendered columns so a dense window stays responsive; the rest is summarised.
 const MAX_COLUMNS = 800;
 
-// IGV-style nucleotide colours (match the haplotype track tooltip).
-const NUCLEOTIDE_COLORS: Record<string, string> = {
-  A: '#2e9e4f',
-  C: '#2f6fe0',
-  G: '#e8a33d',
-  T: '#d6453d',
-};
+// The two homolog lanes drawn per member, mirroring the chromosome view.
+const LANES = ['hap1', 'hap2'] as const;
+type Lane = (typeof LANES)[number];
 
 interface PhasedSite {
   pos: number;
@@ -49,7 +47,7 @@ interface HaplotypeResponse {
   samples: { sample: string; segments: HapSegment[] }[];
 }
 
-const laneColor = (seg: HapSegment | null, lane: 'hap1' | 'hap2'): string => {
+const laneColor = (seg: HapSegment | null, lane: Lane): string => {
   const grey = cssVar('--color-haplotype-unknown');
   if (!seg) return grey;
   const lineage = (lane === 'hap1' ? seg.hap1_lineage : seg.hap2_lineage) || '';
@@ -63,6 +61,19 @@ const laneColor = (seg: HapSegment | null, lane: 'hap1' | 'hap2'): string => {
   }
   return grey; // untransmitted / unknown / donor
 };
+
+// IGV-style nucleotide colours for the allele letters (match the haplotype track tooltip).
+const NUCLEOTIDE_COLORS: Record<string, string> = {
+  A: '#2e9e4f',
+  C: '#2f6fe0',
+  G: '#e8a33d',
+  T: '#d6453d',
+};
+const nucleotideColor = (base: string): string =>
+  (base.length === 1 ? NUCLEOTIDE_COLORS[base.toUpperCase()] : undefined) ?? '#cbd5e1';
+// Uninformative alleles (lane not resolved for this member) are muted to grey so the
+// eye lands on the nucleotides that actually carry segregation signal.
+const UNINFORMATIVE_COLOR = '#6b7280';
 
 const coveringSegment = (segments: HapSegment[], pos: number): HapSegment | null => {
   let lo = 0;
@@ -87,20 +98,12 @@ const alleleBase = (index: string, ref: string, alt: string): string => {
   return alt.split(',')[n - 1] ?? '?';
 };
 
-const baseSpan = (base: string, key: number): React.ReactNode => (
-  <span
-    key={key}
-    style={{ color: base.length === 1 ? NUCLEOTIDE_COLORS[base.toUpperCase()] ?? '#9ca3af' : '#94a3b8' }}
-  >
-    {base}
-  </span>
-);
-
 const FamilyRoiMarkersPage: React.FC = () => {
   const { familyId = '' } = useParams();
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project_id');
-  const [showAll, setShowAll] = useState(false);
+  // Floating hover tooltip (same component/style as the chromosome view's track).
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; node: React.ReactNode } | null>(null);
 
   const { data: family, isLoading: familyLoading } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
@@ -108,15 +111,25 @@ const FamilyRoiMarkersPage: React.FC = () => {
   });
 
   const roi = family?.roi ?? null;
-  const window = useMemo(
-    () =>
-      roi ? { chr: roi.chr, start: Math.max(0, roi.start - ROI_FLANK), end: roi.end + ROI_FLANK } : null,
-    [roi],
-  );
+  // The user-adjustable view window. `null` means "follow the ROI default" (ROI ± flank);
+  // zoom/pan write an explicit span here, and Reset clears it back to the default.
+  const [viewport, setViewport] = useState<{ start: number; end: number } | null>(null);
+  const window = useMemo(() => {
+    if (!roi) return null;
+    // The standard view is the ROI itself; zoom/pan widen it for context on demand.
+    const base = { start: Math.max(0, roi.start), end: roi.end };
+    const view = viewport ?? base;
+    return { chr: roi.chr, start: view.start, end: view.end };
+  }, [roi, viewport]);
 
-  const { data: phased, isLoading: phasedLoading } = useQuery<PhasedMarkerResponse>({
+  const {
+    data: phased,
+    isLoading: phasedLoading,
+    isFetching: phasedFetching,
+  } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, window?.chr, window?.start, window?.end],
     enabled: !!window,
+    placeholderData: keepPreviousData,
     queryFn: async () =>
       (
         await api.get(`/families/${familyId}/phased-markers`, {
@@ -128,6 +141,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
   const { data: haplo } = useQuery<HaplotypeResponse>({
     queryKey: ['haplotypes', familyId, window?.chr, window?.start, window?.end],
     enabled: !!window,
+    placeholderData: keepPreviousData,
     queryFn: async () =>
       (
         await api.get(`/families/${familyId}/haplotypes`, {
@@ -169,13 +183,28 @@ const FamilyRoiMarkersPage: React.FC = () => {
     [allSites, embryoInformativePos],
   );
 
-  const baseSites = showAll ? allSites : informativeSites;
+  // Only the informative markers drive the segregation call; the rest are noise here.
+  const baseSites = informativeSites;
   const shownSites = baseSites.slice(0, MAX_COLUMNS);
+  const siteByPos = useMemo(() => new Map(shownSites.map((s) => [s.pos, s])), [shownSites]);
   const sampleOrder = (phased?.samples ?? []).map((s) => s.sample);
   const qcBySample = useMemo(
     () => new Map((phased?.samples ?? []).map((s) => [s.sample, s.qc])),
     [phased?.samples],
   );
+
+  // Per member, the resolved homolog index on each lane at each position. A lane is
+  // informative exactly where it carries a value: for a child that means the parent-of-
+  // origin was resolvable there; a parent carries its own allele; relatives have none.
+  const markerLanes = useMemo(() => {
+    const map = new Map<string, Map<number, { hap1: number | null; hap2: number | null }>>();
+    (phased?.samples ?? []).forEach((s) => {
+      const byPos = new Map<number, { hap1: number | null; hap2: number | null }>();
+      s.markers.forEach((m) => byPos.set(m.pos, { hap1: m.hap1, hap2: m.hap2 }));
+      map.set(s.sample, byPos);
+    });
+    return map;
+  }, [phased?.samples]);
 
   if (familyLoading || phasedLoading) {
     return <PageState title="Loading ROI markers…" />;
@@ -192,8 +221,111 @@ const FamilyRoiMarkersPage: React.FC = () => {
     );
   }
 
-  const inRoi = (pos: number) => pos >= roi.start && pos <= roi.end;
   const backLink = `/families/${familyId}${projectId ? `?project_id=${projectId}` : ''}`;
+  const inheritanceModel = (family?.metadata?.pgt as { inheritance_model?: string } | undefined)
+    ?.inheritance_model;
+  const inRoi = (pos: number) => pos >= roi.start && pos <= roi.end;
+
+  // Zoom keeps the window centred; pan shifts it by a fraction of its span. Both clamp
+  // the left edge at 0 and enforce a minimum span so the view stays sensible.
+  const setView = (start: number, end: number) => {
+    const s = Math.max(0, Math.round(start));
+    setViewport({ start: s, end: Math.round(Math.max(end, s + MIN_SPAN)) });
+  };
+  const zoom = (factor: number) => {
+    const span = window.end - window.start;
+    const center = (window.start + window.end) / 2;
+    const newSpan = Math.max(MIN_SPAN, span * factor);
+    setView(center - newSpan / 2, center + newSpan / 2);
+  };
+  const pan = (fraction: number) => {
+    const span = window.end - window.start;
+    let start = window.start + span * fraction;
+    let end = window.end + span * fraction;
+    if (start < 0) {
+      end -= start; // keep the span when bumping against the chromosome start
+      start = 0;
+    }
+    setView(start, end);
+  };
+  const isDefaultView = viewport === null;
+
+  // Hover tooltip, delegated at the table so we don't attach a handler per cell. Renders
+  // the chromosome-view tooltip style for both the Mendel-error badge and the band cells.
+  const handleTableMove = (event: React.MouseEvent<HTMLTableElement>) => {
+    const target = event.target as HTMLElement;
+    const badge = target.closest('.roi-markers-mendel') as HTMLElement | null;
+    if (badge) {
+      const qc = qcBySample.get(badge.dataset.sample ?? '');
+      if (qc) {
+        setTooltip({
+          x: event.clientX,
+          y: event.clientY,
+          node: (
+            <div className="roi-markers-tip">
+              <div className="roi-markers-tip-head">
+                <strong>Mendelian error rate: {(qc.mendel_rate * 100).toFixed(1)}%</strong>
+              </div>
+              <div className="roi-markers-tip-row">
+                {qc.mendel_errors.toLocaleString()} of {qc.informative_sites.toLocaleString()} sites where both
+                parents and {badge.dataset.sample} are genotyped have a genotype that cannot be inherited from
+                these parents (an impossible transmission).
+              </div>
+              <div className="roi-markers-tip-row roi-markers-tip-region">
+                A high rate points to a sample swap, an incorrect pedigree, or genotyping noise rather than a
+                real variant.
+              </div>
+            </div>
+          ),
+        });
+        return;
+      }
+    }
+    const cell = target.closest('.roi-markers-band') as HTMLElement | null;
+    if (!cell) {
+      setTooltip(null);
+      return;
+    }
+    const pos = Number(cell.dataset.pos);
+    const sample = cell.dataset.sample ?? '';
+    const lane = cell.dataset.lane ?? '';
+    const base = cell.dataset.base ?? '';
+    const informative = cell.dataset.informative === '1';
+    const site = siteByPos.get(pos);
+    const role = roleBySample.get(sample);
+    const flank = !inRoi(pos);
+    setTooltip({
+      x: event.clientX,
+      y: event.clientY,
+      node: (
+        <div className="roi-markers-tip">
+          <div className="roi-markers-tip-head">
+            <strong>
+              {roi.chr}:{pos.toLocaleString()}
+            </strong>
+            {site && (
+              <span className="roi-markers-tip-change">
+                {' '}
+                <span style={{ color: nucleotideColor(site.ref) }}>{site.ref}</span>
+                <span style={{ color: '#94a3b8' }}>›</span>
+                <span style={{ color: nucleotideColor(site.alt) }}>{site.alt}</span>
+              </span>
+            )}
+            <span className="roi-markers-tip-region">{flank ? ' · flank' : ' · ROI'}</span>
+          </div>
+          <div className="roi-markers-tip-row">
+            <strong>{sample}</strong>
+            {role && <span className="roi-markers-tip-role"> ({role})</span>} · homolog {lane}
+          </div>
+          <div className="roi-markers-tip-row">
+            allele{' '}
+            <span style={{ color: informative ? nucleotideColor(base) : '#6b7280', fontWeight: 700 }}>{base}</span>
+            {informative ? '' : ' — uninformative (parent-of-origin unresolved here)'}
+          </div>
+        </div>
+      ),
+    });
+  };
 
   return (
     <div className="page-shell roi-markers-page space-y-4">
@@ -203,37 +335,72 @@ const FamilyRoiMarkersPage: React.FC = () => {
         </Link>
         <h1 className="section-title">ROI marker review — {roi.label}</h1>
         <p className="segregation-note">
-          All phased markers for every family member across {roi.chr}:{(roi.start - ROI_FLANK).toLocaleString()}–
-          {(roi.end + ROI_FLANK).toLocaleString()} (ROI ± 1 Mb). Genotypes are derived from the phased
-          imputed data; cell colours show the inherited haplotype (blue = paternal, green = maternal, grey
-          = untransmitted/donor/uninformative), matching the chromosome view. Use it to re-check the ROI for
-          errors, artefacts and recombination.
+          Informative phased markers for every family member across the ROI {roi.chr}:
+          {roi.start.toLocaleString()}–{roi.end.toLocaleString()}. The view opens on the ROI; use the zoom and
+          pan controls to widen the window for flanking context. Genotypes are derived from the phased imputed
+          data; cell colours show the inherited haplotype (blue = paternal, green = maternal, grey =
+          untransmitted/donor), matching the chromosome view. The ROI is bracketed by an orange line between
+          members and any flanking markers are dimmed; each member shows its two homolog bands with the
+          inherited allele on each band — alleles are nucleotide-coloured where the lane is informative and
+          greyed where it is not. Use it to re-check the ROI for errors, artefacts and recombination.
         </p>
+        <HaplotypeLegend inheritanceModel={inheritanceModel} />
+      </div>
+
+      <div className="roi-markers-controls" role="group" aria-label="Adjust the marker view">
+        <div className="roi-markers-zoom">
+          <button type="button" className="button-ghost" onClick={() => pan(-0.5)} aria-label="Pan left" title="Pan left">
+            ←
+          </button>
+          <button type="button" className="button-ghost" onClick={() => zoom(2)} aria-label="Zoom out" title="Zoom out">
+            −
+          </button>
+          <button type="button" className="button-ghost" onClick={() => zoom(0.5)} aria-label="Zoom in" title="Zoom in">
+            +
+          </button>
+          <button type="button" className="button-ghost" onClick={() => pan(0.5)} aria-label="Pan right" title="Pan right">
+            →
+          </button>
+          <button
+            type="button"
+            className="button-ghost"
+            onClick={() => setViewport(null)}
+            disabled={isDefaultView}
+            title="Reset to the ROI"
+          >
+            Reset
+          </button>
+        </div>
+        <span className="roi-markers-range">
+          {window.chr}:{window.start.toLocaleString()}–{window.end.toLocaleString()}{' '}
+          <span className="roi-markers-range-span">
+            ({Math.round((window.end - window.start) / 1000).toLocaleString()} kb)
+          </span>
+          {phasedFetching && <span className="roi-markers-updating"> · updating…</span>}
+        </span>
       </div>
 
       <div className="roi-markers-summary">
-        <span className="table-chip">{allSites.length.toLocaleString()} markers in window</span>
+        <span className="table-chip">{allSites.length.toLocaleString()} markers in view</span>
         <span className="table-chip">{informativeSites.length.toLocaleString()} informative for embryos</span>
-        <span className="table-chip">
-          {(allSites.length - informativeSites.length).toLocaleString()} uninformative
-        </span>
         {phased?.truncated && (
           <span className="table-chip table-chip--critical">truncated — zoom in for the full set</span>
         )}
-        <button type="button" className="button-ghost" onClick={() => setShowAll((v) => !v)}>
-          {showAll ? 'Show informative only' : 'Show all markers'}
-        </button>
       </div>
 
       {shownSites.length < baseSites.length && (
         <div className="segregation-note segregation-note--error">
-          Showing the first {shownSites.length.toLocaleString()} of {baseSites.length.toLocaleString()} markers —
-          narrow the region or filter to informative markers to see the rest.
+          Showing the first {shownSites.length.toLocaleString()} of {baseSites.length.toLocaleString()} informative
+          markers.
         </div>
       )}
 
       <div className="roi-markers-table-wrap">
-        <table className="roi-markers-table">
+        <table
+          className="roi-markers-table"
+          onMouseMove={handleTableMove}
+          onMouseLeave={() => setTooltip(null)}
+        >
           <thead>
             <tr>
               <th className="roi-markers-corner">Member</th>
@@ -241,7 +408,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
                 <th
                   key={site.pos}
                   className={`roi-markers-poscol${inRoi(site.pos) ? ' roi-markers-poscol--roi' : ''}`}
-                  title={`${roi.chr}:${site.pos.toLocaleString()} ${site.ref}>${site.alt}`}
+                  title={`${roi.chr}:${site.pos.toLocaleString()} ${site.ref}>${site.alt}${
+                    inRoi(site.pos) ? '' : ' (flank)'
+                  }`}
                 >
                   {site.pos.toLocaleString()}
                 </th>
@@ -253,55 +422,87 @@ const FamilyRoiMarkersPage: React.FC = () => {
               const segs = segmentsBySample.get(sample) ?? [];
               const role = roleBySample.get(sample);
               const qc = qcBySample.get(sample);
-              return (
-                <tr key={sample} className={role === 'embryo' ? 'roi-markers-row--embryo' : undefined}>
-                  <th className="roi-markers-namecol" scope="row">
-                    <span className="roi-markers-name">{sample}</span>
-                    {role && <span className="roi-markers-role"> ({role})</span>}
-                    {qc && qc.mendel_errors > 0 && (
-                      <span
-                        className="roi-markers-mendel"
-                        title={`${qc.mendel_errors} Mendel-inconsistent sites of ${qc.informative_sites} informative (${(qc.mendel_rate * 100).toFixed(1)}%)`}
-                      >
-                        {' '}
-                        ⚠{(qc.mendel_rate * 100).toFixed(1)}%
-                      </span>
-                    )}
-                  </th>
+              const embryo = role === 'embryo';
+              // Two stacked bands per member: homolog 1 (hap1) above homolog 2 (hap2),
+              // each coloured by lineage with its inherited allele on the band.
+              const bandRows = LANES.map((lane, laneIdx) => (
+                <tr
+                  key={`${sample}-${lane}`}
+                  className={`roi-markers-bandrow${embryo ? ' roi-markers-row--embryo' : ''}`}
+                >
+                  {laneIdx === 0 && (
+                    <th className="roi-markers-namecol" scope="rowgroup" rowSpan={LANES.length}>
+                      <span className="roi-markers-name">{sample}</span>
+                      {role && <span className="roi-markers-role"> ({role})</span>}
+                      {qc && qc.mendel_errors > 0 && (
+                        <span className="roi-markers-mendel" data-sample={sample}>
+                          {' '}
+                          ⚠{(qc.mendel_rate * 100).toFixed(1)}%
+                        </span>
+                      )}
+                    </th>
+                  )}
                   {shownSites.map((site) => {
                     const seg = coveringSegment(segs, site.pos);
                     const gt = site.gts[memberIdx] ?? '';
                     const [a, b] = gt.includes('|') ? gt.split('|') : ['', ''];
-                    const informative = embryoInformativePos.has(site.pos);
+                    const idx = lane === 'hap1' ? a : b;
+                    const base = idx ? alleleBase(idx, site.ref, site.alt) : '·';
+                    const bg = laneColor(seg, lane);
+                    // Colour the allele by nucleotide only where this member's lane is
+                    // informative (a resolved marker); otherwise mute it to grey.
+                    const laneValue = markerLanes.get(sample)?.get(site.pos)?.[lane] ?? null;
+                    const informative = laneValue !== null;
                     return (
                       <td
                         key={site.pos}
-                        className={`roi-markers-cell${informative ? '' : ' roi-markers-cell--uninformative'}${
-                          inRoi(site.pos) ? ' roi-markers-cell--roi' : ''
-                        }`}
+                        className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}`}
+                        style={{ background: bg || undefined }}
+                        data-pos={site.pos}
+                        data-sample={sample}
+                        data-lane={laneIdx + 1}
+                        data-base={base}
+                        data-informative={informative ? '1' : '0'}
                       >
                         <span
-                          className="roi-markers-lanes"
-                          style={{
-                            background: `linear-gradient(to bottom, ${laneColor(seg, 'hap1')} 0 50%, ${laneColor(
-                              seg,
-                              'hap2',
-                            )} 50% 100%)`,
-                          }}
-                        />
-                        <span className="roi-markers-gt">
-                          {a ? baseSpan(alleleBase(a, site.ref, site.alt), 0) : '–'}
-                          {b ? baseSpan(alleleBase(b, site.ref, site.alt), 1) : ''}
+                          className={`roi-markers-allele${informative ? '' : ' roi-markers-allele--muted'}`}
+                          style={{ color: informative ? nucleotideColor(base) : UNINFORMATIVE_COLOR }}
+                        >
+                          {base}
                         </span>
                       </td>
                     );
                   })}
                 </tr>
-              );
+              ));
+              // A thin spacer row separates members: whitespace in the flanks, an orange
+              // line through the ROI columns so the region reads as a continuous bracket.
+              if (memberIdx > 0) {
+                bandRows.unshift(
+                  <tr key={`${sample}-spacer`} className="roi-markers-spacer" aria-hidden="true">
+                    <td className="roi-markers-spacer-name" />
+                    {shownSites.map((site) => (
+                      <td
+                        key={site.pos}
+                        className={`roi-markers-spacer-cell${
+                          inRoi(site.pos) ? ' roi-markers-spacer-cell--roi' : ''
+                        }`}
+                      />
+                    ))}
+                  </tr>,
+                );
+              }
+              return bandRows;
             })}
           </tbody>
         </table>
       </div>
+
+      {tooltip && (
+        <VizTooltip x={tooltip.x} y={tooltip.y}>
+          {tooltip.node}
+        </VizTooltip>
+      )}
     </div>
   );
 };
