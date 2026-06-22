@@ -231,6 +231,66 @@ async def test_insert_small_variant_records_uses_compact_annotations_and_gene_in
 
 
 @pytest.mark.asyncio
+async def test_insert_small_variant_records_stores_site_qual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, list[tuple[object, ...]] | None]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(
+        query: str,
+        params: dict[str, object] | None = None,
+        data=None,
+    ):
+        executed.append((query, data))
+        return []
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage,
+        "ensure_clickhouse_variant_tables",
+        fake_ensure,
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    record = SmallVariantRecord(
+        variant_key=None,
+        variant_id="1-100-A-G",
+        chr="1",
+        start=100,
+        end=100,
+        ref="A",
+        alt="G",
+        source="clair3",
+        rsid=None,
+        filters=[],
+        gene_symbols=["APC"],
+        annotations=[],
+        calls=[SmallVariantCall(sample="sample-1", gt="0/1", gq=None, dp=None, af=[], ad=[], ps=None)],
+        qual=42.5,
+    )
+
+    await clickhouse_variant_storage.insert_small_variant_records(
+        "GRCh38",
+        "family-1",
+        ["project-1"],
+        [record],
+    )
+
+    entry_query, entry_data = next(
+        (query, data)
+        for query, data in executed
+        if "INSERT INTO coga.`GRCh38/SNV_INDEL/entries`" in query
+    )
+
+    assert "qual," in entry_query
+    assert entry_data is not None
+    # qual is the variant-level column inserted immediately after `filters`.
+    assert entry_data[0][18] == pytest.approx(42.5)
+
+
+@pytest.mark.asyncio
 async def test_insert_small_variant_records_chunks_large_table_payloads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

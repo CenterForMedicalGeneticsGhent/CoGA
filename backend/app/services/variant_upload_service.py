@@ -318,6 +318,16 @@ def _parse_int_list(value: str | None) -> list[int]:
     return parsed
 
 
+def _parse_qual(value: str | None) -> float | None:
+    """Parse the site-level VCF QUAL column (a float, or '.'/'' when missing)."""
+    if value in (None, ".", ""):
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
 def _format_has_phased_gt(format_keys: list[str], sample_fields: list[str]) -> bool:
     try:
         gt_index = format_keys.index("GT")
@@ -1229,6 +1239,7 @@ async def upload_family_small_variant_file(
                     gene_symbols=[],
                     annotations=annotations,
                     calls=calls,
+                    qual=_parse_qual(qual),
                 )
             )
             inserted += 1

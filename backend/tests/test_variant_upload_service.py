@@ -12,9 +12,19 @@ from backend.app.services.variant_upload_service import (
     _haplotype_state_end,
     _haplotype_state_matches_block,
     _new_haplotype_state,
+    _parse_qual,
     _parse_vep_tsv_annotation_upload,
     _phased_haplotype_alleles,
 )
+
+
+def test_parse_qual_reads_float_and_treats_missing_as_none() -> None:
+    assert _parse_qual("42.5") == 42.5
+    assert _parse_qual("0") == 0.0
+    assert _parse_qual(".") is None
+    assert _parse_qual("") is None
+    assert _parse_qual(None) is None
+    assert _parse_qual("not-a-number") is None
 
 
 def test_haplotype_state_end_uses_next_variant_on_same_chromosome() -> None:

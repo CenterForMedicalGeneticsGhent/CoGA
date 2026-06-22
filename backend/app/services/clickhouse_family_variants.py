@@ -225,6 +225,9 @@ class SmallVariantRecord:
     gene_symbols: list[str]
     annotations: list[dict[str, Any]]
     calls: list[SmallVariantCall]
+    # Site-level VCF QUAL (column 6). Optional and defaulted so existing
+    # construction sites are unaffected; the upload path populates it.
+    qual: float | None = None
 
 
 @dataclass(slots=True)
