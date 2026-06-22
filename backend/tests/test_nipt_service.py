@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -184,14 +185,18 @@ async def test_run_family_nipt_analysis_end_to_end(monkeypatch: pytest.MonkeyPat
         return family
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return object()
+        return SimpleNamespace(assembly_id="assembly-uuid")
 
     async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
         return records
 
+    async def fake_load_artifacts(_session, *, assembly_id, assay_key):
+        return set()
+
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
 
     result = await run_family_nipt_analysis(
         session=None,  # type: ignore[arg-type]
@@ -203,6 +208,55 @@ async def test_run_family_nipt_analysis_end_to_end(monkeypatch: pytest.MonkeyPat
     assert result.fetal_fraction.n_sites == 40
     assert result.category_counts[7] == 40
     assert result.category_counts[3] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_family_nipt_analysis_counts_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    family = FamilyOut(
+        id="family-uuid",
+        family_id="NIPT001",
+        created_at=datetime.now(timezone.utc),
+        members=[
+            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
+            FamilyMemberOut(
+                sample_id="cfdna-1",
+                role="mother",
+                affected=False,
+                sample_metadata={"assay": "nipt_cfdna"},
+            ),
+        ],
+        metadata={"analysis_type": "monogenic_nipt"},
+    )
+    records = _cohort_cat7_records()
+
+    async def fake_get_family_record(_session, _family_id, _user):
+        return family
+
+    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
+        return SimpleNamespace(assembly_id="assembly-uuid")
+
+    async def fake_fetch(_context, _filters, *, limit=None, **_kwargs):
+        return records
+
+    async def fake_load_artifacts(_session, *, assembly_id, assay_key):
+        return {"1-5-A-G"}
+
+    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
+    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
+
+    result = await run_family_nipt_analysis(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+    )
+
+    assert result.filter_counts["failed_artifact"] == 1
+    # The artifact site is dropped before FF estimation, so 39 category-7 sites remain.
+    assert result.fetal_fraction.n_sites == 39
 
 
 @pytest.mark.asyncio
@@ -253,20 +307,26 @@ def _nipt_family() -> FamilyOut:
     )
 
 
-def _wire_variants_mocks(monkeypatch: pytest.MonkeyPatch, *, cohort, filtered) -> None:
+def _wire_variants_mocks(
+    monkeypatch: pytest.MonkeyPatch, *, cohort, filtered, artifacts: set[str] | None = None
+) -> None:
     async def fake_get_family_record(_session, _family_id, _user):
         return _nipt_family()
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
-        return object()
+        return SimpleNamespace(assembly_id="assembly-uuid")
 
     async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
         # The cohort (FF) load carries no gene filter; the variant load does.
         return cohort if filters.gene is None else filtered
 
+    async def fake_load_artifacts(_session, *, assembly_id, assay_key):
+        return set(artifacts or set())
+
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
+    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
 
 
 def _cohort_cat7_records() -> list[SmallVariantRecord]:
@@ -373,3 +433,25 @@ async def test_get_family_nipt_variants_rejects_unsupported_preset() -> None:
             inheritance="recessive_at_risk",
         )
     assert "inheritance preset" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_excludes_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire_variants_mocks(
+        monkeypatch,
+        cohort=_cohort_cat7_records(),
+        filtered=_de_novo_and_cat3_records(),
+        artifacts={"1-9000-A-G"},  # the de novo site is a known artifact
+    )
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "BRCA1"},
+    )
+
+    assert result.total == 1
+    assert {item.classification.category for item in result.variants} == {3}

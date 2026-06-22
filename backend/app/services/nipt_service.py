@@ -25,7 +25,8 @@ from .clickhouse_family_variants import (
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
 from .metadata_service import CurrentUser, get_family_record
-from .nipt import NiptTrio, resolve_nipt_trio
+from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
+from .nipt_artifact_pg import load_nipt_artifact_ids
 from .nipt_analysis import (
     FetalFractionEstimate,
     NiptAnalysisResult,
@@ -160,7 +161,7 @@ async def _resolve_trio_and_context(
     family_id: str,
     user: CurrentUser,
     project_id: str | None,
-) -> tuple[NiptTrio, FamilyMetadataContext]:
+) -> tuple[NiptTrio, FamilyMetadataContext, str]:
     family = await get_family_record(session, family_id, user)
     trio = resolve_nipt_trio(family)
     if trio is None:
@@ -174,7 +175,16 @@ async def _resolve_trio_and_context(
         user=user,
         project_id=project_id,
     )
-    return trio, context
+    return trio, context, nipt_assay_key(family, trio)
+
+
+async def _load_artifact_lookup(
+    session: AsyncSession, context: FamilyMetadataContext, assay_key: str
+):
+    artifact_ids = await load_nipt_artifact_ids(
+        session, assembly_id=context.assembly_id, assay_key=assay_key
+    )
+    return artifact_ids.__contains__
 
 
 def _family_sites(
@@ -196,12 +206,18 @@ async def run_family_nipt_analysis(
     qc: NiptQualityThresholds | None = None,
     external_ff: float | None = None,
 ) -> NiptAnalysisResult:
-    trio, context = await _resolve_trio_and_context(
+    trio, context, assay_key = await _resolve_trio_and_context(
         session, family_id=family_id, user=user, project_id=project_id
     )
+    artifact_lookup = await _load_artifact_lookup(session, context, assay_key)
     records = await _load_family_records(context)
     sites = _family_sites(records, trio)
-    return run_nipt_analysis(sites, qc or NiptQualityThresholds(), external_ff=external_ff)
+    return run_nipt_analysis(
+        sites,
+        qc or NiptQualityThresholds(),
+        artifact_lookup=artifact_lookup,
+        external_ff=external_ff,
+    )
 
 
 def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
@@ -256,8 +272,11 @@ async def get_family_nipt_variants(
             )
         wanted = (wanted & set(preset)) if wanted else set(preset)
 
-    trio, context = await _resolve_trio_and_context(
+    trio, context, assay_key = await _resolve_trio_and_context(
         session, family_id=family_id, user=user, project_id=project_id
+    )
+    artifact_ids = await load_nipt_artifact_ids(
+        session, assembly_id=context.assembly_id, assay_key=assay_key
     )
 
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
@@ -287,6 +306,8 @@ async def get_family_nipt_variants(
 
     classified: list[NiptClassifiedVariant] = []
     for record in records:
+        if record.variant_id in artifact_ids:
+            continue
         observation = observations.get(record.variant_id)
         if observation is None:
             continue

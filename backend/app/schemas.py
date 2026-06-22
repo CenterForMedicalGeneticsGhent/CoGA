@@ -240,6 +240,31 @@ class NiptVariantPage(BaseModel):
     variants: List[NiptVariantOut]
 
 
+class NiptArtifactOut(BaseModel):
+    """A recurrent-artifact (panel-of-normals) entry for monogenic NIPT."""
+
+    id: str
+    assembly_id: str
+    assay_key: str
+    variant_id: str
+    recurrence_count: int
+    source: str
+    label: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NiptArtifactCreate(BaseModel):
+    """Create/update a NIPT artifact within an assembly + assay/panel scope."""
+
+    assembly_id: str
+    variant_id: str
+    assay_key: str = "nipt_cfdna"
+    label: Optional[str] = None
+    source: Literal["curated", "auto"] = "curated"
+    recurrence_count: int = 0
+
+
 class FamilyStatusOut(BaseModel):
     """An admin-managed family status value."""
 

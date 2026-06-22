@@ -5,10 +5,12 @@ from datetime import datetime, timezone
 from backend.app.schemas import FamilyMemberOut, FamilyOut
 from backend.app.services.metadata_service import _family_member_out_from_row
 from backend.app.services.nipt import (
+    DEFAULT_NIPT_ASSAY_KEY,
     MONOGENIC_NIPT_ANALYSIS_TYPE,
     NIPT_CFDNA_ASSAY,
     NiptTrio,
     is_monogenic_nipt_family,
+    nipt_assay_key,
     resolve_nipt_trio,
 )
 
@@ -19,12 +21,18 @@ def _member(
     *,
     active: bool = True,
     assay: str | None = None,
+    assay_panel: str | None = None,
 ) -> FamilyMemberOut:
+    metadata: dict[str, str] = {}
+    if assay:
+        metadata["assay"] = assay
+    if assay_panel:
+        metadata["assay_panel"] = assay_panel
     return FamilyMemberOut(
         sample_id=sample_id,
         role=role,  # type: ignore[arg-type]
         affected=False,
-        sample_metadata={"assay": assay} if assay else {},
+        sample_metadata=metadata,
         active=active,
     )
 
@@ -141,6 +149,30 @@ def test_resolve_nipt_trio_ignores_inactive_members() -> None:
     trio = resolve_nipt_trio(family)
     assert trio is not None
     assert trio.cfdna_sample_id == "cfdna-1"
+
+
+def test_nipt_assay_key_defaults_without_panel() -> None:
+    family = _family(
+        [
+            _member("father-1", "father"),
+            _member("cfdna-1", "mother", assay=NIPT_CFDNA_ASSAY),
+        ]
+    )
+    trio = resolve_nipt_trio(family)
+    assert trio is not None
+    assert nipt_assay_key(family, trio) == DEFAULT_NIPT_ASSAY_KEY
+
+
+def test_nipt_assay_key_reads_panel_from_cfdna_metadata() -> None:
+    family = _family(
+        [
+            _member("father-1", "father"),
+            _member("cfdna-1", "mother", assay=NIPT_CFDNA_ASSAY, assay_panel="nipt_panel_v2"),
+        ]
+    )
+    trio = resolve_nipt_trio(family)
+    assert trio is not None
+    assert nipt_assay_key(family, trio) == "nipt_panel_v2"
 
 
 def test_family_member_out_exposes_sample_metadata() -> None:

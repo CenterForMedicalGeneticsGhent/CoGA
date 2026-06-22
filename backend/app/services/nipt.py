@@ -28,6 +28,11 @@ MONOGENIC_NIPT_ANALYSIS_TYPE = "monogenic_nipt"
 SAMPLE_ASSAY_KEY = "assay"
 NIPT_CFDNA_ASSAY = "nipt_cfdna"
 
+# Sample.metadata["assay_panel"] (optional) names the capture panel/chemistry,
+# which scopes the recurrent-artifact list. Absent -> the default scope.
+SAMPLE_ASSAY_PANEL_KEY = "assay_panel"
+DEFAULT_NIPT_ASSAY_KEY = NIPT_CFDNA_ASSAY
+
 
 @dataclass(slots=True)
 class NiptTrio:
@@ -102,3 +107,19 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
         cfdna_sample_id=cfdna_sample_id,
         fetus_sample_id=fetus_sample_id,
     )
+
+
+def nipt_assay_key(family: FamilyOut, trio: NiptTrio) -> str:
+    """The artifact-list scope key for the family's cfDNA assay/panel.
+
+    Read from the cfDNA sample's ``assay_panel`` metadata so labs can keep a
+    panel-specific artifact list; absent, all NIPT families on the assembly
+    share the default scope.
+    """
+    for member in family.members:
+        if member.sample_id == trio.cfdna_sample_id:
+            panel = (member.sample_metadata or {}).get(SAMPLE_ASSAY_PANEL_KEY)
+            if isinstance(panel, str) and panel.strip():
+                return panel.strip()
+            break
+    return DEFAULT_NIPT_ASSAY_KEY
