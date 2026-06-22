@@ -551,22 +551,78 @@ def _escape_like(value: str) -> str:
 # these only bound the payload (a disease can carry hundreds of expected phenotypes).
 _SEARCH_GENE_CAP = 200
 _SEARCH_PHENOTYPE_CAP = 60
+# Cap on the aggregated gene overview (a broad phenotype can touch thousands of genes).
+_SEARCH_GENE_OVERVIEW_CAP = 300
+
+
+def _empty_search(query: str) -> dict[str, Any]:
+    return {
+        "query": query,
+        "total": 0,
+        "diseases": [],
+        "gene_overview": {"total": 0, "genes": []},
+    }
+
+
+async def _aggregate_gene_overview(
+    session: AsyncSession, mondo_ids: list[str]
+) -> dict[str, Any]:
+    """De-duplicated gene list across every matched disease, strongest links first.
+
+    ``disease_count`` is how many of the matched diseases each gene is linked to and
+    ``causal`` is true when any of those links is direct causation.
+    """
+    if not mondo_ids:
+        return {"total": 0, "genes": []}
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT
+                    gene_symbol,
+                    hgnc_id,
+                    bool_or(causal) AS causal,
+                    count(DISTINCT mondo_id) AS disease_count
+                FROM monarch_gene_disease
+                WHERE mondo_id = ANY(:ids)
+                GROUP BY gene_symbol, hgnc_id
+                ORDER BY causal DESC, disease_count DESC, lower(gene_symbol)
+                """
+            ),
+            {"ids": mondo_ids},
+        )
+    ).mappings().all()
+    genes = [
+        {
+            "gene_symbol": row["gene_symbol"],
+            "hgnc_id": row["hgnc_id"],
+            "causal": bool(row["causal"]),
+            "disease_count": row["disease_count"],
+        }
+        for row in rows
+    ]
+    return {"total": len(genes), "genes": genes[:_SEARCH_GENE_OVERVIEW_CAP]}
 
 
 async def search_monarch_associations(
     session: AsyncSession, *, query: str, limit: int = 25
 ) -> dict[str, Any]:
-    """Search Monarch diseases by name/MONDO id or by a linked phenotype name/HP id.
+    """Search Monarch diseases by name/MONDO id or by a linked phenotype.
 
-    Returns the matched diseases, each with their linked genes and an overview of
-    their expected (present) phenotypes. A disease surfaces either because its own
-    label/MONDO id matches the query (``match_type`` ``disease``) or because one of
-    its phenotypes' label/HP id matches (``match_type`` ``phenotype``); ``both`` when
-    it matches on both. Matched phenotypes are flagged and listed first.
+    A disease surfaces either because its own label/MONDO id matches the query
+    (``match_type`` ``disease``) or because it presents a phenotype that matches
+    (``match_type`` ``phenotype``); ``both`` when it matches on both. Phenotype
+    matching is HPO-closure aware: the query is resolved to seed HPO terms (by id,
+    label, or synonym) which are then expanded to all of their descendant terms, so
+    a disease annotated only with a more specific child term still surfaces.
+
+    Returns the matched diseases (each with their linked genes and an expected-
+    phenotype overview, matched phenotypes flagged first) plus ``gene_overview`` —
+    a de-duplicated list of every gene linked across *all* matched diseases.
     """
     cleaned = (query or "").strip()
     if not cleaned:
-        return {"query": "", "total": 0, "diseases": []}
+        return _empty_search("")
 
     pattern = f"%{_escape_like(cleaned)}%"
     needle = cleaned.lower()
@@ -597,17 +653,26 @@ async def search_monarch_associations(
     ).mappings().all()
     name_labels = {row["mondo_id"]: row["disease_label"] for row in name_rows}
 
-    # Diseases that present a phenotype whose label or HP id matches.
-    pheno_ids = set(
+    # Seed HPO terms for a phenotype match: resolve the query against the ontology
+    # (id / label / synonym) and Monarch's own phenotype labels. Seeding from the
+    # ontology lets a high-level term resolve even when no disease is annotated with
+    # it directly — its descendants carry the disease links.
+    seed_ids = set(
         (
             await session.execute(
                 text(
                     r"""
-                    SELECT DISTINCT mondo_id
-                    FROM monarch_disease_phenotype
+                    SELECT hpo_id FROM hpo_term
+                    WHERE hpo_id ILIKE :pattern ESCAPE '\'
+                       OR label ILIKE :pattern ESCAPE '\'
+                    UNION
+                    SELECT hpo_id FROM hpo_synonym
+                    WHERE synonym ILIKE :pattern ESCAPE '\'
+                    UNION
+                    SELECT hpo_id FROM monarch_disease_phenotype
                     WHERE negated = FALSE
-                      AND (phenotype_label ILIKE :pattern ESCAPE '\'
-                           OR hpo_id ILIKE :pattern ESCAPE '\')
+                      AND (hpo_id ILIKE :pattern ESCAPE '\'
+                           OR phenotype_label ILIKE :pattern ESCAPE '\')
                     """
                 ),
                 {"pattern": pattern},
@@ -615,10 +680,51 @@ async def search_monarch_associations(
         ).scalars().all()
     )
 
+    # Expand seeds to themselves plus every descendant term via the HPO closure.
+    # Membership in this set is what flags a disease's phenotype as "matched".
+    expanded_ids = set(seed_ids)
+    if seed_ids:
+        expanded_ids.update(
+            (
+                await session.execute(
+                    text(
+                        """
+                        SELECT DISTINCT hpo_id
+                        FROM hpo_closure
+                        WHERE ancestor_id = ANY(:seeds)
+                        """
+                    ),
+                    {"seeds": list(seed_ids)},
+                )
+            ).scalars().all()
+        )
+
+    # Diseases that present any seed-or-descendant phenotype.
+    pheno_ids: set[str] = set()
+    if expanded_ids:
+        pheno_ids = set(
+            (
+                await session.execute(
+                    text(
+                        """
+                        SELECT DISTINCT mondo_id
+                        FROM monarch_disease_phenotype
+                        WHERE negated = FALSE
+                          AND hpo_id = ANY(:ids)
+                        """
+                    ),
+                    {"ids": list(expanded_ids)},
+                )
+            ).scalars().all()
+        )
+
     all_ids = set(name_labels) | pheno_ids
     total = len(all_ids)
     if not all_ids:
-        return {"query": cleaned, "total": 0, "diseases": []}
+        return _empty_search(cleaned)
+
+    # Gene overview spans the full match set, not just the displayed page.
+    gene_overview = await _aggregate_gene_overview(session, list(all_ids))
 
     def _rank(mondo_id: str) -> tuple[int, str]:
         # Name matches rank ahead of phenotype-only matches; exact then prefix first.
@@ -682,8 +788,8 @@ async def search_monarch_associations(
         mondo_id = row["mondo_id"]
         if row["disease_label"]:
             pheno_labels.setdefault(mondo_id, row["disease_label"])
-        label = (row["phenotype_label"] or "").lower()
-        matched = needle in label or needle in (row["hpo_id"] or "").lower()
+        # A phenotype counts as matched when it is the seed term or a descendant.
+        matched = row["hpo_id"] in expanded_ids
         phenos_by_disease.setdefault(mondo_id, []).append(
             {
                 "hpo_id": row["hpo_id"],
@@ -717,7 +823,12 @@ async def search_monarch_associations(
             }
         )
 
-    return {"query": cleaned, "total": total, "diseases": diseases}
+    return {
+        "query": cleaned,
+        "total": total,
+        "diseases": diseases,
+        "gene_overview": gene_overview,
+    }
 
 
 async def family_observed_phenotype_closure(

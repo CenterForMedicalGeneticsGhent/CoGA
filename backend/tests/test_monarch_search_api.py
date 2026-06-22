@@ -72,16 +72,27 @@ def test_monarch_search_returns_diseases_with_links(monarch_admin_client) -> Non
                         }
                     ],
                     "phenotype_count": 2,
-                    "matched_phenotype_count": 0,
+                    "matched_phenotype_count": 1,
                     "phenotypes": [
                         {
                             "hpo_id": "HP:0002072",
                             "phenotype_label": "Chorea",
-                            "matched": False,
+                            "matched": True,
                         }
                     ],
                 }
             ],
+            "gene_overview": {
+                "total": 1,
+                "genes": [
+                    {
+                        "gene_symbol": "HTT",
+                        "hgnc_id": "HGNC:4851",
+                        "causal": True,
+                        "disease_count": 1,
+                    }
+                ],
+            },
         }
 
     monkeypatch.setattr(admin_router, "search_monarch_associations", fake_search)
@@ -98,6 +109,9 @@ def test_monarch_search_returns_diseases_with_links(monarch_admin_client) -> Non
     assert disease["genes"][0]["gene_symbol"] == "HTT"
     assert disease["genes"][0]["causal"] is True
     assert disease["phenotypes"][0]["hpo_id"] == "HP:0002072"
+    assert body["gene_overview"]["total"] == 1
+    assert body["gene_overview"]["genes"][0]["gene_symbol"] == "HTT"
+    assert body["gene_overview"]["genes"][0]["disease_count"] == 1
 
 
 def test_monarch_search_rejects_out_of_range_limit(monarch_admin_client) -> None:

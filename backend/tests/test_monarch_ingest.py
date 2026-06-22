@@ -1,11 +1,14 @@
 """Tests for Monarch gene -> disease association parsing and aggregation."""
 
+import pytest
+
 from backend.app.services.monarch_ingest import (
     _Association,
     _DiseasePhenotype,
     _escape_like,
     parse_disease_phenotype_tsv,
     parse_gene_disease_tsv,
+    search_monarch_associations,
 )
 
 _HEADER = (
@@ -121,3 +124,22 @@ def test_escape_like_neutralizes_wildcards() -> None:
     # Backslash first so the wildcard escapes it introduces are not double-escaped.
     assert _escape_like("type_2 50%") == r"type\_2 50\%"
     assert _escape_like(r"a\b") == r"a\\b"
+
+
+class _ExplodingSession:
+    """Stand-in session that fails if any query is issued."""
+
+    async def execute(self, *args, **kwargs):  # pragma: no cover - must not run
+        raise AssertionError("an empty query should not touch the database")
+
+
+@pytest.mark.asyncio
+async def test_search_blank_query_returns_empty_shape_without_db() -> None:
+    result = await search_monarch_associations(_ExplodingSession(), query="   ")
+
+    assert result == {
+        "query": "",
+        "total": 0,
+        "diseases": [],
+        "gene_overview": {"total": 0, "genes": []},
+    }
