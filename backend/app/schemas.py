@@ -98,6 +98,7 @@ class FamilyMemberOut(BaseModel):
     carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
     carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
     active: bool = True
+    sample_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FamilyRelationshipOut(BaseModel):
