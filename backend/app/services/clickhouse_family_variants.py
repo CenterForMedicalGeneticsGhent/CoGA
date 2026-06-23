@@ -3553,7 +3553,8 @@ async def _fetch_small_variant_rows(
             e.calls.ab AS sample_abs,
             e.calls.af AS sample_afs,
             e.calls.ad AS sample_ads,
-            e.calls.ps AS sample_phase_sets
+            e.calls.ps AS sample_phase_sets,
+            e.qual AS qual
         FROM {entries_table} AS e
         WHERE {' AND '.join(where_clauses)}
         ORDER BY e.xpos, e.key
@@ -3592,6 +3593,7 @@ async def _fetch_small_variant_rows(
             sample_afs,
             sample_ads,
             sample_phase_sets,
+            qual,
         ) = row
         parsed_variant_key = _coerce_int(variant_key)
         parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
@@ -3645,6 +3647,7 @@ async def _fetch_small_variant_rows(
                 gene_symbols=_string_list(gene_symbols),
                 annotations=_collect_annotations(_decode_json_payload(annotations_json)),
                 calls=calls,
+                qual=_coerce_float(qual),
             )
         )
     return records

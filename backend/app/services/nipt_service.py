@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import bindparam, text
+
 from .clickhouse_family_variants import (
     PanelFilterConstraints,
     SmallVariantCall,
     SmallVariantRecord,
-    _fetch_gene_regions,
-    _fetch_gene_regions_for_terms,
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
     _split_gene_terms,
@@ -382,6 +382,44 @@ async def get_family_nipt_variants(
     return NiptVariantsResult(fetal_fraction=ff_estimate, total=total, variants=page_items)
 
 
+async def _fetch_labeled_gene_regions(
+    session: AsyncSession, *, terms: list[str], assembly_id: str | None
+) -> list[TargetRegion]:
+    """Resolve gene symbols/ids to regions labelled by the gene symbol."""
+    cleaned = [str(term).strip() for term in terms if str(term).strip()]
+    if not cleaned:
+        return []
+    clauses = ["(upper(hgnc_symbol) IN :terms OR upper(gene_id) IN :terms)"]
+    params: dict = {"terms": [term.upper() for term in cleaned]}
+    bind_params = [bindparam("terms", expanding=True)]
+    if assembly_id:
+        clauses.append("assembly_id = CAST(:assembly_id AS uuid)")
+        params["assembly_id"] = assembly_id
+    result = await session.execute(
+        text(
+            f"""
+            SELECT hgnc_symbol, chr, start, "end" AS end
+            FROM genes
+            WHERE {' AND '.join(clauses)}
+            """
+        ).bindparams(*bind_params),
+        params,
+    )
+    regions: list[TargetRegion] = []
+    for row in result.mappings().all():
+        chrom = normalize_chromosome(str(row["chr"]))
+        start, end = int(row["start"]), int(row["end"])
+        regions.append(
+            TargetRegion(
+                label=str(row["hgnc_symbol"] or f"{chrom}:{start}-{end}"),
+                chrom=chrom,
+                start=start,
+                end=end,
+            )
+        )
+    return regions
+
+
 async def _resolve_nipt_target_regions(
     session: AsyncSession,
     *,
@@ -390,41 +428,34 @@ async def _resolve_nipt_target_regions(
     gene: str | None,
     panel_id: str | None,
 ) -> list[TargetRegion]:
-    """Target = a gene query, a panel, or (fallback) the family ROI."""
+    """Target = a gene query, a panel, or (fallback) the family ROI.
+
+    Gene-derived regions (from a gene query or a panel's genes) are labelled by
+    their gene symbol; a panel's explicit regions are labelled by coordinates.
+    """
     regions: list[TargetRegion] = []
-    if gene:
-        for term in _split_gene_terms(gene):
-            for region in await _fetch_gene_regions(
-                session, gene_query=term, assembly_id=context.assembly_id
-            ):
-                regions.append(
-                    TargetRegion(
-                        label=term,
-                        chrom=normalize_chromosome(region.chr),
-                        start=region.start,
-                        end=region.end,
-                    )
-                )
+    gene_terms: list[str] = list(_split_gene_terms(gene)) if gene else []
     if panel_id:
         constraints = await _fetch_panel_constraints(
             session, panel_id, assembly_id=context.assembly_id
         )
-        panel_regions = list(constraints.regions)
-        if constraints.genes:
-            panel_regions.extend(
-                await _fetch_gene_regions_for_terms(
-                    session, terms=constraints.genes, assembly_id=context.assembly_id
-                )
-            )
-        for region in panel_regions:
+        gene_terms.extend(constraints.genes)
+        for region in constraints.regions:
+            chrom = normalize_chromosome(region.chr)
             regions.append(
                 TargetRegion(
-                    label=f"{region.chr}:{region.start}-{region.end}",
-                    chrom=normalize_chromosome(region.chr),
+                    label=f"{chrom}:{region.start}-{region.end}",
+                    chrom=chrom,
                     start=region.start,
                     end=region.end,
                 )
             )
+    if gene_terms:
+        regions.extend(
+            await _fetch_labeled_gene_regions(
+                session, terms=gene_terms, assembly_id=context.assembly_id
+            )
+        )
     if not regions and family.roi is not None:
         roi = family.roi
         regions.append(

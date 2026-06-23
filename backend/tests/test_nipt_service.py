@@ -583,3 +583,78 @@ async def test_get_family_nipt_coverage_over_family_roi(
     assert summary.overall_median_on_target == 30.0
     assert summary.per_region[0].label == "ROI"
     assert summary.per_region[0].median_coverage == 30.0
+
+
+class _FakeGeneMappings:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _FakeGeneSession:
+    """Minimal session whose execute() returns a fixed gene row (for coverage)."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def execute(self, _statement, _params=None):
+        return _FakeGeneMappings(self._rows)
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_coverage_labels_gene_regions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    family = FamilyOut(
+        id="family-uuid",
+        family_id="NIPT001",
+        created_at=datetime.now(timezone.utc),
+        members=[
+            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
+            FamilyMemberOut(
+                sample_id="cfdna-1",
+                role="mother",
+                affected=False,
+                sample_metadata={"assay": "nipt_cfdna"},
+            ),
+        ],
+        metadata={"analysis_type": "monogenic_nipt"},
+    )
+
+    async def fake_get_family_record(_session, _family_id, _user):
+        return family
+
+    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
+        return SimpleNamespace(
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+            sample_name_to_uuid={"cfdna-1": "cfdna-uuid"},
+        )
+
+    async def fake_fetch_coverage(
+        _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, **_kwargs
+    ):
+        return [{"chr": "17", "start": 43044295, "end": 43125483, "value": 80.0}]
+
+    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
+    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
+    monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
+
+    session = _FakeGeneSession(
+        [{"hgnc_symbol": "BRCA1", "chr": "17", "start": 43044295, "end": 43125483}]
+    )
+    summary = await get_family_nipt_coverage(
+        session,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        gene="BRCA1",
+    )
+
+    assert summary.target_region_count == 1
+    assert summary.per_region[0].label == "BRCA1"
+    assert summary.overall_median_on_target == 80.0
