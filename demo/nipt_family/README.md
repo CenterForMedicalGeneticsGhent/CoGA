@@ -71,8 +71,12 @@ backend/.venv/bin/python -m pytest backend/tests/test_nipt_end_to_end.py
 
 ## Loading it for hands-on testing
 
-1. **Create the NIPT trio** (the NIPT tags are not in the Family Builder UI yet,
-   so create it via the API). `POST /ped/manual` with the family tagged
+1. **Create the NIPT trio.** In the **Family Builder** (`/family-builder`), tick
+   **Monogenic NIPT**, add the father, the mother (sample `CFDNA_NIPT`, ticked
+   **cfDNA (maternal plasma)**), and the fetus as the proband (parents
+   FATHER_NIPT / CFDNA_NIPT). That posts the tagged family for you.
+
+   Or via the API — `POST /ped/manual` with the family tagged
    `metadata.analysis_type = "monogenic_nipt"` and the cfDNA member tagged
    `metadata.assay = "nipt_cfdna"`:
 
