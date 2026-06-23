@@ -174,3 +174,22 @@ def test_demo_package_validates_with_snv_and_coverage_datasets(
     # validate as importable datasets.
     assert datasets["snv"].status == "valid"
     assert datasets["coverage"].status == "valid"
+
+
+def test_discover_preserves_explicit_snv_and_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import yaml
+
+    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    result = discover_family_package_manifest(
+        FamilyPackageManifestBuildRequest(folder_path=str(_DEMO_DIR))
+    )
+    manifest = yaml.safe_load(result.manifest_yaml)
+    # The scanner's disabled auto-detected snv block must not clobber the
+    # manifest's explicit combined-VCF dataset; coverage is augmented in.
+    assert manifest["datasets"]["snv"]["family_vcf"] == "nipt_combined.vcf"
+    assert (
+        manifest["datasets"]["coverage"]["per_sample"]["CFDNA_NIPT"]["bed"]
+        == "nipt_coverage.bed"
+    )

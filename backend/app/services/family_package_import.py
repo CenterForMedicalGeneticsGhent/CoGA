@@ -3004,14 +3004,16 @@ def discover_family_package_manifest(
     existing_samples = existing_manifest.get("samples")
     if existing_samples:
         manifest_payload["samples"] = existing_samples
-    # Preserve any datasets the existing manifest declared that the scanner does
-    # not regenerate (e.g. an explicit snv/coverage dataset), so re-discovering
-    # does not drop them.
+    # The existing manifest is authoritative for the datasets it declares; the
+    # scanner only augments with newly detected ones. Without this, an explicit
+    # dataset (e.g. snv: {family_vcf: nipt_combined.vcf}) is clobbered by the
+    # disabled auto-detected block whose naming pattern matched nothing, so the
+    # combined VCF would silently not import.
     existing_datasets = existing_manifest.get("datasets")
     if isinstance(existing_datasets, dict):
         payload_datasets = manifest_payload.setdefault("datasets", {})
         for dataset_type, dataset_config in existing_datasets.items():
-            payload_datasets.setdefault(dataset_type, dataset_config)
+            payload_datasets[dataset_type] = dataset_config
     manifest_yaml = yaml.safe_dump(
         manifest_payload,
         sort_keys=False,
