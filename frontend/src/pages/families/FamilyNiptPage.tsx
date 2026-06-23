@@ -226,10 +226,8 @@ const FamilyNiptPage: React.FC = () => {
   const [applied, setApplied] = useState<NiptFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    locations: true,
-    categories: true,
-  });
+  // All filter subsections start collapsed.
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   const setField = <K extends keyof NiptFilters>(key: K, value: NiptFilters[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
