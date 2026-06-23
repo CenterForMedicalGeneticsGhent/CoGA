@@ -1205,6 +1205,180 @@ const guideSections: GuideSection[] = [
     ),
   },
   {
+    id: 'monogenic-nipt',
+    title: 'Monogenic NIPT (cell-free DNA)',
+    summary:
+      'Screen a pregnancy for single-gene disorders from maternal-plasma cfDNA against a paternal sample — the fetal genotype is inferred from the allele fraction, never sequenced directly.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Open a NIPT family' }],
+    content: (
+      <>
+        <p>
+          Monogenic NIPT (non-invasive prenatal testing) screens a pregnancy for single-gene disorders
+          using <strong>cell-free DNA (cfDNA) from maternal plasma</strong>, cross-referenced with a{' '}
+          <strong>paternal</strong> sample. The plasma cfDNA is a mixture: mostly maternal DNA with a
+          minor <strong>fetal fraction</strong>. The fetus is never sequenced directly — its genotype is{' '}
+          <em>inferred</em> from how far the cfDNA allele fraction (VAF) deviates from the clean maternal
+          expectations (0%, 50%, 100%), in proportion to the fetal fraction.
+        </p>
+        <div className="user-guide-callout">
+          <strong>Two samples, three people.</strong> CoGA models the case as a trio — father, mother,
+          fetus — backed by only two physical samples. The <em>father</em> column is an ordinary germline
+          VCF; the <em>mother</em> column is the plasma cfDNA (maternal plus fetal signal); the{' '}
+          <em>fetus</em> is a placeholder with no sequence of its own. A family is in NIPT mode when its
+          analysis type is <code>monogenic_nipt</code> and the cfDNA sample is tagged{' '}
+          <code>nipt_cfdna</code> — that is what surfaces the Monogenic NIPT tab.
+        </div>
+
+        <h3>The fetal fraction, and how it is calculated</h3>
+        <p>
+          Everything downstream depends on the <strong>fetal fraction (FF)</strong> — the proportion of
+          the plasma cfDNA that is fetal. For a biallelic site the expected cfDNA allele fraction is{' '}
+          <code>VAF = m · (1 − FF) + f · FF</code>, where <code>m</code> and <code>f</code> are the
+          maternal and fetal alt-allele fractions (0, ½, or 1).
+        </p>
+        <p>
+          FF is estimated from <strong>category-7 sites</strong>: positions where the mother is
+          homozygous reference, the father carries the alt allele, and the alt is present in the cfDNA.
+          The fetus must have inherited a paternal alt allele, so it sits as a clean heterozygote whose
+          only contribution to the plasma is fetal — the site sits at exactly <code>FF / 2</code>. Taking
+          the robust median over many such sites and doubling it gives{' '}
+          <strong>FF = 2 × median(VAF) over category-7 sites</strong>. CoGA restricts this to
+          well-covered, high-quality autosomal sites and reports the number of sites and a 95% confidence
+          interval, so the estimate can be trusted or distrusted at a glance.
+        </p>
+        <div className="user-guide-callout">
+          <strong>Reading the FF badges.</strong> The header shows the FF estimate, its confidence
+          interval, and the category-7 site count. A <em>Low-confidence FF</em> chip appears when there
+          are too few sites or the interval is wide. If the run supplied an <em>external FF</em> (from an
+          upstream caller) it is shown alongside, and a <em>FF disagreement</em> chip flags when the two
+          differ — the computed estimate stays the default and is never silently overridden.
+        </div>
+
+        <h3>The eight maternal/fetal categories</h3>
+        <p>
+          Once FF is known, the expected VAF of every category is a fixed number, so each cfDNA variant
+          is assigned to the category whose expected VAF best explains its observed reads (a binomial
+          likelihood, not a hard cut-off). The father genotype resolves the two cases that would otherwise
+          be ambiguous.
+        </p>
+        <div className="content-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Cat</th>
+                <th>Maternal / fetal state</th>
+                <th>Expected cfDNA VAF</th>
+                <th>Clinical meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td>De novo in fetus (absent in both parents)</td>
+                <td>FF / 2 (low)</td>
+                <td>Candidate de novo dominant — father hom-ref separates it from paternal transmission</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td>Maternal het, not inherited</td>
+                <td>50% − FF/2</td>
+                <td>A maternal carrier allele the fetus did not receive</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td>Maternal het, fetus het</td>
+                <td>50%</td>
+                <td>Maternal allele transmitted; the maternal hit of a possible compound pair</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td>Maternal het, fetus hom-alt</td>
+                <td>50% + FF/2</td>
+                <td>Fetus inherited both alleles — homozygous recessive risk</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td>Maternal hom-alt, fetus het</td>
+                <td>100% − FF/2</td>
+                <td>Fetus inherited one reference allele from the father</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td>Maternal &amp; fetal hom-alt</td>
+                <td>100%</td>
+                <td>Both homozygous (commonly a common variant)</td>
+              </tr>
+              <tr>
+                <td>7</td>
+                <td>Paternal allele transmitted (mother hom-ref)</td>
+                <td>FF / 2</td>
+                <td>Drives the fetal-fraction estimate; the paternal hit of a possible compound pair</td>
+              </tr>
+              <tr>
+                <td>8</td>
+                <td>Paternal hom-alt, absent in cfDNA</td>
+                <td>≈ 0 (expected FF/2)</td>
+                <td>False-negative QC signal — a variant the fetus should carry but the assay missed</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Categories 1 and 7 share the same expected VAF (<code>FF / 2</code>) and are told apart only by
+          the father genotype: hom-ref means de novo, a carried allele means paternal transmission. A high
+          category-8 rate is a warning — those sites should have appeared at <code>FF / 2</code>, so their
+          absence points to dropout, insufficient FF, or coverage gaps.
+        </p>
+
+        <h3>What is and is not resolvable</h3>
+        <p>
+          As FF approaches zero the category centres collapse together — category 2 (
+          <code>50% − FF/2</code>) and category 3 (<code>50%</code>) nearly coincide — so a low-depth or
+          low-FF site gets a low confidence rather than a forced call. Each variant carries a{' '}
+          <strong>confidence</strong>; the maternal state is usually solid even when the fetal call is
+          uncertain. Use the confidence and the flags (for example <em>ff_too_low</em>,{' '}
+          <em>low_depth</em>, <em>ambiguous</em>) to decide how much weight a single call deserves.
+        </p>
+
+        <h3>Using the page</h3>
+        <p>
+          The Monogenic NIPT workspace mirrors the small-variant page. The header folds in the fetal
+          fraction and the filter funnel (total → quality-filtered → artifact-filtered → analysed). The
+          collapsible filter panel adds, on top of the usual small-variant filters (gene panel, genes and
+          intervals, annotation, frequencies, in-silico, flags), two NIPT-specific controls:
+        </p>
+        <ul>
+          <li>
+            <strong>Maternal/fetal categories</strong> — pick any of the eight categories; each option
+            shows how many variants fall in it. This replaces the genotype subsection of the
+            small-variant filter.
+          </li>
+          <li>
+            <strong>Inheritance presets</strong> — one-click clinical reads of the category assignment:{' '}
+            <em>De novo</em> (category 1), <em>Paternal dominant</em> and <em>Maternal dominant</em>{' '}
+            (transmitted parental alleles), and <em>Recessive at-risk</em> (the fetus inherited a maternal
+            and a paternal hit in the same gene, or is homozygous).
+          </li>
+        </ul>
+        <p>
+          Results use the full small-variant display: when fewer than 100 variants match it switches to
+          cards, and every variant carries the complete annotation (father and cfDNA genotypes, ClinVar,
+          gnomAD, in-silico scores, HGVS) plus tagging, reporting, and ACMG classification — the same
+          review state as the small-variant page. The <strong>NIPT classification block</strong> on each
+          card (and the NIPT column in the table) shows the category, the maternal and fetal state, the
+          observed and expected VAF, and the confidence. On-target coverage is summarised as a single
+          median depth over the panel or family ROI.
+        </p>
+        <div className="user-guide-callout">
+          <strong>Derived, not entered.</strong> The fetal fraction and every per-variant category are
+          computed from the two samples — their allele fractions, depths, qualities, and the father
+          genotype. The only inputs are the combined VCF, the coverage and target regions, the pedigree,
+          and your filter choices.
+        </div>
+      </>
+    ),
+  },
+  {
     id: 'gene-explorer',
     title: 'Gene Explorer',
     summary:

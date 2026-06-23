@@ -17,14 +17,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import bindparam, text
 
+from typing import TYPE_CHECKING
+
 from .clickhouse_family_variants import (
     PanelFilterConstraints,
     SmallVariantCall,
     SmallVariantRecord,
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
+    _hydrate_small_variant_outs,
+    _small_variant_out,
     _split_gene_terms,
 )
+
+if TYPE_CHECKING:
+    from ..schemas import VariantOut
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
@@ -148,10 +155,15 @@ def build_nipt_observations(
 
 @dataclass(slots=True)
 class NiptClassifiedVariant:
-    """A family variant record paired with its NIPT classification."""
+    """A family variant record paired with its NIPT classification.
+
+    ``variant_out`` is the full small-variant serialization (with review/cohort
+    hydrated), attached for the page slice so the variant list carries the same
+    payload as the small-variant view."""
 
     record: SmallVariantRecord
     classification: NiptClassification
+    variant_out: "VariantOut | None" = None
 
 
 @dataclass(slots=True)
@@ -234,7 +246,15 @@ async def run_family_nipt_analysis(
 
 
 def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
-    """Build a SmallVariantQueryFilters for the NIPT-relevant filter subset."""
+    """Build a SmallVariantQueryFilters from the NIPT filter set.
+
+    NIPT reuses the full small-variant filter form, so the same annotation /
+    frequency / in-silico / pathogenicity / location filters apply. Per-sample
+    genotype, review-state, and phenotype-prioritisation filters do not apply to
+    cfDNA (the maternal/fetal call is inferred) and are not forwarded; the
+    maternal/fetal `category` filter and `inheritance` preset are applied on the
+    classification afterwards rather than here.
+    """
     return SmallVariantQueryFilters(
         page=1,
         page_size=100,
@@ -242,12 +262,31 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
         start=query_filters.get("start"),
         end=query_filters.get("end"),
         intervals=query_filters.get("intervals"),
+        phase_set=query_filters.get("ps"),
+        variant_type=query_filters.get("type"),
+        source=query_filters.get("source"),
         gene=query_filters.get("gene"),
+        transcript=query_filters.get("transcript"),
         exclude_gene=query_filters.get("exclude_gene"),
+        exclude_intervals=query_filters.get("exclude_intervals"),
+        rsid=query_filters.get("rsid"),
+        hgvsc=query_filters.get("hgvsc"),
+        hgvsp=query_filters.get("hgvsp"),
         impact=query_filters.get("impact") or [],
         effect=query_filters.get("effect") or [],
+        clinvar=query_filters.get("clinvar") or [],
+        exclude_clinvar=query_filters.get("exclude_clinvar") or [],
+        clinvar_overrides_frequency=bool(query_filters.get("clinvar_overrides_frequency", False)),
+        sift=query_filters.get("sift"),
+        polyphen=query_filters.get("polyphen"),
         max_gnomad_af=query_filters.get("max_gnomad_af"),
+        max_gnomad_exomes_af=query_filters.get("max_gnomad_exomes_af"),
+        max_gnomad_genomes_af=query_filters.get("max_gnomad_genomes_af"),
         max_gnomad_popmax_af=query_filters.get("max_gnomad_popmax_af"),
+        max_topmed_af=query_filters.get("max_topmed_af"),
+        max_gnomad_ac=query_filters.get("max_gnomad_ac"),
+        max_gnomad_hom_count=query_filters.get("max_gnomad_hom_count"),
+        max_gnomad_hemi_count=query_filters.get("max_gnomad_hemi_count"),
         min_cadd=query_filters.get("min_cadd"),
         min_revel=query_filters.get("min_revel"),
         min_spliceai=query_filters.get("min_spliceai"),
@@ -379,6 +418,15 @@ async def get_family_nipt_variants(
     total = len(classified)
     offset = max(0, (page - 1) * page_size)
     page_items = classified[offset : offset + page_size]
+
+    # Serialize the page slice as full small-variant payloads (and hydrate their
+    # review / internal-cohort / gene-constraint data) so the NIPT variant list
+    # carries the same shape as the small-variant view, classification aside.
+    variant_outs = [_small_variant_out(item.record) for item in page_items]
+    await _hydrate_small_variant_outs(session, context=context, variants=variant_outs)
+    for item, variant_out in zip(page_items, variant_outs):
+        item.variant_out = variant_out
+
     return NiptVariantsResult(fetal_fraction=ff_estimate, total=total, variants=page_items)
 
 

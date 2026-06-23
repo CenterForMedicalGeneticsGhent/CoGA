@@ -26,6 +26,7 @@ import {
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
 import VariantPriorityBlock from './VariantPriorityBlock';
+import NiptClassificationBlock from './NiptClassificationBlock';
 
 interface SmallVariantCardsProps {
   variants: SmallVariant[];
@@ -522,6 +523,8 @@ export default function SmallVariantCards({
                 ) : null}
               </div>
             </div>
+
+            {variant.nipt ? <NiptClassificationBlock nipt={variant.nipt} /> : null}
 
             {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
 

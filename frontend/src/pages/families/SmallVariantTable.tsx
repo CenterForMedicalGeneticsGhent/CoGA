@@ -37,6 +37,9 @@ interface SmallVariantTableProps {
 
 const MAX_ALLELE_DISPLAY_LENGTH = 48;
 
+const formatNiptPct = (value?: number | null): string =>
+  value == null ? '—' : `${(value * 100).toFixed(1)}%`;
+
 const formatAlleleDisplay = (value?: string) => {
   const allele = String(value || '').trim();
   if (!allele) return '—';
@@ -76,6 +79,7 @@ export default function SmallVariantTable({
     () => variants.some((variant) => variant.priority),
     [variants],
   );
+  const hasNipt = useMemo(() => variants.some((variant) => variant.nipt), [variants]);
   // When the backend returns prioritized results, default to the priority ranking.
   useEffect(() => {
     if (hasPriority) {
@@ -107,6 +111,7 @@ export default function SmallVariantTable({
       <table className="analysis-table table-sticky small-variant-table">
         <colgroup>
           {hasPriority && <col className="small-variant-col-impact" />}
+          {hasNipt && <col className="small-variant-col-effect" />}
           <col className="small-variant-col-chr" />
           <col className="small-variant-col-position" />
           <col className="small-variant-col-position" />
@@ -131,6 +136,7 @@ export default function SmallVariantTable({
                 Score {getSortIndicator('priority')}
               </th>
             )}
+            {hasNipt && <th>NIPT</th>}
             <th className="table-sortable" onClick={() => handleTableSort('position')}>
               Chr {getSortIndicator('position')}
             </th>
@@ -182,6 +188,28 @@ export default function SmallVariantTable({
                 }`}
               >
                 {hasPriority && <VariantScoreCell variant={variant} />}
+                {hasNipt && (
+                  <td>
+                    {variant.nipt ? (
+                      <div className="nipt-table-cell">
+                        <span className="nipt-table-category">
+                          {variant.nipt.category != null ? `Cat ${variant.nipt.category}` : 'Unclassified'}
+                        </span>
+                        <span className="nipt-table-detail">{variant.nipt.category_label}</span>
+                        <span className="nipt-table-detail">
+                          {variant.nipt.maternal_state} → {variant.nipt.fetal_inheritance}
+                        </span>
+                        <span className="nipt-table-detail">
+                          VAF {formatNiptPct(variant.nipt.observed_vaf)} /{' '}
+                          {formatNiptPct(variant.nipt.expected_vaf)} · conf{' '}
+                          {variant.nipt.confidence.toFixed(2)}
+                        </span>
+                      </div>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                )}
                 <td>{variant.chr}</td>
                 <td className="table-mono">{variant.start}</td>
                 <td className="table-mono">{variant.end}</td>

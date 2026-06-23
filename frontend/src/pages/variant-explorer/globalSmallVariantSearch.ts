@@ -72,6 +72,7 @@ export const useGlobalSmallVariantSearchState = () => {
         | 'exclude_review_tags'
         | 'classification'
         | 'review_tags'
+        | 'category'
       >,
       value: string,
     ) => {

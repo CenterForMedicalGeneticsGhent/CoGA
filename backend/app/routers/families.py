@@ -49,6 +49,7 @@ from ..schemas import (
     NiptCoverageSummaryOut,
     NiptFetalFractionOut,
     NiptSummaryOut,
+    NiptClassificationOut,
     NiptVariantOut,
     NiptVariantPage,
     VariantLengthOut,
@@ -861,22 +862,8 @@ def _nipt_fetal_fraction_out(ff) -> NiptFetalFractionOut:
 
 
 def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
-    record = item.record
     classification = item.classification
-    annotation = (record.annotations or [{}])[0] or {}
-    gene = record.gene_symbols[0] if record.gene_symbols else annotation.get("gene")
-    effect = annotation.get("effect")
-    if isinstance(effect, (list, tuple)):
-        effect = effect[0] if effect else None
-    return NiptVariantOut(
-        variant_id=record.variant_id,
-        chr=record.chr,
-        pos=record.start,
-        ref=record.ref,
-        alt=record.alt,
-        gene=gene or None,
-        impact=annotation.get("impact") or None,
-        consequence=effect or None,
+    nipt = NiptClassificationOut(
         category=classification.category,
         category_label=classification.category_label,
         maternal_state=classification.maternal_state,
@@ -886,6 +873,10 @@ def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
         confidence=classification.confidence,
         flags=classification.flags,
     )
+    if item.variant_out is None:
+        # get_family_nipt_variants always hydrates the page slice.
+        raise RuntimeError("NIPT variant was serialized before hydration")
+    return NiptVariantOut(**item.variant_out.model_dump(by_alias=True), nipt=nipt)
 
 
 @router.get("/{family_id}/nipt/summary", response_model=NiptSummaryOut)
@@ -928,10 +919,29 @@ async def get_family_nipt_variants_page(
     start: int | None = None,
     end: int | None = None,
     intervals: str | None = None,
+    exclude_intervals: str | None = None,
+    ps: int | None = None,
+    type: str | None = None,
+    source: str | None = None,
+    transcript: str | None = None,
+    rsid: str | None = None,
+    hgvsc: str | None = None,
+    hgvsp: str | None = None,
     impact: list[str] | None = Query(None),
     effect: list[str] | None = Query(None),
+    clinvar: list[str] | None = Query(None),
+    exclude_clinvar: list[str] | None = Query(None),
+    clinvar_overrides_frequency: bool = False,
+    sift: str | None = None,
+    polyphen: str | None = None,
     max_gnomad_af: float | None = None,
+    max_gnomad_exomes_af: float | None = None,
+    max_gnomad_genomes_af: float | None = None,
     max_gnomad_popmax_af: float | None = None,
+    max_topmed_af: float | None = None,
+    max_gnomad_ac: int | None = None,
+    max_gnomad_hom_count: int | None = None,
+    max_gnomad_hemi_count: int | None = None,
     min_cadd: float | None = None,
     min_revel: float | None = None,
     min_spliceai: float | None = None,
@@ -954,10 +964,29 @@ async def get_family_nipt_variants_page(
             "start": start,
             "end": end,
             "intervals": intervals,
+            "exclude_intervals": exclude_intervals,
+            "ps": ps,
+            "type": type,
+            "source": source,
+            "transcript": transcript,
+            "rsid": rsid,
+            "hgvsc": hgvsc,
+            "hgvsp": hgvsp,
             "impact": impact,
             "effect": effect,
+            "clinvar": clinvar,
+            "exclude_clinvar": exclude_clinvar,
+            "clinvar_overrides_frequency": clinvar_overrides_frequency,
+            "sift": sift,
+            "polyphen": polyphen,
             "max_gnomad_af": max_gnomad_af,
+            "max_gnomad_exomes_af": max_gnomad_exomes_af,
+            "max_gnomad_genomes_af": max_gnomad_genomes_af,
             "max_gnomad_popmax_af": max_gnomad_popmax_af,
+            "max_topmed_af": max_topmed_af,
+            "max_gnomad_ac": max_gnomad_ac,
+            "max_gnomad_hom_count": max_gnomad_hom_count,
+            "max_gnomad_hemi_count": max_gnomad_hemi_count,
             "min_cadd": min_cadd,
             "min_revel": min_revel,
             "min_spliceai": min_spliceai,

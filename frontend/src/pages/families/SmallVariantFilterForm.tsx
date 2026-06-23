@@ -54,6 +54,20 @@ type SmallVariantFilterFormProps = Pick<
    * agnostic Global Small Variant Explorer. Defaults to true.
    */
   familyAware?: boolean;
+  /**
+   * Monogenic NIPT mode. When 'nipt', the genotype/inheritance subsection is
+   * replaced by a maternal/fetal Categories subsection and the review-state
+   * subsection is hidden (it does not apply to inferred cfDNA calls). Defaults
+   * to 'small-variant' so the small-variant and global-explorer pages are
+   * untouched.
+   */
+  mode?: 'small-variant' | 'nipt';
+  /** NIPT: per-category variant counts, shown next to each category option. */
+  categoryCounts?: Record<string, number>;
+  /** NIPT: labels for the eight maternal/fetal categories. */
+  categoryLabels?: Record<number, string>;
+  /** NIPT: inheritance presets (de novo / paternal dominant / …). */
+  niptInheritancePresets?: { value: string; label: string }[];
 };
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
@@ -165,12 +179,17 @@ const SmallVariantFilterForm = ({
   savingPreset = false,
   feedback = null,
   familyAware = true,
+  mode = 'small-variant',
+  categoryCounts = {},
+  categoryLabels,
+  niptInheritancePresets,
 }: SmallVariantFilterFormProps) => {
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
   const [openSections, setOpenSections] = useState({
     phenotype: false,
     inheritance: false,
+    categories: false,
     pathogenicity: false,
     annotations: false,
     inSilico: false,
@@ -1108,6 +1127,88 @@ const SmallVariantFilterForm = ({
           </details>
           ) : null}
 
+          {mode === 'nipt' ? (
+          <details
+            className="variant-filter-dropdown"
+            open={openSections.categories}
+            onToggle={handleSectionToggle('categories')}
+          >
+            <summary className="variant-filter-dropdown-summary">
+              <span className="variant-filter-dropdown-summary-copy">
+                <span className="variant-filter-dropdown-title">Maternal/fetal categories</span>
+                <span className="variant-filter-dropdown-meta">
+                  {summarizeSection(
+                    parseCommaSeparatedValues(draftFilters.category).length,
+                    'All categories',
+                  )}
+                </span>
+              </span>
+              <span
+                className="variant-filter-dropdown-summary-controls"
+                onMouseDown={stopSummaryInteraction}
+                onClick={stopSummaryInteraction}
+              >
+                <label className="variant-summary-select-field">
+                  <span>Inheritance</span>
+                  <select
+                    aria-label="NIPT inheritance preset"
+                    value={draftFilters.inheritance}
+                    onChange={(event) => setDraftFilterValue('inheritance', event.target.value)}
+                  >
+                    {(niptInheritancePresets ?? []).map((preset) => (
+                      <option key={preset.value} value={preset.value}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </span>
+              <span className="variant-filter-dropdown-caret" aria-hidden="true">
+                ▾
+              </span>
+            </summary>
+            <div className="variant-filter-dropdown-content">
+              <div className="nipt-category-grid">
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((categoryNumber) => {
+                  const value = String(categoryNumber);
+                  const selected = parseCommaSeparatedValues(draftFilters.category).includes(value);
+                  return (
+                    <label key={categoryNumber} className="analysis-checkbox nipt-category-option">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleDraftFilterListValue('category', value)}
+                      />
+                      <span className="nipt-category-option-copy">
+                        <span className="nipt-category-option-label">
+                          {categoryNumber} —{' '}
+                          {categoryLabels?.[categoryNumber] ?? `Category ${categoryNumber}`}
+                        </span>
+                        <span className="nipt-category-option-count">
+                          {(categoryCounts[value] ?? 0).toLocaleString()}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              <label className="analysis-field-label">
+                Min classification confidence
+                <input
+                  type="number"
+                  name="min_confidence"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={draftFilters.min_confidence}
+                  onChange={handleDraftFieldChange}
+                  placeholder="0.00"
+                />
+              </label>
+            </div>
+          </details>
+          ) : null}
+
           <details
             className="variant-filter-dropdown"
             open={openSections.pathogenicity}
@@ -1649,6 +1750,7 @@ const SmallVariantFilterForm = ({
             </div>
           </details>
 
+          {mode !== 'nipt' && (
           <details
             className="variant-filter-dropdown"
             open={openSections.review}
@@ -1755,6 +1857,7 @@ const SmallVariantFilterForm = ({
 
             </div>
           </details>
+          )}
         </div>
       </section>
     </form>

@@ -83,6 +83,8 @@ describe('smallVariantSearch preset helpers', () => {
         classification: '',
         review_tags: '',
         has_notes: '',
+        category: '',
+        min_confidence: '',
       },
       members,
       sampleFilters,
