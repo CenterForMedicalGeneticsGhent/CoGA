@@ -30,6 +30,8 @@ from ..schemas import (
     MonarchRefreshSummaryOut,
     MonarchSearchOut,
     MonarchStatusOut,
+    NiptArtifactAutoSeed,
+    NiptArtifactAutoSeedOut,
     NiptArtifactCreate,
     NiptArtifactOut,
     ProjectsUpdate,
@@ -90,6 +92,7 @@ from ..services.metadata_service import (
 )
 from ..services.nipt_artifact_pg import (
     add_nipt_artifact,
+    auto_seed_nipt_artifacts,
     delete_nipt_artifact,
     list_nipt_artifacts,
 )
@@ -144,6 +147,22 @@ async def delete_nipt_artifact_endpoint(
     if not deleted:
         raise HTTPException(status_code=404, detail="Artifact not found")
     return {"deleted": True}
+
+
+@router.post("/nipt/artifacts/auto-seed", response_model=NiptArtifactAutoSeedOut)
+async def auto_seed_nipt_artifacts_endpoint(
+    payload: NiptArtifactAutoSeed,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> NiptArtifactAutoSeedOut:
+    result = await auto_seed_nipt_artifacts(
+        session,
+        assembly_id=payload.assembly_id,
+        assay_key=payload.assay_key,
+        min_carrier_samples=payload.min_carrier_samples,
+        created_by=user.id,
+    )
+    return NiptArtifactAutoSeedOut(**result)
 
 
 @router.get("/projects")

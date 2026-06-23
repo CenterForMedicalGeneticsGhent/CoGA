@@ -10,10 +10,13 @@ See docs/monogenic-nipt.md (Phase 2).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from .clickhouse_family_variants import fetch_recurrent_small_variant_ids
 
 _ARTIFACT_COLUMNS = """
     id::text AS id,
@@ -127,3 +130,90 @@ async def delete_nipt_artifact(session: AsyncSession, *, artifact_id: str) -> bo
     )
     await session.commit()
     return (result.rowcount or 0) > 0
+
+
+async def bulk_upsert_nipt_artifacts(
+    session: AsyncSession,
+    *,
+    assembly_id: str,
+    assay_key: str,
+    items: Sequence[tuple[str, int]],
+    source: str = "auto",
+    created_by: str | None = None,
+) -> int:
+    """Upsert ``(variant_id, recurrence_count)`` pairs into a scope.
+
+    On conflict only the recurrence count is refreshed, so a manually curated
+    entry keeps its source and label when it also turns up as recurrent.
+    """
+    if not items:
+        return 0
+    rows = [
+        {
+            "assembly_id": assembly_id,
+            "assay_key": assay_key,
+            "variant_id": variant_id,
+            "recurrence_count": int(count),
+            "source": source,
+            "label": "recurrent (auto)",
+            "created_by": created_by,
+        }
+        for variant_id, count in items
+    ]
+    await session.execute(
+        text(
+            """
+            INSERT INTO nipt_artifact_variants (
+                assembly_id, assay_key, variant_id, recurrence_count, source, label, created_by
+            ) VALUES (
+                CAST(:assembly_id AS uuid), :assay_key, :variant_id,
+                :recurrence_count, :source, :label, CAST(:created_by AS uuid)
+            )
+            ON CONFLICT (assembly_id, assay_key, variant_id) DO UPDATE SET
+                recurrence_count = EXCLUDED.recurrence_count,
+                updated_at = timezone('utc', now())
+            """
+        ),
+        rows,
+    )
+    await session.commit()
+    return len(rows)
+
+
+async def _resolve_assembly_name(session: AsyncSession, assembly_id: str) -> str | None:
+    result = await session.execute(
+        text("SELECT assembly_name FROM assemblies WHERE id = CAST(:id AS uuid)"),
+        {"id": assembly_id},
+    )
+    row = result.first()
+    return str(row[0]) if row else None
+
+
+async def auto_seed_nipt_artifacts(
+    session: AsyncSession,
+    *,
+    assembly_id: str,
+    assay_key: str,
+    min_carrier_samples: int = 5,
+    created_by: str | None = None,
+) -> dict[str, int]:
+    """Seed the artifact list from internal cohort recurrence.
+
+    Variants carried by at least ``min_carrier_samples`` distinct samples across
+    the assembly are upserted as ``source='auto'`` artifacts for the scope.
+    """
+    assembly_name = await _resolve_assembly_name(session, assembly_id)
+    if assembly_name is None:
+        raise HTTPException(status_code=404, detail="Assembly not found")
+    recurrent = await fetch_recurrent_small_variant_ids(
+        assembly_name, min_carrier_samples=min_carrier_samples
+    )
+    seeded = await bulk_upsert_nipt_artifacts(
+        session,
+        assembly_id=assembly_id,
+        assay_key=assay_key,
+        items=recurrent,
+        source="auto",
+        created_by=created_by,
+    )
+    return {"seeded": seeded, "min_carrier_samples": min_carrier_samples}

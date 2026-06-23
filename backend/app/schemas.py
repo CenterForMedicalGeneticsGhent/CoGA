@@ -286,6 +286,19 @@ class NiptArtifactCreate(BaseModel):
     recurrence_count: int = 0
 
 
+class NiptArtifactAutoSeed(BaseModel):
+    """Seed the artifact list from internal cohort recurrence."""
+
+    assembly_id: str
+    assay_key: str = "nipt_cfdna"
+    min_carrier_samples: int = Field(default=5, ge=1)
+
+
+class NiptArtifactAutoSeedOut(BaseModel):
+    seeded: int
+    min_carrier_samples: int
+
+
 class FamilyStatusOut(BaseModel):
     """An admin-managed family status value."""
 
