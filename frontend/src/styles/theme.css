@@ -3361,6 +3361,43 @@ tbody tr:hover {
   padding: 0.46rem 0.5rem 0.52rem;
 }
 
+/* Monogenic NIPT filter form helpers (mirror the small-variant filter look). */
+.analysis-field-label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted, #5b6166);
+}
+
+.nipt-category-grid {
+  display: grid;
+  gap: 0.3rem 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.nipt-category-option {
+  align-items: center;
+}
+
+.nipt-category-option-copy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.nipt-category-option-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted, #5b6166);
+  font-size: 0.78rem;
+}
+
+.nipt-effect-grid {
+  display: grid;
+  gap: 0.25rem 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
 .variant-inline-controls {
   display: grid;
   gap: 0.5rem;
