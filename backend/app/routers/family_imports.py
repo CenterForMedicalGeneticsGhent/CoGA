@@ -115,7 +115,9 @@ async def list_available_family_packages(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> list[FamilyPackageCandidateOut]:
     del user
-    return [FamilyPackageCandidateOut(**package) for package in scan_family_import_packages()]
+    # Offloaded: scanning an s3:// root makes blocking network calls.
+    packages = await asyncio.to_thread(scan_family_import_packages)
+    return [FamilyPackageCandidateOut(**package) for package in packages]
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)

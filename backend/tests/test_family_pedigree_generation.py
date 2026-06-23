@@ -10,6 +10,16 @@ from app.services.family_package_import import (
 from app.services.ped_service import build_pedigree_text
 
 
+@pytest.fixture(autouse=True)
+def _unrestricted_import_roots(monkeypatch: pytest.MonkeyPatch) -> None:
+    # These tests validate/discover packages in tmp dirs; clear the configured
+    # roots so the path-authorization guard (now defaulting to /data/families)
+    # does not reject the temp paths. Path auth is covered in test_s3_import_and_cram.
+    from app.services import family_package_import as fpi
+
+    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+
+
 class _FakeResult:
     def __init__(self, rows: list[dict]) -> None:
         self._rows = rows

@@ -169,7 +169,12 @@ class Settings(BaseSettings):
         le=604_800,
         alias="S3_PRESIGN_EXPIRY_SECONDS",
     )
-    family_import_roots: list[str] = Field(default_factory=list, alias="FAMILY_IMPORT_ROOTS")
+    # Roots that Package Import may read family folders from. Defaults to the
+    # local /data/families; cloud deployments (Terraform, etc.) override this
+    # with an s3:// bucket prefix via FAMILY_IMPORT_ROOTS.
+    family_import_roots: list[str] = Field(
+        default_factory=lambda: ["/data/families"], alias="FAMILY_IMPORT_ROOTS"
+    )
     family_import_worker_count: int = Field(default=1, ge=1, le=8, alias="FAMILY_IMPORT_WORKER_COUNT")
     trgt_strchive_loci_path: str | None = Field(
         default="/data/ref-data/STRchive-loci.json",

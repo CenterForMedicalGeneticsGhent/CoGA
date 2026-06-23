@@ -533,7 +533,14 @@ def test_parse_manifest_inline_hpo_present_and_absent_terms() -> None:
     ]
 
 
-def test_family_package_validation_accepts_hpo_phenotype_manifest(tmp_path: Path) -> None:
+def test_family_package_validation_accepts_hpo_phenotype_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Clear the configured import roots (now defaulting to /data/families) so the
+    # path guard does not reject this temp package.
+    from backend.app.services import family_package_import as fpi
+
+    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
     package = tmp_path / "FAMHPO"
     package.mkdir()
     (package / "family.ped").write_text(

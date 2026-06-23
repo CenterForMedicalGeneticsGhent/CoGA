@@ -64,3 +64,43 @@ def test_manifest_samples_carry_assay() -> None:
     # top of sample.metadata so resolve_nipt_trio can find the cfDNA sample.
     samples = _normalize_manifest_samples({"CFDNA_NIPT": {"assay": "nipt_cfdna"}})
     assert samples["CFDNA_NIPT"]["assay"] == "nipt_cfdna"
+
+
+def test_family_import_roots_default_is_data_families() -> None:
+    from backend.app.core.config import Settings
+
+    default = Settings.model_fields["family_import_roots"].default_factory()
+    assert default == ["/data/families"]
+
+
+def test_scan_includes_s3_packages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fpi.settings, "family_import_roots", ["s3://bucket/families"])
+
+    def fake_list(uri: str):
+        assert uri == "s3://bucket/families"
+        return [
+            {
+                "name": "FAM_S3",
+                "uri": "s3://bucket/families/FAM_S3",
+                "has_manifest": True,
+                "has_ped": True,
+            }
+        ]
+
+    monkeypatch.setattr(fpi, "list_s3_package_candidates", fake_list)
+
+    packages = {pkg["name"]: pkg for pkg in scan_family_import_packages()}
+    assert "FAM_S3" in packages
+    assert packages["FAM_S3"]["folder_path"] == "s3://bucket/families/FAM_S3"
+    assert packages["FAM_S3"]["has_manifest"] is True
+    assert packages["FAM_S3"]["family_id"] == "FAM_S3"
+
+
+def test_scan_s3_failure_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(fpi.settings, "family_import_roots", ["s3://bucket/families"])
+
+    def boom(_uri: str):
+        raise RuntimeError("no credentials")
+
+    monkeypatch.setattr(fpi, "list_s3_package_candidates", boom)
+    assert scan_family_import_packages() == []

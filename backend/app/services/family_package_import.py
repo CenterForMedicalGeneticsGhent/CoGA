@@ -24,7 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import yaml
 
 from ..core.config import settings
-from ..core.object_storage import download_prefix, is_s3_uri, join_s3_uri
+from ..core.object_storage import (
+    download_prefix,
+    is_s3_uri,
+    join_s3_uri,
+    list_s3_package_candidates,
+)
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import (
     FamilyManifestDatasetAvailability,
@@ -550,6 +555,29 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
                     "has_manifest": manifest_path is not None,
                     "has_ped": bool(ped_paths),
                     "analysis_type": info.get("analysis_type"),
+                }
+            )
+    for root_uri in _authorized_s3_roots():
+        # S3 listing is best-effort: a misconfigured or unreachable bucket must
+        # not break the local scan.
+        try:
+            candidates = list_s3_package_candidates(root_uri)
+        except Exception:
+            continue
+        for candidate in candidates:
+            uri = str(candidate["uri"])
+            if uri in seen:
+                continue
+            seen.add(uri)
+            name = str(candidate["name"])
+            packages.append(
+                {
+                    "folder_path": uri,
+                    "name": name,
+                    "family_id": name,
+                    "has_manifest": bool(candidate["has_manifest"]),
+                    "has_ped": bool(candidate["has_ped"]),
+                    "analysis_type": None,
                 }
             )
     return packages
