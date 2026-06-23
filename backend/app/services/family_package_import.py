@@ -2462,6 +2462,52 @@ def _detect_ped_path(
     return None, errors, warnings
 
 
+def _availability_from_manifest_dataset(
+    root: Path, dataset_type: str, config: Any
+) -> FamilyManifestDatasetAvailability:
+    """Availability for a dataset the manifest already declares, based on whether
+    its declared files exist -- so the discover table reflects an explicit
+    manifest rather than only the filename scanner (which would mark a
+    custom-named file like nipt_combined.vcf as not detected)."""
+    files: list[FamilyManifestFileAvailability] = []
+    samples: list[str] = []
+    enabled = True
+
+    def _add(role: str, value: Any, sample_id: str | None = None) -> None:
+        if isinstance(value, str) and value.strip():
+            files.append(
+                FamilyManifestFileAvailability(
+                    role=role,
+                    path=value,
+                    exists=(root / value).exists(),
+                    sample_id=sample_id,
+                )
+            )
+
+    if isinstance(config, dict):
+        enabled = bool(config.get("enabled", True))
+        for role in ("family_vcf", "index", "annotation_tsv", "bed", "vcf", "file", "json"):
+            _add(role, config.get(role))
+        per_sample = config.get("per_sample")
+        if isinstance(per_sample, dict):
+            for sample_id, entry in per_sample.items():
+                samples.append(str(sample_id))
+                if isinstance(entry, dict):
+                    for role in ("bed", "vcf", "file", "bins", "segments", "json"):
+                        _add(role, entry.get(role), sample_id=str(sample_id))
+    complete = bool(files) and all(item.exists for item in files)
+    return FamilyManifestDatasetAvailability(
+        dataset_type=dataset_type,
+        enabled=enabled and complete,
+        complete=complete,
+        files=files,
+        samples=samples,
+        message="Available (declared in manifest)"
+        if complete
+        else "Declared in manifest, but some files are missing",
+    )
+
+
 def _family_dataset_availability(
     *,
     root: Path,
@@ -3012,8 +3058,18 @@ def discover_family_package_manifest(
     existing_datasets = existing_manifest.get("datasets")
     if isinstance(existing_datasets, dict):
         payload_datasets = manifest_payload.setdefault("datasets", {})
+        availability_by_type = {item.dataset_type: index for index, item in enumerate(availability)}
         for dataset_type, dataset_config in existing_datasets.items():
             payload_datasets[dataset_type] = dataset_config
+            # Reflect the explicit dataset in the availability table too, so it is
+            # not shown as "not enabled" just because its filename does not match
+            # a scanner pattern.
+            item = _availability_from_manifest_dataset(root, dataset_type, dataset_config)
+            if dataset_type in availability_by_type:
+                availability[availability_by_type[dataset_type]] = item
+            else:
+                availability_by_type[dataset_type] = len(availability)
+                availability.append(item)
     manifest_yaml = yaml.safe_dump(
         manifest_payload,
         sort_keys=False,

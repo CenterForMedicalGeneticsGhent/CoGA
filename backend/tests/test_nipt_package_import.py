@@ -193,3 +193,9 @@ def test_discover_preserves_explicit_snv_and_coverage(
         manifest["datasets"]["coverage"]["per_sample"]["CFDNA_NIPT"]["bed"]
         == "nipt_coverage.bed"
     )
+
+    # The availability table reflects the manifest's datasets as enabled/available
+    # (not "not enabled" just because the filenames don't match scanner patterns).
+    availability = {item.dataset_type: item for item in result.datasets}
+    assert availability["snv"].enabled and availability["snv"].complete
+    assert availability["coverage"].enabled and availability["coverage"].complete
