@@ -384,7 +384,10 @@ export type SmallPreset =
   | 'recessive_hom'
   | 'recessive_permissive'
   | 'any_affected'
-  | 'clinvar_review';
+  | 'clinvar_review'
+  // Monogenic NIPT built-in presets (shown only in the NIPT filter form).
+  | 'nipt_de_novo'
+  | 'nipt_recessive';
 
 export const HOM_GT_GROUP = ['1/1', '1|1'];
 export const HET_GT_GROUP = ['0/1', '1/0', '0|1', '1|0'];
@@ -511,6 +514,27 @@ export const BUILT_IN_SMALL_PRESETS: Array<{
     value: 'clinvar_review',
     label: 'ClinVar review',
     description: 'Focus on rare ClinVar-supported calls for triage and reporting.',
+  },
+];
+
+// Built-in presets shown in the monogenic NIPT filter form (in place of the
+// small-variant built-ins, which rely on per-sample genotype/phenotype).
+export const NIPT_BUILT_IN_PRESETS: Array<{
+  value: SmallPreset;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'nipt_de_novo',
+    label: 'De novo',
+    description:
+      'Category-1 de-novo candidates: high/moderate impact, gnomAD <1% (ClinVar P/LP overrides), absent in both parents.',
+  },
+  {
+    value: 'nipt_recessive',
+    label: 'Recessive (both parents carrier)',
+    description:
+      'Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency); shows every carrier variant so you can read whether the fetus inherited none, one, or both.',
   },
 ];
 
@@ -856,6 +880,25 @@ const buildPresetState = (
     filters.min_cadd = '15';
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '8', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes(REF_GT_GROUP);
+  } else if (preset === 'nipt_de_novo') {
+    // Monogenic NIPT: de-novo candidates -- category 1 only (de novo in the
+    // fetus), high/moderate impact, rare in gnomAD, ClinVar P/LP overriding the
+    // frequency cut-off. No genotype filters (the fetal call is inferred from the
+    // cfDNA VAF).
+    filters.inheritance = 'de_novo';
+    filters.category = '1';
+    filters.impact = 'HIGH, MODERATE';
+    filters.max_gnomad_af = '0.01';
+    filters.clinvar_overrides_frequency = 'true';
+  } else if (preset === 'nipt_recessive') {
+    // Monogenic NIPT: genes where both parents carry a high/moderate, rare
+    // variant; the backend recessive_at_risk grouping returns every carrier
+    // variant in those genes so the analyst can read the fetal inheritance
+    // (none / one / both) off the categories. ClinVar P/LP overrides frequency.
+    filters.inheritance = 'recessive_at_risk';
+    filters.impact = 'HIGH, MODERATE';
+    filters.max_gnomad_af = '0.01';
+    filters.clinvar_overrides_frequency = 'true';
   } else if (preset === 'expanded_carrier_screening') {
     const couple = resolveCarrierScreeningCoupleMembers(members);
     if (!couple) {
@@ -1035,6 +1078,11 @@ export const buildSmallVariantQueryParams = (
   }
   if (currentFilters.intervals) params.set('intervals', currentFilters.intervals);
   if (currentFilters.inheritance) params.set('inheritance', currentFilters.inheritance);
+  // Monogenic NIPT filters; round-trip through the URL so they survive Apply.
+  if (currentFilters.min_confidence) params.set('min_confidence', currentFilters.min_confidence);
+  parseCommaSeparatedValues(currentFilters.category).forEach((value) => {
+    params.append('category', value);
+  });
   if (currentFilters.ps) params.set('ps', currentFilters.ps);
   if (currentFilters.expanded_carrier_screening === 'true') {
     params.set('expanded_carrier_screening', 'true');
@@ -1387,7 +1435,8 @@ export const useSmallVariantSearchState = ({
         key === 'impact' ||
         key === 'effect' ||
         key === 'clinvar' ||
-        key === 'exclude_clinvar'
+        key === 'exclude_clinvar' ||
+        key === 'category'
       ) {
         initialFilters[key] = joinFilterValues(params.getAll(key));
         return;

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -90,6 +90,9 @@ describe('FamilyNiptPage', () => {
       if (url === '/families/NIPT001/small-variant-tags') {
         return Promise.resolve({ data: [] });
       }
+      if (url === '/families/NIPT001/small-variant-filter-presets') {
+        return Promise.resolve({ data: [] });
+      }
       if (url === '/families/NIPT001/nipt/variants') {
         // The endpoint now returns the full small-variant payload plus a `nipt`
         // classification block, so the page renders it via SmallVariantResults.
@@ -145,6 +148,12 @@ describe('FamilyNiptPage', () => {
     // present, with per-category counts sourced from the summary.
     expect(screen.getByLabelText('Quick gene panel')).toBeInTheDocument();
     expect(screen.getByText(/7 — Paternal, transmitted/)).toBeInTheDocument();
+    // NIPT built-in presets + custom-save chrome are present (like the SV page).
+    expect(screen.getByRole('option', { name: 'De novo' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'Recessive (both parents carrier)' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save current' })).toBeInTheDocument();
 
     // On-target coverage comes from the coverage query.
     expect(await screen.findByText('120x')).toBeInTheDocument();
@@ -157,6 +166,22 @@ describe('FamilyNiptPage', () => {
     expect(screen.getByText(/paternal, transmitted to fetus/)).toBeInTheDocument();
     expect(screen.getByText('Category 7')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
+
+    // Picking an inheritance preset ticks its matching category checkbox
+    // (paternal dominant → category 7).
+    const cat7 = screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ });
+    expect(cat7).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText('NIPT inheritance preset'), {
+      target: { value: 'paternal_dominant' },
+    });
+    await waitFor(() => expect(cat7).toBeChecked());
+
+    // The category selection survives "Apply filters" (it round-trips through
+    // the URL rather than being cleared by the URL-sync effect).
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ })).toBeChecked(),
+    );
   });
 
   it('shows a not-configured message for a non-NIPT family', async () => {

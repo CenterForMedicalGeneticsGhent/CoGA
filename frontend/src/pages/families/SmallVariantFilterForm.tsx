@@ -66,8 +66,18 @@ type SmallVariantFilterFormProps = Pick<
   categoryCounts?: Record<string, number>;
   /** NIPT: labels for the eight maternal/fetal categories. */
   categoryLabels?: Record<number, string>;
-  /** NIPT: inheritance presets (de novo / paternal dominant / …). */
-  niptInheritancePresets?: { value: string; label: string }[];
+  /**
+   * NIPT: inheritance presets (de novo / paternal dominant / …). `categories` is
+   * the comma-joined category list to check when the preset is picked (de novo →
+   * '1', paternal dominant → '7', maternal dominant → '3'); omit it to leave the
+   * category checkboxes untouched, or pass '' to clear them.
+   */
+  niptInheritancePresets?: { value: string; label: string; categories?: string }[];
+  /**
+   * Built-in quick presets shown in the toolbar. Defaults to the small-variant
+   * built-ins; the NIPT page passes its own (de novo / recessive).
+   */
+  builtInPresets?: typeof BUILT_IN_SMALL_PRESETS;
 };
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
@@ -183,6 +193,7 @@ const SmallVariantFilterForm = ({
   categoryCounts = {},
   categoryLabels,
   niptInheritancePresets,
+  builtInPresets = BUILT_IN_SMALL_PRESETS,
 }: SmallVariantFilterFormProps) => {
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
@@ -201,7 +212,7 @@ const SmallVariantFilterForm = ({
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
   const carrierScreeningCouple = resolveCarrierScreeningCoupleMembers(members, relationships);
-  const availableBuiltInPresets = BUILT_IN_SMALL_PRESETS.filter(
+  const availableBuiltInPresets = builtInPresets.filter(
     (preset) => preset.value !== 'expanded_carrier_screening' || carrierScreeningCouple,
   );
 
@@ -780,7 +791,7 @@ const SmallVariantFilterForm = ({
             <button type="submit" className="form-button">
               Apply filters
             </button>
-            {familyAware ? (
+            {familyAware || mode === 'nipt' ? (
               <>
                 <select
                   aria-label="Preset or saved search"
@@ -1153,7 +1164,18 @@ const SmallVariantFilterForm = ({
                   <select
                     aria-label="NIPT inheritance preset"
                     value={draftFilters.inheritance}
-                    onChange={(event) => setDraftFilterValue('inheritance', event.target.value)}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setDraftFilterValue('inheritance', value);
+                      // Picking an inheritance preset also ticks its category
+                      // checkboxes (de novo → 1, paternal dominant → 7, …).
+                      const selected = (niptInheritancePresets ?? []).find(
+                        (preset) => preset.value === value,
+                      );
+                      if (selected && selected.categories !== undefined) {
+                        setDraftFilterValue('category', selected.categories);
+                      }
+                    }}
                   >
                     {(niptInheritancePresets ?? []).map((preset) => (
                       <option key={preset.value} value={preset.value}>

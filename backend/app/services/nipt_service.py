@@ -303,33 +303,50 @@ def _record_genes(record: SmallVariantRecord) -> set[str]:
 
 def _recessive_at_risk_variants(
     classified: list[NiptClassifiedVariant],
+    observations: dict[str, NiptSiteObservation],
 ) -> list[NiptClassifiedVariant]:
-    """Keep variants that put the fetus at recessive risk.
+    """Keep variants in genes where *both* parents carry a candidate variant.
 
-    The fetus is at risk in a gene when it is homozygous-alt for a variant
-    (category 4 or 6), or when the gene carries a transmitted paternal allele
-    (category 7) AND a transmitted maternal allele (category 3) at different loci
-    -- a compound heterozygote. Both members of each compound pair are kept so
-    the analyst sees the full picture. Apply gene/consequence/frequency filters
-    first so the candidates are plausibly causal, and min_confidence so the
-    maternal-allele (cat 3) calls are trustworthy.
+    A variant marks the mother a carrier when her inferred genotype is het or hom
+    (categories 2-6), and the father a carrier when his observed genotype is het
+    or hom-alt. A gene is at recessive risk when it has at least one maternal and
+    at least one paternal carrier variant (the same variant counts for both when
+    both parents carry it). Every carrier variant in those genes is returned so
+    the analyst can read whether the fetus inherited none, one, or both alleles
+    off the categories (e.g. cat 4/6 = fetus homozygous; a transmitted maternal
+    cat 3 plus a transmitted paternal cat 7 in the same gene = compound het; cat 2
+    or cat 8 = a parental allele the fetus did not inherit).
+
+    Run the gene/consequence/frequency filters first so the carriers are
+    plausibly causal, and min_confidence so the inferred maternal calls are
+    trustworthy.
     """
+
+    def father_state(variant: NiptClassifiedVariant) -> str:
+        observation = observations.get(variant.record.variant_id)
+        return observation.father_state if observation is not None else "missing"
+
+    def is_maternal_carrier(variant: NiptClassifiedVariant) -> bool:
+        return variant.classification.maternal_state in ("het", "hom")
+
+    def is_paternal_carrier(variant: NiptClassifiedVariant) -> bool:
+        return father_state(variant) in ("het", "hom_alt")
+
     maternal_genes: set[str] = set()
     paternal_genes: set[str] = set()
     for variant in classified:
-        category = variant.classification.category
-        if category == 3:
-            maternal_genes |= _record_genes(variant.record)
-        elif category == 7:
-            paternal_genes |= _record_genes(variant.record)
-    compound_genes = maternal_genes & paternal_genes
+        genes = _record_genes(variant.record)
+        if is_maternal_carrier(variant):
+            maternal_genes |= genes
+        if is_paternal_carrier(variant):
+            paternal_genes |= genes
+    recessive_genes = maternal_genes & paternal_genes
 
     kept: list[NiptClassifiedVariant] = []
     for variant in classified:
-        category = variant.classification.category
-        if category in (4, 6):
-            kept.append(variant)
-        elif category in (3, 7) and _record_genes(variant.record) & compound_genes:
+        if not (_record_genes(variant.record) & recessive_genes):
+            continue
+        if is_maternal_carrier(variant) or is_paternal_carrier(variant):
             kept.append(variant)
     return kept
 
@@ -411,7 +428,7 @@ async def get_family_nipt_variants(
     # The category filter is applied after classification so recessive_at_risk
     # can group across the full candidate set by gene.
     if recessive_mode:
-        classified = _recessive_at_risk_variants(classified)
+        classified = _recessive_at_risk_variants(classified, observations)
     elif wanted:
         classified = [item for item in classified if item.classification.category in wanted]
 
