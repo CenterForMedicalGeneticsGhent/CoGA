@@ -95,6 +95,7 @@ SUPPORTED_DATASETS = (
     "pcf",
     "haplotypes",
     "paraphase",
+    "coverage",
 )
 APCAD_PCF_TRACK_TYPE = "apcad_pcf"
 APCAD_PCF_SOURCE = "pcf"
@@ -1369,9 +1370,11 @@ def _validate_family_vcf_dataset(
         errors=errors,
         files=files,
     )
+    # An uncompressed .vcf without a declared index is accepted for every
+    # family-VCF dataset (the small-variant loader reads plain text and needs no
+    # tabix index); a .gz still requires its index.
     index_optional = (
-        dataset_type == "repeats_trgt"
-        and vcf_path is not None
+        vcf_path is not None
         and _is_uncompressed_vcf(vcf_path)
         and not dataset.index
     )
@@ -1491,6 +1494,56 @@ def _validate_wisecondorx_dataset(
         )
     return FamilyImportDatasetSummary(
         dataset_type="wisecondorx",
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+        samples=samples,
+    )
+
+
+def _validate_coverage_dataset(
+    *,
+    root: Path,
+    dataset: ManifestDataset,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+) -> FamilyImportDatasetSummary:
+    files: list[str] = []
+    samples: list[str] = []
+    before = len(errors)
+    if not dataset.per_sample:
+        errors.append(
+            _issue(
+                "dataset_per_sample_missing",
+                "Coverage dataset must define per_sample entries",
+                dataset="coverage",
+            )
+        )
+    for sample_id, raw_entry in dataset.per_sample.items():
+        samples.append(sample_id)
+        _validate_per_sample_id(
+            dataset_type="coverage",
+            sample_id=sample_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+        entry = _sample_entry_mapping(
+            dataset_type="coverage",
+            sample_id=sample_id,
+            entry=raw_entry,
+            errors=errors,
+        )
+        _require_file(
+            root=root,
+            dataset_type="coverage",
+            value=entry.get("bed") or entry.get("file"),
+            field_name="bed",
+            errors=errors,
+            files=files,
+            sample_id=sample_id,
+        )
+    return FamilyImportDatasetSummary(
+        dataset_type="coverage",
         enabled=True,
         status="error" if len(errors) > before else "valid",
         files=list(dict.fromkeys(files)),
@@ -1883,6 +1936,13 @@ def _validate_dataset(
         )
     if dataset_type == "wisecondorx":
         return _validate_wisecondorx_dataset(
+            root=root,
+            dataset=dataset,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+    if dataset_type == "coverage":
+        return _validate_coverage_dataset(
             root=root,
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
@@ -2944,6 +3004,14 @@ def discover_family_package_manifest(
     existing_samples = existing_manifest.get("samples")
     if existing_samples:
         manifest_payload["samples"] = existing_samples
+    # Preserve any datasets the existing manifest declared that the scanner does
+    # not regenerate (e.g. an explicit snv/coverage dataset), so re-discovering
+    # does not drop them.
+    existing_datasets = existing_manifest.get("datasets")
+    if isinstance(existing_datasets, dict):
+        payload_datasets = manifest_payload.setdefault("datasets", {})
+        for dataset_type, dataset_config in existing_datasets.items():
+            payload_datasets.setdefault(dataset_type, dataset_config)
     manifest_yaml = yaml.safe_dump(
         manifest_payload,
         sort_keys=False,
@@ -6136,6 +6204,61 @@ async def _import_apcad_dataset(
     )
 
 
+async def _import_coverage_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+) -> FamilyImportDatasetSummary:
+    if not dataset.per_sample:
+        return await _register_only(
+            summary, "Registered only; coverage dataset has no per_sample entries"
+        )
+    sample_results: dict[str, Any] = {}
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        bed_path = _resolve_package_path(
+            bundle.root, raw_entry.get("bed") or raw_entry.get("file")
+        )
+        if bed_path is None:
+            continue
+        existing_count = await _interval_track_count(
+            session, sample_context=sample_context, track_type="coverage"
+        )
+        if conflict_mode == "update" and existing_count:
+            sample_results[sample_id] = {"skipped": True, "existing": existing_count}
+            continue
+        async with _local_upload(bed_path) as upload:
+            sample_results[sample_id] = await upload_bed_data(
+                session,
+                sample_context=sample_context,
+                bed_type="coverage",
+                file=upload,
+                overwrite=True,
+            )
+    skipped = [
+        sample_id
+        for sample_id, stats in sample_results.items()
+        if isinstance(stats, dict) and stats.get("existing") is not None
+    ]
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": (
+                "Imported coverage into interval tracks"
+                if not skipped
+                else f"Imported coverage; skipped existing samples in update mode: {', '.join(skipped)}"
+            ),
+            "summary": sample_results,
+        }
+    )
+
+
 async def _import_pcf_dataset(
     session: AsyncSession,
     *,
@@ -6442,6 +6565,15 @@ async def _import_dataset(
         )
     if summary.dataset_type == "apcad":
         return await _import_apcad_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+        )
+    if summary.dataset_type == "coverage":
+        return await _import_coverage_dataset(
             session,
             bundle=bundle,
             dataset=dataset,

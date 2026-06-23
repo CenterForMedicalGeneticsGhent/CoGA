@@ -170,11 +170,12 @@ def render_coverage_bed() -> str:
 
 
 def render_manifest() -> str:
-    """A package manifest so the demo is discoverable + importable as a NIPT family.
+    """A package manifest so the demo imports as a NIPT family in one step.
 
-    Declares the analysis type and the cfDNA sample's assay so Package Import tags
-    the family for NIPT. No datasets are listed: the combined VCF and coverage are
-    uploaded afterwards (the combined-VCF path is the canonical NIPT input).
+    Declares the analysis type and the cfDNA sample's assay (so Package Import
+    tags the family for NIPT) plus the datasets: the combined father+cfDNA VCF
+    (snv) and the cfDNA coverage BED. The VCF is uncompressed and unindexed,
+    which the family-VCF importer accepts.
     """
     return (
         "schema_version: 1\n"
@@ -184,6 +185,13 @@ def render_manifest() -> str:
         "samples:\n"
         f"  {CFDNA_SAMPLE}:\n"
         "    assay: nipt_cfdna\n"
+        "datasets:\n"
+        "  snv:\n"
+        "    family_vcf: nipt_combined.vcf\n"
+        "  coverage:\n"
+        "    per_sample:\n"
+        f"      {CFDNA_SAMPLE}:\n"
+        "        bed: nipt_coverage.bed\n"
         "metadata:\n"
         "  description: Synthetic monogenic NIPT demo (fetal fraction 12%)\n"
     )

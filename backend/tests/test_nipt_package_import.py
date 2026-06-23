@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import pytest
 
+from pathlib import Path
+
 from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_import as fpi
 from backend.app.services.family_package_import import (
+    ManifestDataset,
     PackageManifest,
     _normalize_manifest_samples,
+    _validate_coverage_dataset,
     discover_family_package_manifest,
+    load_validated_family_package,
     scan_family_import_packages,
 )
+
+_DEMO_DIR = Path(__file__).resolve().parents[2] / "demo" / "nipt_family"
 
 
 def _write_nipt_package(folder) -> None:
@@ -143,3 +150,27 @@ def test_scan_s3_failure_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(fpi, "list_s3_package_candidates", boom)
     assert scan_family_import_packages() == []
+
+
+def test_coverage_dataset_requires_per_sample() -> None:
+    errors: list = []
+    summary = _validate_coverage_dataset(
+        root=Path("/tmp"), dataset=ManifestDataset(), ped_sample_ids=set(), errors=errors
+    )
+    assert summary.status == "error"
+    assert any(issue.code == "dataset_per_sample_missing" for issue in errors)
+
+
+def test_demo_package_validates_with_snv_and_coverage_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    validation, _bundle = load_validated_family_package(_DEMO_DIR)
+
+    assert validation.valid, validation.errors
+    assert validation.family_id == "FAM_NIPT_DEMO"
+    datasets = {summary.dataset_type: summary for summary in validation.datasets}
+    # The combined (uncompressed, unindexed) VCF and the cfDNA coverage BED both
+    # validate as importable datasets.
+    assert datasets["snv"].status == "valid"
+    assert datasets["coverage"].status == "valid"

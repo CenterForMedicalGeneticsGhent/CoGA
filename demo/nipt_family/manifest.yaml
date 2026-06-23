@@ -5,5 +5,12 @@ ped: nipt_trio.ped
 samples:
   CFDNA_NIPT:
     assay: nipt_cfdna
+datasets:
+  snv:
+    family_vcf: nipt_combined.vcf
+  coverage:
+    per_sample:
+      CFDNA_NIPT:
+        bed: nipt_coverage.bed
 metadata:
   description: Synthetic monogenic NIPT demo (fetal fraction 12%)
