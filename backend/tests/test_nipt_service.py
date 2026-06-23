@@ -325,10 +325,16 @@ def _wire_variants_mocks(
     async def fake_load_artifacts(_session, *, assembly_id, assay_key):
         return set(artifacts or set())
 
+    # Review/internal-cohort hydration is a DB concern exercised elsewhere; no-op
+    # it here so the variant serialization can run against the mocked context.
+    async def fake_hydrate(_session, *, context, variants):
+        return None
+
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fake_fetch)
     monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", fake_load_artifacts)
+    monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", fake_hydrate)
 
 
 def _cohort_cat7_records() -> list[SmallVariantRecord]:

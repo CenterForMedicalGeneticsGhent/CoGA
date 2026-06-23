@@ -210,17 +210,13 @@ class NiptSummaryOut(BaseModel):
     filter_counts: Dict[str, int]
 
 
-class NiptVariantOut(BaseModel):
-    """A classified cfDNA variant for the monogenic NIPT variant list."""
+class NiptClassificationOut(BaseModel):
+    """The NIPT classification block attached to each cfDNA variant.
 
-    variant_id: str
-    chr: str
-    pos: int
-    ref: str
-    alt: str
-    gene: Optional[str] = None
-    impact: Optional[str] = None
-    consequence: Optional[str] = None
+    The variant payload itself is the full small-variant shape (``VariantOut``);
+    this is the maternal/fetal interpretation layered on top. ``NiptVariantOut``
+    (defined after ``VariantOut`` below) combines the two."""
+
     category: Optional[int] = None
     category_label: str
     maternal_state: str
@@ -237,7 +233,8 @@ class NiptVariantPage(BaseModel):
     family_id: str
     total: int
     fetal_fraction: NiptFetalFractionOut
-    variants: List[NiptVariantOut]
+    # NiptVariantOut subclasses VariantOut, which is defined later in this module.
+    variants: List["NiptVariantOut"]
 
 
 class NiptCoverageRegionOut(BaseModel):
@@ -2356,3 +2353,15 @@ class UiEventPageOut(BaseModel):
 
 class UiEventIngestResult(BaseModel):
     accepted: int
+
+
+class NiptVariantOut(VariantOut):
+    """A classified cfDNA variant: the full small-variant payload plus the NIPT
+    classification block. Defined here so it can extend ``VariantOut`` (declared
+    earlier in this module); ``NiptVariantPage`` forward-references it."""
+
+    nipt: NiptClassificationOut
+
+
+# Resolve the forward reference in NiptVariantPage now that NiptVariantOut exists.
+NiptVariantPage.model_rebuild()

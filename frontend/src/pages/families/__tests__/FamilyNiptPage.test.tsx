@@ -87,7 +87,12 @@ describe('FamilyNiptPage', () => {
           data: [{ _id: 'panel-1', name: 'Intellectual disability' }],
         });
       }
+      if (url === '/families/NIPT001/small-variant-tags') {
+        return Promise.resolve({ data: [] });
+      }
       if (url === '/families/NIPT001/nipt/variants') {
+        // The endpoint now returns the full small-variant payload plus a `nipt`
+        // classification block, so the page renders it via SmallVariantResults.
         return Promise.resolve({
           data: {
             family_id: 'NIPT001',
@@ -95,22 +100,27 @@ describe('FamilyNiptPage', () => {
             fetal_fraction: FETAL_FRACTION,
             variants: [
               {
-                variant_id: '1-100-A-G',
+                _id: '1-100-A-G',
                 chr: '1',
-                pos: 100,
+                start: 100,
+                end: 100,
+                type: 'SNV',
                 ref: 'A',
                 alt: 'G',
                 gene: 'BRCA1',
                 impact: 'HIGH',
-                consequence: 'missense_variant',
-                category: 7,
-                category_label: 'paternal, transmitted to fetus',
-                maternal_state: 'hom_ref',
-                fetal_inheritance: 'paternal_transmitted',
-                expected_vaf: 0.05,
-                observed_vaf: 0.05,
-                confidence: 0.97,
-                flags: [],
+                effect: 'missense_variant',
+                genotypes: [],
+                nipt: {
+                  category: 7,
+                  category_label: 'paternal, transmitted to fetus',
+                  maternal_state: 'hom_ref',
+                  fetal_inheritance: 'paternal_transmitted',
+                  expected_vaf: 0.05,
+                  observed_vaf: 0.05,
+                  confidence: 0.97,
+                  flags: [],
+                },
               },
             ],
           },
@@ -140,11 +150,12 @@ describe('FamilyNiptPage', () => {
     expect(await screen.findByText('120x')).toBeInTheDocument();
     expect(screen.getByText('On-target coverage')).toBeInTheDocument();
 
-    // The classified variant row comes from the variants query. (consequence
-    // text is asserted via a table-unique value -- "missense_variant" also
-    // appears in the new consequence filter checkbox list.)
-    expect(await screen.findByText('BRCA1')).toBeInTheDocument();
-    expect(screen.getByText('0.97')).toBeInTheDocument();
+    // The variant renders through the reused small-variant card (≤100 results →
+    // cards view), with the NIPT classification block layered on. (BRCA1 appears
+    // in the gene link and external-resource links, hence findAllByText.)
+    expect((await screen.findAllByText('BRCA1')).length).toBeGreaterThan(0);
+    expect(screen.getByText(/paternal, transmitted to fetus/)).toBeInTheDocument();
+    expect(screen.getByText('Category 7')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
   });
 

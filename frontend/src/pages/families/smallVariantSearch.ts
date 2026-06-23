@@ -158,6 +158,19 @@ export interface SmallVariant {
   // mtDNA-specific ACMG context, attached by the mitochondrial page adapter for
   // MT variants so the modal can run the mt-specific evaluator.
   mito?: AcmgMitoContext | null;
+  // Monogenic NIPT classification, attached only by the NIPT variants endpoint.
+  nipt?: NiptClassification | null;
+}
+
+export interface NiptClassification {
+  category?: number | null;
+  category_label: string;
+  maternal_state: string;
+  fetal_inheritance: string;
+  expected_vaf: number;
+  observed_vaf?: number | null;
+  confidence: number;
+  flags: string[];
 }
 
 export interface SmallVariantPriorityMatch {

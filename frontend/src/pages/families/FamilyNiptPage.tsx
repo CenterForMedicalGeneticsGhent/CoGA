@@ -1,18 +1,33 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import { getErrorMessage } from '../../lib/errorMessage';
+import { useFamilyReference } from '../../lib/reference';
 import type {
   ApiFamilyRecord,
   ApiNiptCoverageSummary,
   ApiNiptSummary,
-  ApiNiptVariantPage,
 } from '../../lib/apiTypes';
-import type { GenePanel } from './smallVariantSearch';
-import { parsePedigree } from './smallVariantSearch';
+import {
+  normalizeReviewClassification,
+  parsePedigree,
+  type GenePanel,
+  type SmallVariant,
+  type SmallVariantPage,
+  type SmallVariantReview,
+  type SmallVariantReviewSavePayload,
+  type SmallVariantTagDefinition,
+} from './smallVariantSearch';
+import {
+  buildOptimisticReview,
+  buildSmallVariantReviewPath,
+  hasReviewContent,
+  updateSmallVariantPageReview,
+} from './smallVariantReview';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
-import ResultsPagination from './ResultsPagination';
+import SmallVariantResults from './SmallVariantResults';
 
 const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 const PAGE_SIZE = 50;
@@ -205,6 +220,8 @@ const summarize = (count: number): string => (count ? `${count} filter${count ==
 
 const FamilyNiptPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
+  const location = useLocation();
+  const queryClient = useQueryClient();
   const [draft, setDraft] = useState<NiptFilters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<NiptFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
@@ -289,17 +306,82 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  const { data: variantPage, isFetching: variantsFetching } = useQuery<ApiNiptVariantPage>({
-    queryKey: ['family', familyId, 'nipt', 'variants', JSON.stringify(applied), page],
+  // The reference (assembly/species/project) powers the reused small-variant
+  // card's IGV/gene links and the review/ACMG project scoping.
+  const { speciesName, assemblyName, assemblyVersion, projectId } = useFamilyReference(
+    family?.projects,
+  );
+
+  const { data: tags = [] } = useQuery<SmallVariantTagDefinition[]>({
+    queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
+    enabled: Boolean(familyId && isMonogenicNipt),
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/small-variant-tags`, {
+        params: projectId ? { project_id: projectId } : undefined,
+      });
+      return res.data as SmallVariantTagDefinition[];
+    },
+  });
+
+  // The NIPT variants endpoint now returns the full small-variant payload plus a
+  // per-variant `nipt` classification block, so it is a SmallVariantPage.
+  const niptVariantsKey = ['family', familyId, 'nipt', 'variants'] as const;
+  const { data: variantPage, isFetching: variantsFetching } = useQuery<SmallVariantPage>({
+    queryKey: [...niptVariantsKey, JSON.stringify(applied), page],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/nipt/variants`, {
         params: buildVariantParams(applied, page),
         paramsSerializer: niptParamsSerializer,
       });
-      return res.data as ApiNiptVariantPage;
+      return res.data as SmallVariantPage;
     },
     placeholderData: keepPreviousData,
+  });
+
+  // Variant review (tag / report / classification). The endpoints are shared
+  // with the small-variant view; only the optimistic cache key differs.
+  const reviewMutation = useMutation({
+    mutationFn: async ({
+      variant,
+      payload,
+    }: {
+      variant: SmallVariant;
+      payload: SmallVariantReviewSavePayload;
+    }) => {
+      if (!familyId) {
+        throw new Error('Family id is required');
+      }
+      const reviewPath = buildSmallVariantReviewPath(familyId, variant._id);
+      const res = projectId
+        ? await api.put(reviewPath, payload, { params: { project_id: projectId } })
+        : await api.put(reviewPath, payload);
+      return res.data as SmallVariantReview;
+    },
+    onMutate: async ({ variant, payload }) => {
+      await queryClient.cancelQueries({ queryKey: niptVariantsKey });
+      const snapshots = queryClient.getQueriesData<SmallVariantPage>({ queryKey: niptVariantsKey });
+      const optimisticReview = buildOptimisticReview(variant, payload);
+      snapshots.forEach(([key]) => {
+        queryClient.setQueryData<SmallVariantPage>(key, (current) =>
+          updateSmallVariantPageReview(current, variant._id, optimisticReview),
+        );
+      });
+      return { snapshots };
+    },
+    onSuccess: (review, { variant }) => {
+      queryClient.getQueriesData<SmallVariantPage>({ queryKey: niptVariantsKey }).forEach(([key]) => {
+        queryClient.setQueryData<SmallVariantPage>(key, (current) =>
+          updateSmallVariantPageReview(current, variant._id, hasReviewContent(review) ? review : null),
+        );
+      });
+      void queryClient.invalidateQueries({ queryKey: niptVariantsKey });
+    },
+    onError: (_error, _variables, context) => {
+      context?.snapshots.forEach(([key, snapshot]) => {
+        queryClient.setQueryData(key, snapshot);
+      });
+    },
   });
 
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
@@ -337,7 +419,6 @@ const FamilyNiptPage: React.FC = () => {
   const ff = summary?.fetal_fraction;
   const totalVariants = variantPage?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(totalVariants / PAGE_SIZE));
-  const variants = variantPage?.variants ?? [];
 
   // Filter-count badges per section.
   const locationCount =
@@ -748,70 +829,52 @@ const FamilyNiptPage: React.FC = () => {
       </section>
 
       <div className="variant-results-region">
-        <section className="surface-card space-y-4">
-          <div className="variant-results-toolbar">
-            <div className="space-y-1">
-              <h2 className="section-title">
-                Classified variants
-                <span className="variant-results-count">{totalVariants.toLocaleString()}</span>
-              </h2>
-              <p className="table-subtle">
-                cfDNA calls classified by maternal/fetal category at fetal fraction {pct(ff?.ff)}.
-              </p>
-            </div>
-          </div>
-
-          <div className="analysis-results-card overflow-x-auto">
-            <table className="analysis-table table-sticky">
-              <thead>
-                <tr>
-                  <th scope="col">Variant</th>
-                  <th scope="col">Gene</th>
-                  <th scope="col">Consequence</th>
-                  <th scope="col">Impact</th>
-                  <th scope="col">Category</th>
-                  <th scope="col">Maternal</th>
-                  <th scope="col">Fetal inheritance</th>
-                  <th scope="col">VAF (obs / exp)</th>
-                  <th scope="col">Confidence</th>
-                  <th scope="col">Flags</th>
-                </tr>
-              </thead>
-              <tbody>
-                {variants.map((variant) => (
-                  <tr key={variant.variant_id}>
-                    <td>
-                      {variant.chr}:{variant.pos} {variant.ref}&gt;{variant.alt}
-                    </td>
-                    <td>{variant.gene ?? '—'}</td>
-                    <td>{variant.consequence ?? '—'}</td>
-                    <td>{variant.impact ?? '—'}</td>
-                    <td>
-                      {variant.category != null
-                        ? `${variant.category} — ${variant.category_label}`
-                        : 'Undetermined'}
-                    </td>
-                    <td>{variant.maternal_state}</td>
-                    <td>{variant.fetal_inheritance}</td>
-                    <td>
-                      {pct(variant.observed_vaf)} / {pct(variant.expected_vaf)}
-                    </td>
-                    <td>{variant.confidence.toFixed(2)}</td>
-                    <td>{variant.flags.length ? variant.flags.join(', ') : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {totalVariants === 0 && !variantsFetching ? (
-            <div className="variant-results-empty">
-              <p className="table-empty">No classified variants match the current filters.</p>
-            </div>
-          ) : null}
-
-          <ResultsPagination page={page} totalPages={pageCount} onPageChange={setPage} />
-        </section>
+        <SmallVariantResults
+          assemblyName={assemblyName}
+          assemblyVersion={assemblyVersion}
+          data={variantPage}
+          familyId={familyId}
+          locationSearch={location.search}
+          members={family.members ?? []}
+          onPageChange={setPage}
+          page={page}
+          projectId={projectId}
+          requestQueryString=""
+          speciesName={speciesName}
+          totalPages={pageCount}
+          tags={tags}
+          showCsvExport={false}
+          reviewIsPending={reviewMutation.isPending}
+          reviewError={
+            reviewMutation.isError
+              ? getErrorMessage(reviewMutation.error, 'Unable to save the variant review')
+              : null
+          }
+          onToggleReviewTag={async (variant, tagKey) => {
+            const nextTags = new Set(variant.review?.tags || []);
+            if (nextTags.has(tagKey)) {
+              nextTags.delete(tagKey);
+            } else {
+              nextTags.add(tagKey);
+            }
+            await reviewMutation.mutateAsync({
+              variant,
+              payload: {
+                classification:
+                  normalizeReviewClassification(
+                    variant.review?.classification,
+                    variant.review?.tags,
+                  ) || undefined,
+                tags: Array.from(nextTags).sort((left, right) => left.localeCompare(right)),
+                note: variant.review?.note || undefined,
+              },
+            });
+          }}
+          onOpenReview={() => reviewMutation.reset()}
+          onSaveReview={async (variant, payload) => {
+            await reviewMutation.mutateAsync({ variant, payload });
+          }}
+        />
 
         <section className="surface-card space-y-2" aria-label="On-target coverage">
           <h2 className="section-title">On-target coverage</h2>
@@ -821,45 +884,15 @@ const FamilyNiptPage: React.FC = () => {
                 No target regions — set a family ROI or gene panel to report coverage.
               </p>
             ) : (
-              <>
-                <div className="family-workspace-summary">
-                  <div className="family-workspace-stat">
-                    <span className="family-workspace-stat-value">{depth(coverage.overall_median_on_target)}</span>
-                    <span className="family-workspace-stat-copy">
-                      Median on-target ({coverage.target_region_count} region
-                      {coverage.target_region_count === 1 ? '' : 's'})
-                    </span>
-                  </div>
+              <div className="family-workspace-summary">
+                <div className="family-workspace-stat">
+                  <span className="family-workspace-stat-value">{depth(coverage.overall_median_on_target)}</span>
+                  <span className="family-workspace-stat-copy">
+                    Median on-target ({coverage.target_region_count} region
+                    {coverage.target_region_count === 1 ? '' : 's'})
+                  </span>
                 </div>
-                {coverage.per_region.length > 0 && (
-                  <div className="data-table-shell overflow-x-auto">
-                    <table className="analysis-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Region</th>
-                          <th scope="col">Location</th>
-                          <th scope="col">Median coverage</th>
-                          <th scope="col">Covered / target bases</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {coverage.per_region.map((region) => (
-                          <tr key={`${region.label}-${region.chr}-${region.start}`}>
-                            <td>{region.label}</td>
-                            <td>
-                              {region.chr}:{region.start}-{region.end}
-                            </td>
-                            <td>{depth(region.median_coverage)}</td>
-                            <td>
-                              {region.covered_bases} / {region.target_bases}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
+              </div>
             )
           ) : (
             <p className="table-subtle">Loading coverage…</p>

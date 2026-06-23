@@ -49,6 +49,7 @@ from ..schemas import (
     NiptCoverageSummaryOut,
     NiptFetalFractionOut,
     NiptSummaryOut,
+    NiptClassificationOut,
     NiptVariantOut,
     NiptVariantPage,
     VariantLengthOut,
@@ -861,22 +862,8 @@ def _nipt_fetal_fraction_out(ff) -> NiptFetalFractionOut:
 
 
 def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
-    record = item.record
     classification = item.classification
-    annotation = (record.annotations or [{}])[0] or {}
-    gene = record.gene_symbols[0] if record.gene_symbols else annotation.get("gene")
-    effect = annotation.get("effect")
-    if isinstance(effect, (list, tuple)):
-        effect = effect[0] if effect else None
-    return NiptVariantOut(
-        variant_id=record.variant_id,
-        chr=record.chr,
-        pos=record.start,
-        ref=record.ref,
-        alt=record.alt,
-        gene=gene or None,
-        impact=annotation.get("impact") or None,
-        consequence=effect or None,
+    nipt = NiptClassificationOut(
         category=classification.category,
         category_label=classification.category_label,
         maternal_state=classification.maternal_state,
@@ -886,6 +873,10 @@ def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
         confidence=classification.confidence,
         flags=classification.flags,
     )
+    if item.variant_out is None:
+        # get_family_nipt_variants always hydrates the page slice.
+        raise RuntimeError("NIPT variant was serialized before hydration")
+    return NiptVariantOut(**item.variant_out.model_dump(by_alias=True), nipt=nipt)
 
 
 @router.get("/{family_id}/nipt/summary", response_model=NiptSummaryOut)

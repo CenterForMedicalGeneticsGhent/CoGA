@@ -36,6 +36,9 @@ type SmallVariantResultsProps = {
   onOpenReview?: () => void;
   reviewIsPending?: boolean;
   reviewError?: string | null;
+  // The CSV export hits the small-variant export endpoint; callers without one
+  // (e.g. the NIPT page) hide the button by passing false.
+  showCsvExport?: boolean;
 };
 
 export default function SmallVariantResults({
@@ -57,6 +60,7 @@ export default function SmallVariantResults({
   onOpenReview,
   reviewIsPending = false,
   reviewError = null,
+  showCsvExport = true,
 }: SmallVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<SmallVariant | null>(null);
@@ -121,15 +125,17 @@ export default function SmallVariantResults({
             </p>
           </div>
           <div className="variant-results-toolbar-actions">
-            <button
-              type="button"
-              className="button-secondary variant-explorer-download"
-              onClick={handleDownloadCsv}
-              disabled={isExporting || !hasResults}
-              title="Download all filtered variants with annotation data as CSV"
-            >
-              {isExporting ? 'Preparing…' : 'Download CSV'}
-            </button>
+            {showCsvExport && (
+              <button
+                type="button"
+                className="button-secondary variant-explorer-download"
+                onClick={handleDownloadCsv}
+                disabled={isExporting || !hasResults}
+                title="Download all filtered variants with annotation data as CSV"
+              >
+                {isExporting ? 'Preparing…' : 'Download CSV'}
+              </button>
+            )}
             <div className="variant-results-toggle" role="tablist" aria-label="Variant display mode">
               {[
                 { value: 'auto', label: 'Auto' },

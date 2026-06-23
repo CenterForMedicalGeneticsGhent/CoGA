@@ -22,17 +22,12 @@ import {
   type SmallVariantTagDefinition,
   normalizeReviewClassification,
 } from './smallVariantSearch';
-
-const buildSmallVariantReviewPath = (familyId: string, variantId: string): string =>
-  `/families/${encodeURIComponent(familyId)}/small-variants/${encodeURIComponent(variantId)}/review`;
-
-const hasReviewContent = (review: SmallVariantReview | null | undefined): boolean =>
-  Boolean(
-    review?.classification ||
-      review?.tags?.length ||
-      review?.note ||
-      review?.compound_het,
-  );
+import {
+  buildOptimisticReview,
+  buildSmallVariantReviewPath,
+  hasReviewContent,
+  updateSmallVariantPageReview,
+} from './smallVariantReview';
 
 const formatVariantTotal = (total: number | undefined, estimated?: boolean): string => {
   const safeTotal = Math.max(total ?? 0, 0);
@@ -44,58 +39,6 @@ const formatVariantTotal = (total: number | undefined, estimated?: boolean): str
 
 const formatSummaryCount = (value: number | undefined): string =>
   Math.max(value ?? 0, 0).toLocaleString();
-
-const buildOptimisticReview = (
-  variant: SmallVariant,
-  payload: SmallVariantReviewSavePayload,
-): SmallVariantReview | null => {
-  const nextReview: SmallVariantReview = {
-    variant_id: variant.review?.variant_id || variant._id,
-    classification: payload.classification ?? null,
-    tags: payload.tags,
-    tag_metadata: variant.review?.tag_metadata || {},
-    note: payload.note ?? null,
-    updated_by: variant.review?.updated_by ?? null,
-    updated_at: new Date().toISOString(),
-    compound_het: variant.review?.compound_het ?? null,
-  };
-
-  return hasReviewContent(nextReview) ? nextReview : null;
-};
-
-const withUpdatedVariantReview = (
-  variant: SmallVariant,
-  variantId: string,
-  review: SmallVariantReview | null,
-): SmallVariant => {
-  if (variant._id !== variantId) {
-    return variant;
-  }
-  return { ...variant, review };
-};
-
-const updateSmallVariantPageReview = (
-  page: SmallVariantPage | undefined,
-  variantId: string,
-  review: SmallVariantReview | null,
-): SmallVariantPage | undefined => {
-  if (!page) {
-    return page;
-  }
-
-  return {
-    ...page,
-    variants: page.variants.map((variant) =>
-      withUpdatedVariantReview(variant, variantId, review),
-    ),
-    variant_groups: page.variant_groups?.map((group) => ({
-      ...group,
-      variants: group.variants.map((variant) =>
-        withUpdatedVariantReview(variant, variantId, review),
-      ),
-    })),
-  };
-};
 
 const FamilySmallVariantsPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();

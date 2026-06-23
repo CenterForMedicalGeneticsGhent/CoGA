@@ -3398,6 +3398,80 @@ tbody tr:hover {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+/* NIPT classification block (on the reused small-variant card) + table cell. */
+.nipt-classification-block {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: 0.6rem;
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.nipt-classification-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.nipt-classification-category {
+  font-weight: 700;
+}
+
+.nipt-classification-label {
+  color: var(--text-muted, #5b6166);
+}
+
+.nipt-classification-confidence {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--text-muted, #5b6166);
+}
+
+.nipt-classification-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.3rem 0.75rem;
+  margin: 0;
+}
+
+.nipt-classification-stats > div {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.nipt-classification-stats dt {
+  font-weight: 600;
+  color: var(--text-muted, #5b6166);
+}
+
+.nipt-classification-stats dd {
+  margin: 0;
+}
+
+.nipt-classification-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.nipt-table-cell {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.nipt-table-category {
+  font-weight: 700;
+}
+
+.nipt-table-detail {
+  font-size: 0.76rem;
+  color: var(--text-muted, #5b6166);
+}
+
 .variant-inline-controls {
   display: grid;
   gap: 0.5rem;
