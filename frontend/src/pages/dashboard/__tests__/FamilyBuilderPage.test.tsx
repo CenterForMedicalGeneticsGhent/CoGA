@@ -189,4 +189,45 @@ describe('FamilyBuilderPage', () => {
       })
     );
   });
+
+  it('tags a monogenic NIPT family and its cfDNA sample', async () => {
+    (api.post as any).mockResolvedValue({
+      data: { families: [{ family_id: 'FAM-NIPT', samples: ['CFDNA-1'] }] },
+    });
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getAllByLabelText(/^project$/i)[0]).toHaveValue(
+        '11111111-1111-1111-1111-111111111111'
+      )
+    );
+
+    fireEvent.change(screen.getByLabelText(/family id/i), {
+      target: { value: 'FAM-NIPT' },
+    });
+    fireEvent.change(screen.getByLabelText(/sample id/i), {
+      target: { value: 'CFDNA-1' },
+    });
+    // The cfDNA toggle only appears once the family is marked monogenic NIPT.
+    fireEvent.click(screen.getByLabelText(/monogenic nipt/i));
+    fireEvent.click(screen.getByLabelText(/cfdna \(maternal plasma\)/i));
+    fireEvent.click(screen.getByRole('button', { name: /create family/i }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/ped/manual',
+        expect.objectContaining({
+          family_id: 'FAM-NIPT',
+          metadata: { analysis_type: 'monogenic_nipt' },
+          members: expect.arrayContaining([
+            expect.objectContaining({
+              sample_id: 'CFDNA-1',
+              metadata: { assay: 'nipt_cfdna' },
+            }),
+          ]),
+        })
+      )
+    );
+  });
 });

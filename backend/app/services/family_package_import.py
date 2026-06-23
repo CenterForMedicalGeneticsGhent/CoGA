@@ -24,7 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import yaml
 
 from ..core.config import settings
-from ..core.object_storage import download_prefix, is_s3_uri, join_s3_uri
+from ..core.object_storage import (
+    download_prefix,
+    is_s3_uri,
+    join_s3_uri,
+    list_s3_package_candidates,
+)
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import (
     FamilyManifestDatasetAvailability,
@@ -90,6 +95,7 @@ SUPPORTED_DATASETS = (
     "pcf",
     "haplotypes",
     "paraphase",
+    "coverage",
 )
 APCAD_PCF_TRACK_TYPE = "apcad_pcf"
 APCAD_PCF_SOURCE = "pcf"
@@ -375,6 +381,10 @@ class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
     ped: str
+    # Optional analysis type for the family, e.g. "monogenic_nipt". Promoted to
+    # families.metadata["analysis_type"] so the workspace surfaces the NIPT tab
+    # and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
+    analysis_type: str | None = None
     roi: str | dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     samples: dict[str, Any] | list[Any] | None = None
@@ -496,6 +506,91 @@ def _authorized_local_roots() -> list[Path]:
 
 def _authorized_s3_roots() -> list[str]:
     return [root.strip() for root in settings.family_import_roots if is_s3_uri(root)]
+
+
+def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
+    """Loosely load a manifest (YAML/JSON) to a dict, or {} on any error."""
+    try:
+        text_value = manifest_path.read_text()
+        if manifest_path.suffix in (".yaml", ".yml"):
+            data = yaml.safe_load(text_value)
+        else:
+            data = json.loads(text_value)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _scan_manifest_info(manifest_path: Path) -> dict[str, Any]:
+    """Loosely read a manifest's family_id / analysis_type for the package list."""
+    data = _load_manifest_dict(manifest_path)
+    return {"family_id": data.get("family_id"), "analysis_type": data.get("analysis_type")}
+
+
+def _existing_manifest_dict(root: Path) -> dict[str, Any]:
+    manifest_path = _find_manifest(root)
+    return _load_manifest_dict(manifest_path) if manifest_path is not None else {}
+
+
+def scan_family_import_packages() -> list[dict[str, Any]]:
+    """List candidate family packages directly under each local import root.
+
+    A candidate is an immediate subdirectory containing a manifest
+    (manifest.yaml/.yml/.json) or a ``*.ped`` file. The folder path can then be
+    selected in the import UI instead of typed by hand.
+    """
+    packages: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for root in _authorized_local_roots():
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir(), key=lambda path: path.name.lower()):
+            if not child.is_dir():
+                continue
+            manifest_path = _find_manifest(child)
+            ped_paths = sorted(child.glob("*.ped"))
+            if manifest_path is None and not ped_paths:
+                continue
+            resolved = str(child.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            info = _scan_manifest_info(manifest_path) if manifest_path is not None else {}
+            family_id = info.get("family_id") or child.name
+            packages.append(
+                {
+                    "folder_path": resolved,
+                    "name": child.name,
+                    "family_id": str(family_id),
+                    "has_manifest": manifest_path is not None,
+                    "has_ped": bool(ped_paths),
+                    "analysis_type": info.get("analysis_type"),
+                }
+            )
+    for root_uri in _authorized_s3_roots():
+        # S3 listing is best-effort: a misconfigured or unreachable bucket must
+        # not break the local scan.
+        try:
+            candidates = list_s3_package_candidates(root_uri)
+        except Exception:
+            continue
+        for candidate in candidates:
+            uri = str(candidate["uri"])
+            if uri in seen:
+                continue
+            seen.add(uri)
+            name = str(candidate["name"])
+            packages.append(
+                {
+                    "folder_path": uri,
+                    "name": name,
+                    "family_id": name,
+                    "has_manifest": bool(candidate["has_manifest"]),
+                    "has_ped": bool(candidate["has_ped"]),
+                    "analysis_type": None,
+                }
+            )
+    return packages
 
 
 def _ensure_authorized_package_path(path: Path) -> Path:
@@ -1275,9 +1370,11 @@ def _validate_family_vcf_dataset(
         errors=errors,
         files=files,
     )
+    # An uncompressed .vcf without a declared index is accepted for every
+    # family-VCF dataset (the small-variant loader reads plain text and needs no
+    # tabix index); a .gz still requires its index.
     index_optional = (
-        dataset_type == "repeats_trgt"
-        and vcf_path is not None
+        vcf_path is not None
         and _is_uncompressed_vcf(vcf_path)
         and not dataset.index
     )
@@ -1397,6 +1494,56 @@ def _validate_wisecondorx_dataset(
         )
     return FamilyImportDatasetSummary(
         dataset_type="wisecondorx",
+        enabled=True,
+        status="error" if len(errors) > before else "valid",
+        files=list(dict.fromkeys(files)),
+        samples=samples,
+    )
+
+
+def _validate_coverage_dataset(
+    *,
+    root: Path,
+    dataset: ManifestDataset,
+    ped_sample_ids: set[str],
+    errors: list[FamilyImportValidationIssue],
+) -> FamilyImportDatasetSummary:
+    files: list[str] = []
+    samples: list[str] = []
+    before = len(errors)
+    if not dataset.per_sample:
+        errors.append(
+            _issue(
+                "dataset_per_sample_missing",
+                "Coverage dataset must define per_sample entries",
+                dataset="coverage",
+            )
+        )
+    for sample_id, raw_entry in dataset.per_sample.items():
+        samples.append(sample_id)
+        _validate_per_sample_id(
+            dataset_type="coverage",
+            sample_id=sample_id,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+        entry = _sample_entry_mapping(
+            dataset_type="coverage",
+            sample_id=sample_id,
+            entry=raw_entry,
+            errors=errors,
+        )
+        _require_file(
+            root=root,
+            dataset_type="coverage",
+            value=entry.get("bed") or entry.get("file"),
+            field_name="bed",
+            errors=errors,
+            files=files,
+            sample_id=sample_id,
+        )
+    return FamilyImportDatasetSummary(
+        dataset_type="coverage",
         enabled=True,
         status="error" if len(errors) > before else "valid",
         files=list(dict.fromkeys(files)),
@@ -1789,6 +1936,13 @@ def _validate_dataset(
         )
     if dataset_type == "wisecondorx":
         return _validate_wisecondorx_dataset(
+            root=root,
+            dataset=dataset,
+            ped_sample_ids=ped_sample_ids,
+            errors=errors,
+        )
+    if dataset_type == "coverage":
+        return _validate_coverage_dataset(
             root=root,
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
@@ -2308,6 +2462,52 @@ def _detect_ped_path(
     return None, errors, warnings
 
 
+def _availability_from_manifest_dataset(
+    root: Path, dataset_type: str, config: Any
+) -> FamilyManifestDatasetAvailability:
+    """Availability for a dataset the manifest already declares, based on whether
+    its declared files exist -- so the discover table reflects an explicit
+    manifest rather than only the filename scanner (which would mark a
+    custom-named file like nipt_combined.vcf as not detected)."""
+    files: list[FamilyManifestFileAvailability] = []
+    samples: list[str] = []
+    enabled = True
+
+    def _add(role: str, value: Any, sample_id: str | None = None) -> None:
+        if isinstance(value, str) and value.strip():
+            files.append(
+                FamilyManifestFileAvailability(
+                    role=role,
+                    path=value,
+                    exists=(root / value).exists(),
+                    sample_id=sample_id,
+                )
+            )
+
+    if isinstance(config, dict):
+        enabled = bool(config.get("enabled", True))
+        for role in ("family_vcf", "index", "annotation_tsv", "bed", "vcf", "file", "json"):
+            _add(role, config.get(role))
+        per_sample = config.get("per_sample")
+        if isinstance(per_sample, dict):
+            for sample_id, entry in per_sample.items():
+                samples.append(str(sample_id))
+                if isinstance(entry, dict):
+                    for role in ("bed", "vcf", "file", "bins", "segments", "json"):
+                        _add(role, entry.get(role), sample_id=str(sample_id))
+    complete = bool(files) and all(item.exists for item in files)
+    return FamilyManifestDatasetAvailability(
+        dataset_type=dataset_type,
+        enabled=enabled and complete,
+        complete=complete,
+        files=files,
+        samples=samples,
+        message="Available (declared in manifest)"
+        if complete
+        else "Declared in manifest, but some files are missing",
+    )
+
+
 def _family_dataset_availability(
     *,
     root: Path,
@@ -2767,7 +2967,17 @@ def discover_family_package_manifest(
             errors=errors,
         )
 
-    family_id = (request.family_id or root.name).strip()
+    # Prefer an explicit request id, then an existing manifest's family_id (the
+    # validate/import path already does this), and only fall back to the folder
+    # name. Otherwise a package whose folder name differs from its declared
+    # family_id (and PED) is wrongly rejected as a mismatch on discover.
+    existing_manifest = _existing_manifest_dict(root)
+    manifest_family_id = existing_manifest.get("family_id")
+    family_id = (
+        request.family_id
+        or (manifest_family_id if isinstance(manifest_family_id, str) else None)
+        or root.name
+    ).strip()
     ped_path, ped_errors, ped_warnings = _detect_ped_path(
         root,
         requested_ped_path=request.ped_path,
@@ -2832,6 +3042,34 @@ def discover_family_package_manifest(
         hpo_terms=request.hpo_terms,
         notes=request.notes,
     )
+    # Preserve an existing manifest's analysis_type / samples (e.g. the NIPT tags)
+    # so re-discovering and writing the manifest does not silently drop them.
+    existing_analysis_type = existing_manifest.get("analysis_type")
+    if isinstance(existing_analysis_type, str) and existing_analysis_type.strip():
+        manifest_payload["analysis_type"] = existing_analysis_type.strip()
+    existing_samples = existing_manifest.get("samples")
+    if existing_samples:
+        manifest_payload["samples"] = existing_samples
+    # The existing manifest is authoritative for the datasets it declares; the
+    # scanner only augments with newly detected ones. Without this, an explicit
+    # dataset (e.g. snv: {family_vcf: nipt_combined.vcf}) is clobbered by the
+    # disabled auto-detected block whose naming pattern matched nothing, so the
+    # combined VCF would silently not import.
+    existing_datasets = existing_manifest.get("datasets")
+    if isinstance(existing_datasets, dict):
+        payload_datasets = manifest_payload.setdefault("datasets", {})
+        availability_by_type = {item.dataset_type: index for index, item in enumerate(availability)}
+        for dataset_type, dataset_config in existing_datasets.items():
+            payload_datasets[dataset_type] = dataset_config
+            # Reflect the explicit dataset in the availability table too, so it is
+            # not shown as "not enabled" just because its filename does not match
+            # a scanner pattern.
+            item = _availability_from_manifest_dataset(root, dataset_type, dataset_config)
+            if dataset_type in availability_by_type:
+                availability[availability_by_type[dataset_type]] = item
+            else:
+                availability_by_type[dataset_type] = len(availability)
+                availability.append(item)
     manifest_yaml = yaml.safe_dump(
         manifest_payload,
         sort_keys=False,
@@ -3513,6 +3751,11 @@ async def _register_package_provenance(
         "datasets": _dataset_provenance(validation),
         "registered_at": now,
     }
+    # Promote a declared analysis type (e.g. monogenic_nipt) to the top level so
+    # the workspace surfaces the matching analysis section.
+    analysis_type = bundle.manifest.analysis_type
+    if isinstance(analysis_type, str) and analysis_type.strip():
+        family_metadata["analysis_type"] = analysis_type.strip()
     await session.execute(
         text(
             """
@@ -3591,6 +3834,11 @@ async def _register_package_provenance(
                 )
             if sample_id in sample_metadata:
                 metadata["package_sample_metadata"] = sample_metadata[sample_id]
+                # Promote a per-sample assay (e.g. nipt_cfdna) to the top level so
+                # resolve_nipt_trio can identify the maternal-plasma cfDNA sample.
+                assay = sample_metadata[sample_id].get("assay")
+                if isinstance(assay, str) and assay.strip():
+                    metadata["assay"] = assay.strip()
             if sample_id in sample_provenance:
                 metadata["package_import"] = {
                     "source": "family_package",
@@ -6014,6 +6262,61 @@ async def _import_apcad_dataset(
     )
 
 
+async def _import_coverage_dataset(
+    session: AsyncSession,
+    *,
+    bundle: FamilyPackageBundle,
+    dataset: ManifestDataset,
+    summary: FamilyImportDatasetSummary,
+    sample_contexts: dict[str, SampleMetadataContext],
+    conflict_mode: str = "overwrite",
+) -> FamilyImportDatasetSummary:
+    if not dataset.per_sample:
+        return await _register_only(
+            summary, "Registered only; coverage dataset has no per_sample entries"
+        )
+    sample_results: dict[str, Any] = {}
+    for sample_id, raw_entry in dataset.per_sample.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None or not isinstance(raw_entry, dict):
+            continue
+        bed_path = _resolve_package_path(
+            bundle.root, raw_entry.get("bed") or raw_entry.get("file")
+        )
+        if bed_path is None:
+            continue
+        existing_count = await _interval_track_count(
+            session, sample_context=sample_context, track_type="coverage"
+        )
+        if conflict_mode == "update" and existing_count:
+            sample_results[sample_id] = {"skipped": True, "existing": existing_count}
+            continue
+        async with _local_upload(bed_path) as upload:
+            sample_results[sample_id] = await upload_bed_data(
+                session,
+                sample_context=sample_context,
+                bed_type="coverage",
+                file=upload,
+                overwrite=True,
+            )
+    skipped = [
+        sample_id
+        for sample_id, stats in sample_results.items()
+        if isinstance(stats, dict) and stats.get("existing") is not None
+    ]
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": (
+                "Imported coverage into interval tracks"
+                if not skipped
+                else f"Imported coverage; skipped existing samples in update mode: {', '.join(skipped)}"
+            ),
+            "summary": sample_results,
+        }
+    )
+
+
 async def _import_pcf_dataset(
     session: AsyncSession,
     *,
@@ -6320,6 +6623,15 @@ async def _import_dataset(
         )
     if summary.dataset_type == "apcad":
         return await _import_apcad_dataset(
+            session,
+            bundle=bundle,
+            dataset=dataset,
+            summary=summary,
+            sample_contexts=sample_contexts,
+            conflict_mode=conflict_mode,
+        )
+    if summary.dataset_type == "coverage":
+        return await _import_coverage_dataset(
             session,
             bundle=bundle,
             dataset=dataset,

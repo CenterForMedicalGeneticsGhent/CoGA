@@ -988,6 +988,7 @@ async def create_manual_family_data(
     inserted = await _create_family(
         session,
         family_id=family.family_id,
+        family_metadata=family.metadata or None,
         pedigree=_build_ped_text_from_manual_family(family),
         members=[
             {
@@ -1001,7 +1002,7 @@ async def create_manual_family_data(
                 "carrier_type": member.carrier_type,
                 "carrier_evidence": member.carrier_evidence,
                 "affected": member.clinical_status == "affected",
-                "metadata": {},
+                "metadata": member.metadata,
             }
             for member in normalized_members
         ],

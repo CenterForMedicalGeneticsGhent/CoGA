@@ -23,6 +23,7 @@ type DraftMember = {
   isProband: boolean;
   carrierStatus: boolean;
   carrierType: CarrierType;
+  isCfdna: boolean;
 };
 
 type PedRow = {
@@ -72,6 +73,7 @@ const createDraftMember = (overrides: Partial<DraftMember> = {}): DraftMember =>
   isProband: false,
   carrierStatus: false,
   carrierType: 'proven',
+  isCfdna: false,
   ...overrides,
 });
 
@@ -252,6 +254,7 @@ const FamilyIntakePanel: React.FC = () => {
   const [pedProvenCarriers, setPedProvenCarriers] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [familyId, setFamilyId] = useState('');
+  const [monogenicNipt, setMonogenicNipt] = useState(false);
   const [members, setMembers] = useState<DraftMember[]>([
     createDraftMember({ isProband: true, affected: true }),
   ]);
@@ -579,6 +582,9 @@ const FamilyIntakePanel: React.FC = () => {
     const payload = {
       family_id: familyId.trim(),
       project_id: selectedProjectId,
+      // Monogenic NIPT families are tagged so the workspace surfaces the NIPT tab
+      // and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
+      ...(monogenicNipt ? { metadata: { analysis_type: 'monogenic_nipt' } } : {}),
       members: members.map((member) => ({
         sample_id: member.sampleId.trim(),
         father_id: member.fatherId.trim() || null,
@@ -589,6 +595,7 @@ const FamilyIntakePanel: React.FC = () => {
         is_proband: member.isProband,
         carrier_status: member.carrierStatus ? 'carrier' : 'not_carrier',
         carrier_type: member.carrierStatus ? member.carrierType : null,
+        ...(member.isCfdna ? { metadata: { assay: 'nipt_cfdna' } } : {}),
       })),
       couples: couples
         .filter((couple) => couple.partnerAId.trim() && couple.partnerBId.trim())
@@ -619,6 +626,7 @@ const FamilyIntakePanel: React.FC = () => {
         `Created ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
       );
       setFamilyId('');
+      setMonogenicNipt(false);
       setMembers([createDraftMember({ isProband: true, affected: true })]);
       setCouples([]);
     } catch (err: unknown) {
@@ -645,6 +653,7 @@ const FamilyIntakePanel: React.FC = () => {
               `Replaced ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
             );
             setFamilyId('');
+            setMonogenicNipt(false);
             setMembers([createDraftMember({ isProband: true, affected: true })]);
             setCouples([]);
           } catch (overwriteError: unknown) {
@@ -860,6 +869,20 @@ const FamilyIntakePanel: React.FC = () => {
               <p className="text-sm leading-7 text-[var(--color-text-muted)]">
                 Start with a proband, then add parents, siblings, children, or relatives.
               </p>
+              <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+                <input
+                  type="checkbox"
+                  checked={monogenicNipt}
+                  onChange={(event) => setMonogenicNipt(event.target.checked)}
+                />
+                Monogenic NIPT (cfDNA from maternal plasma)
+              </label>
+              {monogenicNipt && (
+                <p className="text-sm leading-7 text-[var(--color-text-muted)]">
+                  Mark the maternal-plasma cfDNA sample below. Add the father, the cfDNA
+                  sample as the mother, and the fetus as the proband.
+                </p>
+              )}
               <div className="action-row">
                 <button
                   type="button"
@@ -1041,6 +1064,18 @@ const FamilyIntakePanel: React.FC = () => {
                         />
                         Carrier
                       </label>
+                      {monogenicNipt && (
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={member.isCfdna}
+                            onChange={(event) =>
+                              updateMember(member.localId, { isCfdna: event.target.checked })
+                            }
+                          />
+                          cfDNA (maternal plasma)
+                        </label>
+                      )}
                       <label className="field-label min-w-[12rem]">
                         Carrier type
                         <select

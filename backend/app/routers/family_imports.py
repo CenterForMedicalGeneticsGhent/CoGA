@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user
 from ..schemas import (
+    FamilyPackageCandidateOut,
     FamilyPackageManifestBuildOut,
     FamilyPackageManifestBuildRequest,
     FamilyPackageImportCreate,
@@ -22,6 +23,7 @@ from ..services.family_package_import import (
     get_family_import_job,
     list_family_import_jobs,
     queue_family_import_job,
+    scan_family_import_packages,
     validate_family_package,
     write_family_package_manifest,
 )
@@ -106,6 +108,16 @@ async def validate_family_import_package(
             fallback_ped_text=fallback_ped_text,
         )
     )
+
+
+@router.get("/packages", response_model=list[FamilyPackageCandidateOut])
+async def list_available_family_packages(
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> list[FamilyPackageCandidateOut]:
+    del user
+    # Offloaded: scanning an s3:// root makes blocking network calls.
+    packages = await asyncio.to_thread(scan_family_import_packages)
+    return [FamilyPackageCandidateOut(**package) for package in packages]
 
 
 @router.get("/{job_id}", response_model=FamilyPackageImportJobOut)

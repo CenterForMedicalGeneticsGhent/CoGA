@@ -28,6 +28,10 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
   - How phenotype/carrier/structure edits propagate, what is preserved versus marked stale, and the batch-update flow.
 - [Haplotype Segregation Analysis](haplotype-segregation-analysis.md)
   - The PGT haplotype track: pedigree-aware IBD founder colouring, the raw phased-marker overlay, the four-founder + grey + risk colour code, single-parent (donor) families, the derived embryo classification (affected/carrier/unaffected/uninformative) with recombination/uninformative-marker warnings, and the ROI marker overview + QC signals.
+- [Monogenic NIPT Analysis](monogenic-nipt.md)
+  - The cfDNA-from-plasma feature (implemented): the 2-sample trio model, fetal-fraction estimation, the eight maternal/fetal VAF categories, quality/artifact filtering, on-target coverage reporting, and the dashboard — built on the small-variant pipeline. Doubles as the design reference.
+- [Monogenic NIPT — Fetal Fraction & Classification Algorithm](monogenic-nipt-classification.md)
+  - The Phase 3 algorithm reference (implemented): data structures, the category-7 fetal-fraction estimator with external-FF reconciliation, the beta-binomial per-variant classifier and confidence model, the resolvable-vs-not reliability split, edge cases, and the test plan.
 - [Demo Quartet Walkthrough](../demo/quartet_family/README.md)
   - File inventory and usage notes for the bundled synthetic family dataset.
 

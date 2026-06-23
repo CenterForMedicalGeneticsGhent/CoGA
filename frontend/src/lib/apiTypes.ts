@@ -21,6 +21,7 @@ export interface ApiFamilyMember extends ApiFamilyMemberRef {
   carrier_type?: 'obligate' | 'proven' | 'reported' | 'inferred' | null;
   carrier_evidence?: Record<string, unknown>;
   active?: boolean;
+  sample_metadata?: Record<string, unknown>;
 }
 
 export interface ApiFamilyMemberImpact {
@@ -190,6 +191,70 @@ export interface ApiSmallVariantReviewSummary {
   reviewed_variant_count: number;
   note_count: number;
   tag_counts: Record<string, number>;
+}
+
+export interface ApiNiptFetalFraction {
+  ff: number;
+  ff_computed?: number | null;
+  ff_external?: number | null;
+  ff_median?: number | null;
+  ci_low?: number | null;
+  ci_high?: number | null;
+  n_sites: number;
+  method: string;
+  low_confidence: boolean;
+  disagreement: boolean;
+}
+
+export interface ApiNiptSummary {
+  family_id: string;
+  fetal_fraction: ApiNiptFetalFraction;
+  // Category counts are keyed by the category number (1-8), serialized as strings.
+  category_counts: Record<string, number>;
+  filter_counts: Record<string, number>;
+}
+
+export interface ApiNiptVariant {
+  variant_id: string;
+  chr: string;
+  pos: number;
+  ref: string;
+  alt: string;
+  gene?: string | null;
+  impact?: string | null;
+  consequence?: string | null;
+  category?: number | null;
+  category_label: string;
+  maternal_state: string;
+  fetal_inheritance: string;
+  expected_vaf: number;
+  observed_vaf?: number | null;
+  confidence: number;
+  flags: string[];
+}
+
+export interface ApiNiptVariantPage {
+  family_id: string;
+  total: number;
+  fetal_fraction: ApiNiptFetalFraction;
+  variants: ApiNiptVariant[];
+}
+
+export interface ApiNiptCoverageRegion {
+  label: string;
+  chr: string;
+  start: number;
+  end: number;
+  median_coverage?: number | null;
+  covered_bases: number;
+  target_bases: number;
+}
+
+export interface ApiNiptCoverageSummary {
+  family_id: string;
+  overall_median_on_target?: number | null;
+  target_region_count: number;
+  per_region: ApiNiptCoverageRegion[];
 }
 
 export interface ApiProjectRecord<TFamily = ApiFamilySummary> {

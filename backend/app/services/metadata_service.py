@@ -99,6 +99,7 @@ def _family_member_out_from_row(row: dict[str, Any]) -> FamilyMemberOut:
         carrier_type=row.get("carrier_type"),
         carrier_evidence=_normalize_metadata(row.get("carrier_evidence")),
         active=bool(row.get("active", True)),
+        sample_metadata=_normalize_metadata(row.get("sample_metadata")),
     )
 
 

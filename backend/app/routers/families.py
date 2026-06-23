@@ -45,6 +45,12 @@ from ..schemas import (
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
+    NiptCoverageRegionOut,
+    NiptCoverageSummaryOut,
+    NiptFetalFractionOut,
+    NiptSummaryOut,
+    NiptVariantOut,
+    NiptVariantPage,
     VariantLengthOut,
     VariantOut,
     VariantPage,
@@ -94,6 +100,12 @@ from ..services.monarch_semsim import (
     semsim_search,
 )
 from ..services.metadata_service import CurrentUser
+from ..services.nipt_service import (
+    NiptClassifiedVariant,
+    get_family_nipt_coverage,
+    get_family_nipt_variants,
+    run_family_nipt_analysis,
+)
 from ..services.bed_service import precompute_family_lineage_safe
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.raw_import_files_pg import record_upload_file_obj
@@ -830,6 +842,177 @@ async def get_family_small_variants(
         track_mode=track_mode,
         track_result_limit=track_result_limit,
         **filters,
+    )
+
+
+def _nipt_fetal_fraction_out(ff) -> NiptFetalFractionOut:
+    return NiptFetalFractionOut(
+        ff=ff.ff,
+        ff_computed=ff.ff_computed,
+        ff_external=ff.ff_external,
+        ff_median=ff.ff_median,
+        ci_low=ff.ci_low,
+        ci_high=ff.ci_high,
+        n_sites=ff.n_sites,
+        method=ff.method,
+        low_confidence=ff.low_confidence,
+        disagreement=ff.disagreement,
+    )
+
+
+def _nipt_variant_out(item: NiptClassifiedVariant) -> NiptVariantOut:
+    record = item.record
+    classification = item.classification
+    annotation = (record.annotations or [{}])[0] or {}
+    gene = record.gene_symbols[0] if record.gene_symbols else annotation.get("gene")
+    effect = annotation.get("effect")
+    if isinstance(effect, (list, tuple)):
+        effect = effect[0] if effect else None
+    return NiptVariantOut(
+        variant_id=record.variant_id,
+        chr=record.chr,
+        pos=record.start,
+        ref=record.ref,
+        alt=record.alt,
+        gene=gene or None,
+        impact=annotation.get("impact") or None,
+        consequence=effect or None,
+        category=classification.category,
+        category_label=classification.category_label,
+        maternal_state=classification.maternal_state,
+        fetal_inheritance=classification.fetal_inheritance,
+        expected_vaf=classification.expected_vaf,
+        observed_vaf=classification.observed_vaf,
+        confidence=classification.confidence,
+        flags=classification.flags,
+    )
+
+
+@router.get("/{family_id}/nipt/summary", response_model=NiptSummaryOut)
+async def get_family_nipt_summary(
+    family_id: str,
+    project_id: str | None = None,
+    external_ff: float | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptSummaryOut:
+    result = await run_family_nipt_analysis(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        external_ff=external_ff,
+    )
+    return NiptSummaryOut(
+        family_id=family_id,
+        fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
+        category_counts=result.category_counts,
+        filter_counts=result.filter_counts,
+    )
+
+
+@router.get("/{family_id}/nipt/variants", response_model=NiptVariantPage)
+async def get_family_nipt_variants_page(
+    family_id: str,
+    page: int = 1,
+    page_size: int = 100,
+    project_id: str | None = None,
+    external_ff: float | None = None,
+    category: list[int] | None = Query(None),
+    min_confidence: float | None = None,
+    inheritance: str | None = None,
+    gene: str | None = None,
+    exclude_gene: str | None = None,
+    panel_id: str | None = None,
+    chr: str | None = None,
+    start: int | None = None,
+    end: int | None = None,
+    intervals: str | None = None,
+    impact: list[str] | None = Query(None),
+    effect: list[str] | None = Query(None),
+    max_gnomad_af: float | None = None,
+    max_gnomad_popmax_af: float | None = None,
+    min_cadd: float | None = None,
+    min_revel: float | None = None,
+    min_spliceai: float | None = None,
+    canonical_only: bool = False,
+    mane_only: bool = False,
+    lof_only: bool = False,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptVariantPage:
+    result = await get_family_nipt_variants(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        query_filters={
+            "gene": gene,
+            "exclude_gene": exclude_gene,
+            "panel_id": panel_id,
+            "chr": chr,
+            "start": start,
+            "end": end,
+            "intervals": intervals,
+            "impact": impact,
+            "effect": effect,
+            "max_gnomad_af": max_gnomad_af,
+            "max_gnomad_popmax_af": max_gnomad_popmax_af,
+            "min_cadd": min_cadd,
+            "min_revel": min_revel,
+            "min_spliceai": min_spliceai,
+            "canonical_only": canonical_only,
+            "mane_only": mane_only,
+            "lof_only": lof_only,
+        },
+        categories=category,
+        min_confidence=min_confidence,
+        inheritance=inheritance,
+        page=page,
+        page_size=page_size,
+        external_ff=external_ff,
+    )
+    return NiptVariantPage(
+        family_id=family_id,
+        total=result.total,
+        fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
+        variants=[_nipt_variant_out(item) for item in result.variants],
+    )
+
+
+@router.get("/{family_id}/nipt/coverage", response_model=NiptCoverageSummaryOut)
+async def get_family_nipt_coverage_summary(
+    family_id: str,
+    project_id: str | None = None,
+    gene: str | None = None,
+    panel_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptCoverageSummaryOut:
+    summary = await get_family_nipt_coverage(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        gene=gene,
+        panel_id=panel_id,
+    )
+    return NiptCoverageSummaryOut(
+        family_id=family_id,
+        overall_median_on_target=summary.overall_median_on_target,
+        target_region_count=summary.target_region_count,
+        per_region=[
+            NiptCoverageRegionOut(
+                label=region.label,
+                chr=region.chrom,
+                start=region.start,
+                end=region.end,
+                median_coverage=region.median_coverage,
+                covered_bases=region.covered_bases,
+                target_bases=region.target_bases,
+            )
+            for region in summary.per_region
+        ],
     )
 
 

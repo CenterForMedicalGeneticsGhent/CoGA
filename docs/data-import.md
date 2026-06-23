@@ -149,6 +149,7 @@ backend host. Use dry-run mode first to validate the package without writing fam
 
 API:
 
+- `GET /family-imports/packages` to list family folders discovered under `FAMILY_IMPORT_ROOTS` (local dirs or an S3 bucket) — the Package Import UI uses this to populate the **Family folder** dropdown instead of a typed path; the PED is auto-discovered within each folder
 - `POST /family-imports/manifest/discover` to parse the PED, scan expected dataset paths, and return a generated manifest preview
 - `POST /family-imports/manifest/write` to write `manifest.yaml` into the package folder
 - `POST /family-imports` with JSON body `{"folder_path": "/data/families/FAM001", "project_id": "...", "dry_run": true, "conflict_mode": "cancel"}`
@@ -156,12 +157,20 @@ API:
 - `GET /family-imports/{job_id}` to poll job status, logs, validation errors, warnings, and dataset summaries
 - `POST /family-imports/validate` for immediate validation without creating a job
 
-For production deployments, set `FAMILY_IMPORT_ROOTS` to a comma-separated allowlist of directories
-that may be scanned or written by package import endpoints, for example:
+`FAMILY_IMPORT_ROOTS` is a comma-separated allowlist of locations that package import may scan or
+write. It defaults to the local `/data/families` (mounted into the backend container via the
+`./data:/data` volume). Cloud deployments (Terraform, etc.) override it with an `s3://` bucket
+prefix, and the scan + import endpoints then list and stage packages from the bucket:
 
 ```env
-FAMILY_IMPORT_ROOTS=/data/families,/mnt/imports
+# local (default)
+FAMILY_IMPORT_ROOTS=/data/families
+# cloud / Terraform
+FAMILY_IMPORT_ROOTS=s3://my-coga-bucket/families
 ```
+
+Multiple roots (and a mix of local dirs and S3 prefixes) can be comma-separated. S3 roots require
+the backend to run with S3 access (credentials/role).
 
 Package imports run through background workers. By default one import job runs at a time per backend
 process. Set `FAMILY_IMPORT_WORKER_COUNT=2` or higher to process separate queued family imports in

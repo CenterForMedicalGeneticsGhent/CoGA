@@ -51,6 +51,20 @@ vi.mock('../../../lib/api', () => ({
           },
         });
       }
+      if (url === '/family-imports/packages') {
+        return Promise.resolve({
+          data: [
+            {
+              folder_path: '/data/families/FAM_NIPT_DEMO',
+              name: 'FAM_NIPT_DEMO',
+              family_id: 'FAM_NIPT_DEMO',
+              has_manifest: true,
+              has_ped: true,
+              analysis_type: 'monogenic_nipt',
+            },
+          ],
+        });
+      }
       return Promise.resolve({ data: [] });
     }),
     post: vi.fn(),
@@ -127,6 +141,23 @@ describe('PackageImportPage', () => {
       })
     );
     expect(screen.getByText(/started dry-run job job-1/i)).toBeInTheDocument();
+  });
+
+  it('fills the folder path from the scanned family dropdown', async () => {
+    renderPage();
+
+    const select = await screen.findByLabelText(/discovered family folder/i);
+    await waitFor(() =>
+      expect(
+        screen.getByRole('option', { name: /FAM_NIPT_DEMO · monogenic_nipt/i })
+      ).toBeInTheDocument()
+    );
+
+    fireEvent.change(select, { target: { value: '/data/families/FAM_NIPT_DEMO' } });
+
+    expect(screen.getByLabelText(/family folder path/i)).toHaveValue(
+      '/data/families/FAM_NIPT_DEMO'
+    );
   });
 
   it('discovers and writes a manifest draft for admins', async () => {

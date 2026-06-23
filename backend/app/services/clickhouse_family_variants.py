@@ -225,6 +225,9 @@ class SmallVariantRecord:
     gene_symbols: list[str]
     annotations: list[dict[str, Any]]
     calls: list[SmallVariantCall]
+    # Site-level VCF QUAL (column 6). Optional and defaulted so existing
+    # construction sites are unaffected; the upload path populates it.
+    qual: float | None = None
 
 
 @dataclass(slots=True)
@@ -2231,6 +2234,47 @@ async def _fetch_internal_cohort_map(
     return result
 
 
+async def fetch_recurrent_small_variant_ids(
+    assembly_name: str,
+    *,
+    min_carrier_samples: int,
+    project_ids: Sequence[str] | None = None,
+    limit: int = 100_000,
+) -> list[tuple[str, int]]:
+    """Variant ids carried (non-ref) by >= ``min_carrier_samples`` distinct
+    samples across the assembly cohort -- recurrent-artifact candidates.
+
+    Returns ``(variant_id, carrier_count)`` pairs ordered by recurrence. Counts
+    each carrier sample once via ``sign = 1`` over the ``entries`` table.
+    """
+    if not assembly_name or min_carrier_samples < 1:
+        return []
+    entries_table = _small_table_name(assembly_name, "entries")
+    clauses = ["sign = 1", "gt NOT IN %(gt_ref_missing)s"]
+    params: dict[str, Any] = {
+        "gt_ref_missing": _INTERNAL_GT_REF_MISSING,
+        "min_samples": int(min_carrier_samples),
+        "limit": int(limit),
+    }
+    if project_ids:
+        clauses.append("project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(project_ids)
+    rows = await _execute_clickhouse(
+        f"""
+        SELECT variantId, uniqExact(sample_id) AS carriers
+        FROM {entries_table}
+        ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
+        WHERE {' AND '.join(clauses)}
+        GROUP BY variantId
+        HAVING carriers >= %(min_samples)s
+        ORDER BY carriers DESC
+        LIMIT %(limit)s
+        """,
+        params,
+    )
+    return [(str(variant_id), int(carriers or 0)) for variant_id, carriers in rows]
+
+
 async def _hydrate_small_variant_outs(
     session: AsyncSession,
     *,
@@ -3550,7 +3594,8 @@ async def _fetch_small_variant_rows(
             e.calls.ab AS sample_abs,
             e.calls.af AS sample_afs,
             e.calls.ad AS sample_ads,
-            e.calls.ps AS sample_phase_sets
+            e.calls.ps AS sample_phase_sets,
+            e.qual AS qual
         FROM {entries_table} AS e
         WHERE {' AND '.join(where_clauses)}
         ORDER BY e.xpos, e.key
@@ -3589,6 +3634,7 @@ async def _fetch_small_variant_rows(
             sample_afs,
             sample_ads,
             sample_phase_sets,
+            qual,
         ) = row
         parsed_variant_key = _coerce_int(variant_key)
         parsed_annotation_set_hash = _coerce_int(annotation_set_hash)
@@ -3642,6 +3688,7 @@ async def _fetch_small_variant_rows(
                 gene_symbols=_string_list(gene_symbols),
                 annotations=_collect_annotations(_decode_json_payload(annotations_json)),
                 calls=calls,
+                qual=_coerce_float(qual),
             )
         )
     return records

@@ -62,6 +62,9 @@ const FamilyParaphasePage = lazy(
 const FamilyMitoDNAAnalysisPage = lazy(
   () => import('./pages/families/FamilyMitoDNAAnalysisPage')
 );
+const FamilyNiptPage = lazy(
+  () => import('./pages/families/FamilyNiptPage')
+);
 const GeneInfoPage = lazy(() => import('./pages/genes/GeneInfoPage'));
 const GlobalSmallVariantExplorerPage = lazy(
   () => import('./pages/variant-explorer/GlobalSmallVariantExplorerPage'),
@@ -203,6 +206,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               <Route
                 path="/families/:familyId/mitochondrial-dna"
                 element={routeElement(<FamilyMitoDNAAnalysisPage />)}
+              />
+              <Route
+                path="/families/:familyId/nipt"
+                element={routeElement(<FamilyNiptPage />)}
               />
               <Route
                 path="/families/:familyId/igv"

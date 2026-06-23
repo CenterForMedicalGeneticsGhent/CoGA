@@ -30,6 +30,10 @@ from ..schemas import (
     MonarchRefreshSummaryOut,
     MonarchSearchOut,
     MonarchStatusOut,
+    NiptArtifactAutoSeed,
+    NiptArtifactAutoSeedOut,
+    NiptArtifactCreate,
+    NiptArtifactOut,
     ProjectsUpdate,
     RawImportFileVerifyOut,
     SmallVariantFilterPresetOut,
@@ -86,6 +90,12 @@ from ..services.metadata_service import (
     list_family_project_assignments,
     update_family_project_assignments,
 )
+from ..services.nipt_artifact_pg import (
+    add_nipt_artifact,
+    auto_seed_nipt_artifacts,
+    delete_nipt_artifact,
+    list_nipt_artifacts,
+)
 from ..services.small_variant_review_pg import (
     create_small_variant_tag_definition,
     delete_small_variant_tag_definition,
@@ -95,6 +105,64 @@ from ..services.small_variant_review_pg import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.get("/nipt/artifacts", response_model=List[NiptArtifactOut])
+async def list_nipt_artifacts_endpoint(
+    assembly_id: str,
+    assay_key: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> List[NiptArtifactOut]:
+    rows = await list_nipt_artifacts(session, assembly_id=assembly_id, assay_key=assay_key)
+    return [NiptArtifactOut(**row) for row in rows]
+
+
+@router.post("/nipt/artifacts", response_model=NiptArtifactOut)
+async def add_nipt_artifact_endpoint(
+    payload: NiptArtifactCreate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> NiptArtifactOut:
+    row = await add_nipt_artifact(
+        session,
+        assembly_id=payload.assembly_id,
+        assay_key=payload.assay_key,
+        variant_id=payload.variant_id,
+        label=payload.label,
+        source=payload.source,
+        recurrence_count=payload.recurrence_count,
+        created_by=user.id,
+    )
+    return NiptArtifactOut(**row)
+
+
+@router.delete("/nipt/artifacts/{artifact_id}")
+async def delete_nipt_artifact_endpoint(
+    artifact_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> Dict[str, bool]:
+    deleted = await delete_nipt_artifact(session, artifact_id=artifact_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return {"deleted": True}
+
+
+@router.post("/nipt/artifacts/auto-seed", response_model=NiptArtifactAutoSeedOut)
+async def auto_seed_nipt_artifacts_endpoint(
+    payload: NiptArtifactAutoSeed,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> NiptArtifactAutoSeedOut:
+    result = await auto_seed_nipt_artifacts(
+        session,
+        assembly_id=payload.assembly_id,
+        assay_key=payload.assay_key,
+        min_carrier_samples=payload.min_carrier_samples,
+        created_by=user.id,
+    )
+    return NiptArtifactAutoSeedOut(**result)
 
 
 @router.get("/projects")

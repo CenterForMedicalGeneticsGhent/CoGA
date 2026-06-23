@@ -98,6 +98,7 @@ class FamilyMemberOut(BaseModel):
     carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
     carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
     active: bool = True
+    sample_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class FamilyRelationshipOut(BaseModel):
@@ -183,6 +184,119 @@ class FamilyMetadataUpdate(BaseModel):
     reviewed_by: Optional[ApiId] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class NiptFetalFractionOut(BaseModel):
+    """Fetal-fraction estimate for a monogenic NIPT family."""
+
+    ff: float
+    ff_computed: Optional[float] = None
+    ff_external: Optional[float] = None
+    ff_median: Optional[float] = None
+    ci_low: Optional[float] = None
+    ci_high: Optional[float] = None
+    n_sites: int
+    method: str
+    low_confidence: bool
+    disagreement: bool
+
+
+class NiptSummaryOut(BaseModel):
+    """Monogenic NIPT analysis summary: fetal fraction and category/filter counts."""
+
+    family_id: str
+    fetal_fraction: NiptFetalFractionOut
+    category_counts: Dict[int, int]
+    filter_counts: Dict[str, int]
+
+
+class NiptVariantOut(BaseModel):
+    """A classified cfDNA variant for the monogenic NIPT variant list."""
+
+    variant_id: str
+    chr: str
+    pos: int
+    ref: str
+    alt: str
+    gene: Optional[str] = None
+    impact: Optional[str] = None
+    consequence: Optional[str] = None
+    category: Optional[int] = None
+    category_label: str
+    maternal_state: str
+    fetal_inheritance: str
+    expected_vaf: float
+    observed_vaf: Optional[float] = None
+    confidence: float
+    flags: List[str] = Field(default_factory=list)
+
+
+class NiptVariantPage(BaseModel):
+    """A page of classified cfDNA variants plus the family's fetal fraction."""
+
+    family_id: str
+    total: int
+    fetal_fraction: NiptFetalFractionOut
+    variants: List[NiptVariantOut]
+
+
+class NiptCoverageRegionOut(BaseModel):
+    """On-target coverage for a single target region."""
+
+    label: str
+    chr: str
+    start: int
+    end: int
+    median_coverage: Optional[float] = None
+    covered_bases: int
+    target_bases: int
+
+
+class NiptCoverageSummaryOut(BaseModel):
+    """Median on-target coverage for a monogenic NIPT family's cfDNA sample."""
+
+    family_id: str
+    overall_median_on_target: Optional[float] = None
+    target_region_count: int
+    per_region: List[NiptCoverageRegionOut]
+
+
+class NiptArtifactOut(BaseModel):
+    """A recurrent-artifact (panel-of-normals) entry for monogenic NIPT."""
+
+    id: str
+    assembly_id: str
+    assay_key: str
+    variant_id: str
+    recurrence_count: int
+    source: str
+    label: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NiptArtifactCreate(BaseModel):
+    """Create/update a NIPT artifact within an assembly + assay/panel scope."""
+
+    assembly_id: str
+    variant_id: str
+    assay_key: str = "nipt_cfdna"
+    label: Optional[str] = None
+    source: Literal["curated", "auto"] = "curated"
+    recurrence_count: int = 0
+
+
+class NiptArtifactAutoSeed(BaseModel):
+    """Seed the artifact list from internal cohort recurrence."""
+
+    assembly_id: str
+    assay_key: str = "nipt_cfdna"
+    min_carrier_samples: int = Field(default=5, ge=1)
+
+
+class NiptArtifactAutoSeedOut(BaseModel):
+    seeded: int
+    min_carrier_samples: int
 
 
 class FamilyStatusOut(BaseModel):
@@ -576,6 +690,17 @@ class FamilyPackageManifestWriteOut(BaseModel):
     validation: FamilyPackageValidationOut
 
 
+class FamilyPackageCandidateOut(BaseModel):
+    """A family package discovered under the configured import roots."""
+
+    folder_path: str
+    name: str
+    family_id: str
+    has_manifest: bool
+    has_ped: bool
+    analysis_type: Optional[str] = None
+
+
 class FamilyPackageImportCreate(BaseModel):
     folder_path: str = Field(min_length=1)
     project_id: Optional[str] = None
@@ -615,6 +740,7 @@ class ManualPedMemberCreate(BaseModel):
     carrier_status: Literal["unknown", "not_carrier", "carrier"] = "unknown"
     carrier_type: Optional[Literal["obligate", "proven", "reported", "inferred"]] = None
     carrier_evidence: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ManualPedCoupleCreate(BaseModel):
@@ -628,6 +754,7 @@ class ManualPedFamilyCreate(BaseModel):
     members: List[ManualPedMemberCreate] = Field(min_length=1)
     couples: List[ManualPedCoupleCreate] = Field(default_factory=list)
     project_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ProjectCreate(BaseModel):

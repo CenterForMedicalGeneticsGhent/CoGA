@@ -147,3 +147,43 @@ def download_prefix(uri: str, dest_dir: Path) -> int:
         for _ in pool.map(_download, downloads):
             pass
     return len(downloads)
+
+
+def list_s3_package_candidates(root_uri: str) -> list[dict[str, object]]:
+    """List immediate sub-prefixes under an s3:// root that look like family
+    packages (contain a manifest or a ``*.ped``).
+
+    Returns dicts with ``name``, ``uri`` (the s3:// folder), ``has_manifest`` and
+    ``has_ped``. Blocking — call from a worker thread in async contexts."""
+    location = parse_s3_uri(root_uri)
+    base = location.key.rstrip("/")
+    base_prefix = f"{base}/" if base else ""
+    client = _client()
+    listing = client.list_objects_v2(
+        Bucket=location.bucket, Prefix=base_prefix, Delimiter="/"
+    )
+    candidates: list[dict[str, object]] = []
+    for entry in listing.get("CommonPrefixes", []):
+        child_prefix = str(entry.get("Prefix", ""))
+        name = child_prefix[len(base_prefix):].strip("/")
+        if not name:
+            continue
+        child = client.list_objects_v2(Bucket=location.bucket, Prefix=child_prefix)
+        leaf_names = [
+            str(obj.get("Key", "")).rsplit("/", 1)[-1] for obj in child.get("Contents", [])
+        ]
+        has_manifest = any(
+            leaf in ("manifest.yaml", "manifest.yml", "manifest.json") for leaf in leaf_names
+        )
+        has_ped = any(leaf.endswith(".ped") for leaf in leaf_names)
+        if not has_manifest and not has_ped:
+            continue
+        candidates.append(
+            {
+                "name": name,
+                "uri": join_s3_uri(root_uri, name),
+                "has_manifest": has_manifest,
+                "has_ped": has_ped,
+            }
+        )
+    return candidates
