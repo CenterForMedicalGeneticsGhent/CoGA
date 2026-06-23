@@ -66,8 +66,13 @@ type SmallVariantFilterFormProps = Pick<
   categoryCounts?: Record<string, number>;
   /** NIPT: labels for the eight maternal/fetal categories. */
   categoryLabels?: Record<number, string>;
-  /** NIPT: inheritance presets (de novo / paternal dominant / …). */
-  niptInheritancePresets?: { value: string; label: string }[];
+  /**
+   * NIPT: inheritance presets (de novo / paternal dominant / …). `categories` is
+   * the comma-joined category list to check when the preset is picked (de novo →
+   * '1', paternal dominant → '7', maternal dominant → '3'); omit it to leave the
+   * category checkboxes untouched, or pass '' to clear them.
+   */
+  niptInheritancePresets?: { value: string; label: string; categories?: string }[];
   /**
    * Built-in quick presets shown in the toolbar. Defaults to the small-variant
    * built-ins; the NIPT page passes its own (de novo / recessive).
@@ -1159,7 +1164,18 @@ const SmallVariantFilterForm = ({
                   <select
                     aria-label="NIPT inheritance preset"
                     value={draftFilters.inheritance}
-                    onChange={(event) => setDraftFilterValue('inheritance', event.target.value)}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setDraftFilterValue('inheritance', value);
+                      // Picking an inheritance preset also ticks its category
+                      // checkboxes (de novo → 1, paternal dominant → 7, …).
+                      const selected = (niptInheritancePresets ?? []).find(
+                        (preset) => preset.value === value,
+                      );
+                      if (selected && selected.categories !== undefined) {
+                        setDraftFilterValue('category', selected.categories);
+                      }
+                    }}
                   >
                     {(niptInheritancePresets ?? []).map((preset) => (
                       <option key={preset.value} value={preset.value}>

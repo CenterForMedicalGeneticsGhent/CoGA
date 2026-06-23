@@ -881,9 +881,11 @@ const buildPresetState = (
     setAffectedGenotypes(HET_GT_GROUP, { qual: '15', dp: '8', af: '0.18', ad_alt: '3' });
     setUnaffectedGenotypes(REF_GT_GROUP);
   } else if (preset === 'nipt_de_novo') {
-    // Monogenic NIPT: de-novo candidates (category 1), high/moderate impact, rare
-    // in gnomAD, ClinVar P/LP overriding the frequency cut-off. No genotype
-    // filters (the fetal call is inferred from the cfDNA VAF).
+    // Monogenic NIPT: de-novo candidates -- category 1 only (de novo in the
+    // fetus), high/moderate impact, rare in gnomAD, ClinVar P/LP overriding the
+    // frequency cut-off. No genotype filters (the fetal call is inferred from the
+    // cfDNA VAF).
+    filters.inheritance = 'de_novo';
     filters.category = '1';
     filters.impact = 'HIGH, MODERATE';
     filters.max_gnomad_af = '0.01';

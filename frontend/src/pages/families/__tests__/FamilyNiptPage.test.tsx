@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -166,6 +166,15 @@ describe('FamilyNiptPage', () => {
     expect(screen.getByText(/paternal, transmitted to fetus/)).toBeInTheDocument();
     expect(screen.getByText('Category 7')).toBeInTheDocument();
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument();
+
+    // Picking an inheritance preset ticks its matching category checkbox
+    // (paternal dominant → category 7).
+    const cat7 = screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ });
+    expect(cat7).not.toBeChecked();
+    fireEvent.change(screen.getByLabelText('NIPT inheritance preset'), {
+      target: { value: 'paternal_dominant' },
+    });
+    await waitFor(() => expect(cat7).toBeChecked());
   });
 
   it('shows a not-configured message for a non-NIPT family', async () => {

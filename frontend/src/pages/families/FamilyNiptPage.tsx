@@ -47,12 +47,15 @@ const CATEGORY_LABELS: Record<number, string> = {
   8: 'Paternal hom-alt, absent (FN)',
 };
 
-const INHERITANCE_PRESETS: { value: string; label: string }[] = [
+// `categories` is ticked in the category checkboxes when the preset is picked.
+// Recessive groups by gene (no single category), so it clears them; "Any" leaves
+// whatever is checked.
+const INHERITANCE_PRESETS: { value: string; label: string; categories?: string }[] = [
   { value: '', label: 'Any inheritance' },
-  { value: 'de_novo', label: 'De novo candidates' },
-  { value: 'paternal_dominant', label: 'Paternal dominant (transmitted)' },
-  { value: 'maternal_dominant', label: 'Maternal dominant (transmitted)' },
-  { value: 'recessive_at_risk', label: 'Recessive at-risk' },
+  { value: 'de_novo', label: 'De novo candidates', categories: '1' },
+  { value: 'paternal_dominant', label: 'Paternal dominant (transmitted)', categories: '7' },
+  { value: 'maternal_dominant', label: 'Maternal dominant (transmitted)', categories: '3' },
+  { value: 'recessive_at_risk', label: 'Recessive at-risk', categories: '' },
 ];
 
 const FILTER_STEPS: { key: string; label: string }[] = [
