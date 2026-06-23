@@ -140,10 +140,10 @@ describe('FamilyNiptPage', () => {
     expect(await screen.findByText('Fetal fraction 10.0%')).toBeInTheDocument();
     expect(screen.getByText('Analysed 92')).toBeInTheDocument();
 
-    // The gene-panel filter (mirrors the small-variant page) and the
-    // category filter (replacing the genotype subsection) are present, with
-    // per-category counts sourced from the summary.
-    expect(screen.getByLabelText('Gene panel')).toBeInTheDocument();
+    // The reused small-variant filter form's gene-panel select and the NIPT
+    // Categories section (replacing the genotype/inheritance subsection) are
+    // present, with per-category counts sourced from the summary.
+    expect(screen.getByLabelText('Quick gene panel')).toBeInTheDocument();
     expect(screen.getByText(/7 — Paternal, transmitted/)).toBeInTheDocument();
 
     // On-target coverage comes from the coverage query.

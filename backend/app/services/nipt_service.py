@@ -246,7 +246,15 @@ async def run_family_nipt_analysis(
 
 
 def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
-    """Build a SmallVariantQueryFilters for the NIPT-relevant filter subset."""
+    """Build a SmallVariantQueryFilters from the NIPT filter set.
+
+    NIPT reuses the full small-variant filter form, so the same annotation /
+    frequency / in-silico / pathogenicity / location filters apply. Per-sample
+    genotype, review-state, and phenotype-prioritisation filters do not apply to
+    cfDNA (the maternal/fetal call is inferred) and are not forwarded; the
+    maternal/fetal `category` filter and `inheritance` preset are applied on the
+    classification afterwards rather than here.
+    """
     return SmallVariantQueryFilters(
         page=1,
         page_size=100,
@@ -254,12 +262,31 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
         start=query_filters.get("start"),
         end=query_filters.get("end"),
         intervals=query_filters.get("intervals"),
+        phase_set=query_filters.get("ps"),
+        variant_type=query_filters.get("type"),
+        source=query_filters.get("source"),
         gene=query_filters.get("gene"),
+        transcript=query_filters.get("transcript"),
         exclude_gene=query_filters.get("exclude_gene"),
+        exclude_intervals=query_filters.get("exclude_intervals"),
+        rsid=query_filters.get("rsid"),
+        hgvsc=query_filters.get("hgvsc"),
+        hgvsp=query_filters.get("hgvsp"),
         impact=query_filters.get("impact") or [],
         effect=query_filters.get("effect") or [],
+        clinvar=query_filters.get("clinvar") or [],
+        exclude_clinvar=query_filters.get("exclude_clinvar") or [],
+        clinvar_overrides_frequency=bool(query_filters.get("clinvar_overrides_frequency", False)),
+        sift=query_filters.get("sift"),
+        polyphen=query_filters.get("polyphen"),
         max_gnomad_af=query_filters.get("max_gnomad_af"),
+        max_gnomad_exomes_af=query_filters.get("max_gnomad_exomes_af"),
+        max_gnomad_genomes_af=query_filters.get("max_gnomad_genomes_af"),
         max_gnomad_popmax_af=query_filters.get("max_gnomad_popmax_af"),
+        max_topmed_af=query_filters.get("max_topmed_af"),
+        max_gnomad_ac=query_filters.get("max_gnomad_ac"),
+        max_gnomad_hom_count=query_filters.get("max_gnomad_hom_count"),
+        max_gnomad_hemi_count=query_filters.get("max_gnomad_hemi_count"),
         min_cadd=query_filters.get("min_cadd"),
         min_revel=query_filters.get("min_revel"),
         min_spliceai=query_filters.get("min_spliceai"),

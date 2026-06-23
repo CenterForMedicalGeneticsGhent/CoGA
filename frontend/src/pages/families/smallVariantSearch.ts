@@ -347,6 +347,10 @@ export type SmallFilterState = {
   classification: string;
   review_tags: string;
   has_notes: string;
+  // Monogenic NIPT only: the maternal/fetal category multi-select and the
+  // minimum classification confidence. Never set by the small-variant UI.
+  category: string;
+  min_confidence: string;
 };
 
 export type ActiveSmallFilterChip =
@@ -555,6 +559,8 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   classification: 'Classification',
   review_tags: 'Review tags',
   has_notes: 'Has notes',
+  category: 'Category',
+  min_confidence: 'Min confidence',
 };
 
 const SAMPLE_FIELD_LABELS: Record<Exclude<keyof SmallVariantSampleFilter, 'gt'>, string> = {
@@ -582,6 +588,7 @@ export const MULTI_VALUE_FILTER_KEYS = new Set<
   'exclude_review_tags',
   'classification',
   'review_tags',
+  'category',
 ]);
 
 export const parseCommaSeparatedValues = (value: string) =>
@@ -711,6 +718,8 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   classification: '',
   review_tags: '',
   has_notes: '',
+  category: '',
+  min_confidence: '',
 });
 
 export const parsePedigree = (pedigree?: string | null): PedRow[] => {
@@ -1484,6 +1493,7 @@ export const useSmallVariantSearchState = ({
       | 'exclude_review_tags'
       | 'classification'
       | 'review_tags'
+      | 'category'
     >,
     value: string,
   ) => {

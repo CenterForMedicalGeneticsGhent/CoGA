@@ -1,19 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
-import type {
-  ApiFamilyRecord,
-  ApiNiptCoverageSummary,
-  ApiNiptSummary,
-} from '../../lib/apiTypes';
+import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
 import {
   normalizeReviewClassification,
+  parseCommaSeparatedValues,
   parsePedigree,
+  useSmallVariantSearchState,
   type GenePanel,
+  type SmallFilterState,
   type SmallVariant,
+  type SmallVariantFamily,
   type SmallVariantPage,
   type SmallVariantReview,
   type SmallVariantReviewSavePayload,
@@ -27,6 +27,7 @@ import {
 } from './smallVariantReview';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
+import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 
 const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
@@ -42,7 +43,6 @@ const CATEGORY_LABELS: Record<number, string> = {
   7: 'Paternal, transmitted',
   8: 'Paternal hom-alt, absent (FN)',
 };
-const CATEGORY_NUMBERS = Object.keys(CATEGORY_LABELS).map(Number);
 
 const INHERITANCE_PRESETS: { value: string; label: string }[] = [
   { value: '', label: 'Any inheritance' },
@@ -59,71 +59,14 @@ const FILTER_STEPS: { key: string; label: string }[] = [
   { key: 'passed', label: 'Analysed' },
 ];
 
-const IMPACT_OPTIONS = ['HIGH', 'MODERATE', 'LOW', 'MODIFIER'];
-const EFFECT_OPTIONS = [
-  'frameshift_variant',
-  'stop_gained',
-  'stop_lost',
-  'start_lost',
-  'splice_acceptor_variant',
-  'splice_donor_variant',
-  'missense_variant',
-  'inframe_insertion',
-  'inframe_deletion',
-  'protein_altering_variant',
-  'splice_region_variant',
-  'synonymous_variant',
-  'intron_variant',
-];
-
 const pct = (value?: number | null): string =>
   value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 
 const depth = (value?: number | null): string =>
   value == null ? '—' : `${value.toFixed(0)}x`;
 
-interface NiptFilters {
-  panelId: string;
-  gene: string;
-  excludeGene: string;
-  intervals: string;
-  categories: number[];
-  inheritance: string;
-  minConfidence: string;
-  impact: string[];
-  effect: string[];
-  maxGnomadAf: string;
-  maxGnomadPopmaxAf: string;
-  minCadd: string;
-  minRevel: string;
-  minSpliceai: string;
-  canonicalOnly: boolean;
-  maneOnly: boolean;
-  lofOnly: boolean;
-}
-
-const EMPTY_FILTERS: NiptFilters = {
-  panelId: '',
-  gene: '',
-  excludeGene: '',
-  intervals: '',
-  categories: [],
-  inheritance: '',
-  minConfidence: '',
-  impact: [],
-  effect: [],
-  maxGnomadAf: '',
-  maxGnomadPopmaxAf: '',
-  minCadd: '',
-  minRevel: '',
-  minSpliceai: '',
-  canonicalOnly: false,
-  maneOnly: false,
-  lofOnly: false,
-};
-
-// Serialize repeated params (category/impact/effect arrays) as `key=a&key=b`,
-// which is what the FastAPI `Query(None)` list params expect.
+// Serialize repeated params (category/impact/effect/clinvar arrays) as
+// `key=a&key=b`, which the FastAPI `Query(None)` list params expect.
 const niptParamsSerializer = (params: Record<string, unknown>): string => {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -136,143 +79,122 @@ const niptParamsSerializer = (params: Record<string, unknown>): string => {
   return search.toString();
 };
 
-const buildVariantParams = (filters: NiptFilters, page: number): Record<string, unknown> => {
+// Map the shared small-variant filter state to the /nipt/variants params. Only
+// the NIPT-supported keys are emitted (no per-sample genotype / review-state /
+// phenotype params); the maternal/fetal category + inheritance preset + min
+// confidence are NIPT-specific.
+const buildVariantParams = (f: SmallFilterState, page: number): Record<string, unknown> => {
   const params: Record<string, unknown> = { page, page_size: PAGE_SIZE };
-  if (filters.panelId) params.panel_id = filters.panelId;
-  if (filters.gene.trim()) params.gene = filters.gene.trim();
-  if (filters.excludeGene.trim()) params.exclude_gene = filters.excludeGene.trim();
-  if (filters.intervals.trim()) params.intervals = filters.intervals.trim();
-  if (filters.categories.length) params.category = [...filters.categories].sort((a, b) => a - b);
-  if (filters.inheritance) params.inheritance = filters.inheritance;
-  if (filters.minConfidence) params.min_confidence = Number(filters.minConfidence);
-  if (filters.impact.length) params.impact = filters.impact;
-  if (filters.effect.length) params.effect = filters.effect;
-  if (filters.maxGnomadAf) params.max_gnomad_af = Number(filters.maxGnomadAf);
-  if (filters.maxGnomadPopmaxAf) params.max_gnomad_popmax_af = Number(filters.maxGnomadPopmaxAf);
-  if (filters.minCadd) params.min_cadd = Number(filters.minCadd);
-  if (filters.minRevel) params.min_revel = Number(filters.minRevel);
-  if (filters.minSpliceai) params.min_spliceai = Number(filters.minSpliceai);
-  if (filters.canonicalOnly) params.canonical_only = true;
-  if (filters.maneOnly) params.mane_only = true;
-  if (filters.lofOnly) params.lof_only = true;
+  const str = (key: string, value: string) => {
+    if (value && value.trim()) params[key] = value.trim();
+  };
+  const numeric = (key: string, value: string) => {
+    if (value && value.trim()) params[key] = Number(value);
+  };
+  const flag = (key: string, value: string) => {
+    if (value === 'true') params[key] = true;
+  };
+  const listValues = (key: string, value: string) => {
+    const values = parseCommaSeparatedValues(value);
+    if (values.length) params[key] = values;
+  };
+
+  str('gene', f.gene);
+  str('exclude_gene', f.exclude_gene);
+  str('panel_id', f.panel_id);
+  str('intervals', f.intervals);
+  str('exclude_intervals', f.exclude_intervals);
+  str('chr', f.chr);
+  numeric('start', f.start);
+  numeric('end', f.end);
+  numeric('ps', f.ps);
+  str('type', f.type);
+  str('source', f.source);
+  str('transcript', f.transcript);
+  str('rsid', f.rsid);
+  str('hgvsc', f.hgvsc);
+  str('hgvsp', f.hgvsp);
+  str('sift', f.sift);
+  str('polyphen', f.polyphen);
+  listValues('impact', f.impact);
+  listValues('effect', f.effect);
+  listValues('clinvar', f.clinvar);
+  listValues('exclude_clinvar', f.exclude_clinvar);
+  flag('clinvar_overrides_frequency', f.clinvar_overrides_frequency);
+  numeric('max_gnomad_af', f.max_gnomad_af);
+  numeric('max_gnomad_exomes_af', f.max_gnomad_exomes_af);
+  numeric('max_gnomad_genomes_af', f.max_gnomad_genomes_af);
+  numeric('max_gnomad_popmax_af', f.max_gnomad_popmax_af);
+  numeric('max_topmed_af', f.max_topmed_af);
+  numeric('max_gnomad_ac', f.max_gnomad_ac);
+  numeric('max_gnomad_hom_count', f.max_gnomad_hom_count);
+  numeric('max_gnomad_hemi_count', f.max_gnomad_hemi_count);
+  numeric('min_cadd', f.min_cadd);
+  numeric('min_revel', f.min_revel);
+  numeric('min_spliceai', f.min_spliceai);
+  flag('canonical_only', f.canonical_only);
+  flag('mane_only', f.mane_only);
+  flag('lof_only', f.lof_only);
+
+  const categories = parseCommaSeparatedValues(f.category)
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value));
+  if (categories.length) params.category = categories;
+  numeric('min_confidence', f.min_confidence);
+  if (f.inheritance) params.inheritance = f.inheritance;
   return params;
 };
 
-interface ActiveChip {
-  id: string;
-  label: string;
-  clear: () => NiptFilters;
-}
-
-const buildActiveChips = (filters: NiptFilters): ActiveChip[] => {
-  const chips: ActiveChip[] = [];
-  const add = (id: string, label: string, clear: () => NiptFilters) =>
-    chips.push({ id, label, clear });
-
-  if (filters.panelId) add('panel', 'Gene panel', () => ({ ...filters, panelId: '' }));
-  if (filters.gene.trim()) add('gene', `Gene: ${filters.gene.trim()}`, () => ({ ...filters, gene: '' }));
-  if (filters.excludeGene.trim())
-    add('exclude_gene', `Exclude: ${filters.excludeGene.trim()}`, () => ({ ...filters, excludeGene: '' }));
-  if (filters.intervals.trim())
-    add('intervals', 'Intervals', () => ({ ...filters, intervals: '' }));
-  filters.categories.forEach((category) =>
-    add(`cat-${category}`, `Cat ${category}`, () => ({
-      ...filters,
-      categories: filters.categories.filter((value) => value !== category),
-    })),
-  );
-  if (filters.inheritance) {
-    const label = INHERITANCE_PRESETS.find((preset) => preset.value === filters.inheritance)?.label;
-    add('inheritance', label ?? filters.inheritance, () => ({ ...filters, inheritance: '' }));
-  }
-  if (filters.minConfidence)
-    add('min_confidence', `Confidence ≥ ${filters.minConfidence}`, () => ({ ...filters, minConfidence: '' }));
-  filters.impact.forEach((impact) =>
-    add(`impact-${impact}`, impact, () => ({
-      ...filters,
-      impact: filters.impact.filter((value) => value !== impact),
-    })),
-  );
-  filters.effect.forEach((effect) =>
-    add(`effect-${effect}`, effect, () => ({
-      ...filters,
-      effect: filters.effect.filter((value) => value !== effect),
-    })),
-  );
-  if (filters.maxGnomadAf)
-    add('gnomad_af', `gnomAD ≤ ${filters.maxGnomadAf}`, () => ({ ...filters, maxGnomadAf: '' }));
-  if (filters.maxGnomadPopmaxAf)
-    add('gnomad_popmax', `gnomAD popmax ≤ ${filters.maxGnomadPopmaxAf}`, () => ({
-      ...filters,
-      maxGnomadPopmaxAf: '',
-    }));
-  if (filters.minCadd) add('cadd', `CADD ≥ ${filters.minCadd}`, () => ({ ...filters, minCadd: '' }));
-  if (filters.minRevel) add('revel', `REVEL ≥ ${filters.minRevel}`, () => ({ ...filters, minRevel: '' }));
-  if (filters.minSpliceai)
-    add('spliceai', `SpliceAI ≥ ${filters.minSpliceai}`, () => ({ ...filters, minSpliceai: '' }));
-  if (filters.canonicalOnly) add('canonical', 'Canonical only', () => ({ ...filters, canonicalOnly: false }));
-  if (filters.maneOnly) add('mane', 'MANE only', () => ({ ...filters, maneOnly: false }));
-  if (filters.lofOnly) add('lof', 'LoF only', () => ({ ...filters, lofOnly: false }));
-  return chips;
-};
-
-const summarize = (count: number): string => (count ? `${count} filter${count === 1 ? '' : 's'}` : 'No filters');
+const noopSavePreset = async () => {};
 
 const FamilyNiptPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<NiptFilters>(EMPTY_FILTERS);
-  const [applied, setApplied] = useState<NiptFilters>(EMPTY_FILTERS);
-  const [page, setPage] = useState(1);
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
-  // All filter subsections start collapsed.
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
-  const setField = <K extends keyof NiptFilters>(key: K, value: NiptFilters[K]) =>
-    setDraft((current) => ({ ...current, [key]: value }));
-  const toggleListValue = (key: 'categories' | 'impact' | 'effect', value: number | string) =>
-    setDraft((current) => {
-      const list = current[key] as (number | string)[];
-      const next = list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
-      return { ...current, [key]: next } as NiptFilters;
-    });
-  const sectionToggle = (key: string) => (event: React.SyntheticEvent<HTMLDetailsElement>) => {
-    // jsdom fires a spurious toggle on mount of a controlled <details> with a
-    // null currentTarget; ignore those and only react to real user toggles.
-    const details = event.currentTarget;
-    if (!details) return;
-    const open = details.open;
-    setOpenSections((current) => ({ ...current, [key]: open }));
-  };
-
-  const handleApply = (event?: React.FormEvent) => {
-    event?.preventDefault();
-    setApplied(draft);
-    setPage(1);
-  };
-  const handleReset = () => {
-    setDraft(EMPTY_FILTERS);
-    setApplied(EMPTY_FILTERS);
-    setPage(1);
-  };
-  const removeChip = (chip: ActiveChip) => {
-    const next = chip.clear();
-    setDraft(next);
-    setApplied(next);
-    setPage(1);
-  };
-
-  const { data: family, isLoading: familyLoading, isError: familyError } = useQuery<ApiFamilyRecord>({
+  const { data: family, isLoading: familyLoading, isError: familyError } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}`);
-      return res.data as ApiFamilyRecord;
+      return res.data as SmallVariantFamily;
     },
   });
 
-  const isMonogenicNipt = family?.metadata?.analysis_type === MONOGENIC_NIPT_ANALYSIS_TYPE;
+  const isMonogenicNipt =
+    (family?.metadata as { analysis_type?: string } | undefined)?.analysis_type ===
+    MONOGENIC_NIPT_ANALYSIS_TYPE;
+
+  const { speciesName, assemblyName, assemblyVersion, projectId } = useFamilyReference(
+    family?.projects as string[] | undefined,
+  );
+
+  // The shared small-variant filter state drives the reused SmallVariantFilterForm.
+  const {
+    activeFilterChips,
+    applyPreset,
+    applySavedPreset,
+    draftFilters,
+    filters,
+    goToPage,
+    handleApply,
+    handleGtToggle,
+    handleReset,
+    handleSampleFieldChange,
+    members,
+    page,
+    removeActiveFilterChip,
+    sampleDraftFilters,
+    setDraftFilterValue,
+    toggleDraftFilterListValue,
+  } = useSmallVariantSearchState({
+    family,
+    locationSearch: location.search,
+    navigate,
+    resolvedProjectId: projectId,
+  });
 
   const { data: panels = [] } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
@@ -292,24 +214,6 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  const { data: coverage } = useQuery<ApiNiptCoverageSummary>({
-    queryKey: ['family', familyId, 'nipt', 'coverage', applied.panelId, applied.gene],
-    enabled: Boolean(familyId && isMonogenicNipt),
-    queryFn: async () => {
-      const params: Record<string, string> = {};
-      if (applied.panelId) params.panel_id = applied.panelId;
-      if (applied.gene.trim()) params.gene = applied.gene.trim();
-      const res = await api.get(`/families/${familyId}/nipt/coverage`, { params });
-      return res.data as ApiNiptCoverageSummary;
-    },
-  });
-
-  // The reference (assembly/species/project) powers the reused small-variant
-  // card's IGV/gene links and the review/ACMG project scoping.
-  const { speciesName, assemblyName, assemblyVersion, projectId } = useFamilyReference(
-    family?.projects,
-  );
-
   const { data: tags = [] } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: Boolean(familyId && isMonogenicNipt),
@@ -321,15 +225,25 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
-  // The NIPT variants endpoint now returns the full small-variant payload plus a
-  // per-variant `nipt` classification block, so it is a SmallVariantPage.
+  const { data: coverage } = useQuery<ApiNiptCoverageSummary>({
+    queryKey: ['family', familyId, 'nipt', 'coverage', filters.panel_id, filters.gene],
+    enabled: Boolean(familyId && isMonogenicNipt),
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (filters.panel_id) params.panel_id = filters.panel_id;
+      if (filters.gene.trim()) params.gene = filters.gene.trim();
+      const res = await api.get(`/families/${familyId}/nipt/coverage`, { params });
+      return res.data as ApiNiptCoverageSummary;
+    },
+  });
+
   const niptVariantsKey = ['family', familyId, 'nipt', 'variants'] as const;
   const { data: variantPage, isFetching: variantsFetching } = useQuery<SmallVariantPage>({
-    queryKey: [...niptVariantsKey, JSON.stringify(applied), page],
+    queryKey: [...niptVariantsKey, JSON.stringify(filters), page],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/nipt/variants`, {
-        params: buildVariantParams(applied, page),
+        params: buildVariantParams(filters, page),
         paramsSerializer: niptParamsSerializer,
       });
       return res.data as SmallVariantPage;
@@ -337,8 +251,6 @@ const FamilyNiptPage: React.FC = () => {
     placeholderData: keepPreviousData,
   });
 
-  // Variant review (tag / report / classification). The endpoints are shared
-  // with the small-variant view; only the optimistic cache key differs.
   const reviewMutation = useMutation({
     mutationFn: async ({
       variant,
@@ -383,7 +295,6 @@ const FamilyNiptPage: React.FC = () => {
   });
 
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
-  const activeChips = useMemo(() => buildActiveChips(applied), [applied]);
   const categoryCounts = summary?.category_counts ?? {};
 
   if (familyLoading) {
@@ -404,9 +315,9 @@ const FamilyNiptPage: React.FC = () => {
       <PageState
         kicker="Monogenic NIPT"
         title="Not a monogenic NIPT family"
-        message={`Family ${family.family_id} is not configured for monogenic NIPT analysis.`}
+        message={`Family ${familyId} is not configured for monogenic NIPT analysis.`}
         action={
-          <Link className="button-secondary" to={`/families/${family.family_id}`}>
+          <Link className="button-secondary" to={`/families/${familyId}`}>
             Back to family
           </Link>
         }
@@ -418,17 +329,6 @@ const FamilyNiptPage: React.FC = () => {
   const totalVariants = variantPage?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(totalVariants / PAGE_SIZE));
 
-  // Filter-count badges per section.
-  const locationCount =
-    (applied.panelId ? 1 : 0) +
-    (applied.gene.trim() ? 1 : 0) +
-    (applied.excludeGene.trim() ? 1 : 0) +
-    (applied.intervals.trim() ? 1 : 0);
-  const annotationCount = draft.impact.length + draft.effect.length;
-  const frequencyCount = (draft.maxGnomadAf ? 1 : 0) + (draft.maxGnomadPopmaxAf ? 1 : 0);
-  const inSilicoCount = (draft.minCadd ? 1 : 0) + (draft.minRevel ? 1 : 0) + (draft.minSpliceai ? 1 : 0);
-  const flagCount = (draft.canonicalOnly ? 1 : 0) + (draft.maneOnly ? 1 : 0) + (draft.lofOnly ? 1 : 0);
-
   return (
     <div className="page-shell analysis-shell">
       <section className="surface-card page-top-card variant-workbench-card">
@@ -437,7 +337,7 @@ const FamilyNiptPage: React.FC = () => {
             <div className="page-header">
               <div className="space-y-2">
                 <p className="page-kicker">Monogenic NIPT</p>
-                <h1 className="catalog-card-title">Family {family.family_id}</h1>
+                <h1 className="catalog-card-title">Family {familyId}</h1>
                 <div className="variant-sample-summary">
                   <div className="variant-summary-row">
                     <span className="badge-chip badge-chip--signature">Fetal fraction {pct(ff?.ff)}</span>
@@ -461,13 +361,13 @@ const FamilyNiptPage: React.FC = () => {
                         {step.label} {summary?.filter_counts?.[step.key] ?? 0}
                       </span>
                     ))}
-                    <span className="badge-chip">Active filters {activeChips.length}</span>
+                    <span className="badge-chip">Active filters {activeFilterChips.length}</span>
                     {variantsFetching ? <span className="badge-chip">Updating…</span> : null}
                   </div>
                 </div>
               </div>
               <div className="inline-actions">
-                <Link to={`/families/${family.family_id}`} className="button-ghost hover:no-underline">
+                <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
                   Family
                 </Link>
               </div>
@@ -496,333 +396,31 @@ const FamilyNiptPage: React.FC = () => {
         </div>
 
         {!filtersCollapsed && (
-          <form onSubmit={handleApply} className="space-y-4 variant-search-workspace">
-            <div className="variant-search-header">
-              <div className="variant-search-meta">
-                <div className="variant-search-toolbar">
-                  <button type="submit" className="form-button">
-                    Apply filters
-                  </button>
-                  <button type="button" className="button-secondary" onClick={handleReset}>
-                    Clear all filters
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {activeChips.length ? (
-              <section className="variant-search-section">
-                <div className="variant-search-section-copy">
-                  <p className="analysis-section-title">Active filters</p>
-                </div>
-                <div className="variant-filter-chip-list">
-                  {activeChips.map((chip) => (
-                    <button
-                      key={chip.id}
-                      type="button"
-                      className="badge-chip variant-filter-chip"
-                      onClick={() => removeChip(chip)}
-                    >
-                      {chip.label} ✕
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            <section className="variant-search-section">
-              <div className="variant-filter-dropdown-grid">
-                {/* Locations: gene panel + gene + intervals */}
-                <details
-                  className="variant-filter-dropdown"
-                  open={!!openSections.locations}
-                  onToggle={sectionToggle('locations')}
-                >
-                  <summary className="variant-filter-dropdown-summary">
-                    <span className="variant-filter-dropdown-summary-copy">
-                      <span className="variant-filter-dropdown-title">Locations</span>
-                      <span className="variant-filter-dropdown-meta">{summarize(locationCount)}</span>
-                    </span>
-                    <span
-                      className="variant-filter-dropdown-summary-controls"
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      <label className="variant-summary-select-field">
-                        <span>Panel</span>
-                        <select
-                          aria-label="Gene panel"
-                          value={draft.panelId}
-                          onChange={(event) => setField('panelId', event.target.value)}
-                        >
-                          <option value="">Any gene panel</option>
-                          {panels.map((panel) => (
-                            <option key={panel._id} value={panel._id}>
-                              {panel.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </span>
-                    <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-                  </summary>
-                  <div className="variant-filter-dropdown-content">
-                    <label className="analysis-field-label">
-                      Genes
-                      <textarea
-                        rows={3}
-                        value={draft.gene}
-                        onChange={(event) => setField('gene', event.target.value)}
-                        placeholder="BRCA1, BRCA2, TP53"
-                      />
-                    </label>
-                    <label className="analysis-field-label">
-                      Exclude genes
-                      <textarea
-                        rows={2}
-                        value={draft.excludeGene}
-                        onChange={(event) => setField('excludeGene', event.target.value)}
-                        placeholder="Genes to exclude"
-                      />
-                    </label>
-                    <label className="analysis-field-label">
-                      Intervals
-                      <textarea
-                        rows={2}
-                        value={draft.intervals}
-                        onChange={(event) => setField('intervals', event.target.value)}
-                        placeholder="chr13:32315086-32400266"
-                      />
-                    </label>
-                  </div>
-                </details>
-
-                {/* Categories: the NIPT-specific filter, replacing the genotype subsection */}
-                <details
-                  className="variant-filter-dropdown"
-                  open={!!openSections.categories}
-                  onToggle={sectionToggle('categories')}
-                >
-                  <summary className="variant-filter-dropdown-summary">
-                    <span className="variant-filter-dropdown-summary-copy">
-                      <span className="variant-filter-dropdown-title">Maternal/fetal categories</span>
-                      <span className="variant-filter-dropdown-meta">
-                        {draft.categories.length ? `${draft.categories.length} selected` : 'All categories'}
-                      </span>
-                    </span>
-                    <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-                  </summary>
-                  <div className="variant-filter-dropdown-content">
-                    <div className="nipt-category-grid">
-                      {CATEGORY_NUMBERS.map((category) => (
-                        <label key={category} className="analysis-checkbox nipt-category-option">
-                          <input
-                            type="checkbox"
-                            checked={draft.categories.includes(category)}
-                            onChange={() => toggleListValue('categories', category)}
-                          />
-                          <span className="nipt-category-option-copy">
-                            <span className="nipt-category-option-label">
-                              {category} — {CATEGORY_LABELS[category]}
-                            </span>
-                            <span className="nipt-category-option-count">
-                              {(categoryCounts[String(category)] ?? 0).toLocaleString()}
-                            </span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </details>
-
-                {/* Inheritance preset + confidence */}
-                <details className="variant-filter-dropdown" open={!!openSections.inheritance} onToggle={sectionToggle('inheritance')}>
-                  <summary className="variant-filter-dropdown-summary">
-                    <span className="variant-filter-dropdown-summary-copy">
-                      <span className="variant-filter-dropdown-title">Inheritance &amp; confidence</span>
-                      <span className="variant-filter-dropdown-meta">
-                        {summarize((draft.inheritance ? 1 : 0) + (draft.minConfidence ? 1 : 0))}
-                      </span>
-                    </span>
-                    <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-                  </summary>
-                  <div className="variant-filter-dropdown-content">
-                    <div className="analysis-filter-grid analysis-filter-grid--2">
-                      <label className="analysis-field-label">
-                        Inheritance
-                        <select value={draft.inheritance} onChange={(event) => setField('inheritance', event.target.value)}>
-                          {INHERITANCE_PRESETS.map((preset) => (
-                            <option key={preset.value} value={preset.value}>
-                              {preset.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="analysis-field-label">
-                        Min confidence
-                        <input
-                          type="number"
-                          min={0}
-                          max={1}
-                          step={0.05}
-                          value={draft.minConfidence}
-                          onChange={(event) => setField('minConfidence', event.target.value)}
-                          placeholder="0.00"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </details>
-
-                {/* Annotation: impact + effect */}
-                <details className="variant-filter-dropdown" open={!!openSections.annotation} onToggle={sectionToggle('annotation')}>
-                  <summary className="variant-filter-dropdown-summary">
-                    <span className="variant-filter-dropdown-summary-copy">
-                      <span className="variant-filter-dropdown-title">Annotation</span>
-                      <span className="variant-filter-dropdown-meta">{summarize(annotationCount)}</span>
-                    </span>
-                    <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-                  </summary>
-                  <div className="variant-filter-dropdown-content space-y-3">
-                    <div>
-                      <p className="analysis-section-title">Impact</p>
-                      <div className="variant-gt-toggle-row">
-                        {IMPACT_OPTIONS.map((impact) => (
-                          <label key={impact} className="analysis-checkbox">
-                            <input
-                              type="checkbox"
-                              checked={draft.impact.includes(impact)}
-                              onChange={() => toggleListValue('impact', impact)}
-                            />
-                            {impact}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="analysis-section-title">Consequence</p>
-                      <div className="nipt-effect-grid">
-                        {EFFECT_OPTIONS.map((effect) => (
-                          <label key={effect} className="analysis-checkbox">
-                            <input
-                              type="checkbox"
-                              checked={draft.effect.includes(effect)}
-                              onChange={() => toggleListValue('effect', effect)}
-                            />
-                            {effect}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </details>
-
-                {/* Frequencies */}
-                <details className="variant-filter-dropdown" open={!!openSections.frequencies} onToggle={sectionToggle('frequencies')}>
-                  <summary className="variant-filter-dropdown-summary">
-                    <span className="variant-filter-dropdown-summary-copy">
-                      <span className="variant-filter-dropdown-title">Frequencies</span>
-                      <span className="variant-filter-dropdown-meta">{summarize(frequencyCount)}</span>
-                    </span>
-                    <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-                  </summary>
-                  <div className="variant-filter-dropdown-content">
-                    <div className="analysis-filter-grid analysis-filter-grid--2">
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="gnomAD AF ≤"
-                        value={draft.maxGnomadAf}
-                        onChange={(event) => setField('maxGnomadAf', event.target.value)}
-                      />
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="gnomAD popmax AF ≤"
-                        value={draft.maxGnomadPopmaxAf}
-                        onChange={(event) => setField('maxGnomadPopmaxAf', event.target.value)}
-                      />
-                    </div>
-                  </div>
-                </details>
-
-                {/* In silico */}
-                <details className="variant-filter-dropdown" open={!!openSections.inSilico} onToggle={sectionToggle('inSilico')}>
-                  <summary className="variant-filter-dropdown-summary">
-                    <span className="variant-filter-dropdown-summary-copy">
-                      <span className="variant-filter-dropdown-title">In silico</span>
-                      <span className="variant-filter-dropdown-meta">{summarize(inSilicoCount)}</span>
-                    </span>
-                    <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-                  </summary>
-                  <div className="variant-filter-dropdown-content">
-                    <div className="analysis-filter-grid analysis-filter-grid--3">
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="CADD ≥"
-                        value={draft.minCadd}
-                        onChange={(event) => setField('minCadd', event.target.value)}
-                      />
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="REVEL ≥"
-                        value={draft.minRevel}
-                        onChange={(event) => setField('minRevel', event.target.value)}
-                      />
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="SpliceAI ≥"
-                        value={draft.minSpliceai}
-                        onChange={(event) => setField('minSpliceai', event.target.value)}
-                      />
-                    </div>
-                  </div>
-                </details>
-
-                {/* Flags */}
-                <details className="variant-filter-dropdown" open={!!openSections.flags} onToggle={sectionToggle('flags')}>
-                  <summary className="variant-filter-dropdown-summary">
-                    <span className="variant-filter-dropdown-summary-copy">
-                      <span className="variant-filter-dropdown-title">Flags</span>
-                      <span className="variant-filter-dropdown-meta">{summarize(flagCount)}</span>
-                    </span>
-                    <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-                  </summary>
-                  <div className="variant-filter-dropdown-content">
-                    <div className="variant-gt-toggle-row">
-                      <label className="analysis-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={draft.canonicalOnly}
-                          onChange={(event) => setField('canonicalOnly', event.target.checked)}
-                        />
-                        Canonical only
-                      </label>
-                      <label className="analysis-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={draft.maneOnly}
-                          onChange={(event) => setField('maneOnly', event.target.checked)}
-                        />
-                        MANE only
-                      </label>
-                      <label className="analysis-checkbox">
-                        <input
-                          type="checkbox"
-                          checked={draft.lofOnly}
-                          onChange={(event) => setField('lofOnly', event.target.checked)}
-                        />
-                        LoF only
-                      </label>
-                    </div>
-                  </div>
-                </details>
-              </div>
-            </section>
-          </form>
+          <SmallVariantFilterForm
+            mode="nipt"
+            familyAware={false}
+            categoryCounts={categoryCounts}
+            categoryLabels={CATEGORY_LABELS}
+            niptInheritancePresets={INHERITANCE_PRESETS}
+            activeFilterChips={activeFilterChips}
+            applyPreset={applyPreset}
+            applySavedPreset={applySavedPreset}
+            draftFilters={draftFilters}
+            handleApply={handleApply}
+            handleGtToggle={handleGtToggle}
+            handleReset={handleReset}
+            handleSampleFieldChange={handleSampleFieldChange}
+            members={members}
+            relationships={family.relationships ?? []}
+            panels={panels}
+            presets={[]}
+            removeActiveFilterChip={removeActiveFilterChip}
+            sampleDraftFilters={sampleDraftFilters}
+            setDraftFilterValue={setDraftFilterValue}
+            tags={tags}
+            toggleDraftFilterListValue={toggleDraftFilterListValue}
+            onSaveCurrentPreset={noopSavePreset}
+          />
         )}
       </section>
 
@@ -833,8 +431,8 @@ const FamilyNiptPage: React.FC = () => {
           data={variantPage}
           familyId={familyId}
           locationSearch={location.search}
-          members={family.members ?? []}
-          onPageChange={setPage}
+          members={members}
+          onPageChange={goToPage}
           page={page}
           projectId={projectId}
           requestQueryString=""
