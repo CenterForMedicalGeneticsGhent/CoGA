@@ -240,6 +240,23 @@ export interface ApiNiptVariantPage {
   variants: ApiNiptVariant[];
 }
 
+export interface ApiNiptCoverageRegion {
+  label: string;
+  chr: string;
+  start: number;
+  end: number;
+  median_coverage?: number | null;
+  covered_bases: number;
+  target_bases: number;
+}
+
+export interface ApiNiptCoverageSummary {
+  family_id: string;
+  overall_median_on_target?: number | null;
+  target_region_count: number;
+  per_region: ApiNiptCoverageRegion[];
+}
+
 export interface ApiProjectRecord<TFamily = ApiFamilySummary> {
   id: string;
   name: string;

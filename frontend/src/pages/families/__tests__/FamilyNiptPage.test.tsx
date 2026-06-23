@@ -62,6 +62,26 @@ describe('FamilyNiptPage', () => {
           },
         });
       }
+      if (url === '/families/NIPT001/nipt/coverage') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            overall_median_on_target: 120,
+            target_region_count: 1,
+            per_region: [
+              {
+                label: 'ROI',
+                chr: '1',
+                start: 100,
+                end: 200,
+                median_coverage: 118,
+                covered_bases: 100,
+                target_bases: 100,
+              },
+            ],
+          },
+        });
+      }
       if (url === '/families/NIPT001/nipt/variants') {
         return Promise.resolve({
           data: {
@@ -104,6 +124,10 @@ describe('FamilyNiptPage', () => {
     expect(await screen.findByText('10.0%')).toBeInTheDocument();
     expect(screen.getByText('Analysed')).toBeInTheDocument();
     expect(screen.getByText('92')).toBeInTheDocument();
+
+    // On-target coverage comes from the coverage query.
+    expect(await screen.findByText('120x')).toBeInTheDocument();
+    expect(screen.getByText('On-target coverage')).toBeInTheDocument();
 
     // The classified variant row comes from the variants query.
     expect(await screen.findByText('BRCA1')).toBeInTheDocument();

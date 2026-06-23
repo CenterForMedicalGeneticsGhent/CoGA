@@ -45,6 +45,8 @@ from ..schemas import (
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
+    NiptCoverageRegionOut,
+    NiptCoverageSummaryOut,
     NiptFetalFractionOut,
     NiptSummaryOut,
     NiptVariantOut,
@@ -100,6 +102,7 @@ from ..services.monarch_semsim import (
 from ..services.metadata_service import CurrentUser
 from ..services.nipt_service import (
     NiptClassifiedVariant,
+    get_family_nipt_coverage,
     get_family_nipt_variants,
     run_family_nipt_analysis,
 )
@@ -974,6 +977,42 @@ async def get_family_nipt_variants_page(
         total=result.total,
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
         variants=[_nipt_variant_out(item) for item in result.variants],
+    )
+
+
+@router.get("/{family_id}/nipt/coverage", response_model=NiptCoverageSummaryOut)
+async def get_family_nipt_coverage_summary(
+    family_id: str,
+    project_id: str | None = None,
+    gene: str | None = None,
+    panel_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> NiptCoverageSummaryOut:
+    summary = await get_family_nipt_coverage(
+        session,
+        family_id=family_id,
+        user=user,
+        project_id=project_id,
+        gene=gene,
+        panel_id=panel_id,
+    )
+    return NiptCoverageSummaryOut(
+        family_id=family_id,
+        overall_median_on_target=summary.overall_median_on_target,
+        target_region_count=summary.target_region_count,
+        per_region=[
+            NiptCoverageRegionOut(
+                label=region.label,
+                chr=region.chrom,
+                start=region.start,
+                end=region.end,
+                median_coverage=region.median_coverage,
+                covered_bases=region.covered_bases,
+                target_bases=region.target_bases,
+            )
+            for region in summary.per_region
+        ],
     )
 
 

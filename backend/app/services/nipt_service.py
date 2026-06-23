@@ -19,14 +19,25 @@ from .clickhouse_family_variants import (
     PanelFilterConstraints,
     SmallVariantCall,
     SmallVariantRecord,
+    _fetch_gene_regions,
+    _fetch_gene_regions_for_terms,
     _fetch_panel_constraints,
     _fetch_small_variant_rows,
+    _split_gene_terms,
 )
+from .clickhouse_interval_tracks import fetch_interval_track_rows
+from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
 from .metadata_service import CurrentUser, get_family_record
 from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
 from .nipt_artifact_pg import load_nipt_artifact_ids
+from .nipt_coverage import (
+    CoverageInterval,
+    NiptCoverageSummary,
+    TargetRegion,
+    summarize_on_target_coverage,
+)
 from .nipt_analysis import (
     FetalFractionEstimate,
     NiptAnalysisResult,
@@ -324,3 +335,116 @@ async def get_family_nipt_variants(
     offset = max(0, (page - 1) * page_size)
     page_items = classified[offset : offset + page_size]
     return NiptVariantsResult(fetal_fraction=ff_estimate, total=total, variants=page_items)
+
+
+async def _resolve_nipt_target_regions(
+    session: AsyncSession,
+    *,
+    family,
+    context: FamilyMetadataContext,
+    gene: str | None,
+    panel_id: str | None,
+) -> list[TargetRegion]:
+    """Target = a gene query, a panel, or (fallback) the family ROI."""
+    regions: list[TargetRegion] = []
+    if gene:
+        for term in _split_gene_terms(gene):
+            for region in await _fetch_gene_regions(
+                session, gene_query=term, assembly_id=context.assembly_id
+            ):
+                regions.append(
+                    TargetRegion(
+                        label=term,
+                        chrom=normalize_chromosome(region.chr),
+                        start=region.start,
+                        end=region.end,
+                    )
+                )
+    if panel_id:
+        constraints = await _fetch_panel_constraints(
+            session, panel_id, assembly_id=context.assembly_id
+        )
+        panel_regions = list(constraints.regions)
+        if constraints.genes:
+            panel_regions.extend(
+                await _fetch_gene_regions_for_terms(
+                    session, terms=constraints.genes, assembly_id=context.assembly_id
+                )
+            )
+        for region in panel_regions:
+            regions.append(
+                TargetRegion(
+                    label=f"{region.chr}:{region.start}-{region.end}",
+                    chrom=normalize_chromosome(region.chr),
+                    start=region.start,
+                    end=region.end,
+                )
+            )
+    if not regions and family.roi is not None:
+        roi = family.roi
+        regions.append(
+            TargetRegion(
+                label=roi.label or roi.query,
+                chrom=normalize_chromosome(roi.chr),
+                start=roi.start,
+                end=roi.end,
+            )
+        )
+    return regions
+
+
+async def _load_coverage_intervals(
+    assembly_name: str, sample_uuid: str, target_regions: list[TargetRegion]
+) -> list[CoverageInterval]:
+    chromosomes = sorted({region.chrom for region in target_regions})
+    rows = await fetch_interval_track_rows(
+        assembly_name,
+        sample_uuid=sample_uuid,
+        track_type="coverage",
+        chromosomes=chromosomes,
+    )
+    intervals: list[CoverageInterval] = []
+    for row in rows:
+        value = row.get("value")
+        if value is None:
+            continue
+        intervals.append(
+            CoverageInterval(
+                chrom=normalize_chromosome(str(row["chr"])),
+                start=int(row["start"]),
+                end=int(row["end"]),
+                value=float(value),
+            )
+        )
+    return intervals
+
+
+async def get_family_nipt_coverage(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    project_id: str | None = None,
+    gene: str | None = None,
+    panel_id: str | None = None,
+) -> NiptCoverageSummary:
+    family = await get_family_record(session, family_id, user)
+    trio = resolve_nipt_trio(family)
+    if trio is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Family is not configured for monogenic NIPT analysis",
+        )
+    context = await build_family_metadata_context(
+        session, family_identifier=family_id, user=user, project_id=project_id
+    )
+    target_regions = await _resolve_nipt_target_regions(
+        session, family=family, context=context, gene=gene, panel_id=panel_id
+    )
+    sample_uuid = context.sample_name_to_uuid.get(trio.cfdna_sample_id)
+    coverage: list[CoverageInterval] = []
+    if sample_uuid and context.assembly_name and target_regions:
+        coverage = await _load_coverage_intervals(
+            context.assembly_name, sample_uuid, target_regions
+        )
+    return summarize_on_target_coverage(target_regions, coverage)

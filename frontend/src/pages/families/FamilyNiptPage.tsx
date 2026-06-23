@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
   ApiFamilyRecord,
+  ApiNiptCoverageSummary,
   ApiNiptSummary,
   ApiNiptVariantPage,
 } from '../../lib/apiTypes';
@@ -40,6 +41,9 @@ const FILTER_STEPS: { key: string; label: string }[] = [
 const pct = (value?: number | null): string =>
   value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 
+const depth = (value?: number | null): string =>
+  value == null ? '—' : `${value.toFixed(0)}x`;
+
 const FamilyNiptPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
 
@@ -68,6 +72,15 @@ const FamilyNiptPage: React.FC = () => {
     queryFn: async () => {
       const res = await api.get(`/families/${familyId}/nipt/summary`);
       return res.data as ApiNiptSummary;
+    },
+  });
+
+  const { data: coverage } = useQuery<ApiNiptCoverageSummary>({
+    queryKey: ['family', familyId, 'nipt', 'coverage'],
+    enabled: Boolean(familyId && isMonogenicNipt),
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/nipt/coverage`);
+      return res.data as ApiNiptCoverageSummary;
     },
   });
 
@@ -234,6 +247,61 @@ const FamilyNiptPage: React.FC = () => {
           </div>
         ) : (
           <p className="table-subtle">Loading category counts…</p>
+        )}
+      </section>
+
+      <section className="surface-card space-y-2" aria-label="On-target coverage">
+        <h2 className="section-title">On-target coverage</h2>
+        {coverage ? (
+          coverage.target_region_count === 0 ? (
+            <p className="table-subtle">
+              No target regions — set a family ROI or gene panel to report coverage.
+            </p>
+          ) : (
+            <>
+              <div className="family-workspace-summary">
+                <div className="family-workspace-stat">
+                  <span className="family-workspace-stat-value">
+                    {depth(coverage.overall_median_on_target)}
+                  </span>
+                  <span className="family-workspace-stat-copy">
+                    Median on-target ({coverage.target_region_count} region
+                    {coverage.target_region_count === 1 ? '' : 's'})
+                  </span>
+                </div>
+              </div>
+              {coverage.per_region.length > 0 && (
+                <div className="data-table-shell overflow-x-auto">
+                  <table className="analysis-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Region</th>
+                        <th scope="col">Location</th>
+                        <th scope="col">Median coverage</th>
+                        <th scope="col">Covered / target bases</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {coverage.per_region.map((region) => (
+                        <tr key={`${region.label}-${region.chr}-${region.start}`}>
+                          <td>{region.label}</td>
+                          <td>
+                            {region.chr}:{region.start}-{region.end}
+                          </td>
+                          <td>{depth(region.median_coverage)}</td>
+                          <td>
+                            {region.covered_bases} / {region.target_bases}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )
+        ) : (
+          <p className="table-subtle">Loading coverage…</p>
         )}
       </section>
 

@@ -240,6 +240,27 @@ class NiptVariantPage(BaseModel):
     variants: List[NiptVariantOut]
 
 
+class NiptCoverageRegionOut(BaseModel):
+    """On-target coverage for a single target region."""
+
+    label: str
+    chr: str
+    start: int
+    end: int
+    median_coverage: Optional[float] = None
+    covered_bases: int
+    target_bases: int
+
+
+class NiptCoverageSummaryOut(BaseModel):
+    """Median on-target coverage for a monogenic NIPT family's cfDNA sample."""
+
+    family_id: str
+    overall_median_on_target: Optional[float] = None
+    target_region_count: int
+    per_region: List[NiptCoverageRegionOut]
+
+
 class NiptArtifactOut(BaseModel):
     """A recurrent-artifact (panel-of-normals) entry for monogenic NIPT."""
 

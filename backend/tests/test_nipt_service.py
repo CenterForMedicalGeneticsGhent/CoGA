@@ -5,12 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.app.schemas import FamilyMemberOut, FamilyOut
+from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import nipt_service
 from backend.app.services.clickhouse_family_variants import SmallVariantCall, SmallVariantRecord
 from backend.app.services.nipt_service import (
     build_nipt_observations,
     derive_father_state,
+    get_family_nipt_coverage,
     get_family_nipt_variants,
     run_family_nipt_analysis,
 )
@@ -455,3 +456,63 @@ async def test_get_family_nipt_variants_excludes_artifacts(
 
     assert result.total == 1
     assert {item.classification.category for item in result.variants} == {3}
+
+
+# --------------------------------------------------------------------------- #
+# get_family_nipt_coverage (I/O mocked)
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_coverage_over_family_roi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    family = FamilyOut(
+        id="family-uuid",
+        family_id="NIPT001",
+        created_at=datetime.now(timezone.utc),
+        members=[
+            FamilyMemberOut(sample_id="father-1", role="father", affected=False),
+            FamilyMemberOut(
+                sample_id="cfdna-1",
+                role="mother",
+                affected=False,
+                sample_metadata={"assay": "nipt_cfdna"},
+            ),
+        ],
+        metadata={"analysis_type": "monogenic_nipt"},
+        roi=FamilyRegionOfInterestOut(
+            query="1:100-200", label="ROI", source="region", chr="1", start=100, end=200
+        ),
+    )
+
+    async def fake_get_family_record(_session, _family_id, _user):
+        return family
+
+    async def fake_build_context(_session, *, family_identifier, user, project_id=None):
+        return SimpleNamespace(
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+            sample_name_to_uuid={"cfdna-1": "cfdna-uuid"},
+        )
+
+    async def fake_fetch_coverage(
+        _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, **_kwargs
+    ):
+        assert track_type == "coverage"
+        assert sample_uuid == "cfdna-uuid"
+        return [{"chr": "1", "start": 100, "end": 200, "value": 30.0}]
+
+    monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
+    monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
+    monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
+
+    summary = await get_family_nipt_coverage(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+    )
+
+    assert summary.target_region_count == 1
+    assert summary.overall_median_on_target == 30.0
+    assert summary.per_region[0].label == "ROI"
+    assert summary.per_region[0].median_coverage == 30.0
