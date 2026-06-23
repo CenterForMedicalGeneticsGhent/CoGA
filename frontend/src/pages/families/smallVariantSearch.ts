@@ -1078,6 +1078,11 @@ export const buildSmallVariantQueryParams = (
   }
   if (currentFilters.intervals) params.set('intervals', currentFilters.intervals);
   if (currentFilters.inheritance) params.set('inheritance', currentFilters.inheritance);
+  // Monogenic NIPT filters; round-trip through the URL so they survive Apply.
+  if (currentFilters.min_confidence) params.set('min_confidence', currentFilters.min_confidence);
+  parseCommaSeparatedValues(currentFilters.category).forEach((value) => {
+    params.append('category', value);
+  });
   if (currentFilters.ps) params.set('ps', currentFilters.ps);
   if (currentFilters.expanded_carrier_screening === 'true') {
     params.set('expanded_carrier_screening', 'true');
@@ -1430,7 +1435,8 @@ export const useSmallVariantSearchState = ({
         key === 'impact' ||
         key === 'effect' ||
         key === 'clinvar' ||
-        key === 'exclude_clinvar'
+        key === 'exclude_clinvar' ||
+        key === 'category'
       ) {
         initialFilters[key] = joinFilterValues(params.getAll(key));
         return;

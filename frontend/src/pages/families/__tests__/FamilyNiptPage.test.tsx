@@ -175,6 +175,13 @@ describe('FamilyNiptPage', () => {
       target: { value: 'paternal_dominant' },
     });
     await waitFor(() => expect(cat7).toBeChecked());
+
+    // The category selection survives "Apply filters" (it round-trips through
+    // the URL rather than being cleared by the URL-sync effect).
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+    await waitFor(() =>
+      expect(screen.getByRole('checkbox', { name: /7 — Paternal, transmitted/ })).toBeChecked(),
+    );
   });
 
   it('shows a not-configured message for a non-NIPT family', async () => {
