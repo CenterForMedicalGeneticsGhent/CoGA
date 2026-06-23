@@ -11,6 +11,15 @@ type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed'
 type PackageTargetMode = 'new' | 'existing';
 type ImportConflictMode = 'cancel' | 'update' | 'overwrite';
 
+type FamilyPackageCandidate = {
+  folder_path: string;
+  name: string;
+  family_id: string;
+  has_manifest: boolean;
+  has_ped: boolean;
+  analysis_type?: string | null;
+};
+
 type ValidationIssue = {
   code: string;
   message: string;
@@ -130,6 +139,15 @@ const FamilyPackageImportPanel: React.FC = () => {
       return response.data as ApiFamilySummary[];
     },
   });
+
+  const packagesQuery = useQuery<FamilyPackageCandidate[]>({
+    queryKey: ['family-import-packages'],
+    queryFn: async () => {
+      const response = await api.get('/family-imports/packages');
+      return (response.data as FamilyPackageCandidate[]) || [];
+    },
+  });
+  const packages = packagesQuery.data || [];
 
   React.useEffect(() => {
     if (projectOptions.length === 0) {
@@ -307,15 +325,60 @@ const FamilyPackageImportPanel: React.FC = () => {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.6fr)]">
-        <label className="field-label" htmlFor="family-package-folder">
-          Family folder path
-          <input
-            id="family-package-folder"
-            value={folderPath}
-            onChange={(event) => setFolderPath(event.target.value)}
-            placeholder="/data/families/FAM001"
-          />
-        </label>
+        <div className="space-y-2">
+          <div className="field-label">
+            Family folder
+            <div className="flex gap-2">
+              <select
+                aria-label="Discovered family folder"
+                className="flex-1"
+                value={packages.some((pkg) => pkg.folder_path === folderPath) ? folderPath : ''}
+                disabled={packagesQuery.isLoading}
+                onChange={(event) => {
+                  if (event.target.value) {
+                    setFolderPath(event.target.value);
+                  }
+                }}
+              >
+                <option value="">
+                  {packagesQuery.isLoading
+                    ? 'Scanning import folder…'
+                    : packages.length === 0
+                      ? 'No families found in the import folder'
+                      : 'Select a discovered family…'}
+                </option>
+                {packages.map((pkg) => (
+                  <option key={pkg.folder_path} value={pkg.folder_path}>
+                    {pkg.name}
+                    {pkg.analysis_type ? ` · ${pkg.analysis_type}` : ''}
+                    {pkg.has_manifest ? '' : ' · no manifest'}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => packagesQuery.refetch()}
+                disabled={packagesQuery.isFetching}
+              >
+                {packagesQuery.isFetching ? 'Scanning…' : 'Rescan'}
+              </button>
+            </div>
+          </div>
+          <label className="field-label" htmlFor="family-package-folder">
+            Family folder path
+            <input
+              id="family-package-folder"
+              value={folderPath}
+              onChange={(event) => setFolderPath(event.target.value)}
+              placeholder="…or type a folder path (e.g. /data/families/FAM001)"
+            />
+          </label>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            The pedigree (<code>.ped</code>) is auto-discovered in the folder — no need to
+            enter it below.
+          </p>
+        </div>
         <label className="field-label" htmlFor="family-package-project">
           Project
           <select
@@ -423,19 +486,27 @@ const FamilyPackageImportPanel: React.FC = () => {
 
         <div className="grid gap-4 xl:grid-cols-4">
           <label className="field-label" htmlFor="family-package-ped">
-            PED path{targetMode === 'existing' ? ' (optional)' : ''}
+            PED path (optional)
             <input
               id="family-package-ped"
               value={pedPath}
               onChange={(event) => setPedPath(event.target.value)}
-              placeholder={targetMode === 'existing' ? 'Defaults to existing family structure' : 'family.ped'}
+              placeholder={
+                targetMode === 'existing'
+                  ? 'Defaults to existing family structure'
+                  : 'Auto-discovered if blank'
+              }
             />
             {targetMode === 'existing' ? (
               <span className="field-hint">
                 Not required — the pedigree is taken from the configured family. Provide a PED only
                 to override it; mismatched samples are rejected.
               </span>
-            ) : null}
+            ) : (
+              <span className="field-hint">
+                Leave blank to auto-discover the <code>.ped</code> in the folder.
+              </span>
+            )}
           </label>
           <label className="field-label" htmlFor="family-package-scheme">
             Naming scheme

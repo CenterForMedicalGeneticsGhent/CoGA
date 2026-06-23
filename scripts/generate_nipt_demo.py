@@ -169,6 +169,26 @@ def render_coverage_bed() -> str:
     return "\n".join(f"{chrom}\t{start}\t{end}\t{value}" for chrom, start, end, value in rows) + "\n"
 
 
+def render_manifest() -> str:
+    """A package manifest so the demo is discoverable + importable as a NIPT family.
+
+    Declares the analysis type and the cfDNA sample's assay so Package Import tags
+    the family for NIPT. No datasets are listed: the combined VCF and coverage are
+    uploaded afterwards (the combined-VCF path is the canonical NIPT input).
+    """
+    return (
+        "schema_version: 1\n"
+        f"family_id: {FAMILY_ID}\n"
+        "analysis_type: monogenic_nipt\n"
+        "ped: nipt_trio.ped\n"
+        "samples:\n"
+        f"  {CFDNA_SAMPLE}:\n"
+        "    assay: nipt_cfdna\n"
+        "metadata:\n"
+        "  description: Synthetic monogenic NIPT demo (fetal fraction 12%)\n"
+    )
+
+
 def render_ped() -> str:
     # FID IID PID MID SEX PHEN  (sex: 1 male, 2 female; phen: 1 unaffected, 2 affected)
     rows = [
@@ -184,6 +204,7 @@ def main() -> None:
     (_DEMO_DIR / "nipt_combined.vcf").write_text(render_vcf())
     (_DEMO_DIR / "nipt_coverage.bed").write_text(render_coverage_bed())
     (_DEMO_DIR / "nipt_trio.ped").write_text(render_ped())
+    (_DEMO_DIR / "manifest.yaml").write_text(render_manifest())
     print(f"Wrote demo NIPT family to {_DEMO_DIR}")
 
 

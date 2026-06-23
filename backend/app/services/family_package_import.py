@@ -375,6 +375,10 @@ class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
     ped: str
+    # Optional analysis type for the family, e.g. "monogenic_nipt". Promoted to
+    # families.metadata["analysis_type"] so the workspace surfaces the NIPT tab
+    # and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
+    analysis_type: str | None = None
     roi: str | dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     samples: dict[str, Any] | list[Any] | None = None
@@ -496,6 +500,59 @@ def _authorized_local_roots() -> list[Path]:
 
 def _authorized_s3_roots() -> list[str]:
     return [root.strip() for root in settings.family_import_roots if is_s3_uri(root)]
+
+
+def _scan_manifest_info(manifest_path: Path) -> dict[str, Any]:
+    """Loosely read a manifest's family_id / analysis_type for the package list."""
+    try:
+        text_value = manifest_path.read_text()
+        if manifest_path.suffix in (".yaml", ".yml"):
+            data = yaml.safe_load(text_value)
+        else:
+            data = json.loads(text_value)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {"family_id": data.get("family_id"), "analysis_type": data.get("analysis_type")}
+
+
+def scan_family_import_packages() -> list[dict[str, Any]]:
+    """List candidate family packages directly under each local import root.
+
+    A candidate is an immediate subdirectory containing a manifest
+    (manifest.yaml/.yml/.json) or a ``*.ped`` file. The folder path can then be
+    selected in the import UI instead of typed by hand.
+    """
+    packages: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for root in _authorized_local_roots():
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir(), key=lambda path: path.name.lower()):
+            if not child.is_dir():
+                continue
+            manifest_path = _find_manifest(child)
+            ped_paths = sorted(child.glob("*.ped"))
+            if manifest_path is None and not ped_paths:
+                continue
+            resolved = str(child.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            info = _scan_manifest_info(manifest_path) if manifest_path is not None else {}
+            family_id = info.get("family_id") or child.name
+            packages.append(
+                {
+                    "folder_path": resolved,
+                    "name": child.name,
+                    "family_id": str(family_id),
+                    "has_manifest": manifest_path is not None,
+                    "has_ped": bool(ped_paths),
+                    "analysis_type": info.get("analysis_type"),
+                }
+            )
+    return packages
 
 
 def _ensure_authorized_package_path(path: Path) -> Path:
@@ -3513,6 +3570,11 @@ async def _register_package_provenance(
         "datasets": _dataset_provenance(validation),
         "registered_at": now,
     }
+    # Promote a declared analysis type (e.g. monogenic_nipt) to the top level so
+    # the workspace surfaces the matching analysis section.
+    analysis_type = bundle.manifest.analysis_type
+    if isinstance(analysis_type, str) and analysis_type.strip():
+        family_metadata["analysis_type"] = analysis_type.strip()
     await session.execute(
         text(
             """
@@ -3591,6 +3653,11 @@ async def _register_package_provenance(
                 )
             if sample_id in sample_metadata:
                 metadata["package_sample_metadata"] = sample_metadata[sample_id]
+                # Promote a per-sample assay (e.g. nipt_cfdna) to the top level so
+                # resolve_nipt_trio can identify the maternal-plasma cfDNA sample.
+                assay = sample_metadata[sample_id].get("assay")
+                if isinstance(assay, str) and assay.strip():
+                    metadata["assay"] = assay.strip()
             if sample_id in sample_provenance:
                 metadata["package_import"] = {
                     "source": "family_package",

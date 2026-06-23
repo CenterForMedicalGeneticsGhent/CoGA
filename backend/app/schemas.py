@@ -690,6 +690,17 @@ class FamilyPackageManifestWriteOut(BaseModel):
     validation: FamilyPackageValidationOut
 
 
+class FamilyPackageCandidateOut(BaseModel):
+    """A family package discovered under the configured import roots."""
+
+    folder_path: str
+    name: str
+    family_id: str
+    has_manifest: bool
+    has_ped: bool
+    analysis_type: Optional[str] = None
+
+
 class FamilyPackageImportCreate(BaseModel):
     folder_path: str = Field(min_length=1)
     project_id: Optional[str] = None

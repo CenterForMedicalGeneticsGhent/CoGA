@@ -1,0 +1,9 @@
+schema_version: 1
+family_id: FAM_NIPT_DEMO
+analysis_type: monogenic_nipt
+ped: nipt_trio.ped
+samples:
+  CFDNA_NIPT:
+    assay: nipt_cfdna
+metadata:
+  description: Synthetic monogenic NIPT demo (fetal fraction 12%)

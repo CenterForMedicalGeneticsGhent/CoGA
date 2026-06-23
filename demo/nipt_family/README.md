@@ -71,6 +71,19 @@ backend/.venv/bin/python -m pytest backend/tests/test_nipt_end_to_end.py
 
 ## Loading it for hands-on testing
 
+### Option A — Package Import (recommended)
+
+`manifest.yaml` makes this folder a self-describing package: it declares
+`analysis_type: monogenic_nipt` and tags `CFDNA_NIPT` with `assay: nipt_cfdna`.
+Point `FAMILY_IMPORT_ROOTS` at the folder that contains `nipt_family/` (e.g. the
+repo's `demo/`), then in **Package Import** (`/package-import`) pick
+**FAM_NIPT_DEMO** from the scanned **Family folder** dropdown (the PED is
+auto-discovered — no need to type it) and import. That creates the tagged NIPT
+trio. Then upload the combined VCF (`POST /families/FAM_NIPT_DEMO/small-variants/upload`)
+and the coverage BED (step 3 below).
+
+### Option B — Family Builder / API
+
 1. **Create the NIPT trio.** In the **Family Builder** (`/family-builder`), tick
    **Monogenic NIPT**, add the father, the mother (sample `CFDNA_NIPT`, ticked
    **cfDNA (maternal plasma)**), and the fetus as the proband (parents
