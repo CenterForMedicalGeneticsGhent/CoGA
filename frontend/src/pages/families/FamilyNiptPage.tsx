@@ -29,6 +29,7 @@ const INHERITANCE_PRESETS: { value: string; label: string }[] = [
   { value: 'de_novo', label: 'De novo candidates' },
   { value: 'paternal_dominant', label: 'Paternal dominant (transmitted)' },
   { value: 'maternal_dominant', label: 'Maternal dominant (transmitted)' },
+  { value: 'recessive_at_risk', label: 'Recessive at-risk' },
 ];
 
 const FILTER_STEPS: { key: string; label: string }[] = [

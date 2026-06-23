@@ -28,6 +28,7 @@ def _record(
     calls: list[SmallVariantCall],
     qual: float | None = 30.0,
     start: int = 100,
+    gene_symbols: list[str] | None = None,
 ) -> SmallVariantRecord:
     return SmallVariantRecord(
         variant_key=None,
@@ -40,7 +41,7 @@ def _record(
         source=None,
         rsid=None,
         filters=[],
-        gene_symbols=[],
+        gene_symbols=gene_symbols or [],
         annotations=[],
         calls=calls,
         qual=qual,
@@ -431,9 +432,75 @@ async def test_get_family_nipt_variants_rejects_unsupported_preset() -> None:
             session=None,  # type: ignore[arg-type]
             family_id="NIPT001",
             user=None,  # type: ignore[arg-type]
-            inheritance="recessive_at_risk",
+            inheritance="not_a_preset",
         )
     assert "inheritance preset" in str(excinfo.value)
+
+
+def _recessive_filtered_records() -> list[SmallVariantRecord]:
+    return [
+        # GENEA: a paternal hit (cat 7) and a maternal hit (cat 3) -> compound het.
+        _record(
+            "1-1-A-G",
+            start=1,
+            gene_symbols=["GENEA"],
+            calls=[
+                _call("father-1", "0/1", dp=50, ad=[25, 25]),
+                _call("cfdna-1", "0/1", dp=400, af=[0.05], ad=[380, 20]),
+            ],
+        ),
+        _record(
+            "1-2-A-G",
+            start=2,
+            gene_symbols=["GENEA"],
+            calls=[
+                _call("father-1", "0/0", dp=50, ad=[50, 0]),
+                _call("cfdna-1", "0/1", dp=600, af=[0.5], ad=[300, 300]),
+            ],
+        ),
+        # GENEB: a lone paternal hit (cat 7), no maternal hit -> not at risk.
+        _record(
+            "1-3-A-G",
+            start=3,
+            gene_symbols=["GENEB"],
+            calls=[
+                _call("father-1", "0/1", dp=50, ad=[25, 25]),
+                _call("cfdna-1", "0/1", dp=400, af=[0.05], ad=[380, 20]),
+            ],
+        ),
+        # GENEC: fetus homozygous-alt (cat 4) -> at risk on its own.
+        _record(
+            "1-4-A-G",
+            start=4,
+            gene_symbols=["GENEC"],
+            calls=[
+                _call("father-1", "0/1", dp=50, ad=[25, 25]),
+                _call("cfdna-1", "1/1", dp=600, af=[0.55], ad=[270, 330]),
+            ],
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_recessive_at_risk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _wire_variants_mocks(
+        monkeypatch, cohort=_cohort_cat7_records(), filtered=_recessive_filtered_records()
+    )
+
+    result = await get_family_nipt_variants(
+        session=None,  # type: ignore[arg-type]
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        query_filters={"gene": "GENEA GENEB GENEC"},
+        inheritance="recessive_at_risk",
+    )
+
+    kept = {item.record.variant_id for item in result.variants}
+    # GENEA compound pair + GENEC homozygote; GENEB's lone paternal hit is excluded.
+    assert kept == {"1-1-A-G", "1-2-A-G", "1-4-A-G"}
+    assert result.total == 3
 
 
 @pytest.mark.asyncio

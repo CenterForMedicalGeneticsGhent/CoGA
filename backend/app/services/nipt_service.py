@@ -53,13 +53,15 @@ from .nipt_analysis import (
 # narrows by gene/panel/region, so this is a safety cap, not a normal limit.
 _NIPT_VARIANT_FETCH_LIMIT = 5000
 
-# NIPT inheritance presets that map to a set of categories. recessive_at_risk
-# needs cross-variant gene pairing and is deferred to the clinical-filter phase.
+# NIPT inheritance presets that map to a set of categories. recessive_at_risk is
+# not here -- it needs cross-variant gene pairing and is handled separately in
+# get_family_nipt_variants.
 _INHERITANCE_CATEGORIES: dict[str, frozenset[int]] = {
     "de_novo": frozenset({1}),
     "paternal_dominant": frozenset({7}),
     "maternal_dominant": frozenset({3, 4}),
 }
+_RECESSIVE_AT_RISK = "recessive_at_risk"
 
 _AUTOSOMES = {str(index) for index in range(1, 23)}
 
@@ -256,6 +258,43 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
     )
 
 
+def _record_genes(record: SmallVariantRecord) -> set[str]:
+    return {gene.upper() for gene in (record.gene_symbols or []) if gene}
+
+
+def _recessive_at_risk_variants(
+    classified: list[NiptClassifiedVariant],
+) -> list[NiptClassifiedVariant]:
+    """Keep variants that put the fetus at recessive risk.
+
+    The fetus is at risk in a gene when it is homozygous-alt for a variant
+    (category 4 or 6), or when the gene carries a transmitted paternal allele
+    (category 7) AND a transmitted maternal allele (category 3) at different loci
+    -- a compound heterozygote. Both members of each compound pair are kept so
+    the analyst sees the full picture. Apply gene/consequence/frequency filters
+    first so the candidates are plausibly causal, and min_confidence so the
+    maternal-allele (cat 3) calls are trustworthy.
+    """
+    maternal_genes: set[str] = set()
+    paternal_genes: set[str] = set()
+    for variant in classified:
+        category = variant.classification.category
+        if category == 3:
+            maternal_genes |= _record_genes(variant.record)
+        elif category == 7:
+            paternal_genes |= _record_genes(variant.record)
+    compound_genes = maternal_genes & paternal_genes
+
+    kept: list[NiptClassifiedVariant] = []
+    for variant in classified:
+        category = variant.classification.category
+        if category in (4, 6):
+            kept.append(variant)
+        elif category in (3, 7) and _record_genes(variant.record) & compound_genes:
+            kept.append(variant)
+    return kept
+
+
 async def get_family_nipt_variants(
     session: AsyncSession,
     *,
@@ -273,8 +312,9 @@ async def get_family_nipt_variants(
 ) -> NiptVariantsResult:
     qc = qc or NiptQualityThresholds()
 
-    wanted = set(categories or [])
-    if inheritance:
+    recessive_mode = inheritance == _RECESSIVE_AT_RISK
+    wanted: set[int] = set(categories or [])
+    if inheritance and not recessive_mode:
         preset = _INHERITANCE_CATEGORIES.get(inheritance)
         if preset is None:
             raise HTTPException(
@@ -323,13 +363,18 @@ async def get_family_nipt_variants(
         if observation is None:
             continue
         classification = classify_site(observation, ff_estimate, qc)
-        if wanted and classification.category not in wanted:
-            continue
         if min_confidence is not None and (
             classification.category is None or classification.confidence < min_confidence
         ):
             continue
         classified.append(NiptClassifiedVariant(record=record, classification=classification))
+
+    # The category filter is applied after classification so recessive_at_risk
+    # can group across the full candidate set by gene.
+    if recessive_mode:
+        classified = _recessive_at_risk_variants(classified)
+    elif wanted:
+        classified = [item for item in classified if item.classification.category in wanted]
 
     total = len(classified)
     offset = max(0, (page - 1) * page_size)
