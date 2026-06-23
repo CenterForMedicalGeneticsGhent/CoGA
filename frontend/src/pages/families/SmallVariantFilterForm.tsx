@@ -68,6 +68,11 @@ type SmallVariantFilterFormProps = Pick<
   categoryLabels?: Record<number, string>;
   /** NIPT: inheritance presets (de novo / paternal dominant / …). */
   niptInheritancePresets?: { value: string; label: string }[];
+  /**
+   * Built-in quick presets shown in the toolbar. Defaults to the small-variant
+   * built-ins; the NIPT page passes its own (de novo / recessive).
+   */
+  builtInPresets?: typeof BUILT_IN_SMALL_PRESETS;
 };
 
 const TYPE_OPTIONS = ['', 'SNV', 'INDEL', 'MNV'];
@@ -183,6 +188,7 @@ const SmallVariantFilterForm = ({
   categoryCounts = {},
   categoryLabels,
   niptInheritancePresets,
+  builtInPresets = BUILT_IN_SMALL_PRESETS,
 }: SmallVariantFilterFormProps) => {
   const [selectedQuickPreset, setSelectedQuickPreset] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
@@ -201,7 +207,7 @@ const SmallVariantFilterForm = ({
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
   const carrierScreeningCouple = resolveCarrierScreeningCoupleMembers(members, relationships);
-  const availableBuiltInPresets = BUILT_IN_SMALL_PRESETS.filter(
+  const availableBuiltInPresets = builtInPresets.filter(
     (preset) => preset.value !== 'expanded_carrier_screening' || carrierScreeningCouple,
   );
 
@@ -780,7 +786,7 @@ const SmallVariantFilterForm = ({
             <button type="submit" className="form-button">
               Apply filters
             </button>
-            {familyAware ? (
+            {familyAware || mode === 'nipt' ? (
               <>
                 <select
                   aria-label="Preset or saved search"

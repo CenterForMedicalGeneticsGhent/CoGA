@@ -146,14 +146,16 @@ def test_nipt_demo_recessive_at_risk() -> None:
         )
         for classification in result.classifications
     ]
-    at_risk = _recessive_at_risk_variants(classified)
+    observations = {site.variant_id: site for site in sites}
+    at_risk = _recessive_at_risk_variants(classified, observations)
     at_risk_genes = {
         gene for variant in at_risk for gene in variant.record.gene_symbols
     }
 
-    # At risk: GENE_RECESS (compound het: cat 7 + cat 3), GENE_HOMRISK (homozygous,
-    # cat 4), and GENE_MATHOM2 (fetus hom-alt, cat 6). GENE_CARRIER's lone paternal
-    # hit (cat 7, no maternal partner) is not at risk.
+    # Genes where both parents carry: GENE_RECESS (maternal cat 3 + paternal cat 7),
+    # GENE_HOMRISK (cat 4 — maternal het + paternal allele the fetus made homozygous),
+    # GENE_MATHOM2 (cat 6 — both hom). GENE_CARRIER's lone paternal hit (cat 7, no
+    # maternal carrier) and the maternal-only genes (cat 2/5, father hom-ref) are excluded.
     assert at_risk_genes == {"GENE_RECESS", "GENE_HOMRISK", "GENE_MATHOM2"}
-    assert len(at_risk) == 4  # 2 compound-pair members + 2 homozygous variants
+    assert len(at_risk) == 4  # 2 compound-pair carriers + 2 homozygous variants
     assert "GENE_CARRIER" not in at_risk_genes

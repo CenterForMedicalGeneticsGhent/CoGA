@@ -90,6 +90,9 @@ describe('FamilyNiptPage', () => {
       if (url === '/families/NIPT001/small-variant-tags') {
         return Promise.resolve({ data: [] });
       }
+      if (url === '/families/NIPT001/small-variant-filter-presets') {
+        return Promise.resolve({ data: [] });
+      }
       if (url === '/families/NIPT001/nipt/variants') {
         // The endpoint now returns the full small-variant payload plus a `nipt`
         // classification block, so the page renders it via SmallVariantResults.
@@ -145,6 +148,12 @@ describe('FamilyNiptPage', () => {
     // present, with per-category counts sourced from the summary.
     expect(screen.getByLabelText('Quick gene panel')).toBeInTheDocument();
     expect(screen.getByText(/7 — Paternal, transmitted/)).toBeInTheDocument();
+    // NIPT built-in presets + custom-save chrome are present (like the SV page).
+    expect(screen.getByRole('option', { name: 'De novo' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'Recessive (both parents carrier)' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save current' })).toBeInTheDocument();
 
     // On-target coverage comes from the coverage query.
     expect(await screen.findByText('120x')).toBeInTheDocument();

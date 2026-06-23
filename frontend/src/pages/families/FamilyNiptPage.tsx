@@ -6,6 +6,8 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
 import {
+  buildPresetPayload,
+  NIPT_BUILT_IN_PRESETS,
   normalizeReviewClassification,
   parseCommaSeparatedValues,
   parsePedigree,
@@ -14,6 +16,7 @@ import {
   type SmallFilterState,
   type SmallVariant,
   type SmallVariantFamily,
+  type SmallVariantFilterPreset,
   type SmallVariantPage,
   type SmallVariantReview,
   type SmallVariantReviewSavePayload,
@@ -145,14 +148,15 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
   return params;
 };
 
-const noopSavePreset = async () => {};
-
 const FamilyNiptPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const [presetFeedback, setPresetFeedback] = useState<
+    { tone: 'error' | 'success'; message: string } | null
+  >(null);
 
   const { data: family, isLoading: familyLoading, isError: familyError } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
@@ -187,6 +191,7 @@ const FamilyNiptPage: React.FC = () => {
     page,
     removeActiveFilterChip,
     sampleDraftFilters,
+    sampleFilters,
     setDraftFilterValue,
     toggleDraftFilterListValue,
   } = useSmallVariantSearchState({
@@ -222,6 +227,43 @@ const FamilyNiptPage: React.FC = () => {
         params: projectId ? { project_id: projectId } : undefined,
       });
       return res.data as SmallVariantTagDefinition[];
+    },
+  });
+
+  // Custom saved filter settings reuse the small-variant preset store (per
+  // family); NIPT filters live in the shared filter state, so they round-trip.
+  const { data: presets = [] } = useQuery<SmallVariantFilterPreset[]>({
+    queryKey: ['family', familyId, 'small-variant-filter-presets'],
+    enabled: Boolean(familyId && isMonogenicNipt),
+    queryFn: async () => {
+      const res = await api.get(`/families/${familyId}/small-variant-filter-presets`);
+      return res.data as SmallVariantFilterPreset[];
+    },
+  });
+
+  const savePresetMutation = useMutation({
+    mutationFn: async (payload: { name: string; description?: string }) => {
+      if (!familyId) {
+        throw new Error('Family id is required');
+      }
+      const res = await api.post(`/families/${familyId}/small-variant-filter-presets`, {
+        ...payload,
+        scope: 'global',
+        ...buildPresetPayload({ filters, members, sampleFilters }),
+      });
+      return res.data as SmallVariantFilterPreset;
+    },
+    onSuccess: async () => {
+      setPresetFeedback({ tone: 'success', message: 'Saved search updated.' });
+      await queryClient.invalidateQueries({
+        queryKey: ['family', familyId, 'small-variant-filter-presets'],
+      });
+    },
+    onError: (error) => {
+      setPresetFeedback({
+        tone: 'error',
+        message: getErrorMessage(error, 'Unable to save this search preset'),
+      });
     },
   });
 
@@ -402,6 +444,7 @@ const FamilyNiptPage: React.FC = () => {
             categoryCounts={categoryCounts}
             categoryLabels={CATEGORY_LABELS}
             niptInheritancePresets={INHERITANCE_PRESETS}
+            builtInPresets={NIPT_BUILT_IN_PRESETS}
             activeFilterChips={activeFilterChips}
             applyPreset={applyPreset}
             applySavedPreset={applySavedPreset}
@@ -413,13 +456,17 @@ const FamilyNiptPage: React.FC = () => {
             members={members}
             relationships={family.relationships ?? []}
             panels={panels}
-            presets={[]}
+            presets={presets}
             removeActiveFilterChip={removeActiveFilterChip}
             sampleDraftFilters={sampleDraftFilters}
             setDraftFilterValue={setDraftFilterValue}
             tags={tags}
             toggleDraftFilterListValue={toggleDraftFilterListValue}
-            onSaveCurrentPreset={noopSavePreset}
+            savingPreset={savePresetMutation.isPending}
+            feedback={presetFeedback}
+            onSaveCurrentPreset={async (payload) => {
+              await savePresetMutation.mutateAsync(payload);
+            }}
           />
         )}
       </section>
