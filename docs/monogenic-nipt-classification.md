@@ -1,11 +1,11 @@
 # Monogenic NIPT — Fetal Fraction & Classification Algorithm
 
-> **Status: specification / workplan — not yet implemented.** This is the detailed
-> algorithm reference for **Phase 3** of the [Monogenic NIPT](monogenic-nipt.md)
-> feature: the fetal-fraction estimator and the per-variant classifier that together
-> form `backend/app/services/nipt_analysis.py`. It assumes the conceptual maths and the
-> eight categories defined in the [main spec](monogenic-nipt.md#the-classification-maths).
-> Build this **test-first** against synthetic data — its correctness defines the feature.
+> **Status: implemented; this remains the algorithm reference.** This describes
+> **Phase 3** of the [Monogenic NIPT](monogenic-nipt.md) feature — the fetal-fraction
+> estimator and the per-variant classifier that together form
+> `backend/app/services/nipt_analysis.py` — which has shipped (built test-first against
+> synthetic data). It assumes the conceptual maths and the eight categories defined in
+> the [main spec](monogenic-nipt.md#the-classification-maths).
 
 The backend has **no numpy/scipy** dependency, so everything here is expressed for a
 **pure-Python** implementation (`math.lgamma`, `math.log`, `math.exp`). That is
@@ -60,7 +60,7 @@ class NiptSiteObservation:
     cf_dp: int | None          # depth (prefer sum of AD)
     cf_alt_reads: int | None   # alt-supporting reads (prefer AD[alt])
     cf_vaf: float | None       # cf_alt_reads / cf_dp; fallback ab / af[0]
-    cf_qual: float | None      # per-call QUAL (added in Phase 1)
+    cf_qual: float | None      # site-level VCF QUAL (Phase 1; a variant-level column)
 
     # father — used only to resolve father_state
     father_state: str          # 'hom_ref' | 'het' | 'hom_alt' | 'missing'
@@ -96,7 +96,7 @@ are classified but flagged `father_no_coverage`.
 class NiptQualityThresholds:
     min_cf_dp: int = 20          # cfDNA depth to trust a per-site VAF
     min_cf_alt_reads: int = 3    # alt reads to call a site "present"
-    min_qual: float = 20.0       # per-call QUAL floor
+    min_qual: float = 20.0       # site QUAL floor
     min_vaf: float = 0.0         # presence VAF floor (caller-dependent)
     min_father_dp: int = 10      # father coverage to trust father_state
     min_father_qual: float = 20.0

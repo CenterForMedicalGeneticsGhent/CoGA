@@ -1,11 +1,11 @@
 # Monogenic NIPT Analysis
 
-> **Status: specification / workplan — not yet implemented.** This document is the
-> canonical design reference for the planned monogenic NIPT feature. It describes
-> the clinical question, the data model, the fetal-fraction/classification maths,
-> a gap analysis against the current codebase, and a phased implementation plan.
-> Everything here is forward-looking; nothing in this document ships today. Update
-> it as the feature is built so it stays the living spec.
+> **Status: implemented (phases 0–7); this remains the design reference.** Phases
+> 0–7 below have shipped — the family model, ingestion, fetal-fraction estimation
+> and classification, the summary/variants/coverage endpoints, the artifact list
+> (with auto-seed), and the dashboard. The gap analysis and per-phase plan are kept
+> as the design record; deviations from the original plan are noted inline (e.g.
+> QUAL is stored site-level, not per-call).
 
 Monogenic NIPT (non-invasive prenatal testing) screens a pregnancy for single-gene
 disorders from **cell-free DNA (cfDNA) in maternal plasma**, cross-referenced with a
@@ -168,9 +168,9 @@ inference against a fetal fraction**. Mixing the two would distort both.
 | Gene / panel / frequency / consequence / ROI filters (`SmallVariantQueryFilters`) | exists | reuse |
 | Embryo role + single-parent (donor) pedigree core | exists | reuse for the family model |
 | Internal cohort recurrence counts (`project_gt_stats`, `_fetch_internal_cohort_map`) | exists (display only) | leverage to seed the artifact list |
-| **Per-call QUAL (and per-call FILTER)** | **missing** — QUAL is parsed then discarded; only variant-level FILTER kept | add `calls.qual` to schema + parser |
+| **Site-level QUAL** | was missing — QUAL parsed then discarded | **done** — a variant-level `qual` column on `entries` (QUAL is a site-level VCF field, so not a per-call array), read into `SmallVariantRecord.qual` → the NIPT quality filter |
 | **Quality filter (VAF / QUAL / DP) with drop counts** | **missing** | new NIPT quality step + counts |
-| **Recurrent-artifact (panel-of-normals) variant filter** | **missing** — the blacklist is region-based and never applied to variant queries | new variant-level artifact table + query-time exclusion + counts |
+| **Recurrent-artifact (panel-of-normals) variant filter** | **done** | per-assay `nipt_artifact_variants` table + query-time exclusion + funnel counts + admin CRUD and cohort auto-seed |
 | **Fetal-fraction estimation** | **missing** | new |
 | **8-category VAF classification** | **missing** | new |
 | **Per-region + overall median on-target coverage** | **missing** — coverage stored per interval; only a transient windowed mean; no median | new aggregation; target = existing gene panel / family ROI |
@@ -198,15 +198,20 @@ and `family.metadata.analysis_type = "monogenic_nipt"`. Touch `ped_service.py` a
 `family_member_management_service.py`.
 *Deliverable:* a NIPT family can be created and shows an (empty) NIPT tab.
 
-### Phase 1 — Ingestion extension (capture quality)
+### Phase 1 — Ingestion extension (capture quality) — **shipped**
 
-Add `qual` to `SmallVariantCall` and a nullable `calls.qual Array(Nullable(Float32))`
-(and optional per-call FILTER) column to the `entries` schema in
-`clickhouse_variant_storage.py`; populate it in `variant_upload_service.py` where QUAL
-is currently dropped. Keep it additive/backward-compatible (nullable, with an
-`ensure`/migration through the admin ClickHouse maintenance path). Support the combined
-two-sample (father + cfDNA) VCF as the canonical NIPT input.
-*Deliverable:* a father+cfDNA VCF stores both samples with per-call VAF, DP, and QUAL.
+VCF `QUAL` is a **site-level** field (one value per variant line), so it is stored
+as a nullable, variant-level `qual Nullable(Float32)` column on the `entries` table
+— **not** a per-call `calls.qual` array (which would only duplicate one value across
+samples). `SmallVariantRecord` gained an optional `qual`, populated in
+`variant_upload_service.py` where QUAL was being dropped; the column was added with an
+idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` through the `ensure` path. Per-sample
+quality (DP / VAF / GQ) already came from the existing per-call fields. The shared entries
+read selects `qual`, so it reaches the NIPT quality filter via
+`NiptSiteObservation.cf_qual`. The combined two-sample (father + cfDNA) VCF is the
+canonical NIPT input.
+*Deliverable (met):* a father+cfDNA VCF stores both samples with per-call VAF/DP and the
+site QUAL, which the NIPT quality filter uses.
 
 ### Phase 2 — Recurrent-artifact (panel-of-normals) filter
 
@@ -269,14 +274,18 @@ analysed), and a **coverage summary** (median on-target + per-region table, reus
 presentation with added **category**, **confidence**, and **fetal-inheritance** columns.
 *Deliverable:* a working NIPT dashboard with vitest coverage.
 
-### Phase 7 — Clinical inheritance filters
+### Phase 7 — Clinical inheritance filters — **shipped**
 
-Implement the four presets above (de novo, paternal dominant, maternal dominant, and
-recessive-at-risk with the both-parents-same-gene + fetal-inheritance check), reusing the
-gene/panel/frequency/consequence filter components and the preset mechanism in
-`smallVariantSearch.ts` / `small_variant_review_pg.py`.
-*Deliverable:* one-click "recessive risk", "paternal/maternal dominant transmission",
-and "de novo candidates".
+The four presets are implemented on `/families/{id}/nipt/variants`. `de_novo` →
+category 1, `paternal_dominant` → category 7, `maternal_dominant` → categories 3/4 are
+simple category filters. `recessive_at_risk` needs cross-variant gene pairing, so the
+category filter is applied *after* classifying the whole candidate set: a fetus is at
+risk in a gene when it is homozygous-alt for a variant (category 4 or 6), or when the
+gene carries a transmitted paternal allele (category 7) **and** a transmitted maternal
+allele (category 3) at different loci (compound het) — both members of each compound
+pair are kept. Apply the gene/consequence/frequency filters and `min_confidence` first.
+*Deliverable (met):* one-click "recessive at-risk", "paternal/maternal dominant
+transmission", and "de novo candidates".
 
 ### Phase 8 — Docs & integration tests
 
