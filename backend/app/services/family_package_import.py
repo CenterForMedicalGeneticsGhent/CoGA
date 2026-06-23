@@ -507,8 +507,8 @@ def _authorized_s3_roots() -> list[str]:
     return [root.strip() for root in settings.family_import_roots if is_s3_uri(root)]
 
 
-def _scan_manifest_info(manifest_path: Path) -> dict[str, Any]:
-    """Loosely read a manifest's family_id / analysis_type for the package list."""
+def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
+    """Loosely load a manifest (YAML/JSON) to a dict, or {} on any error."""
     try:
         text_value = manifest_path.read_text()
         if manifest_path.suffix in (".yaml", ".yml"):
@@ -517,9 +517,18 @@ def _scan_manifest_info(manifest_path: Path) -> dict[str, Any]:
             data = json.loads(text_value)
     except Exception:
         return {}
-    if not isinstance(data, dict):
-        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _scan_manifest_info(manifest_path: Path) -> dict[str, Any]:
+    """Loosely read a manifest's family_id / analysis_type for the package list."""
+    data = _load_manifest_dict(manifest_path)
     return {"family_id": data.get("family_id"), "analysis_type": data.get("analysis_type")}
+
+
+def _existing_manifest_dict(root: Path) -> dict[str, Any]:
+    manifest_path = _find_manifest(root)
+    return _load_manifest_dict(manifest_path) if manifest_path is not None else {}
 
 
 def scan_family_import_packages() -> list[dict[str, Any]]:
@@ -2852,7 +2861,17 @@ def discover_family_package_manifest(
             errors=errors,
         )
 
-    family_id = (request.family_id or root.name).strip()
+    # Prefer an explicit request id, then an existing manifest's family_id (the
+    # validate/import path already does this), and only fall back to the folder
+    # name. Otherwise a package whose folder name differs from its declared
+    # family_id (and PED) is wrongly rejected as a mismatch on discover.
+    existing_manifest = _existing_manifest_dict(root)
+    manifest_family_id = existing_manifest.get("family_id")
+    family_id = (
+        request.family_id
+        or (manifest_family_id if isinstance(manifest_family_id, str) else None)
+        or root.name
+    ).strip()
     ped_path, ped_errors, ped_warnings = _detect_ped_path(
         root,
         requested_ped_path=request.ped_path,
@@ -2917,6 +2936,14 @@ def discover_family_package_manifest(
         hpo_terms=request.hpo_terms,
         notes=request.notes,
     )
+    # Preserve an existing manifest's analysis_type / samples (e.g. the NIPT tags)
+    # so re-discovering and writing the manifest does not silently drop them.
+    existing_analysis_type = existing_manifest.get("analysis_type")
+    if isinstance(existing_analysis_type, str) and existing_analysis_type.strip():
+        manifest_payload["analysis_type"] = existing_analysis_type.strip()
+    existing_samples = existing_manifest.get("samples")
+    if existing_samples:
+        manifest_payload["samples"] = existing_samples
     manifest_yaml = yaml.safe_dump(
         manifest_payload,
         sort_keys=False,

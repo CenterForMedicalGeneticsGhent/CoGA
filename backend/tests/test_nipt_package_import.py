@@ -2,12 +2,51 @@ from __future__ import annotations
 
 import pytest
 
+from backend.app.schemas import FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_import as fpi
 from backend.app.services.family_package_import import (
     PackageManifest,
     _normalize_manifest_samples,
+    discover_family_package_manifest,
     scan_family_import_packages,
 )
+
+
+def _write_nipt_package(folder) -> None:
+    folder.mkdir()
+    (folder / "manifest.yaml").write_text(
+        "schema_version: 1\n"
+        "family_id: FAM_NIPT_DEMO\n"
+        "analysis_type: monogenic_nipt\n"
+        "ped: nipt_trio.ped\n"
+        "samples:\n"
+        "  CFDNA_NIPT:\n"
+        "    assay: nipt_cfdna\n"
+    )
+    (folder / "nipt_trio.ped").write_text(
+        "FAM_NIPT_DEMO\tFATHER_NIPT\t0\t0\t1\t1\n"
+        "FAM_NIPT_DEMO\tCFDNA_NIPT\t0\t0\t2\t1\n"
+        "FAM_NIPT_DEMO\tFETUS_NIPT\tFATHER_NIPT\tCFDNA_NIPT\t0\t2\n"
+    )
+
+
+def test_discover_uses_manifest_family_id_not_folder_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(fpi.settings, "family_import_roots", [])
+    # Folder name (nipt_family) deliberately differs from the declared family_id.
+    package = tmp_path / "nipt_family"
+    _write_nipt_package(package)
+
+    result = discover_family_package_manifest(
+        FamilyPackageManifestBuildRequest(folder_path=str(package))
+    )
+
+    assert result.family_id == "FAM_NIPT_DEMO"
+    assert not any(issue.code == "ped_family_mismatch" for issue in result.errors)
+    # The NIPT tags are preserved in the regenerated manifest preview.
+    assert "analysis_type: monogenic_nipt" in result.manifest_yaml
+    assert "nipt_cfdna" in result.manifest_yaml
 
 
 def test_scan_lists_packages_with_manifest_and_ped(
