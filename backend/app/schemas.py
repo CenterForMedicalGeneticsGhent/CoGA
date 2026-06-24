@@ -313,18 +313,37 @@ class SampleIntegrityMendelianCheckOut(BaseModel):
     message: str
 
 
-class SampleIntegrityQcOut(BaseModel):
-    """Per-family sample-integrity / pedigree-concordance QC.
+class SampleIntegrityPaternityCheckOut(BaseModel):
+    """NIPT paternity from the cfDNA classification (categories 7/8)."""
 
-    Catches sample swaps and mislabelled relationships before interpretation via
-    sex concordance, KING relatedness vs the pedigree, and Mendelian-error rate.
+    father: str
+    cat7_transmitted: int
+    cat8_absent: int
+    informative_sites: int
+    status: str
+    message: str
+
+
+class SampleIntegrityQcOut(BaseModel):
+    """Per-family sample-integrity QC, adapted to the application.
+
+    Catches sample swaps and mislabelled relationships before interpretation. The
+    checks run depend on the application (``application``): full WGS pedigrees run
+    sex + relatedness + Mendelian; PGT highlights embryo sex + parentage; NIPT runs
+    paternity (cat 7/8) instead of genotype relatedness; couples run sex (+ an
+    expected-unrelated confirmation); single samples run sex only.
     """
 
     family_id: str
     overall_status: str  # "pass" | "warn" | "fail" | "skip"
+    application: str  # "wgs" | "pgt" | "nipt" | "couple" | "single" | "unknown"
+    application_label: str = ""
+    application_summary: str = ""
+    genotype_source: Optional[str] = None
     sex_checks: List[SampleIntegritySexCheckOut] = Field(default_factory=list)
     relatedness_checks: List[SampleIntegrityRelatednessCheckOut] = Field(default_factory=list)
     mendelian_checks: List[SampleIntegrityMendelianCheckOut] = Field(default_factory=list)
+    paternity_check: Optional[SampleIntegrityPaternityCheckOut] = None
     autosomal_sites: int = 0
     notes: List[str] = Field(default_factory=list)
 

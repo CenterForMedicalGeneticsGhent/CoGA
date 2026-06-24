@@ -6,6 +6,7 @@ import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import type {
   ApiSampleIntegrityMendelianCheck,
+  ApiSampleIntegrityPaternityCheck,
   ApiSampleIntegrityQc,
   ApiSampleIntegrityRelatednessCheck,
   ApiSampleIntegritySexCheck,
@@ -52,6 +53,9 @@ const relatednessTitle = (c: ApiSampleIntegrityRelatednessCheck): string =>
 
 const mendelianTitle = (c: ApiSampleIntegrityMendelianCheck): string =>
   `${c.child} vs ${c.parents.join(' + ') || 'parent'} — ${(c.mendel_rate * 100).toFixed(2)}% errors`;
+
+const paternityTitle = (c: ApiSampleIntegrityPaternityCheck): string =>
+  `Father ${c.father} — ${c.cat7_transmitted} paternal-transmitted, ${c.cat8_absent} absent of ${c.informative_sites} sites`;
 
 const FamilySampleQcPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -102,10 +106,12 @@ const FamilySampleQcPage: React.FC = () => {
     <div className="page-shell space-y-6">
       <header className="surface-card report-header">
         <div className="space-y-1">
-          <p className="page-kicker">Sample-integrity QC</p>
+          <p className="page-kicker">Sample-integrity QC · {qc.application_label || qc.application}</p>
           <h1 className="page-state-title">Family {familyId}</h1>
           <p className="report-header-meta">
-            Pedigree concordance from {qc.autosomal_sites.toLocaleString()} autosomal sites
+            {qc.genotype_source
+              ? `${qc.genotype_source} genotypes · ${qc.autosomal_sites.toLocaleString()} autosomal sites`
+              : 'cfDNA classification'}
           </p>
         </div>
         <div className="report-header-actions">
@@ -120,6 +126,9 @@ const FamilySampleQcPage: React.FC = () => {
           <StatusChip status={qc.overall_status} />
           <p className="report-paragraph">{OVERALL_COPY[qc.overall_status]}</p>
         </div>
+        {qc.application_summary ? (
+          <p className="table-subtle">{qc.application_summary}</p>
+        ) : null}
         {qc.notes.length ? (
           <ul className="report-criteria-list">
             {qc.notes.map((note) => (
@@ -131,55 +140,60 @@ const FamilySampleQcPage: React.FC = () => {
         ) : null}
       </section>
 
-      <section className="surface-card space-y-2">
-        <h2 className="section-title">Sex concordance</h2>
-        {qc.sex_checks.length ? (
-          qc.sex_checks.map((check) => (
+      {qc.paternity_check ? (
+        <section className="surface-card space-y-2">
+          <h2 className="section-title">Paternity (cfDNA categories 7/8)</h2>
+          <CheckRow
+            status={qc.paternity_check.status}
+            title={paternityTitle(qc.paternity_check)}
+            message={qc.paternity_check.message}
+          />
+        </section>
+      ) : null}
+
+      {qc.sex_checks.length ? (
+        <section className="surface-card space-y-2">
+          <h2 className="section-title">Sex concordance</h2>
+          {qc.sex_checks.map((check) => (
             <CheckRow
               key={check.sample_id}
               status={check.status}
               title={sexTitle(check)}
               message={check.message}
             />
-          ))
-        ) : (
-          <p className="table-subtle">No samples to check.</p>
-        )}
-      </section>
+          ))}
+        </section>
+      ) : null}
 
-      <section className="surface-card space-y-2">
-        <h2 className="section-title">Relatedness vs pedigree</h2>
-        {qc.relatedness_checks.length ? (
-          qc.relatedness_checks.map((check) => (
+      {qc.relatedness_checks.length ? (
+        <section className="surface-card space-y-2">
+          <h2 className="section-title">
+            {qc.application === 'pgt' ? 'Parentage (embryos ↔ parents)' : 'Relatedness vs pedigree'}
+          </h2>
+          {qc.relatedness_checks.map((check) => (
             <CheckRow
               key={`${check.sample_a}:${check.sample_b}`}
               status={check.status}
               title={relatednessTitle(check)}
               message={check.message}
             />
-          ))
-        ) : (
-          <p className="table-subtle">
-            No stated relationships to verify and no unexpected relatedness found.
-          </p>
-        )}
-      </section>
+          ))}
+        </section>
+      ) : null}
 
-      <section className="surface-card space-y-2">
-        <h2 className="section-title">Mendelian-error rate</h2>
-        {qc.mendelian_checks.length ? (
-          qc.mendelian_checks.map((check) => (
+      {qc.mendelian_checks.length ? (
+        <section className="surface-card space-y-2">
+          <h2 className="section-title">Mendelian-error rate</h2>
+          {qc.mendelian_checks.map((check) => (
             <CheckRow
               key={check.child}
               status={check.status}
               title={mendelianTitle(check)}
               message={check.message}
             />
-          ))
-        ) : (
-          <p className="table-subtle">No parent-child pairs to check.</p>
-        )}
-      </section>
+          ))}
+        </section>
+      ) : null}
     </div>
   );
 };

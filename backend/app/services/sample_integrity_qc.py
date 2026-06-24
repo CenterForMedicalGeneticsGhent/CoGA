@@ -49,6 +49,14 @@ MIN_MENDEL_SITES = 200
 MENDEL_WARN_RATE = 0.02
 MENDEL_FAIL_RATE = 0.05
 
+# --- NIPT paternity (cfDNA categories 7/8) ----------------------------------
+MIN_PATERNITY_SITES = 10
+# Fraction of paternal-informative sites where the paternal allele is absent
+# (category 8). Some absence is expected at low fetal fraction (dropout); a high
+# fraction with little/no category-7 signal indicates non-paternity / mixup.
+PATERNITY_WARN_FN_RATE = 0.40
+PATERNITY_FAIL_FN_RATE = 0.70
+
 
 @dataclass(slots=True)
 class SexCheck:
@@ -86,11 +94,51 @@ class MendelianCheck:
 
 
 @dataclass(slots=True)
+class PaternityCheck:
+    """NIPT paternity from the cfDNA classification (no genotype relatedness).
+
+    Category 7 = paternal allele transmitted and seen in cfDNA (positive paternity
+    signal); category 8 = paternal hom-alt allele that *must* transmit but is
+    absent from cfDNA (a false negative — a high fraction points at non-paternity
+    or a sample mixup).
+    """
+
+    father: str
+    cat7_transmitted: int
+    cat8_absent: int
+    informative_sites: int
+    status: Status
+    message: str
+
+
+# The five applications CoGA runs, each with a different input modality and a
+# different set of meaningful integrity checks (see profile_for).
+ApplicationKind = Literal["wgs", "pgt", "nipt", "couple", "single", "unknown"]
+
+
+@dataclass(slots=True)
+class QcProfile:
+    application: ApplicationKind
+    label: str
+    summary: str
+    run_sex: bool
+    run_relatedness: bool
+    run_mendelian: bool
+    run_paternity: bool
+    highlight_embryos: bool
+
+
+@dataclass(slots=True)
 class SampleIntegrityReport:
     overall_status: Status
+    application: ApplicationKind = "unknown"
+    application_label: str = ""
+    application_summary: str = ""
+    genotype_source: str | None = None
     sex_checks: list[SexCheck] = field(default_factory=list)
     relatedness_checks: list[RelatednessCheck] = field(default_factory=list)
     mendelian_checks: list[MendelianCheck] = field(default_factory=list)
+    paternity_check: PaternityCheck | None = None
     autosomal_sites: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -369,19 +417,128 @@ def _sibling_pairs(parents_of: dict[str, dict[str, str]]) -> set[tuple[str, str]
     return pairs
 
 
+# --- Application profiles ----------------------------------------------------
+
+def resolve_application(
+    *,
+    analysis_type: str | None,
+    roles: dict[str, str],
+    parents_of: dict[str, dict[str, str]],
+    sample_count: int,
+) -> ApplicationKind:
+    """Infer the application from the analysis type and the family shape.
+
+    Only monogenic NIPT is tagged explicitly; the rest are read from structure
+    (the input files / pedigree the family was built from), per CoGA's design.
+    """
+    if (analysis_type or "").strip().lower() == "monogenic_nipt":
+        return "nipt"
+    if any((role or "").strip().lower() == "embryo" for role in roles.values()):
+        return "pgt"
+    if sample_count <= 1:
+        return "single"
+    # A carrier couple (BEGECS): two members with no parent-child edge between them.
+    if sample_count == 2 and not parents_of:
+        return "couple"
+    if parents_of:
+        return "wgs"
+    return "unknown"
+
+
+_PROFILES: dict[ApplicationKind, QcProfile] = {
+    "wgs": QcProfile(
+        "wgs", "Long-read WGS family",
+        "Full pedigree QC on the SNV call set: sex concordance, relatedness vs the "
+        "pedigree, and the Mendelian-error rate for parent-child pairs.",
+        run_sex=True, run_relatedness=True, run_mendelian=True,
+        run_paternity=False, highlight_embryos=False,
+    ),
+    "pgt": QcProfile(
+        "pgt", "Shallow-WGS PGT (imputed)",
+        "Embryo integrity from imputed genotypes: each embryo's sex, and that every "
+        "embryo is a true first-degree child of both parents (no sample switch).",
+        run_sex=True, run_relatedness=True, run_mendelian=True,
+        run_paternity=False, highlight_embryos=True,
+    ),
+    "nipt": QcProfile(
+        "nipt", "Monogenic NIPT (cfDNA)",
+        "cfDNA integrity: paternity is confirmed from paternal-transmitted sites "
+        "(categories 7/8), which excludes a sample mixup. Genotype relatedness and "
+        "chrX-heterozygosity sex do not apply to a maternal/fetal mixture; fetal "
+        "sex (chrY) is a separate check not yet wired here.",
+        run_sex=False, run_relatedness=False, run_mendelian=False,
+        run_paternity=True, highlight_embryos=False,
+    ),
+    "couple": QcProfile(
+        "couple", "Carrier couple (BEGECS)",
+        "Sex concordance for each partner. The couple is expected to be unrelated, "
+        "which is confirmed (or flagged if they are not).",
+        run_sex=True, run_relatedness=True, run_mendelian=False,
+        run_paternity=False, highlight_embryos=False,
+    ),
+    "single": QcProfile(
+        "single", "Single sample (targeted)",
+        "Sex concordance only — a single sample has no relatedness or Mendelian "
+        "context.",
+        run_sex=True, run_relatedness=False, run_mendelian=False,
+        run_paternity=False, highlight_embryos=False,
+    ),
+    "unknown": QcProfile(
+        "unknown", "Family",
+        "Sex concordance, relatedness and Mendelian-error rate where the data allows.",
+        run_sex=True, run_relatedness=True, run_mendelian=True,
+        run_paternity=False, highlight_embryos=False,
+    ),
+}
+
+
+def profile_for(application: ApplicationKind) -> QcProfile:
+    return _PROFILES.get(application, _PROFILES["unknown"])
+
+
+def evaluate_paternity(father: str, category_counts: dict[int, int]) -> PaternityCheck:
+    """Paternity verdict from the NIPT category tally (categories 7 and 8)."""
+    cat7 = int(category_counts.get(7, 0))
+    cat8 = int(category_counts.get(8, 0))
+    informative = cat7 + cat8
+    if informative < MIN_PATERNITY_SITES:
+        return PaternityCheck(father, cat7, cat8, informative, "warn",
+                              f"Too few paternal-informative sites ({informative}) to assess paternity.")
+    fn_rate = cat8 / informative
+    metrics = f"{cat7} transmitted, {cat8} absent of {informative} paternal sites"
+    if cat7 == 0 or fn_rate >= PATERNITY_FAIL_FN_RATE:
+        return PaternityCheck(father, cat7, cat8, informative, "fail",
+                              f"Paternal alleles largely absent from cfDNA ({metrics}) — "
+                              "possible non-paternity or sample mixup.")
+    if fn_rate >= PATERNITY_WARN_FN_RATE:
+        return PaternityCheck(father, cat7, cat8, informative, "warn",
+                              f"Elevated paternal-allele dropout ({metrics}); may reflect low "
+                              "fetal fraction rather than non-paternity.")
+    return PaternityCheck(father, cat7, cat8, informative, "pass",
+                          f"Paternity supported: paternal transmission observed ({metrics}).")
+
+
 def evaluate_sample_integrity(
     autosomal: dict[str, list[Genotype | None]],
     x_genotypes: dict[str, list[Genotype | None]],
     spec: PedigreeSpec,
+    *,
+    profile: QcProfile,
+    genotype_source: str | None = None,
+    paternity_check: PaternityCheck | None = None,
 ) -> SampleIntegrityReport:
-    """Run all three QC checks and roll up an overall status."""
+    """Run the checks the application profile enables and roll up an overall status."""
     samples = sorted(autosomal)
     notes: list[str] = []
 
-    sex_checks = [
-        _evaluate_sex(s, _norm_sex(spec.recorded_sex.get(s)), x_genotypes.get(s))
-        for s in samples
-    ]
+    sex_checks = (
+        [
+            _evaluate_sex(s, _norm_sex(spec.recorded_sex.get(s)), x_genotypes.get(s))
+            for s in samples
+        ]
+        if profile.run_sex
+        else []
+    )
 
     # Build expected relationships from the pedigree, then assess every pair.
     expected: dict[tuple[str, str], str] = {}
@@ -394,46 +551,60 @@ def evaluate_sample_integrity(
             expected.setdefault(tuple(sorted((a, b))), "sibling")
 
     relatedness_checks: list[RelatednessCheck] = []
-    for i, a in enumerate(samples):
-        for b in samples[i + 1:]:
-            key = (a, b)
-            exp = expected.get(key, "unrelated")
-            check = _relationship_check(a, b, exp, autosomal)
-            # Suppress the noise of "unrelated, as expected" pairs that carry no
-            # pedigree assertion; keep only asserted pairs or surprising findings.
-            if exp == "unrelated" and check.status == "pass":
-                continue
-            relatedness_checks.append(check)
+    if profile.run_relatedness:
+        for i, a in enumerate(samples):
+            for b in samples[i + 1:]:
+                exp = expected.get((a, b), "unrelated")
+                check = _relationship_check(a, b, exp, autosomal)
+                # For a couple the "unrelated" confirmation IS the result we want,
+                # so keep it; elsewhere suppress the noise of expected-unrelated
+                # pairs and keep only asserted pairs or surprising findings.
+                if (
+                    exp == "unrelated"
+                    and check.status == "pass"
+                    and profile.application != "couple"
+                ):
+                    continue
+                relatedness_checks.append(check)
 
     mendelian_checks: list[MendelianCheck] = []
-    for child, parents in spec.parents_of.items():
-        if child not in autosomal:
-            continue
-        check = _mendelian_check(child, parents, autosomal)
-        if check is not None:
-            mendelian_checks.append(check)
+    if profile.run_mendelian:
+        for child, parents in spec.parents_of.items():
+            if child not in autosomal:
+                continue
+            check = _mendelian_check(child, parents, autosomal)
+            if check is not None:
+                mendelian_checks.append(check)
 
     autosomal_sites = max((len(v) for v in autosomal.values()), default=0)
-    if not autosomal:
-        notes.append("No genotypes were available; QC could not run.")
-    elif autosomal_sites < MIN_RELATEDNESS_SITES:
-        notes.append(
-            f"Only {autosomal_sites} autosomal sites were available; "
-            "relatedness estimates may be unreliable."
-        )
+    genotype_checks_run = profile.run_relatedness or profile.run_mendelian
+    if genotype_checks_run:
+        if not autosomal:
+            notes.append("No genotypes were available; QC could not run.")
+        elif autosomal_sites < MIN_RELATEDNESS_SITES:
+            notes.append(
+                f"Only {autosomal_sites} autosomal sites were available; "
+                "relatedness estimates may be unreliable."
+            )
 
     all_statuses = (
         [c.status for c in sex_checks]
         + [c.status for c in relatedness_checks]
         + [c.status for c in mendelian_checks]
+        + ([paternity_check.status] if paternity_check is not None else [])
     )
     overall = _worst(all_statuses) if all_statuses else "skip"
 
     return SampleIntegrityReport(
         overall_status=overall,
+        application=profile.application,
+        application_label=profile.label,
+        application_summary=profile.summary,
+        genotype_source=genotype_source,
         sex_checks=sex_checks,
         relatedness_checks=relatedness_checks,
         mendelian_checks=mendelian_checks,
+        paternity_check=paternity_check,
         autosomal_sites=autosomal_sites,
         notes=notes,
     )

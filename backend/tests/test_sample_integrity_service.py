@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import types
 
 from backend.app.services import sample_integrity_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext
@@ -63,16 +64,24 @@ def _x_rows(n: int):
     return rows
 
 
-def _patch(monkeypatch, *, swap_child: bool):
+def _patch(monkeypatch, *, swap_child: bool, metadata: dict | None = None):
     async def _fake_context(session, *, family_identifier, user, project_id=None):
         return _context()
 
-    async def _fake_fetch(context, *, chrom, start, end, limit):
+    async def _fake_get_family(session, family_id, user):
+        return types.SimpleNamespace(metadata=metadata or {})
+
+    async def _fake_sources(context):
+        return ["clair3"]
+
+    async def _fake_fetch(context, *, chrom, start, end, limit, source=None):
         if chrom == sample_integrity_service.QC_X_CHROM:
             return _x_rows(600)
         return _autosomal_rows(800, seed=hash(chrom) % 1000, swap_child=swap_child)
 
     monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
+    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
     monkeypatch.setattr(sample_integrity_service, "fetch_imputed_phased_genotypes", _fake_fetch)
 
 
@@ -89,6 +98,9 @@ def test_service_clean_trio_passes(monkeypatch) -> None:
     pc = [c for c in report.relatedness_checks if c.expected_relationship == "parent-child"]
     assert len(pc) == 2 and all(c.status == "pass" for c in pc)
     assert all(c.status == "pass" for c in report.mendelian_checks)
+    # A trio with parent-child edges resolves to the WGS application on clair3.
+    assert report.application == "wgs"
+    assert report.genotype_source == "clair3"
     # 3 autosomes * 800 sites = 2400 autosomal sites loaded.
     assert report.autosomal_sites == 3 * 800
 
@@ -104,3 +116,33 @@ def test_service_swapped_child_fails(monkeypatch) -> None:
     pc = [c for c in report.relatedness_checks if c.expected_relationship == "parent-child"]
     assert any(c.status == "fail" for c in pc)
     assert any(c.status == "fail" for c in report.mendelian_checks)
+
+
+def test_service_nipt_runs_paternity_not_genotype_checks(monkeypatch) -> None:
+    # A monogenic-NIPT family routes to the paternity path (cat 7/8), with no
+    # genotype sex/relatedness/Mendelian checks.
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(
+            father_sample_id="FATHER", cfdna_sample_id="CFDNA", mother_sample_id="MOTHER"
+        ),
+    )
+    import backend.app.services.nipt_service as nipt_service
+
+    async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
+        return types.SimpleNamespace(category_counts={7: 40, 8: 2})
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+    assert report.application == "nipt"
+    assert report.sex_checks == [] and report.relatedness_checks == [] and report.mendelian_checks == []
+    assert report.paternity_check is not None
+    assert report.paternity_check.father == "FATHER"
+    assert report.paternity_check.status == "pass"
+    assert report.overall_status == "pass"
