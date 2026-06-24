@@ -270,6 +270,50 @@ export interface ApiNiptCoverageSummary {
   low_coverage_regions?: ApiNiptCoverageLowRegion[];
 }
 
+export type QcStatus = 'pass' | 'warn' | 'fail' | 'skip';
+
+export interface ApiSampleIntegritySexCheck {
+  sample_id: string;
+  recorded_sex: string;
+  inferred_sex: string;
+  x_het_rate?: number | null;
+  x_sites: number;
+  status: QcStatus;
+  message: string;
+}
+
+export interface ApiSampleIntegrityRelatednessCheck {
+  sample_a: string;
+  sample_b: string;
+  expected_relationship: string;
+  inferred_relationship: string;
+  kinship: number;
+  ibs0_rate: number;
+  informative_sites: number;
+  status: QcStatus;
+  message: string;
+}
+
+export interface ApiSampleIntegrityMendelianCheck {
+  child: string;
+  parents: string[];
+  informative_sites: number;
+  mendel_errors: number;
+  mendel_rate: number;
+  status: QcStatus;
+  message: string;
+}
+
+export interface ApiSampleIntegrityQc {
+  family_id: string;
+  overall_status: QcStatus;
+  sex_checks: ApiSampleIntegritySexCheck[];
+  relatedness_checks: ApiSampleIntegrityRelatednessCheck[];
+  mendelian_checks: ApiSampleIntegrityMendelianCheck[];
+  autosomal_sites: number;
+  notes: string[];
+}
+
 export interface ApiProjectRecord<TFamily = ApiFamilySummary> {
   id: string;
   name: string;

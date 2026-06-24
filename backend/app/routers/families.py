@@ -49,6 +49,10 @@ from ..schemas import (
     NiptCoverageRegionOut,
     NiptCoverageSummaryOut,
     NiptFetalFractionOut,
+    SampleIntegrityMendelianCheckOut,
+    SampleIntegrityQcOut,
+    SampleIntegrityRelatednessCheckOut,
+    SampleIntegritySexCheckOut,
     NiptSummaryOut,
     NiptClassificationOut,
     NiptVariantOut,
@@ -103,6 +107,7 @@ from ..services.monarch_semsim import (
 )
 from ..services.metadata_service import CurrentUser
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
+from ..services.sample_integrity_service import get_family_sample_integrity_qc
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     get_family_nipt_coverage,
@@ -1058,6 +1063,62 @@ async def get_family_nipt_coverage_summary(
             )
             for region in summary.low_coverage_regions
         ],
+    )
+
+
+@router.get("/{family_id}/qc/sample-integrity", response_model=SampleIntegrityQcOut)
+async def get_family_sample_integrity_qc_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> SampleIntegrityQcOut:
+    report = await get_family_sample_integrity_qc(
+        session, family_id=family_id, user=user, project_id=project_id
+    )
+    return SampleIntegrityQcOut(
+        family_id=family_id,
+        overall_status=report.overall_status,
+        sex_checks=[
+            SampleIntegritySexCheckOut(
+                sample_id=check.sample_id,
+                recorded_sex=check.recorded_sex,
+                inferred_sex=check.inferred_sex,
+                x_het_rate=check.x_het_rate,
+                x_sites=check.x_sites,
+                status=check.status,
+                message=check.message,
+            )
+            for check in report.sex_checks
+        ],
+        relatedness_checks=[
+            SampleIntegrityRelatednessCheckOut(
+                sample_a=check.sample_a,
+                sample_b=check.sample_b,
+                expected_relationship=check.expected_relationship,
+                inferred_relationship=check.inferred_relationship,
+                kinship=check.kinship,
+                ibs0_rate=check.ibs0_rate,
+                informative_sites=check.informative_sites,
+                status=check.status,
+                message=check.message,
+            )
+            for check in report.relatedness_checks
+        ],
+        mendelian_checks=[
+            SampleIntegrityMendelianCheckOut(
+                child=check.child,
+                parents=check.parents,
+                informative_sites=check.informative_sites,
+                mendel_errors=check.mendel_errors,
+                mendel_rate=check.mendel_rate,
+                status=check.status,
+                message=check.message,
+            )
+            for check in report.mendelian_checks
+        ],
+        autosomal_sites=report.autosomal_sites,
+        notes=report.notes,
     )
 
 

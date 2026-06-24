@@ -275,6 +275,60 @@ class NiptCoverageSummaryOut(BaseModel):
     low_coverage_regions: List[NiptCoverageLowRegionOut] = Field(default_factory=list)
 
 
+class SampleIntegritySexCheckOut(BaseModel):
+    """Genotype-inferred sex vs the recorded sex for one sample."""
+
+    sample_id: str
+    recorded_sex: str
+    inferred_sex: str  # "male" | "female" | "indeterminate"
+    x_het_rate: Optional[float] = None
+    x_sites: int
+    status: str  # "pass" | "warn" | "fail" | "skip"
+    message: str
+
+
+class SampleIntegrityRelatednessCheckOut(BaseModel):
+    """KING-robust relatedness for a sample pair vs the pedigree's assertion."""
+
+    sample_a: str
+    sample_b: str
+    expected_relationship: str
+    inferred_relationship: str
+    kinship: float
+    ibs0_rate: float
+    informative_sites: int
+    status: str
+    message: str
+
+
+class SampleIntegrityMendelianCheckOut(BaseModel):
+    """Mendelian-error rate for a child against its present parent(s)."""
+
+    child: str
+    parents: List[str]
+    informative_sites: int
+    mendel_errors: int
+    mendel_rate: float
+    status: str
+    message: str
+
+
+class SampleIntegrityQcOut(BaseModel):
+    """Per-family sample-integrity / pedigree-concordance QC.
+
+    Catches sample swaps and mislabelled relationships before interpretation via
+    sex concordance, KING relatedness vs the pedigree, and Mendelian-error rate.
+    """
+
+    family_id: str
+    overall_status: str  # "pass" | "warn" | "fail" | "skip"
+    sex_checks: List[SampleIntegritySexCheckOut] = Field(default_factory=list)
+    relatedness_checks: List[SampleIntegrityRelatednessCheckOut] = Field(default_factory=list)
+    mendelian_checks: List[SampleIntegrityMendelianCheckOut] = Field(default_factory=list)
+    autosomal_sites: int = 0
+    notes: List[str] = Field(default_factory=list)
+
+
 class NiptArtifactOut(BaseModel):
     """A recurrent-artifact (panel-of-normals) entry for monogenic NIPT."""
 
