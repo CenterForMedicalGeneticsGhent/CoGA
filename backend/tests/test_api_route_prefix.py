@@ -12,7 +12,10 @@ from backend.app.services.metadata_service import CurrentUser
 
 
 def _route_paths() -> set[str]:
-    return {getattr(route, "path", "") for route in app.routes}
+    # Starlette 1.x wraps included-router routes in an opaque _IncludedRouter
+    # instead of flattening them into app.routes, so enumerate via the OpenAPI
+    # schema (a stable public interface) which exposes the full route paths.
+    return set(app.openapi().get("paths", {}))
 
 
 def test_application_routes_are_mounted_under_api_prefix() -> None:
