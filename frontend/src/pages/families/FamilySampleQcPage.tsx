@@ -151,6 +151,17 @@ const FamilySampleQcPage: React.FC = () => {
         </section>
       ) : null}
 
+      {qc.fetal_sex_check ? (
+        <section className="surface-card space-y-2">
+          <h2 className="section-title">Fetal sex (paternal X transmission)</h2>
+          <CheckRow
+            status={qc.fetal_sex_check.status}
+            title={`Fetus appears ${qc.fetal_sex_check.inferred_sex} — ${qc.fetal_sex_check.x_transmitted} paternal-X transmitted, ${qc.fetal_sex_check.x_not_transmitted} absent`}
+            message={qc.fetal_sex_check.message}
+          />
+        </section>
+      ) : null}
+
       {qc.sex_checks.length ? (
         <section className="surface-card space-y-2">
           <h2 className="section-title">Sex concordance</h2>

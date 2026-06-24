@@ -119,11 +119,29 @@ class NiptClassification:
 
 
 @dataclass(slots=True)
+class FetalSexResult:
+    """Fetal sex inferred from paternal X-chromosome transmission (no chrY needed).
+
+    The father transmits his X to a daughter and his Y to a son, so paternal-only
+    alleles on the non-PAR X appear in cfDNA for a female fetus (``x_transmitted``)
+    and are absent for a male fetus (``x_not_transmitted``).
+    """
+
+    inferred: str  # "female" | "male" | "indeterminate"
+    x_transmitted: int
+    x_not_transmitted: int
+    informative_sites: int
+
+
+@dataclass(slots=True)
 class NiptAnalysisResult:
     fetal_fraction: FetalFractionEstimate
     category_counts: dict[int, int]
     filter_counts: dict[str, int]
     classifications: list[NiptClassification]
+    fetal_sex: FetalSexResult = field(
+        default_factory=lambda: FetalSexResult("indeterminate", 0, 0, 0)
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -458,6 +476,67 @@ def _passes_quality(site: NiptSiteObservation, qc: NiptQualityThresholds) -> boo
     return True
 
 
+# chrX pseudo-autosomal regions carry no X-vs-Y transmission signal; exclude them.
+# Conservative bounds spanning the GRCh37 and GRCh38 PAR1/PAR2 coordinates.
+_X_PAR1_MAX = 2_800_000
+_X_PAR2_MIN = 154_900_000
+# A daughter's paternal-X allele shows in cfDNA at ~FF/2; a higher VAF means the
+# mother carries it (uninformative for paternal transmission).
+_FETAL_SEX_MATERNAL_VAF_FLOOR = 0.30
+MIN_FETAL_SEX_SITES = 8
+MIN_TRANSMITTED_FOR_FEMALE = 3
+
+
+def _is_nonpar_x(chrom: str, pos: int) -> bool:
+    if chrom.lower().removeprefix("chr") != "x":
+        return False
+    return _X_PAR1_MAX < pos < _X_PAR2_MIN
+
+
+def infer_fetal_sex(
+    sites: Sequence[NiptSiteObservation],
+    ff_estimate: FetalFractionEstimate,
+    qc: NiptQualityThresholds,
+    *,
+    detect_min: int = 3,
+) -> FetalSexResult:
+    """Fetal sex from paternal X transmission across non-PAR chrX sites.
+
+    At a non-PAR chrX site where the father carries the alt (hemizygous hom-alt)
+    and the mother is reference, a daughter shows the paternal alt in cfDNA at
+    ~FF/2 (transmitted) and a son shows nothing — the paternal X is not transmitted
+    (the category-8 "absent" signal). A present alt at a maternal level (high VAF)
+    means the mother carries it, so it is excluded as uninformative.
+    """
+    ff = ff_estimate.ff
+    transmitted = 0
+    not_transmitted = 0
+    for site in sites:
+        if site.is_autosomal or not _is_nonpar_x(site.chrom, site.pos):
+            continue
+        if site.father_state != "hom_alt":
+            continue
+        n = site.cf_dp or 0
+        k = site.cf_alt_reads or 0
+        present = bool(site.cf_present) and n > 0 and k >= qc.min_cf_alt_reads
+        if present:
+            vaf = site.cf_vaf if site.cf_vaf is not None else (k / n if n else 0.0)
+            if vaf < _FETAL_SEX_MATERNAL_VAF_FLOOR:
+                transmitted += 1
+        elif n * ff / 2.0 >= detect_min:
+            not_transmitted += 1
+    informative = transmitted + not_transmitted
+    if informative < MIN_FETAL_SEX_SITES:
+        inferred = "indeterminate"
+    elif transmitted >= MIN_TRANSMITTED_FOR_FEMALE:
+        inferred = "female"  # paternal X transmitted -> daughter
+    elif transmitted == 0:
+        inferred = "male"  # paternal X never transmitted -> son
+    else:
+        inferred = "indeterminate"
+    return FetalSexResult(inferred, transmitted, not_transmitted, informative)
+
+
 def run_nipt_analysis(
     sites: Sequence[NiptSiteObservation],
     qc: NiptQualityThresholds,
@@ -504,4 +583,5 @@ def run_nipt_analysis(
         category_counts=category_counts,
         filter_counts=filter_counts,
         classifications=classifications,
+        fetal_sex=infer_fetal_sex(survivors, ff_estimate, qc),
     )

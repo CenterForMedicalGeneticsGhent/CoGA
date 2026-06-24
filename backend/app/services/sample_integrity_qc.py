@@ -111,6 +111,18 @@ class PaternityCheck:
     message: str
 
 
+@dataclass(slots=True)
+class FetalSexCheck:
+    """NIPT fetal sex from paternal X transmission (cfDNA, no chrY needed)."""
+
+    inferred_sex: str  # "female" | "male" | "indeterminate"
+    x_transmitted: int
+    x_not_transmitted: int
+    informative_sites: int
+    status: Status
+    message: str
+
+
 # The five applications CoGA runs, each with a different input modality and a
 # different set of meaningful integrity checks (see profile_for).
 ApplicationKind = Literal["wgs", "pgt", "nipt", "couple", "single", "unknown"]
@@ -139,6 +151,7 @@ class SampleIntegrityReport:
     relatedness_checks: list[RelatednessCheck] = field(default_factory=list)
     mendelian_checks: list[MendelianCheck] = field(default_factory=list)
     paternity_check: PaternityCheck | None = None
+    fetal_sex_check: FetalSexCheck | None = None
     autosomal_sites: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -518,6 +531,19 @@ def evaluate_paternity(father: str, category_counts: dict[int, int]) -> Paternit
                           f"Paternity supported: paternal transmission observed ({metrics}).")
 
 
+def evaluate_fetal_sex(
+    inferred: str, x_transmitted: int, x_not_transmitted: int, informative_sites: int
+) -> FetalSexCheck:
+    """Wrap the paternal-X-transmission fetal-sex call as a QC result."""
+    metrics = f"{x_transmitted} paternal-X transmitted, {x_not_transmitted} absent of {informative_sites} sites"
+    if inferred == "indeterminate":
+        return FetalSexCheck(inferred, x_transmitted, x_not_transmitted, informative_sites,
+                             "warn", f"Fetal sex indeterminate — too few informative paternal-X sites ({metrics}).")
+    return FetalSexCheck(inferred, x_transmitted, x_not_transmitted, informative_sites,
+                         "pass", f"Fetal sex appears {inferred}: paternal X "
+                         f"{'transmitted' if inferred == 'female' else 'not transmitted'} ({metrics}).")
+
+
 def evaluate_sample_integrity(
     autosomal: dict[str, list[Genotype | None]],
     x_genotypes: dict[str, list[Genotype | None]],
@@ -526,6 +552,7 @@ def evaluate_sample_integrity(
     profile: QcProfile,
     genotype_source: str | None = None,
     paternity_check: PaternityCheck | None = None,
+    fetal_sex_check: FetalSexCheck | None = None,
 ) -> SampleIntegrityReport:
     """Run the checks the application profile enables and roll up an overall status."""
     samples = sorted(autosomal)
@@ -592,6 +619,7 @@ def evaluate_sample_integrity(
         + [c.status for c in relatedness_checks]
         + [c.status for c in mendelian_checks]
         + ([paternity_check.status] if paternity_check is not None else [])
+        + ([fetal_sex_check.status] if fetal_sex_check is not None else [])
     )
     overall = _worst(all_statuses) if all_statuses else "skip"
 
@@ -605,6 +633,7 @@ def evaluate_sample_integrity(
         relatedness_checks=relatedness_checks,
         mendelian_checks=mendelian_checks,
         paternity_check=paternity_check,
+        fetal_sex_check=fetal_sex_check,
         autosomal_sites=autosomal_sites,
         notes=notes,
     )

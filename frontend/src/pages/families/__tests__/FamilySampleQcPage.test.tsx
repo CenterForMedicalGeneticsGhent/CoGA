@@ -136,6 +136,14 @@ describe('FamilySampleQcPage', () => {
           status: 'pass',
           message: 'Paternity supported: paternal transmission observed.',
         },
+        fetal_sex_check: {
+          inferred_sex: 'female',
+          x_transmitted: 12,
+          x_not_transmitted: 0,
+          informative_sites: 12,
+          status: 'pass',
+          message: 'Fetal sex appears female: paternal X transmitted.',
+        },
         autosomal_sites: 0,
         notes: [],
       },
@@ -145,6 +153,8 @@ describe('FamilySampleQcPage', () => {
 
     expect(await screen.findByText('Paternity (cfDNA categories 7/8)')).toBeInTheDocument();
     expect(screen.getByText(/Father FATHER — 40 paternal-transmitted/)).toBeInTheDocument();
+    expect(screen.getByText('Fetal sex (paternal X transmission)')).toBeInTheDocument();
+    expect(screen.getByText(/Fetus appears female — 12 paternal-X transmitted/)).toBeInTheDocument();
     // Genotype-based sections are not rendered for the cfDNA application.
     expect(screen.queryByText('Sex concordance')).not.toBeInTheDocument();
     expect(screen.queryByText('Relatedness vs pedigree')).not.toBeInTheDocument();

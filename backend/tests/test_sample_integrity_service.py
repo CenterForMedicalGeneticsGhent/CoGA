@@ -131,7 +131,12 @@ def test_service_nipt_runs_paternity_not_genotype_checks(monkeypatch) -> None:
     import backend.app.services.nipt_service as nipt_service
 
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
-        return types.SimpleNamespace(category_counts={7: 40, 8: 2})
+        return types.SimpleNamespace(
+            category_counts={7: 40, 8: 2},
+            fetal_sex=types.SimpleNamespace(
+                inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
+            ),
+        )
 
     monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _fake_nipt)
 
@@ -145,4 +150,6 @@ def test_service_nipt_runs_paternity_not_genotype_checks(monkeypatch) -> None:
     assert report.paternity_check is not None
     assert report.paternity_check.father == "FATHER"
     assert report.paternity_check.status == "pass"
+    # Fetal sex from paternal-X transmission rides along with the NIPT path.
+    assert report.fetal_sex_check is not None and report.fetal_sex_check.inferred_sex == "female"
     assert report.overall_status == "pass"

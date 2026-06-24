@@ -5,6 +5,7 @@ import random
 from backend.app.services.sample_integrity_qc import (
     PedigreeSpec,
     classify_relatedness,
+    evaluate_fetal_sex,
     evaluate_paternity,
     evaluate_sample_integrity,
     infer_sex,
@@ -251,3 +252,12 @@ def test_evaluate_paternity_supported_vs_mixup() -> None:
     # Too few paternal-informative sites -> warn, not a confident verdict.
     thin = evaluate_paternity("FATHER", {7: 2, 8: 1})
     assert thin.status == "warn"
+
+
+def test_evaluate_fetal_sex_wraps_the_call() -> None:
+    female = evaluate_fetal_sex("female", 12, 0, 12)
+    assert female.status == "pass" and "female" in female.message
+    male = evaluate_fetal_sex("male", 0, 15, 15)
+    assert male.status == "pass" and "male" in male.message
+    unknown = evaluate_fetal_sex("indeterminate", 1, 2, 3)
+    assert unknown.status == "warn"

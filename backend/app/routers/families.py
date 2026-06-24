@@ -49,6 +49,7 @@ from ..schemas import (
     NiptCoverageRegionOut,
     NiptCoverageSummaryOut,
     NiptFetalFractionOut,
+    SampleIntegrityFetalSexCheckOut,
     SampleIntegrityMendelianCheckOut,
     SampleIntegrityPaternityCheckOut,
     SampleIntegrityQcOut,
@@ -1094,6 +1095,18 @@ async def get_family_sample_integrity_qc_endpoint(
                 message=report.paternity_check.message,
             )
             if report.paternity_check is not None
+            else None
+        ),
+        fetal_sex_check=(
+            SampleIntegrityFetalSexCheckOut(
+                inferred_sex=report.fetal_sex_check.inferred_sex,
+                x_transmitted=report.fetal_sex_check.x_transmitted,
+                x_not_transmitted=report.fetal_sex_check.x_not_transmitted,
+                informative_sites=report.fetal_sex_check.informative_sites,
+                status=report.fetal_sex_check.status,
+                message=report.fetal_sex_check.message,
+            )
+            if report.fetal_sex_check is not None
             else None
         ),
         sex_checks=[

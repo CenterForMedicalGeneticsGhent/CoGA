@@ -22,10 +22,12 @@ from .haplotype_lineage_service import build_pedigree
 from .metadata_service import CurrentUser, get_family_record
 from .nipt import resolve_nipt_trio
 from .sample_integrity_qc import (
+    FetalSexCheck,
     Genotype,
     PaternityCheck,
     PedigreeSpec,
     SampleIntegrityReport,
+    evaluate_fetal_sex,
     evaluate_paternity,
     evaluate_sample_integrity,
     profile_for,
@@ -93,19 +95,25 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
     return PedigreeSpec(recorded_sex=recorded_sex, parents_of=pedigree.parents_of)
 
 
-async def _nipt_paternity(
+async def _nipt_checks(
     session: AsyncSession, *, family, family_id: str, user: CurrentUser, project_id: str | None
-) -> PaternityCheck | None:
+) -> tuple[PaternityCheck | None, FetalSexCheck | None]:
+    """NIPT cfDNA integrity: paternity (cat 7/8) and fetal sex (paternal X)."""
     trio = resolve_nipt_trio(family)
     if trio is None:
-        return None
+        return None, None
     # Imported lazily: nipt_service pulls in the heavy analysis stack.
     from .nipt_service import run_family_nipt_analysis
 
     result = await run_family_nipt_analysis(
         session, family_id=family_id, user=user, project_id=project_id
     )
-    return evaluate_paternity(trio.father_sample_id, result.category_counts)
+    paternity = evaluate_paternity(trio.father_sample_id, result.category_counts)
+    fs = result.fetal_sex
+    fetal_sex = evaluate_fetal_sex(
+        fs.inferred, fs.x_transmitted, fs.x_not_transmitted, fs.informative_sites
+    )
+    return paternity, fetal_sex
 
 
 async def get_family_sample_integrity_qc(
@@ -134,8 +142,9 @@ async def get_family_sample_integrity_qc(
     profile = profile_for(application)
 
     paternity_check: PaternityCheck | None = None
+    fetal_sex_check: FetalSexCheck | None = None
     if profile.run_paternity:
-        paternity_check = await _nipt_paternity(
+        paternity_check, fetal_sex_check = await _nipt_checks(
             session, family=family, family_id=family_id, user=user, project_id=project_id
         )
 
@@ -161,4 +170,5 @@ async def get_family_sample_integrity_qc(
         profile=profile,
         genotype_source=genotype_source,
         paternity_check=paternity_check,
+        fetal_sex_check=fetal_sex_check,
     )

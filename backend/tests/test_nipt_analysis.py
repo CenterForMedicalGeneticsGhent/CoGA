@@ -8,8 +8,42 @@ from backend.app.services.nipt_analysis import (
     NiptSiteObservation,
     classify_site,
     estimate_fetal_fraction,
+    infer_fetal_sex,
     run_nipt_analysis,
 )
+
+
+def _x_sites(*, present: bool, vaf: float | None, pos0: int = 3_000_000, n: int = 10):
+    return [
+        _site(
+            f"X-{pos0 + i * 1000}-A-G", father_state="hom_alt", chrom="X",
+            pos=pos0 + i * 1000, is_autosomal=False, dp=200,
+            alt=(int((vaf or 0) * 200) if present else 0), vaf=vaf, present=present,
+        )
+        for i in range(n)
+    ]
+
+
+def test_infer_fetal_sex_female_when_paternal_x_transmitted() -> None:
+    # Paternal alt present at ~FF/2 across non-PAR X -> daughter inherited father's X.
+    result = infer_fetal_sex(_x_sites(present=True, vaf=0.05), _ff(0.10), NiptQualityThresholds())
+    assert result.inferred == "female" and result.x_transmitted >= 3
+
+
+def test_infer_fetal_sex_male_when_paternal_x_absent() -> None:
+    # Paternal alt absent with depth -> son inherited father's Y (paternal X not transmitted).
+    result = infer_fetal_sex(_x_sites(present=False, vaf=None), _ff(0.10), NiptQualityThresholds())
+    assert result.inferred == "male" and result.x_not_transmitted >= 8
+
+
+def test_infer_fetal_sex_excludes_par_and_maternal_level_vaf() -> None:
+    qc = NiptQualityThresholds()
+    # PAR1 sites carry no X-vs-Y signal -> excluded -> indeterminate.
+    par = _x_sites(present=True, vaf=0.05, pos0=1_000)
+    assert infer_fetal_sex(par, _ff(0.10), qc).inferred == "indeterminate"
+    # A maternal-level VAF (~0.5) means the mother carries it -> uninformative.
+    maternal = _x_sites(present=True, vaf=0.5)
+    assert infer_fetal_sex(maternal, _ff(0.10), qc).inferred == "indeterminate"
 
 
 def _site(

@@ -324,6 +324,17 @@ class SampleIntegrityPaternityCheckOut(BaseModel):
     message: str
 
 
+class SampleIntegrityFetalSexCheckOut(BaseModel):
+    """NIPT fetal sex from paternal X transmission (cfDNA)."""
+
+    inferred_sex: str  # "female" | "male" | "indeterminate"
+    x_transmitted: int
+    x_not_transmitted: int
+    informative_sites: int
+    status: str
+    message: str
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 
@@ -344,6 +355,7 @@ class SampleIntegrityQcOut(BaseModel):
     relatedness_checks: List[SampleIntegrityRelatednessCheckOut] = Field(default_factory=list)
     mendelian_checks: List[SampleIntegrityMendelianCheckOut] = Field(default_factory=list)
     paternity_check: Optional[SampleIntegrityPaternityCheckOut] = None
+    fetal_sex_check: Optional[SampleIntegrityFetalSexCheckOut] = None
     autosomal_sites: int = 0
     notes: List[str] = Field(default_factory=list)
 
