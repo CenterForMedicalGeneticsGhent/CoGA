@@ -19,6 +19,10 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:25.3
     restart: always
+    # ClickHouse needs time to finish flushing/merging on SIGTERM. Docker's
+    # default 10s grace can SIGKILL it mid-flush, truncating parts into
+    # broken-on-start corruption on the next boot (the 2026-06-11 volume event).
+    stop_grace_period: 5m
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
