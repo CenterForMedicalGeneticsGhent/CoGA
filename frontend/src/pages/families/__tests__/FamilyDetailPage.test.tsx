@@ -7,6 +7,19 @@ import FamilyDetailPage from '../FamilyDetailPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import api from '../../../lib/api';
 
+/**
+ * The dashboard's variant links/buttons load behind a separate
+ * "Checking available family data…" query than the family record. Tests that
+ * assert on those must wait for this gate to clear after the family name appears
+ * — otherwise the assertion races the variant-availability load, which failed on
+ * the slower CI runner twice (PRs #197, #199). Call this right after awaiting the
+ * family name, then query variant links/buttons synchronously.
+ */
+const waitForVariantWorkspaceReady = () =>
+  waitFor(() =>
+    expect(screen.queryByText(/Checking available family data/i)).not.toBeInTheDocument(),
+  );
+
 const mockApiState = vi.hoisted(() => ({
   smallVariantTotal: 1,
   structuralVariantTotal: 1,
@@ -265,13 +278,12 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    await waitForVariantWorkspaceReady();
     expect(screen.getByText(/GENE1/i)).toBeInTheDocument();
     expect(screen.getByText(/chr17:43,044,295-43,125,482/i)).toBeInTheDocument();
     expect(screen.getByText(/Oncology pilot/i)).toBeInTheDocument();
-    // Wait for the variant-availability query so the links have rendered (they
-    // sit behind a "Checking available family data…" state on slower CI runners).
     expect(
-      await screen.findByRole('link', { name: /structural variants/i })
+      screen.getByRole('link', { name: /structural variants/i })
     ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
     expect(
       screen.getByRole('link', { name: /small variants/i })
@@ -350,9 +362,8 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    await waitFor(() =>
-      expect(screen.getByText(/No variant data is loaded for this family yet/i)).toBeInTheDocument(),
-    );
+    await waitForVariantWorkspaceReady();
+    expect(screen.getByText(/No variant data is loaded for this family yet/i)).toBeInTheDocument();
     // Every data type stays visible, rendered as a disabled button rather than a link.
     for (const name of [
       /small variants/i,
@@ -384,9 +395,7 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    await waitFor(() =>
-      expect(screen.getByRole('link', { name: /small variants/i })).toBeInTheDocument(),
-    );
+    await waitForVariantWorkspaceReady();
     // Small variants present -> small-variants + variant-summary buttons are active links.
     expect(screen.getByRole('link', { name: /small variants/i })).toHaveAttribute(
       'href',
@@ -568,10 +577,9 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    // Wait for the variant-availability query so the links have rendered (they
-    // sit behind a "Checking available family data…" state on slower CI runners).
+    await waitForVariantWorkspaceReady();
     expect(
-      await screen.findByRole('link', { name: /structural variants/i })
+      screen.getByRole('link', { name: /structural variants/i })
     ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
     expect(
       screen.getByRole('link', { name: /small variants/i })
