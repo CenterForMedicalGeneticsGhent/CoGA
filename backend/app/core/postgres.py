@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -58,12 +59,50 @@ def _schema_files() -> list[Path]:
     return sorted(schema_dir.glob("*.sql"))
 
 
+# A PostgreSQL dollar-quote opener/closer: ``$$`` or ``$tag$``.
+_DOLLAR_QUOTE_RE = re.compile(r"\$(?:[A-Za-z_]\w*)?\$")
+
+
 def _split_sql_script(contents: str) -> list[str]:
-    # Strip `--` line comments before splitting on ';' so a semicolon inside a
-    # comment cannot truncate a statement. (The schema files have no `--` inside
-    # string literals, so a plain per-line split is safe.)
-    without_comments = "\n".join(line.split("--", 1)[0] for line in contents.splitlines())
-    return [statement.strip() for statement in without_comments.split(";") if statement.strip()]
+    """Split a schema file into statements on ``;``.
+
+    Honours ``--`` line comments and ``$$ ... $$`` / ``$tag$ ... $tag$``
+    dollar-quoted bodies, so a semicolon inside a PL/pgSQL function body (e.g. the
+    append-only audit trigger) does not truncate the statement. (The schema files
+    have no ``--`` inside string/dollar literals, so dropping line comments first
+    is safe.)
+    """
+    text = "\n".join(line.split("--", 1)[0] for line in contents.splitlines())
+    statements: list[str] = []
+    buf: list[str] = []
+    dollar_tag: str | None = None
+    i, n = 0, len(text)
+    while i < n:
+        if dollar_tag is None:
+            match = _DOLLAR_QUOTE_RE.match(text, i)
+            if match:  # entering a dollar-quoted body
+                dollar_tag = match.group(0)
+                buf.append(dollar_tag)
+                i += len(dollar_tag)
+                continue
+            if text[i] == ";":
+                statement = "".join(buf).strip()
+                if statement:
+                    statements.append(statement)
+                buf = []
+                i += 1
+                continue
+        elif text.startswith(dollar_tag, i):  # closing the dollar-quoted body
+            buf.append(dollar_tag)
+            i += len(dollar_tag)
+            dollar_tag = None
+            continue
+        buf.append(text[i])
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        statements.append(tail)
+    return statements
 
 
 async def init_postgres_schema() -> None:
