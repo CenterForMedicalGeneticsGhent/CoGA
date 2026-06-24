@@ -15,6 +15,8 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
   - Canonical import order, CLI versus web upload responsibilities, demo-dataset loading, and supported assay/reference file flows.
 - [Database Schema](database.md)
   - Collection-by-collection schema reference for access control, reference layers, assay data, review state, gene caches, and repeat-expansion data.
+- [Security & PHI Posture](security-posture.md)
+  - Access control / RBAC, audit logging (append-only), encryption, and the S3/deployment PHI-scoping checklist, plus the CI gates.
 - [Roadmap](ROADMAP.md)
   - Current backlog and direction notes.
 
