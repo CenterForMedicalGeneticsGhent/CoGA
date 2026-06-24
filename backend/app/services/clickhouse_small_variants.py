@@ -1,27 +1,17 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import HTTPException
-
-from ..core.clickhouse import execute_clickhouse
+from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
 
-_VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._-]+$")
 _HET_GT_VALUES = {"0/1", "1/0", "0|1", "1|0", "HET"}
 
 
-def _validate_segment(value: str) -> str:
-    if not _VALID_CLICKHOUSE_SEGMENT.fullmatch(value):
-        raise HTTPException(status_code=400, detail="Assembly name is invalid")
-    return value
-
-
 def _table_name(assembly_name: str, suffix: str) -> str:
-    dataset = _validate_segment(assembly_name)
+    dataset = clickhouse_dataset_key(assembly_name)
     return f"{settings.clickhouse_database}.`{dataset}/SNV_INDEL/{suffix}`"
 
 

@@ -38,9 +38,9 @@ from .clickhouse_variant_storage import (
     delete_family_small_variants,
     delete_family_structural_variants,
     check_clickhouse_variant_integrity,
+    clickhouse_dataset_key,
     ensure_clickhouse_variant_storage_ready,
     get_clickhouse_variant_storage_status,
-    is_valid_clickhouse_identifier,
     list_clickhouse_variant_assemblies,
     optimize_clickhouse_variant_tables,
     rebuild_small_variant_gene_index,
@@ -694,21 +694,21 @@ async def list_clickhouse_variant_status(
             """
         )
     )
-    known_assemblies = {
-        str(assembly_name)
+    # Normalize each assembly name to its ClickHouse dataset key so the listing
+    # matches how variants are stored and names like "T2T CHM13v2.0" appear
+    # (as "T2T_CHM13v2.0") instead of crashing the page. CH-derived names are
+    # already in key form; dedup against them.
+    dataset_keys = {
+        clickhouse_dataset_key(str(assembly_name))
         for (assembly_name,) in assembly_result.all()
         if str(assembly_name or "").strip()
     }
-    known_assemblies.update(await list_clickhouse_variant_assemblies())
-    # Assembly names that aren't valid ClickHouse identifiers (e.g. "T2T CHM13v2.0",
-    # which contains a space) cannot back variant tables; skip them so one such
-    # assembly does not 500 the whole listing.
+    dataset_keys.update(await list_clickhouse_variant_assemblies())
     statuses = [
         ClickHouseVariantAssemblyStatusOut.model_validate(
-            await get_clickhouse_variant_storage_status(assembly_name)
+            await get_clickhouse_variant_storage_status(dataset_key)
         )
-        for assembly_name in sorted(known_assemblies)
-        if is_valid_clickhouse_identifier(assembly_name)
+        for dataset_key in sorted(dataset_keys)
     ]
     return ClickHouseVariantAssemblyListOut(assemblies=statuses)
 

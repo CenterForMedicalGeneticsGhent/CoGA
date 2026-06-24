@@ -16,6 +16,28 @@ from .config import settings
 
 logger = logging.getLogger(__name__)
 
+# Characters not allowed in a ClickHouse dataset key (the assembly-name prefix of
+# every variant table path, e.g. "GRCh38/SNV_INDEL/entries").
+_CLICKHOUSE_DATASET_DISALLOWED = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def clickhouse_dataset_key(assembly_name: str) -> str:
+    """Map an assembly name to a ClickHouse-safe dataset key.
+
+    Identity for names that are already valid identifiers (e.g. ``GRCh38``), so
+    existing tables stay addressable with no migration; every other character is
+    replaced with ``_`` so assemblies like ``T2T CHM13v2.0`` can be ingested and
+    queried automatically. Every service that builds variant table names MUST
+    derive the key through this one function — ingestion and the read paths have
+    to agree on the prefix or the data becomes invisible. The output always
+    matches ``[A-Za-z0-9._-]+``, so it is safe to interpolate into a table path.
+    """
+    key = _CLICKHOUSE_DATASET_DISALLOWED.sub("_", (assembly_name or "").strip())
+    if not key:
+        raise ValueError("Assembly name is empty")
+    return key
+
+
 _async_client: Any | None = None
 _client_lock: asyncio.Lock | None = None
 _INSERT_QUERY_PATTERN = re.compile(

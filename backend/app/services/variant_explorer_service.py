@@ -37,7 +37,7 @@ from typing import Any, Sequence
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.clickhouse import execute_clickhouse
+from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
@@ -57,8 +57,6 @@ _GT_HOM: tuple[str, ...] = ("1/1", "1|1")
 # `entries.source` values produced by genotype imputation/phasing tools. These
 # are hidden by default and only included when the caller opts in.
 _IMPUTED_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
-
-_VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 _SORT_EXPR = {
     "total_samples": "total_samples",
@@ -100,9 +98,8 @@ _MAX_TAG_FILTER_VARIANT_IDS = 200_000
 
 
 def _small_table_name(assembly_name: str, suffix: str) -> str:
-    if not _VALID_CLICKHOUSE_SEGMENT.fullmatch(assembly_name or ""):
-        raise ValueError("Assembly name is invalid")
-    return f"{settings.clickhouse_database}.`{assembly_name}/SNV_INDEL/{suffix}`"
+    dataset = clickhouse_dataset_key(assembly_name)
+    return f"{settings.clickhouse_database}.`{dataset}/SNV_INDEL/{suffix}`"
 
 
 def _split_terms(value: str | None) -> list[str]:

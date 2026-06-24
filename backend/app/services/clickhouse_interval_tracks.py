@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.clickhouse import execute_clickhouse
+from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
 from ..core.sql import uuid_list_bindparam, uuid_values
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
 
 VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "apcad_pcf", "segments", "haplotype"}
-_VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 # Memoize which interval tables have been ensured this process so the DDL runs
 # once per assembly instead of before every read/presence call (mirrors
@@ -26,9 +24,7 @@ _ensure_interval_table_lock = asyncio.Lock()
 
 
 def _require_clickhouse_identifier(value: str) -> str:
-    if not _VALID_CLICKHOUSE_SEGMENT.fullmatch(value):
-        raise ValueError("Assembly name is invalid")
-    return value
+    return clickhouse_dataset_key(value)
 
 
 def _interval_table_name(assembly_name: str) -> str:
