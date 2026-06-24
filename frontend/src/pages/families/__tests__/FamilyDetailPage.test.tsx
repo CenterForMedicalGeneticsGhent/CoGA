@@ -268,8 +268,10 @@ describe('FamilyDetailPage', () => {
     expect(screen.getByText(/GENE1/i)).toBeInTheDocument();
     expect(screen.getByText(/chr17:43,044,295-43,125,482/i)).toBeInTheDocument();
     expect(screen.getByText(/Oncology pilot/i)).toBeInTheDocument();
+    // Wait for the variant-availability query so the links have rendered (they
+    // sit behind a "Checking available family data…" state on slower CI runners).
     expect(
-      screen.getByRole('link', { name: /structural variants/i })
+      await screen.findByRole('link', { name: /structural variants/i })
     ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
     expect(
       screen.getByRole('link', { name: /small variants/i })
@@ -566,8 +568,10 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    // Wait for the variant-availability query so the links have rendered (they
+    // sit behind a "Checking available family data…" state on slower CI runners).
     expect(
-      screen.getByRole('link', { name: /structural variants/i })
+      await screen.findByRole('link', { name: /structural variants/i })
     ).toHaveAttribute('href', '/families/F1/structural-variants?project_id=p1');
     expect(
       screen.getByRole('link', { name: /small variants/i })
