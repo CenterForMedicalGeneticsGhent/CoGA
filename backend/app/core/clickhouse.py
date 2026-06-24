@@ -108,7 +108,9 @@ async def get_clickhouse_client() -> Any:
 
 def _query_returns_rows(query: str) -> bool:
     first_token = query.strip().split(None, 1)[0].upper() if query.strip() else ""
-    return first_token in {"SELECT", "SHOW", "DESCRIBE", "DESC", "EXISTS", "WITH"}
+    # CHECK TABLE ... SETTINGS check_query_single_value_result = 0 returns a row
+    # per part (part_path, is_passed, message), so it must go through query().
+    return first_token in {"SELECT", "SHOW", "DESCRIBE", "DESC", "EXISTS", "WITH", "CHECK"}
 
 
 def _parse_insert_query(query: str) -> tuple[str, str | None, list[str]]:

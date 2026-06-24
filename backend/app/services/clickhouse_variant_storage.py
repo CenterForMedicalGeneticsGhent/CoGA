@@ -1766,45 +1766,213 @@ async def ensure_clickhouse_variant_storage_ready(assembly_name: str) -> dict[st
     return await get_clickhouse_variant_storage_status(assembly_name)
 
 
+# A non-empty term on at least one of the gene_symbols / gene_ids arrays makes a
+# key "gene-bearing" — i.e. it contributes at least one row to gene_index. Used
+# both to rebuild the index and to detect drift between it and annotation_index.
+_GENE_BEARING_KEY_PREDICATE = (
+    "arrayExists(term -> length(term) > 0, "
+    "arrayMap(t -> lowerUTF8(t), arrayConcat(gene_symbols, gene_ids)))"
+)
+
+
+async def _gene_bearing_annotation_key_count(annotation_index_table: str) -> int:
+    rows = await _execute(
+        f"SELECT uniqExact(key) FROM {annotation_index_table} WHERE {_GENE_BEARING_KEY_PREDICATE}"
+    )
+    return int(rows[0][0]) if rows and rows[0] else 0
+
+
+async def _distinct_key_count(table: str) -> int:
+    rows = await _execute(f"SELECT uniqExact(key) FROM {table}")
+    return int(rows[0][0]) if rows and rows[0] else 0
+
+
 async def rebuild_small_variant_gene_index(assembly_name: str) -> dict[str, Any]:
     dataset = _require_clickhouse_identifier(assembly_name)
     await ensure_clickhouse_variant_tables(dataset)
     gene_index_table = _small_table_name(dataset, "variants/gene_index")
+    rebuild_table = _small_table_name(dataset, "variants/gene_index_rebuild")
     annotation_index_table = _small_table_name(dataset, "variants/annotation_index")
-    await _execute(f"TRUNCATE TABLE {gene_index_table}")
-    await _execute(
-        f"""
-        INSERT INTO {gene_index_table} (
-            key,
-            variantId,
-            annotation_version,
-            annotationSetHash,
-            gene_term,
-            chrom,
-            pos,
-            ref,
-            alt
-        )
-        SELECT DISTINCT
-            key,
-            variantId,
-            annotation_version,
-            annotationSetHash,
-            gene_term,
-            chrom,
-            pos,
-            ref,
-            alt
-        FROM {annotation_index_table}
-        ARRAY JOIN arrayDistinct(
-            arrayFilter(
-                term -> length(term) > 0,
-                arrayMap(term -> lowerUTF8(term), arrayConcat(gene_symbols, gene_ids))
+
+    # Build into a shadow table and atomically swap it in, so gene/panel queries
+    # never observe an empty gene_index during the rebuild (the window a plain
+    # TRUNCATE + INSERT leaves open). The swap relies on the Atomic database
+    # engine's EXCHANGE TABLES.
+    await _execute(f"DROP TABLE IF EXISTS {rebuild_table} SYNC")
+    await _execute(f"CREATE TABLE {rebuild_table} AS {gene_index_table}")
+    try:
+        await _execute(
+            f"""
+            INSERT INTO {rebuild_table} (
+                key, variantId, annotation_version, annotationSetHash,
+                gene_term, chrom, pos, ref, alt
             )
-        ) AS gene_term
-        """
-    )
+            SELECT DISTINCT
+                key, variantId, annotation_version, annotationSetHash,
+                gene_term, chrom, pos, ref, alt
+            FROM {annotation_index_table}
+            ARRAY JOIN arrayDistinct(
+                arrayFilter(
+                    term -> length(term) > 0,
+                    arrayMap(term -> lowerUTF8(term), arrayConcat(gene_symbols, gene_ids))
+                )
+            ) AS gene_term
+            """
+        )
+        # Never swap a bad index over good data: the shadow must pass its part
+        # checks and cover exactly the gene-bearing keys of annotation_index.
+        check_rows = await _execute(
+            f"CHECK TABLE {rebuild_table} SETTINGS check_query_single_value_result = 0"
+        )
+        bad_parts = [row for row in check_rows if not int(row[1])]
+        if bad_parts:
+            raise RuntimeError(
+                f"gene_index rebuild produced {len(bad_parts)} corrupt part(s); not swapping"
+            )
+        rebuilt_keys = await _distinct_key_count(rebuild_table)
+        source_keys = await _gene_bearing_annotation_key_count(annotation_index_table)
+        if rebuilt_keys != source_keys:
+            raise RuntimeError(
+                "gene_index rebuild key mismatch: "
+                f"{rebuilt_keys} rebuilt vs {source_keys} gene-bearing annotation keys; not swapping"
+            )
+        await _execute(f"EXCHANGE TABLES {gene_index_table} AND {rebuild_table}")
+    finally:
+        # After a successful swap this holds the old index; after a failure it
+        # holds the rejected rebuild. Either way it is safe to drop.
+        await _execute(f"DROP TABLE IF EXISTS {rebuild_table} SYNC")
     return await get_clickhouse_variant_storage_status(dataset)
+
+
+async def check_clickhouse_variant_integrity(assembly_name: str) -> dict[str, Any]:
+    """Detect ClickHouse corruption before it surfaces as query 500s.
+
+    Runs three guards over an assembly's variant tables:
+      * ``CHECK TABLE`` on each read-path table to find corrupt active parts
+        (e.g. the UNKNOWN_CODEC / CHECKSUM_DOESNT_MATCH failures that only break
+        gene/panel queries);
+      * a scan of ``system.detached_parts`` for ``broken-on-start`` parts, which
+        signal storage-volume damage even when the live read path looks intact;
+      * a key-count comparison between ``gene_index`` and the gene-bearing keys of
+        ``annotation_index`` it is derived from, to catch a stale/partial index.
+    """
+    dataset = _require_clickhouse_identifier(assembly_name)
+    expected = _expected_clickhouse_variant_tables(dataset)
+    data_tables = [name for _variant_type, kind, name in expected if kind == "table"]
+    params = {
+        "database": settings.clickhouse_database,
+        "table_names": tuple(data_tables),
+    }
+
+    existing_rows = await _execute(
+        """
+        SELECT name FROM system.tables
+        WHERE database = %(database)s AND name IN %(table_names)s
+        """,
+        params,
+    )
+    existing = {str(name) for (name,) in existing_rows}
+
+    table_checks: list[dict[str, Any]] = []
+    corrupt = False
+    for name in data_tables:
+        if name not in existing:
+            table_checks.append(
+                {"name": name, "exists": False, "passed": None, "failed_parts": 0, "messages": []}
+            )
+            continue
+        qualified = f"{settings.clickhouse_database}.`{name}`"
+        rows = await _execute(
+            f"CHECK TABLE {qualified} SETTINGS check_query_single_value_result = 0"
+        )
+        failures = [
+            str(row[2]) if len(row) > 2 and row[2] else "(no message)"
+            for row in rows
+            if not int(row[1])
+        ]
+        if failures:
+            corrupt = True
+        table_checks.append(
+            {
+                "name": name,
+                "exists": True,
+                "passed": not failures,
+                "failed_parts": len(failures),
+                "messages": failures[:5],
+            }
+        )
+
+    detached_rows = await _execute(
+        """
+        SELECT table, reason, count() AS broken_parts
+        FROM system.detached_parts
+        WHERE database = %(database)s AND table IN %(table_names)s AND reason != ''
+        GROUP BY table, reason
+        ORDER BY table, reason
+        """,
+        params,
+    )
+    detached_broken_parts = [
+        {"table": str(table), "reason": str(reason), "count": int(count or 0)}
+        for table, reason, count in detached_rows
+    ]
+
+    consistency = await _gene_index_consistency(dataset, existing)
+
+    existing_data_tables = [name for name in data_tables if name in existing]
+    notes: list[str] = []
+    if not existing_data_tables:
+        status = "missing"
+        notes.append("No variant tables exist for this assembly.")
+    elif corrupt:
+        status = "corrupt"
+        notes.append("One or more active parts failed CHECK TABLE — rebuild or restore affected tables.")
+    elif detached_broken_parts or (consistency["checked"] and not consistency["consistent"]):
+        status = "degraded"
+        if detached_broken_parts:
+            total = sum(item["count"] for item in detached_broken_parts)
+            notes.append(
+                f"{total} detached broken part(s) found — investigate storage-volume health."
+            )
+        if consistency["checked"] and not consistency["consistent"]:
+            notes.append(
+                "gene_index keys differ from annotation_index — rebuild the small-variant gene index."
+            )
+    else:
+        status = "ok"
+
+    return {
+        "assembly_name": dataset,
+        "status": status,
+        "table_checks": table_checks,
+        "detached_broken_parts": detached_broken_parts,
+        "gene_index_consistency": consistency,
+        "notes": notes,
+    }
+
+
+async def _gene_index_consistency(dataset: str, existing: set[str]) -> dict[str, Any]:
+    gene_index = f"{dataset}/SNV_INDEL/variants/gene_index"
+    annotation_index = f"{dataset}/SNV_INDEL/variants/annotation_index"
+    if gene_index not in existing or annotation_index not in existing:
+        return {
+            "checked": False,
+            "gene_index_keys": 0,
+            "annotation_index_gene_keys": 0,
+            "consistent": True,
+            "drift": 0,
+        }
+    gene_index_keys = await _distinct_key_count(_small_table_name(dataset, "variants/gene_index"))
+    annotation_keys = await _gene_bearing_annotation_key_count(
+        _small_table_name(dataset, "variants/annotation_index")
+    )
+    return {
+        "checked": True,
+        "gene_index_keys": gene_index_keys,
+        "annotation_index_gene_keys": annotation_keys,
+        "consistent": gene_index_keys == annotation_keys,
+        "drift": gene_index_keys - annotation_keys,
+    }
 
 
 async def optimize_clickhouse_variant_tables(

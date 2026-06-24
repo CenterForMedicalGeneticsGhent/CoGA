@@ -12,6 +12,7 @@ from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
     ClickHouseVariantAssemblyListOut,
     ClickHouseVariantAssemblyStatusOut,
+    ClickHouseVariantIntegrityOut,
     FamilyInventoryDetailOut,
     FamilyInventoryPageOut,
     FamilyInventorySummaryOut,
@@ -36,6 +37,7 @@ from .clickhouse_variant_storage import (
     count_family_structural_variants_by_sample,
     delete_family_small_variants,
     delete_family_structural_variants,
+    check_clickhouse_variant_integrity,
     ensure_clickhouse_variant_storage_ready,
     get_clickhouse_variant_storage_status,
     list_clickhouse_variant_assemblies,
@@ -729,6 +731,14 @@ async def rebuild_clickhouse_small_variant_gene_index_status(
 ) -> ClickHouseVariantAssemblyStatusOut:
     return ClickHouseVariantAssemblyStatusOut.model_validate(
         await rebuild_small_variant_gene_index(assembly_name)
+    )
+
+
+async def check_clickhouse_variant_integrity_status(
+    assembly_name: str,
+) -> ClickHouseVariantIntegrityOut:
+    return ClickHouseVariantIntegrityOut.model_validate(
+        await check_clickhouse_variant_integrity(assembly_name)
     )
 
 

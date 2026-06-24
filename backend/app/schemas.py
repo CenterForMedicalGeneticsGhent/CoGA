@@ -982,6 +982,39 @@ class ClickHouseVariantAssemblyListOut(BaseModel):
     assemblies: List[ClickHouseVariantAssemblyStatusOut] = Field(default_factory=list)
 
 
+class ClickHouseVariantTableCheckOut(BaseModel):
+    name: str
+    exists: bool
+    passed: Optional[bool] = None
+    failed_parts: int = 0
+    messages: List[str] = Field(default_factory=list)
+
+
+class ClickHouseDetachedPartOut(BaseModel):
+    table: str
+    reason: str
+    count: int = 0
+
+
+class ClickHouseGeneIndexConsistencyOut(BaseModel):
+    checked: bool = False
+    gene_index_keys: int = 0
+    annotation_index_gene_keys: int = 0
+    consistent: bool = True
+    drift: int = 0
+
+
+class ClickHouseVariantIntegrityOut(BaseModel):
+    assembly_name: str
+    status: str  # "ok" | "degraded" | "corrupt" | "missing"
+    table_checks: List[ClickHouseVariantTableCheckOut] = Field(default_factory=list)
+    detached_broken_parts: List[ClickHouseDetachedPartOut] = Field(default_factory=list)
+    gene_index_consistency: ClickHouseGeneIndexConsistencyOut = Field(
+        default_factory=ClickHouseGeneIndexConsistencyOut
+    )
+    notes: List[str] = Field(default_factory=list)
+
+
 class SpeciesCreate(BaseModel):
     name: str = Field(min_length=1)
     common_name: str = Field(min_length=1)
