@@ -10,7 +10,7 @@ sqlalchemy>=2.0.51
 greenlet>=3.5.2
 asyncpg
 clickhouse-connect[async]>=0.15.1,<2
-pydantic[email]>=2
+pydantic[email]>=2.13.4
 pydantic-settings>=2.14.2
 python-jose[cryptography]
 passlib[bcrypt]==1.7.4
