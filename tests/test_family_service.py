@@ -64,7 +64,10 @@ async def test_build_family_roi_payload_orders_gene_query_by_span_desc() -> None
         "end": 43_125_482,
     }
     assert session.sql is not None
-    assert 'ORDER BY ("end" - start) DESC, hgnc_symbol' in session.sql
+    # Exact symbol matches rank first, then largest span, then symbol name.
+    normalized_sql = " ".join(session.sql.split())
+    assert "CASE WHEN" in normalized_sql
+    assert '("end" - start) DESC, hgnc_symbol' in normalized_sql
     assert session.params == {"assembly_id": "assembly-uuid", "query": "BRCA1"}
 
 

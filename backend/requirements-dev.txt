@@ -1,0 +1,4 @@
+# Test / CI dependencies. Pinned to the versions the suite is verified against.
+-r requirements.txt
+pytest==9.0.1
+pytest-asyncio==1.3.0
