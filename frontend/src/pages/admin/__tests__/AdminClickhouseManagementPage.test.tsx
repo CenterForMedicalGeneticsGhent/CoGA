@@ -63,4 +63,72 @@ describe('AdminClickhouseManagementPage', () => {
       await screen.findByText('Ensured ClickHouse variant tables for GRCh38.')
     ).toBeInTheDocument();
   });
+
+  it('runs an integrity check and shows the report inline', async () => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/admin/clickhouse/variants') {
+        return Promise.resolve({
+          data: {
+            assemblies: [
+              {
+                assembly_name: 'GRCh38',
+                health: 'ready',
+                expected_table_count: 12,
+                existing_table_count: 12,
+                missing_tables: [],
+                pending_mutations: 0,
+                total_rows: 6200,
+                total_bytes_on_disk: 489216,
+                small_variant_rows: 5000,
+                structural_variant_rows: 1200,
+                tables: [],
+              },
+            ],
+          },
+        });
+      }
+      if (url === '/admin/clickhouse/variants/GRCh38/integrity') {
+        return Promise.resolve({
+          data: {
+            assembly_name: 'GRCh38',
+            status: 'degraded',
+            table_checks: [],
+            detached_broken_parts: [
+              { table: 'GRCh38/SNV_INDEL/entries', reason: 'broken-on-start', count: 52 },
+            ],
+            gene_index_consistency: {
+              checked: true,
+              gene_index_keys: 100,
+              annotation_index_gene_keys: 100,
+              consistent: true,
+              drift: 0,
+            },
+            notes: ['52 detached broken part(s) found — investigate storage-volume health.'],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter>
+          <AdminClickhouseManagementPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Integrity check' }));
+
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith('/admin/clickhouse/variants/GRCh38/integrity')
+    );
+    expect(await screen.findByText('Integrity: Degraded')).toBeInTheDocument();
+    expect(screen.getByText('52 detached broken parts')).toBeInTheDocument();
+    expect(screen.getByText('gene_index consistent')).toBeInTheDocument();
+    expect(
+      screen.getByText(/detached broken part\(s\) found/),
+    ).toBeInTheDocument();
+  });
 });

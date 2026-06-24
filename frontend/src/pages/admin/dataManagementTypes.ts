@@ -61,6 +61,37 @@ export interface ClickHouseVariantAssemblyList {
   assemblies: ClickHouseVariantAssemblyStatus[];
 }
 
+export interface ClickHouseVariantTableCheck {
+  name: string;
+  exists: boolean;
+  passed: boolean | null;
+  failed_parts: number;
+  messages: string[];
+}
+
+export interface ClickHouseDetachedPart {
+  table: string;
+  reason: string;
+  count: number;
+}
+
+export interface ClickHouseGeneIndexConsistency {
+  checked: boolean;
+  gene_index_keys: number;
+  annotation_index_gene_keys: number;
+  consistent: boolean;
+  drift: number;
+}
+
+export interface ClickHouseVariantIntegrity {
+  assembly_name: string;
+  status: 'ok' | 'degraded' | 'corrupt' | 'missing';
+  table_checks: ClickHouseVariantTableCheck[];
+  detached_broken_parts: ClickHouseDetachedPart[];
+  gene_index_consistency: ClickHouseGeneIndexConsistency;
+  notes: string[];
+}
+
 export interface ProjectOption {
   id: string;
   name: string;

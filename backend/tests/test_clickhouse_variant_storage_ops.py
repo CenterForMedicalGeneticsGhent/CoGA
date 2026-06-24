@@ -391,10 +391,23 @@ async def test_rebuild_small_variant_gene_index_is_explicit_batched_maintenance(
     status = await clickhouse_variant_storage.rebuild_small_variant_gene_index("GRCh38")
 
     assert status["assembly_name"] == "GRCh38"
-    assert executed_queries[0] == "TRUNCATE TABLE coga.`GRCh38/SNV_INDEL/variants/gene_index`"
-    assert "INSERT INTO coga.`GRCh38/SNV_INDEL/variants/gene_index`" in executed_queries[1]
-    assert "SELECT DISTINCT" in executed_queries[1]
-    assert "arrayConcat(gene_symbols, gene_ids)" in executed_queries[1]
+    joined = " ".join(executed_queries)
+    # The live gene_index is never TRUNCATEd (the old empty-window approach):
+    # the index is rebuilt into a shadow table and atomically swapped in.
+    assert not any(query.startswith("TRUNCATE") for query in executed_queries)
+    assert any(
+        "CREATE TABLE coga.`GRCh38/SNV_INDEL/variants/gene_index_rebuild`" in query
+        for query in executed_queries
+    )
+    assert any(
+        "INSERT INTO coga.`GRCh38/SNV_INDEL/variants/gene_index_rebuild`" in query
+        for query in executed_queries
+    )
+    assert "SELECT DISTINCT" in joined
+    assert "arrayConcat(gene_symbols, gene_ids)" in joined
+    # Validated (CHECK TABLE) before the atomic swap.
+    assert any(query.strip().startswith("CHECK TABLE") for query in executed_queries)
+    assert any("EXCHANGE TABLES" in query for query in executed_queries)
 
 
 @pytest.mark.asyncio

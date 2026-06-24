@@ -8998,6 +8998,24 @@ a.button-danger:hover {
   gap: 0.65rem;
 }
 
+.admin-variant-integrity {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.3));
+  border-radius: 0.6rem;
+  background: var(--surface-muted, rgba(148, 163, 184, 0.08));
+}
+
+.admin-variant-integrity-notes {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #64748b);
+}
+
 .admin-variant-table-list {
   display: grid;
   gap: 0.55rem;
