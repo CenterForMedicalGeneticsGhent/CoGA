@@ -40,6 +40,7 @@ from .clickhouse_variant_storage import (
     check_clickhouse_variant_integrity,
     ensure_clickhouse_variant_storage_ready,
     get_clickhouse_variant_storage_status,
+    is_valid_clickhouse_identifier,
     list_clickhouse_variant_assemblies,
     optimize_clickhouse_variant_tables,
     rebuild_small_variant_gene_index,
@@ -699,11 +700,15 @@ async def list_clickhouse_variant_status(
         if str(assembly_name or "").strip()
     }
     known_assemblies.update(await list_clickhouse_variant_assemblies())
+    # Assembly names that aren't valid ClickHouse identifiers (e.g. "T2T CHM13v2.0",
+    # which contains a space) cannot back variant tables; skip them so one such
+    # assembly does not 500 the whole listing.
     statuses = [
         ClickHouseVariantAssemblyStatusOut.model_validate(
             await get_clickhouse_variant_storage_status(assembly_name)
         )
         for assembly_name in sorted(known_assemblies)
+        if is_valid_clickhouse_identifier(assembly_name)
     ]
     return ClickHouseVariantAssemblyListOut(assemblies=statuses)
 

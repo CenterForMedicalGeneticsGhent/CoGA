@@ -42,6 +42,15 @@ _ensured_variant_table_assemblies: set[str] = set()
 _ensure_variant_tables_lock = asyncio.Lock()
 
 
+def is_valid_clickhouse_identifier(value: str) -> bool:
+    """Whether a name can form a ClickHouse table path (no spaces/special chars).
+
+    Assembly names that fail this (e.g. ``T2T CHM13v2.0``) cannot back ClickHouse
+    variant tables, so callers should skip them rather than raise.
+    """
+    return bool(value) and bool(_VALID_CLICKHOUSE_SEGMENT.fullmatch(value))
+
+
 def _require_clickhouse_identifier(value: str) -> str:
     if not _VALID_CLICKHOUSE_SEGMENT.fullmatch(value):
         raise ValueError("Assembly name is invalid")
