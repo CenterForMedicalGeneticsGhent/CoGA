@@ -4,7 +4,12 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
-import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
+import type {
+  ApiNiptCoverageLowRegion,
+  ApiNiptCoverageSummary,
+  ApiNiptSummary,
+  NiptLowCoverageReason,
+} from '../../lib/apiTypes';
 import {
   buildPresetPayload,
   NIPT_BUILT_IN_PRESETS,
@@ -70,6 +75,17 @@ const pct = (value?: number | null): string =>
 
 const depth = (value?: number | null): string =>
   value == null ? '—' : `${value.toFixed(0)}x`;
+
+// Short, hover-able reason for why a panel gene failed the coverage QC check.
+const lowCoverageDetail = (region: ApiNiptCoverageLowRegion): string => {
+  if (region.reason === 'no_coverage') return 'no coverage';
+  if (region.reason === 'partial_coverage')
+    return `${Math.round(region.covered_fraction * 100)}% of target covered`;
+  return `${depth(region.median_coverage)} median`;
+};
+
+const lowCoverageChipClass = (reason: NiptLowCoverageReason): string =>
+  `table-chip ${reason === 'no_coverage' ? 'table-chip--critical' : 'table-chip--warning'}`;
 
 // Serialize repeated params (category/impact/effect/clinvar arrays) as
 // `key=a&key=b`, which the FastAPI `Query(None)` list params expect.
@@ -530,15 +546,42 @@ const FamilyNiptPage: React.FC = () => {
                 No target regions — set a family ROI or gene panel to report coverage.
               </p>
             ) : (
-              <div className="family-workspace-summary">
-                <div className="family-workspace-stat">
-                  <span className="family-workspace-stat-value">{depth(coverage.overall_median_on_target)}</span>
-                  <span className="family-workspace-stat-copy">
-                    Median on-target ({coverage.target_region_count} region
-                    {coverage.target_region_count === 1 ? '' : 's'})
-                  </span>
+              <>
+                <div className="family-workspace-summary">
+                  <div className="family-workspace-stat">
+                    <span className="family-workspace-stat-value">{depth(coverage.overall_median_on_target)}</span>
+                    <span className="family-workspace-stat-copy">
+                      Median on-target ({coverage.target_region_count} region
+                      {coverage.target_region_count === 1 ? '' : 's'})
+                    </span>
+                  </div>
                 </div>
-              </div>
+                {coverage.low_coverage_regions && coverage.low_coverage_regions.length > 0 ? (
+                  <div className="nipt-coverage-qc" role="status">
+                    <p className="table-subtle">
+                      {coverage.low_coverage_regions.length} of {coverage.target_region_count} panel gene
+                      {coverage.target_region_count === 1 ? '' : 's'} below QC (median &lt;{' '}
+                      {depth(coverage.min_depth)} or incomplete coverage):
+                    </p>
+                    <div className="table-chip-list">
+                      {coverage.low_coverage_regions.map((region) => (
+                        <span
+                          key={`${region.label}:${region.chr}`}
+                          className={lowCoverageChipClass(region.reason)}
+                          title={`${region.label}: ${lowCoverageDetail(region)}`}
+                        >
+                          {region.label} · {lowCoverageDetail(region)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="table-subtle">
+                    All {coverage.target_region_count} panel gene
+                    {coverage.target_region_count === 1 ? '' : 's'} adequately covered (≥ {depth(coverage.min_depth)}).
+                  </p>
+                )}
+              </>
             )
           ) : (
             <p className="table-subtle">Loading coverage…</p>

@@ -249,13 +249,30 @@ class NiptCoverageRegionOut(BaseModel):
     target_bases: int
 
 
+class NiptCoverageLowRegionOut(BaseModel):
+    """A panel gene / target region flagged as inadequately interrogated."""
+
+    label: str
+    chr: str
+    median_coverage: Optional[float] = None
+    covered_fraction: float
+    reason: str  # "no_coverage" | "low_depth" | "partial_coverage"
+
+
 class NiptCoverageSummaryOut(BaseModel):
-    """Median on-target coverage for a monogenic NIPT family's cfDNA sample."""
+    """Median on-target coverage for a monogenic NIPT family's cfDNA sample.
+
+    ``low_coverage_regions`` is a compact QC list (only the failing genes, not
+    the full per-region table) flagging genes that may harbour silent gaps.
+    """
 
     family_id: str
     overall_median_on_target: Optional[float] = None
     target_region_count: int
     per_region: List[NiptCoverageRegionOut]
+    min_depth: float
+    min_covered_fraction: float
+    low_coverage_regions: List[NiptCoverageLowRegionOut] = Field(default_factory=list)
 
 
 class NiptArtifactOut(BaseModel):

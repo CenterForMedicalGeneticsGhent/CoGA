@@ -67,16 +67,36 @@ describe('FamilyNiptPage', () => {
           data: {
             family_id: 'NIPT001',
             overall_median_on_target: 120,
-            target_region_count: 1,
+            target_region_count: 2,
             per_region: [
               {
-                label: 'ROI',
-                chr: '1',
+                label: 'BRCA1',
+                chr: '17',
                 start: 100,
                 end: 200,
                 median_coverage: 118,
                 covered_bases: 100,
                 target_bases: 100,
+              },
+              {
+                label: 'ARID1B',
+                chr: '6',
+                start: 100,
+                end: 200,
+                median_coverage: 8,
+                covered_bases: 100,
+                target_bases: 100,
+              },
+            ],
+            min_depth: 20,
+            min_covered_fraction: 0.9,
+            low_coverage_regions: [
+              {
+                label: 'ARID1B',
+                chr: '6',
+                median_coverage: 8,
+                covered_fraction: 1.0,
+                reason: 'low_depth',
               },
             ],
           },
@@ -158,6 +178,11 @@ describe('FamilyNiptPage', () => {
     // On-target coverage comes from the coverage query.
     expect(await screen.findByText('120x')).toBeInTheDocument();
     expect(screen.getByText('On-target coverage')).toBeInTheDocument();
+
+    // Per-gene coverage QC flags the one panel gene below the depth threshold
+    // (a compact list, not the full per-region table).
+    expect(screen.getByText(/1 of 2 panel genes below QC/)).toBeInTheDocument();
+    expect(screen.getByText(/ARID1B · 8x median/)).toBeInTheDocument();
 
     // The variant renders through the reused small-variant card (≤100 results →
     // cards view), with the NIPT classification block layered on. (BRCA1 appears

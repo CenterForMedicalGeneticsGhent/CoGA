@@ -6661,6 +6661,11 @@ button.table-link:hover {
   max-width: 22rem;
 }
 
+.nipt-coverage-qc {
+  display: grid;
+  gap: 0.4rem;
+}
+
 .variant-table-genotypes {
   display: grid;
   gap: 0.22rem;

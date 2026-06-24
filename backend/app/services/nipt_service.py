@@ -40,6 +40,7 @@ from .metadata_service import CurrentUser, get_family_record
 from .nipt import NiptTrio, nipt_assay_key, resolve_nipt_trio
 from .nipt_artifact_pg import load_nipt_artifact_ids
 from .nipt_coverage import (
+    DEFAULT_MIN_DEPTH,
     CoverageInterval,
     NiptCoverageSummary,
     TargetRegion,
@@ -568,6 +569,7 @@ async def get_family_nipt_coverage(
     project_id: str | None = None,
     gene: str | None = None,
     panel_id: str | None = None,
+    min_depth: float = DEFAULT_MIN_DEPTH,
 ) -> NiptCoverageSummary:
     family = await get_family_record(session, family_id, user)
     trio = resolve_nipt_trio(family)
@@ -588,4 +590,6 @@ async def get_family_nipt_coverage(
         coverage = await _load_coverage_intervals(
             context.assembly_name, sample_uuid, target_regions
         )
-    return summarize_on_target_coverage(target_regions, coverage)
+    return summarize_on_target_coverage(
+        target_regions, coverage, min_depth=min_depth
+    )
