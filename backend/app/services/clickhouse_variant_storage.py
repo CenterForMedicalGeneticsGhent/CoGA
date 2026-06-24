@@ -3,10 +3,9 @@ from __future__ import annotations
 import asyncio
 from hashlib import blake2b
 import json
-import re
 from typing import Any, Iterable, Sequence
 
-from ..core.clickhouse import execute_clickhouse
+from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
 from .clickhouse_family_variants import (
     SmallVariantCall,
@@ -29,7 +28,6 @@ from .clickhouse_family_variants import (
 )
 from .data_scope import normalize_chromosome
 
-_VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
 _DEFAULT_SMALL_ANNOTATION_VERSION = "current"
 _SMALL_GT_REF = {"0/0", "0|0"}
 _SMALL_GT_MISSING = {"./.", ".|.", "", "."}
@@ -42,19 +40,10 @@ _ensured_variant_table_assemblies: set[str] = set()
 _ensure_variant_tables_lock = asyncio.Lock()
 
 
-def is_valid_clickhouse_identifier(value: str) -> bool:
-    """Whether a name can form a ClickHouse table path (no spaces/special chars).
-
-    Assembly names that fail this (e.g. ``T2T CHM13v2.0``) cannot back ClickHouse
-    variant tables, so callers should skip them rather than raise.
-    """
-    return bool(value) and bool(_VALID_CLICKHOUSE_SEGMENT.fullmatch(value))
-
-
 def _require_clickhouse_identifier(value: str) -> str:
-    if not _VALID_CLICKHOUSE_SEGMENT.fullmatch(value):
-        raise ValueError("Assembly name is invalid")
-    return value
+    # Normalize any assembly name to a ClickHouse-safe dataset key (shared with
+    # the read paths) so e.g. "T2T CHM13v2.0" ingests and queries automatically.
+    return clickhouse_dataset_key(value)
 
 
 def _small_table_name(assembly_name: str, suffix: str) -> str:

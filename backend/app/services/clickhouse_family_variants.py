@@ -13,7 +13,7 @@ from clickhouse_connect.driver.exceptions import ClickHouseError
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.clickhouse import execute_clickhouse
+from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
 from ..schemas import (
     GenotypeOut,
@@ -73,7 +73,6 @@ _CLICKHOUSE_QUERY_TOO_HEAVY_MARKERS = (
     "set_size_limit",
 )
 
-_VALID_CLICKHOUSE_SEGMENT = re.compile(r"^[A-Za-z0-9._/-]+$")
 _INTERVAL_PATTERN = re.compile(
     r"^\s*(?P<chr>[^:\s]+)\s*:\s*(?P<start>\d[\d,]*)\s*-\s*(?P<end>\d[\d,]*)\s*$"
 )
@@ -271,9 +270,7 @@ class StructuralVariantRecord:
 
 
 def _require_clickhouse_identifier(value: str) -> str:
-    if not _VALID_CLICKHOUSE_SEGMENT.fullmatch(value):
-        raise HTTPException(status_code=400, detail="Assembly name is invalid")
-    return value
+    return clickhouse_dataset_key(value)
 
 
 def _small_table_name(assembly_name: str, suffix: str) -> str:

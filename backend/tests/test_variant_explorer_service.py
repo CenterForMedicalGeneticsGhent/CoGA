@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from clickhouse_connect.driver.binding import bind_query
 
 from backend.app.services.variant_explorer_service import (
@@ -43,11 +42,13 @@ def test_split_terms() -> None:
     assert _split_terms(None) == []
 
 
-def test_small_table_name_validates_assembly() -> None:
+def test_small_table_name_normalizes_assembly() -> None:
     name = _small_table_name("GRCh38", "entries")
     assert name.endswith("`GRCh38/SNV_INDEL/entries`")
-    with pytest.raises(ValueError):
-        _small_table_name("bad assembly!", "entries")
+    # A messy name is normalized to a ClickHouse-safe dataset key (shared with
+    # ingestion), not rejected — so e.g. T2T can be queried.
+    normalized = _small_table_name("bad assembly!", "entries")
+    assert normalized.endswith("`bad_assembly_/SNV_INDEL/entries`")
 
 
 def test_annotation_index_clauses_build_params() -> None:
