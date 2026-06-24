@@ -250,11 +250,24 @@ export interface ApiNiptCoverageRegion {
   target_bases: number;
 }
 
+export type NiptLowCoverageReason = 'no_coverage' | 'low_depth' | 'partial_coverage';
+
+export interface ApiNiptCoverageLowRegion {
+  label: string;
+  chr: string;
+  median_coverage?: number | null;
+  covered_fraction: number;
+  reason: NiptLowCoverageReason;
+}
+
 export interface ApiNiptCoverageSummary {
   family_id: string;
   overall_median_on_target?: number | null;
   target_region_count: number;
   per_region: ApiNiptCoverageRegion[];
+  min_depth: number;
+  min_covered_fraction: number;
+  low_coverage_regions?: ApiNiptCoverageLowRegion[];
 }
 
 export interface ApiProjectRecord<TFamily = ApiFamilySummary> {

@@ -45,6 +45,7 @@ from ..schemas import (
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
     SmallVariantTagDefinitionUpdate,
+    NiptCoverageLowRegionOut,
     NiptCoverageRegionOut,
     NiptCoverageSummaryOut,
     NiptFetalFractionOut,
@@ -101,6 +102,7 @@ from ..services.monarch_semsim import (
     semsim_search,
 )
 from ..services.metadata_service import CurrentUser
+from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     get_family_nipt_coverage,
@@ -1015,6 +1017,7 @@ async def get_family_nipt_coverage_summary(
     project_id: str | None = None,
     gene: str | None = None,
     panel_id: str | None = None,
+    min_depth: float = Query(DEFAULT_MIN_DEPTH, gt=0),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptCoverageSummaryOut:
@@ -1025,6 +1028,7 @@ async def get_family_nipt_coverage_summary(
         project_id=project_id,
         gene=gene,
         panel_id=panel_id,
+        min_depth=min_depth,
     )
     return NiptCoverageSummaryOut(
         family_id=family_id,
@@ -1041,6 +1045,18 @@ async def get_family_nipt_coverage_summary(
                 target_bases=region.target_bases,
             )
             for region in summary.per_region
+        ],
+        min_depth=summary.min_depth,
+        min_covered_fraction=summary.min_covered_fraction,
+        low_coverage_regions=[
+            NiptCoverageLowRegionOut(
+                label=region.label,
+                chr=region.chrom,
+                median_coverage=region.median_coverage,
+                covered_fraction=region.covered_fraction,
+                reason=region.reason,
+            )
+            for region in summary.low_coverage_regions
         ],
     )
 
