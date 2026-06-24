@@ -154,13 +154,30 @@ for router in all_routers:
 
 app.include_router(api_router)
 
-api_collection_alias_paths = frozenset(
-    route.path[:-1]
-    for route in app.routes
-    if getattr(route, "path", "").startswith("/api/")
-    and route.path.endswith("/")
-    and "{" not in route.path
-)
+# The trailing-slash normaliser needs the set of `/api/...` collection-root paths
+# (e.g. `/api/families/`). We read them from the OpenAPI schema rather than
+# `app.routes`: Starlette 1.x no longer flattens included-router routes into
+# `app.routes` (it wraps them in an opaque `_IncludedRouter`), so iterating
+# `app.routes` only sees the top-level docs routes. The OpenAPI `paths` map is a
+# stable public interface that exposes the full route paths on every version.
+# Computed lazily on first request and cached, so schema generation does not run
+# at import time.
+_api_collection_alias_paths: frozenset[str] | None = None
+
+
+def _collection_alias_paths() -> frozenset[str]:
+    global _api_collection_alias_paths
+    if _api_collection_alias_paths is None:
+        try:
+            openapi_paths = app.openapi().get("paths", {})
+        except Exception:  # never let schema generation break request handling
+            return frozenset()
+        _api_collection_alias_paths = frozenset(
+            path[:-1]
+            for path in openapi_paths
+            if path.startswith("/api/") and path.endswith("/") and "{" not in path
+        )
+    return _api_collection_alias_paths
 
 
 @app.middleware("http")
@@ -168,7 +185,7 @@ async def normalize_api_collection_root_paths(request, call_next):
     """Accept collection roots with or without FastAPI's trailing slash."""
 
     path = request.scope.get("path")
-    if path in api_collection_alias_paths:
+    if path in _collection_alias_paths():
         request.scope["path"] = f"{path}/"
         raw_path = request.scope.get("raw_path")
         if isinstance(raw_path, bytes) and not raw_path.endswith(b"/"):
