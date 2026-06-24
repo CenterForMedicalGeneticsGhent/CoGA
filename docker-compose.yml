@@ -55,6 +55,19 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/data
+    healthcheck:
+      # Liveness via stdlib (no curl in the image): non-200 / unreachable -> unhealthy.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import sys,urllib.request;
+          sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=3).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # Startup runs schema init + seeds (+ optional reference bootstrap); give it
+      # room before failures count against the container.
+      start_period: 90s
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,7 +91,10 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        # Don't serve the UI until the backend is healthy, so users never hit the
+        # "Unable to reach API" state from a still-starting or crash-looping backend.
+        condition: service_healthy
 
 volumes:
   postgres_data:
