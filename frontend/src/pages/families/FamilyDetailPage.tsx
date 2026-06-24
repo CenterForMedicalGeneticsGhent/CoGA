@@ -1415,6 +1415,14 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   Report
                 </VariantWorkspaceLink>
                 <VariantWorkspaceLink
+                  active={hasSmallVariants}
+                  to={`/families/${data.family_id}/qc`}
+                  className="button-secondary"
+                  disabledTitle="Load small-variant genotypes to run sample-integrity QC."
+                >
+                  Sample QC
+                </VariantWorkspaceLink>
+                <VariantWorkspaceLink
                   active={hasVariantSummary}
                   to={`/families/${data.family_id}/variant-summary`}
                   className="button-secondary"

@@ -11269,6 +11269,53 @@ a.button-danger:hover {
   margin-top: 1rem;
 }
 
+.qc-overall {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.qc-overall-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.qc-overall--fail {
+  border-left: 3px solid var(--color-signature-red);
+}
+
+.qc-overall--warn {
+  border-left: 3px solid #b47d2d;
+}
+
+.qc-overall--pass {
+  border-left: 3px solid #356f53;
+}
+
+.qc-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid rgba(10, 11, 12, 0.06);
+}
+
+.qc-check-row:first-of-type {
+  border-top: none;
+}
+
+.qc-check-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.qc-check-title {
+  margin: 0;
+  font-weight: 600;
+}
+
 .report-paragraph {
   margin: 0;
   font-size: 0.92rem;
