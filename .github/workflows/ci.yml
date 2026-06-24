@@ -48,6 +48,13 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 20
       clickhouse:
         image: clickhouse/clickhouse-server:25.3
+        env:
+          # 25.3 rejects the empty-password default user; provision a real one
+          # (matching the app env below) so authentication succeeds.
+          CLICKHOUSE_DB: coga
+          CLICKHOUSE_USER: coga
+          CLICKHOUSE_PASSWORD: coga
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
         ports:
           - 8123:8123
           - 9000:9000
@@ -65,8 +72,8 @@ jobs:
       CLICKHOUSE_HOST: localhost
       CLICKHOUSE_HTTP_PORT: "8123"
       CLICKHOUSE_DATABASE: coga
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_USER: coga
+      CLICKHOUSE_PASSWORD: coga
       ADMIN_EMAIL: admin@example.com
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: ci-admin-not-a-real-secret
