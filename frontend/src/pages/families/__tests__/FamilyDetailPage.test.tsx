@@ -633,7 +633,11 @@ describe('FamilyDetailPage', () => {
     );
 
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText('Carrier status for S1'), { target: { value: 'carrier' } });
+    // The structure-editor form renders a tick after the family name; await its
+    // first control so the test does not race it on slower CI runners.
+    fireEvent.change(await screen.findByLabelText('Carrier status for S1'), {
+      target: { value: 'carrier' },
+    });
     fireEvent.change(screen.getByLabelText('New member sample ID'), { target: { value: 'S2' } });
     fireEvent.change(screen.getByLabelText('New member sex'), { target: { value: 'female' } });
     fireEvent.click(screen.getByRole('button', { name: /add member/i }));
