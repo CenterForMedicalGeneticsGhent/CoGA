@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -9,6 +9,28 @@ import { createTestQueryClient } from '../../../test/createTestQueryClient';
 const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
 
 vi.mock('../../../lib/api', () => ({ default: apiMock }));
+
+const TRIO_FAMILY = {
+  family_id: 'FAM1',
+  members: [
+    { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
+    { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
+    { sample_id: 'CHILD', role: 'proband', affected: true, sex: 'male' },
+  ],
+  relationships: [
+    { id: 'r1', relationship_type: 'parent_child', sample_id_a: 'FATHER', sample_id_b: 'CHILD', role_a: 'father' },
+    { id: 'r2', relationship_type: 'parent_child', sample_id_a: 'MOTHER', sample_id_b: 'CHILD', role_a: 'mother' },
+  ],
+  pedigree: null,
+};
+
+const mockApi = (qcData: unknown, family: unknown = TRIO_FAMILY) => {
+  apiMock.get.mockImplementation((url: string) => {
+    if (url === '/families/FAM1/qc/sample-integrity') return Promise.resolve({ data: qcData });
+    if (url === '/families/FAM1') return Promise.resolve({ data: family });
+    return Promise.resolve({ data: {} });
+  });
+};
 
 const renderPage = () => {
   const queryClient = createTestQueryClient();
@@ -24,101 +46,116 @@ const renderPage = () => {
 };
 
 describe('FamilySampleQcPage', () => {
-  it('renders the three QC sections and surfaces a failing swap', async () => {
-    apiMock.get.mockResolvedValue({
-      data: {
-        family_id: 'FAM1',
-        overall_status: 'fail',
-        application: 'wgs',
-        application_label: 'Long-read WGS family',
-        application_summary: 'Full pedigree QC on the SNV call set.',
-        genotype_source: 'clair3',
-        paternity_check: null,
-        autosomal_sites: 90000,
-        notes: [],
-        sex_checks: [
-          {
-            sample_id: 'CHILD',
-            recorded_sex: 'male',
-            inferred_sex: 'female',
-            x_het_rate: 0.3,
-            x_sites: 500,
-            status: 'fail',
-            message: 'Recorded male but genotypes indicate female — possible sample swap.',
-          },
-        ],
-        relatedness_checks: [
-          {
-            sample_a: 'CHILD',
-            sample_b: 'FATHER',
-            expected_relationship: 'parent-child',
-            inferred_relationship: 'unrelated',
-            kinship: 0.01,
-            ibs0_rate: 0.18,
-            informative_sites: 80000,
-            status: 'fail',
-            message: 'Recorded parent-child but genotypes look unrelated.',
-          },
-        ],
-        mendelian_checks: [
-          {
-            child: 'CHILD',
-            parents: ['FATHER', 'MOTHER'],
-            informative_sites: 80000,
-            mendel_errors: 12000,
-            mendel_rate: 0.15,
-            status: 'fail',
-            message: 'High Mendelian-error rate — likely swap or wrong parent.',
-          },
-        ],
-      },
+  it('draws the pedigree with failed QC rings, a colour-coded table and a relatedness matrix', async () => {
+    mockApi({
+      family_id: 'FAM1',
+      overall_status: 'fail',
+      application: 'wgs',
+      application_label: 'Long-read WGS family',
+      application_summary: 'Full pedigree QC on the SNV call set.',
+      genotype_source: 'clair3',
+      paternity_check: null,
+      autosomal_sites: 90000,
+      notes: [],
+      sex_checks: [
+        {
+          sample_id: 'CHILD',
+          recorded_sex: 'male',
+          inferred_sex: 'female',
+          x_het_rate: 0.3,
+          x_sites: 500,
+          status: 'fail',
+          message: 'Recorded male but genotypes indicate female — possible sample swap.',
+        },
+      ],
+      relatedness_checks: [
+        {
+          sample_a: 'CHILD',
+          sample_b: 'FATHER',
+          expected_relationship: 'parent-child',
+          inferred_relationship: 'unrelated',
+          kinship: 0.01,
+          ibs0_rate: 0.18,
+          informative_sites: 80000,
+          status: 'fail',
+          message: 'Recorded parent-child but genotypes look unrelated.',
+        },
+      ],
+      mendelian_checks: [
+        {
+          child: 'CHILD',
+          parents: ['FATHER', 'MOTHER'],
+          informative_sites: 80000,
+          mendel_errors: 12000,
+          mendel_rate: 0.15,
+          status: 'fail',
+          message: 'High Mendelian-error rate — likely swap or wrong parent.',
+        },
+      ],
     });
 
-    renderPage();
+    const { container } = renderPage();
 
-    expect(
-      await screen.findByRole('heading', { name: /family FAM1/i }),
-    ).toBeInTheDocument();
-    // The three section headings render.
-    expect(screen.getByText('Sex concordance')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /family FAM1/i })).toBeInTheDocument();
+    // Pedigree renders and rings CHILD red (failed sex + Mendelian + relatedness).
+    expect(screen.getByText('Pedigree & sample integrity')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-qc-ring="CHILD"][data-qc-status="fail"]'),
+      ).toBeTruthy(),
+    );
+    // Sample table colour-codes the genotype sex mismatch and shows the Mendelian rate.
+    expect(screen.getByText('Family members & per-sample checks')).toBeInTheDocument();
+    const mismatch = container.querySelector('.qc-genotype-sex--mismatch');
+    expect(mismatch?.textContent).toMatch(/female/);
+    expect(container.querySelector('.qc-mendel--fail')?.textContent).toMatch(/15\.00%/);
+    // Relatedness association matrix renders the observed relationship, flagged as an error.
     expect(screen.getByText('Relatedness vs pedigree')).toBeInTheDocument();
-    expect(screen.getByText('Mendelian-error rate')).toBeInTheDocument();
-    // The swap surfaces across all three checks.
-    expect(screen.getAllByText('Fail').length).toBeGreaterThanOrEqual(3);
-    expect(
-      screen.getByText(/CHILD ↔ FATHER — expected parent-child, observed unrelated/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/CHILD vs FATHER \+ MOTHER — 15\.00% errors/)).toBeInTheDocument();
+    // Symmetric matrix: the observed relationship shows in both mirror cells.
+    expect(screen.getAllByText('unrelated').length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector('.qc-matrix-cell--fail')).toBeTruthy();
   });
 
-  it('shows an all-clear overall status when checks pass', async () => {
-    apiMock.get.mockResolvedValue({
-      data: {
-        family_id: 'FAM1',
-        overall_status: 'pass',
-        application: 'wgs',
-        application_label: 'Long-read WGS family',
-        application_summary: 'Full pedigree QC on the SNV call set.',
-        genotype_source: 'clair3',
-        paternity_check: null,
-        autosomal_sites: 90000,
-        notes: [],
-        sex_checks: [],
-        relatedness_checks: [],
-        mendelian_checks: [],
-      },
+  it('shows an all-clear overall status and green rings when checks pass', async () => {
+    mockApi({
+      family_id: 'FAM1',
+      overall_status: 'pass',
+      application: 'wgs',
+      application_label: 'Long-read WGS family',
+      application_summary: 'Full pedigree QC on the SNV call set.',
+      genotype_source: 'clair3',
+      paternity_check: null,
+      autosomal_sites: 90000,
+      notes: [],
+      sex_checks: [
+        {
+          sample_id: 'CHILD',
+          recorded_sex: 'male',
+          inferred_sex: 'male',
+          x_het_rate: 0.01,
+          x_sites: 500,
+          status: 'pass',
+          message: 'Genotype sex matches the record.',
+        },
+      ],
+      relatedness_checks: [],
+      mendelian_checks: [],
     });
 
-    renderPage();
+    const { container } = renderPage();
 
-    expect(
-      await screen.findByText(/All sample-integrity checks passed/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/All sample-integrity checks passed/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-qc-ring="CHILD"][data-qc-status="pass"]'),
+      ).toBeTruthy(),
+    );
+    expect(container.querySelector('.qc-genotype-sex--match')?.textContent).toMatch(/male/);
   });
 
-  it('adapts to the NIPT application: shows paternity, hides genotype sections', async () => {
-    apiMock.get.mockResolvedValue({
-      data: {
+  it('adapts to NIPT: paternity + fetal sex cards, no genotype table or matrix', async () => {
+    mockApi(
+      {
         family_id: 'FAM1',
         overall_status: 'pass',
         application: 'nipt',
@@ -147,7 +184,17 @@ describe('FamilySampleQcPage', () => {
         autosomal_sites: 0,
         notes: [],
       },
-    });
+      {
+        family_id: 'FAM1',
+        members: [
+          { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
+          { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
+          { sample_id: 'CFDNA', role: 'proband', affected: false, sex: 'unknown' },
+        ],
+        relationships: [],
+        pedigree: null,
+      },
+    );
 
     renderPage();
 
@@ -155,9 +202,8 @@ describe('FamilySampleQcPage', () => {
     expect(screen.getByText(/Father FATHER — 40 paternal-transmitted/)).toBeInTheDocument();
     expect(screen.getByText('Fetal sex (paternal X transmission)')).toBeInTheDocument();
     expect(screen.getByText(/Fetus appears female — 12 paternal-X transmitted/)).toBeInTheDocument();
-    // Genotype-based sections are not rendered for the cfDNA application.
-    expect(screen.queryByText('Sex concordance')).not.toBeInTheDocument();
+    // Genotype-based table and matrix do not render for the cfDNA application.
+    expect(screen.queryByText('Family members & per-sample checks')).not.toBeInTheDocument();
     expect(screen.queryByText('Relatedness vs pedigree')).not.toBeInTheDocument();
-    expect(screen.queryByText('Mendelian-error rate')).not.toBeInTheDocument();
   });
 });

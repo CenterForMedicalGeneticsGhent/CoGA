@@ -245,3 +245,25 @@ test('keeps multi-partner complex pedigrees from overlapping nodes', async () =>
     }
   }
 });
+
+test('rings each node with its QC status colour and a tooltip', async () => {
+  const { container } = render(
+    <Pedigree
+      rows={baseRows}
+      qcStatusBySample={{
+        DAD: { status: 'fail', label: 'Sex mismatch: recorded male, genotypes female' },
+        MOM: { status: 'pass', label: 'Sex female (matches record)' },
+      }}
+    />
+  );
+  await svgWidth(container);
+
+  const dadRing = container.querySelector('[data-qc-ring="DAD"]');
+  expect(dadRing?.getAttribute('data-qc-status')).toBe('fail');
+  expect(dadRing?.getAttribute('stroke')).toBe('#dc2626');
+  expect(dadRing?.querySelector('title')?.textContent).toMatch(/Sex mismatch/);
+
+  const momRing = container.querySelector('[data-qc-ring="MOM"]');
+  expect(momRing?.getAttribute('data-qc-status')).toBe('pass');
+  expect(momRing?.getAttribute('stroke')).toBe('#16a34a');
+});

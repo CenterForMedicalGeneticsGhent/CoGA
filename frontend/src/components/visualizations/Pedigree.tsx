@@ -29,6 +29,11 @@ interface PedigreeRelationship {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface PedigreeQcStatus {
+  status: 'pass' | 'warn' | 'fail';
+  label?: string;
+}
+
 interface Props {
   rows: PedRow[];
   members?: PedigreeMember[];
@@ -36,7 +41,16 @@ interface Props {
   inheritanceModel?: string | null;
   phenotypeSampleIds?: string[];
   highlightedSampleIds?: string[];
+  // Per-sample QC roll-up drawn as a coloured ring around the node: green = pass,
+  // amber = warn, red (emphasised) = fail. The optional label becomes a tooltip.
+  qcStatusBySample?: Record<string, PedigreeQcStatus>;
 }
+
+const QC_RING_COLORS: Record<PedigreeQcStatus['status'], string> = {
+  pass: '#16a34a',
+  warn: '#d97706',
+  fail: '#dc2626',
+};
 
 type ParentInfo = {
   father?: string;
@@ -1002,6 +1016,7 @@ const Pedigree: React.FC<Props> = ({
   inheritanceModel,
   phenotypeSampleIds = [],
   highlightedSampleIds = [],
+  qcStatusBySample = {},
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -1275,6 +1290,23 @@ const Pedigree: React.FC<Props> = ({
 
       appendCarrierFill();
 
+      const qc = qcStatusBySample[row.iid];
+      if (qc) {
+        const ring = group
+          .append('circle')
+          .attr('data-qc-ring', row.iid)
+          .attr('data-qc-status', qc.status)
+          .attr('cx', 0)
+          .attr('cy', 0)
+          .attr('r', NODE_SIZE / 2 + 5)
+          .attr('fill', 'none')
+          .attr('stroke', QC_RING_COLORS[qc.status])
+          .attr('stroke-width', qc.status === 'fail' ? 3.2 : 2);
+        if (qc.label) {
+          ring.append('title').text(qc.label);
+        }
+      }
+
       if (hasPhenotypeAnnotation) {
         group
           .append('circle')
@@ -1297,7 +1329,7 @@ const Pedigree: React.FC<Props> = ({
         .attr('font-size', member?.role === 'embryo' ? 7 : 8)
         .text(row.iid);
     });
-  }, [rows, members, relationships, inheritanceModel, phenotypeSampleIds, highlightedSampleIds]);
+  }, [rows, members, relationships, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
 
   return <svg ref={svgRef} className="pedigree-svg" />;
 };
