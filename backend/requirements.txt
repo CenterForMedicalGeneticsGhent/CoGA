@@ -11,7 +11,7 @@ greenlet>=3.5.2
 asyncpg
 clickhouse-connect[async]>=0.15.1,<2
 pydantic[email]>=2
-pydantic-settings>=2
+pydantic-settings>=2.14.2
 python-jose[cryptography]
 passlib[bcrypt]==1.7.4
 # pin bcrypt to avoid incompatibilities with passlib
