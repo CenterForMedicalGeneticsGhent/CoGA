@@ -15,6 +15,18 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext, 
 from backend.app.services.metadata_service import CurrentUser
 
 
+@pytest.fixture(autouse=True)
+def _authorize_tmp_import_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Authorize the per-test temp dir as a family-import root.
+
+    Package validation/import rejects paths outside ``FAMILY_IMPORT_ROOTS``
+    (default ``/data/families``); these tests build packages under pytest's
+    ``tmp_path``, so point the configured root at it (mirrors
+    ``test_nipt_package_import``).
+    """
+    monkeypatch.setattr(package_import.settings, "family_import_roots", [str(tmp_path)])
+
+
 def _write_minimal_package(root: Path, *, family_id: str | None = None) -> None:
     resolved_family_id = family_id or root.name
     root.mkdir(parents=True, exist_ok=True)

@@ -68,7 +68,9 @@ class VepAnnotationLookup:
     conn: sqlite3.Connection | None = None
     temp_path: str | None = None
 
-    def get(self, variant_id: str, chrom: str, start: int, alt: str) -> list[dict[str, Any]] | None:
+    def get(
+        self, variant_id: str, chrom: str, start: int, ref: str, alt: str
+    ) -> list[dict[str, Any]] | None:
         if self.conn is None:
             return None
         rows = self.conn.execute(
@@ -77,7 +79,13 @@ class VepAnnotationLookup:
         ).fetchall()
         if rows:
             return [json.loads(row[0]) for row in rows]
-        locus_key = f"{chrom}:{start}:{alt}"
+        # VEP left-aligns/trims indels, so its reported coordinate (and the
+        # Uploaded_variation behind ``variant_id``) is shifted relative to the VCF
+        # POS. Fall back to VEP's normalized Location + Allele representation, which
+        # we can reconstruct from the VCF allele without a reference genome.
+        locus_key = _vep_location_allele_key(chrom, start, ref, alt)
+        if locus_key is None:
+            return None
         rows = self.conn.execute(
             "SELECT annotation_json FROM annotations WHERE key_type = ? AND key_value = ?",
             ("locus_allele", locus_key),
@@ -186,6 +194,38 @@ def _parse_vep_location(value: str) -> tuple[str, int] | None:
         return None
 
 
+def _vep_location_allele_key(chrom: str, pos: int, ref: str, alt: str) -> str | None:
+    """Reproduce VEP's ``{chrom}:{location}:{allele}`` for a VCF allele.
+
+    VEP normalizes (left-aligns and trims the shared anchor base) before
+    reporting a variant, so for indels its Location/Allele — and the
+    Uploaded_variation it derives — sit at a different coordinate than the VCF
+    POS. A VCF insertion ``A>AT`` is reported with Allele ``T`` and a deletion
+    ``AC>A`` with Allele ``-`` at the shifted position. Reconstructing the same
+    key here (no reference genome required) lets the annotation join find indels
+    that the exact ``variant_id`` match misses.
+    """
+    if not ref or not alt:
+        return None
+    # Trim any shared suffix, keeping at least one base on each side.
+    while len(ref) > 1 and len(alt) > 1 and ref[-1] == alt[-1]:
+        ref, alt = ref[:-1], alt[:-1]
+    prefix = 0
+    while prefix < len(ref) and prefix < len(alt) and ref[prefix] == alt[prefix]:
+        prefix += 1
+    ref_rem, alt_rem = ref[prefix:], alt[prefix:]
+    if not ref_rem and alt_rem:
+        # Insertion: bases inserted just after the last shared base.
+        return f"{chrom}:{pos + prefix - 1}:{alt_rem}"
+    if ref_rem and not alt_rem:
+        # Deletion: VEP marks the deleted span with a dash allele.
+        return f"{chrom}:{pos + prefix}:-"
+    if alt_rem:
+        # SNV / MNV / substitution.
+        return f"{chrom}:{pos + prefix}:{alt_rem}"
+    return None
+
+
 def _sqlite_annotation_lookup() -> VepAnnotationLookup:
     temp_file = tempfile.NamedTemporaryFile(prefix="coga-vep-", suffix=".sqlite3", delete=False)
     temp_file.close()
@@ -241,6 +281,8 @@ def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
 
         uploaded = _parse_vep_uploaded_variation(row.get("Uploaded_variation", ""))
         allele = row.get("Allele") or None
+        location = _parse_vep_location(row.get("Location", ""))
+
         if uploaded is not None:
             chrom, start, ref, alt = uploaded
             if ref and alt:
@@ -250,31 +292,31 @@ def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
                     key_value=build_small_variant_id(chrom, start, ref, alt),
                     annotation=annotation,
                 )
-            if allele:
-                _store_vep_annotation(
-                    lookup,
-                    key_type="locus_allele",
-                    key_value=f"{chrom}:{start}:{allele}",
-                    annotation=annotation,
-                )
-            elif alt:
-                _store_vep_annotation(
-                    lookup,
-                    key_type="locus_allele",
-                    key_value=f"{chrom}:{start}:{alt}",
-                    annotation=annotation,
-                )
-            continue
 
-        location = _parse_vep_location(row.get("Location", ""))
+        # Index by VEP's normalized Location + Allele. VEP shifts/trims indels, so
+        # the Uploaded_variation position differs from the VCF POS; keying on the
+        # Location column (not the Uploaded_variation position) is what lets the
+        # join recover indels — see _vep_location_allele_key for the lookup side.
         if location is not None and allele:
-            chrom, start = location
+            loc_chrom, loc_start = location
             _store_vep_annotation(
                 lookup,
                 key_type="locus_allele",
-                key_value=f"{chrom}:{start}:{allele}",
+                key_value=f"{loc_chrom}:{loc_start}:{allele}",
                 annotation=annotation,
             )
+        elif uploaded is not None:
+            # No usable Location column: fall back to the Uploaded_variation
+            # position (correct for SNVs, the best available for indels).
+            chrom, start, ref, alt = uploaded
+            fallback_allele = allele or alt
+            if fallback_allele:
+                _store_vep_annotation(
+                    lookup,
+                    key_type="locus_allele",
+                    key_value=f"{chrom}:{start}:{fallback_allele}",
+                    annotation=annotation,
+                )
 
     if header is None:
         lookup.close()
@@ -1051,7 +1093,7 @@ async def upload_family_small_variant_file(
             info = _parse_info(info_field)
             variant_id = build_small_variant_id(chrom, start, ref, alt)
             annotations = (
-                vep_annotations.get(variant_id, chrom, start, alt)
+                vep_annotations.get(variant_id, chrom, start, ref, alt)
                 if vep_annotations
                 else None
             ) or extract_small_variant_annotations(info, annotation_state)

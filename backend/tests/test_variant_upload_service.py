@@ -15,6 +15,7 @@ from backend.app.services.variant_upload_service import (
     _parse_qual,
     _parse_vep_tsv_annotation_upload,
     _phased_haplotype_alleles,
+    _vep_location_allele_key,
 )
 
 
@@ -472,11 +473,49 @@ def test_parse_vep_tsv_annotation_upload_indexes_by_variant_id_and_locus_allele(
     try:
         variant_id = build_small_variant_id("1", 101, "A", "G")
         assert lookup.row_count == 1
-        by_id = lookup.get(variant_id, "1", 101, "G")
+        by_id = lookup.get(variant_id, "1", 101, "A", "G")
         assert by_id is not None and by_id[0]["gene"] == "GENE1"
         # A non-matching variant_id falls back to the (chrom, start, allele) index.
-        by_locus = lookup.get("no-such-variant", "1", 101, "G")
+        by_locus = lookup.get("no-such-variant", "1", 101, "A", "G")
         assert by_locus is not None and by_locus[0]["effect"] == "missense_variant"
+    finally:
+        lookup.close()
+
+
+def test_vep_location_allele_key_normalizes_indels() -> None:
+    # SNV: position and alt allele are unchanged.
+    assert _vep_location_allele_key("1", 101, "A", "G") == "1:101:G"
+    # Insertion A>AT: VEP strips the shared anchor, allele "T" at the same start.
+    assert _vep_location_allele_key("1", 10084, "C", "CT") == "1:10084:T"
+    assert _vep_location_allele_key("1", 10095, "C", "CCT") == "1:10095:CT"
+    # Deletion AC>A: dash allele at the shifted (post-anchor) position.
+    assert _vep_location_allele_key("1", 10146, "AC", "A") == "1:10147:-"
+    assert _vep_location_allele_key("1", 10807, "CTAG", "C") == "1:10808:-"
+    # Shared suffix is trimmed before classifying (CAT>CGT is a SNV at 102).
+    assert _vep_location_allele_key("1", 101, "CAT", "CGT") == "1:102:G"
+
+
+def test_parse_vep_tsv_annotation_upload_matches_indels_by_normalized_locus() -> None:
+    # VEP left-aligns/trims indels, so the Uploaded_variation position is shifted
+    # off the VCF POS: the insertion VCF 10084 C>CT is reported at 10085 with
+    # Location 10084-10085 / Allele "T", and the deletion VCF 10146 AC>A at
+    # Location 10147 / Allele "-". The exact variant_id lookup therefore misses
+    # and the normalized Location+Allele fallback must recover both.
+    lookup = _parse_vep_tsv_annotation_upload(
+        _vep_upload(
+            "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence\tIMPACT\tSYMBOL\tCANONICAL\n"
+            "chr1_10085_C/CT\tchr1:10084-10085\tT\tENSG1\tENST1\tTranscript\tintron_variant\tMODIFIER\tGENE1\tYES\n"
+            "chr1_10147_AC/A\tchr1:10147\t-\tENSG2\tENST2\tTranscript\tframeshift_variant\tHIGH\tGENE2\tYES\n"
+        )
+    )
+    try:
+        ins_id = build_small_variant_id("1", 10084, "C", "CT")
+        insertion = lookup.get(ins_id, "1", 10084, "C", "CT")
+        assert insertion is not None and insertion[0]["gene"] == "GENE1"
+
+        del_id = build_small_variant_id("1", 10146, "AC", "A")
+        deletion = lookup.get(del_id, "1", 10146, "AC", "A")
+        assert deletion is not None and deletion[0]["effect"] == "frameshift_variant"
     finally:
         lookup.close()
 
@@ -491,7 +530,7 @@ def test_parse_vep_tsv_annotation_upload_only_marks_true_mane_flags() -> None:
     )
     try:
         variant_id = build_small_variant_id("1", 101, "A", "G")
-        annotations = lookup.get(variant_id, "1", 101, "G")
+        annotations = lookup.get(variant_id, "1", 101, "A", "G")
         assert annotations is not None and len(annotations) == 2
         assert annotations[0].get("mane_select") is True
         assert "mane_select" not in annotations[1]
