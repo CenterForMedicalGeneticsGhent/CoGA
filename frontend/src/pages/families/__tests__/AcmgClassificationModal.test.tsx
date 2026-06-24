@@ -30,7 +30,7 @@ const variant: SmallVariant = {
 };
 
 function renderModal(
-  onSave: ReturnType<typeof vi.fn> = vi.fn(async () => undefined),
+  onSave: (payload: SmallVariantReviewSavePayload) => Promise<void> = vi.fn(async () => undefined),
 ) {
   const client = createTestQueryClient();
   render(
@@ -105,7 +105,7 @@ describe('AcmgClassificationModal', () => {
     await user.click(screen.getByRole('button', { name: /save classification/i }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    const payload = onSave.mock.calls[0][0] as SmallVariantReviewSavePayload;
+    const payload = vi.mocked(onSave).mock.calls[0][0] as SmallVariantReviewSavePayload;
     // PVS1 (8) + PM2 (1) = 9 → Likely Pathogenic (class 4).
     expect(payload.classification).toBe('Likely Pathogenic - class 4');
     expect(payload.tags).toContain('acmg_class_4');
@@ -127,7 +127,7 @@ describe('AcmgClassificationModal', () => {
       hgvsp: 'p.Ala67Gly',
       genotypes: [],
     };
-    const onSave: ReturnType<typeof vi.fn> = vi.fn(async () => undefined);
+    const onSave: (payload: SmallVariantReviewSavePayload) => Promise<void> = vi.fn(async () => undefined);
     const client = createTestQueryClient();
     render(
       <QueryClientProvider client={client}>
@@ -142,7 +142,7 @@ describe('AcmgClassificationModal', () => {
 
     await user.click(screen.getByRole('button', { name: /save classification/i }));
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    const payload = onSave.mock.calls[0][0] as SmallVariantReviewSavePayload;
+    const payload = vi.mocked(onSave).mock.calls[0][0] as SmallVariantReviewSavePayload;
     expect(payload.tags).toContain('acmg_class_3');
     expect(payload.tags).toContain('acmg_vus_cold');
     expect(payload.acmg?.vus_tier).toBe('cold');
