@@ -4,12 +4,14 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
-import type {
-  ApiNiptCoverageLowRegion,
-  ApiNiptCoverageSummary,
-  ApiNiptSummary,
-  NiptLowCoverageReason,
-} from '../../lib/apiTypes';
+import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
+import {
+  CATEGORY_LABELS,
+  depth,
+  lowCoverageChipClass,
+  lowCoverageDetail,
+  pct,
+} from './niptClassification';
 import {
   buildPresetPayload,
   NIPT_BUILT_IN_PRESETS,
@@ -41,17 +43,6 @@ import SmallVariantResults from './SmallVariantResults';
 const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 const PAGE_SIZE = 50;
 
-const CATEGORY_LABELS: Record<number, string> = {
-  1: 'De novo in fetus',
-  2: 'Maternal het, not inherited',
-  3: 'Maternal het, inherited',
-  4: 'Maternal het → hom fetus',
-  5: 'Maternal hom, het fetus',
-  6: 'Maternal & fetal hom',
-  7: 'Paternal, transmitted',
-  8: 'Paternal hom-alt, absent (FN)',
-};
-
 // `categories` is ticked in the category checkboxes when the preset is picked.
 // Recessive groups by gene (no single category), so it clears them; "Any" leaves
 // whatever is checked.
@@ -69,23 +60,6 @@ const FILTER_STEPS: { key: string; label: string }[] = [
   { key: 'failed_artifact', label: 'Artifact-filtered' },
   { key: 'passed', label: 'Analysed' },
 ];
-
-const pct = (value?: number | null): string =>
-  value == null ? '—' : `${(value * 100).toFixed(1)}%`;
-
-const depth = (value?: number | null): string =>
-  value == null ? '—' : `${value.toFixed(0)}x`;
-
-// Short, hover-able reason for why a panel gene failed the coverage QC check.
-const lowCoverageDetail = (region: ApiNiptCoverageLowRegion): string => {
-  if (region.reason === 'no_coverage') return 'no coverage';
-  if (region.reason === 'partial_coverage')
-    return `${Math.round(region.covered_fraction * 100)}% of target covered`;
-  return `${depth(region.median_coverage)} median`;
-};
-
-const lowCoverageChipClass = (reason: NiptLowCoverageReason): string =>
-  `table-chip ${reason === 'no_coverage' ? 'table-chip--critical' : 'table-chip--warning'}`;
 
 // Serialize repeated params (category/impact/effect/clinvar arrays) as
 // `key=a&key=b`, which the FastAPI `Query(None)` list params expect.
@@ -390,6 +364,17 @@ const FamilyNiptPage: React.FC = () => {
   const totalVariants = variantPage?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(totalVariants / PAGE_SIZE));
 
+  // Carry the active panel / gene / project context into the report so its
+  // coverage QC and candidate list match what the analyst is viewing.
+  const niptReportQuerySuffix = (() => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('project_id', projectId);
+    if (filters.panel_id) params.set('panel_id', filters.panel_id);
+    if (filters.gene.trim()) params.set('gene', filters.gene.trim());
+    const query = params.toString();
+    return query ? `?${query}` : '';
+  })();
+
   return (
     <div className="page-shell analysis-shell">
       <section className="surface-card page-top-card variant-workbench-card">
@@ -430,6 +415,12 @@ const FamilyNiptPage: React.FC = () => {
               <div className="inline-actions">
                 <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
                   Family
+                </Link>
+                <Link
+                  to={`/families/${familyId}/nipt/report${niptReportQuerySuffix}`}
+                  className="button-secondary hover:no-underline"
+                >
+                  Report
                 </Link>
               </div>
             </div>
