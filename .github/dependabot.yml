@@ -1,0 +1,36 @@
+version: 2
+
+# Keeps backend (pip), frontend (npm) and CI (github-actions) dependencies
+# current. With CI now running on every PR, each bump is tested automatically —
+# so a breaking major (e.g. the Starlette 1.x bump that broke /api routing)
+# shows up as a reviewable red PR instead of a surprise on the next rebuild.
+#
+# Noise control: minor/patch updates are grouped into a single weekly PR per
+# ecosystem; majors come as their own PR so they get reviewed on their own.
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      backend-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        update-types: ["minor", "patch"]
