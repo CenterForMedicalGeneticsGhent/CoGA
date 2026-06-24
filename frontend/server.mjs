@@ -3,6 +3,8 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
+import { rewriteProxyLocation } from './proxyLocation.mjs';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -52,9 +54,17 @@ app.use('/api', async (req, res) => {
     const upstream = await fetch(targetUrl, requestInit);
     res.status(upstream.status);
     upstream.headers.forEach((value, name) => {
-      if (!hopByHopHeaders.has(name.toLowerCase())) {
-        res.setHeader(name, value);
+      if (hopByHopHeaders.has(name.toLowerCase())) {
+        return;
       }
+      // A redirect Location built from the internal backend host (backend:8000)
+      // is unreachable from the browser; rewrite it to a same-origin path so the
+      // browser follows the redirect back through this proxy.
+      if (name.toLowerCase() === 'location') {
+        res.setHeader(name, rewriteProxyLocation(value, BACKEND_URL));
+        return;
+      }
+      res.setHeader(name, value);
     });
 
     if (!upstream.body) {

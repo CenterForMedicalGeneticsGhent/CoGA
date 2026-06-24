@@ -29,5 +29,6 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.mjs ./server.mjs
+COPY --from=build /app/proxyLocation.mjs ./proxyLocation.mjs
 EXPOSE 3000
 CMD ["node", "server.mjs"]
