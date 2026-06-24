@@ -304,12 +304,38 @@ export interface ApiSampleIntegrityMendelianCheck {
   message: string;
 }
 
+export interface ApiSampleIntegrityPaternityCheck {
+  father: string;
+  cat7_transmitted: number;
+  cat8_absent: number;
+  informative_sites: number;
+  status: QcStatus;
+  message: string;
+}
+
+export interface ApiSampleIntegrityFetalSexCheck {
+  inferred_sex: string;
+  x_transmitted: number;
+  x_not_transmitted: number;
+  informative_sites: number;
+  status: QcStatus;
+  message: string;
+}
+
+export type SampleQcApplication = 'wgs' | 'pgt' | 'nipt' | 'couple' | 'single' | 'unknown';
+
 export interface ApiSampleIntegrityQc {
   family_id: string;
   overall_status: QcStatus;
+  application: SampleQcApplication;
+  application_label: string;
+  application_summary: string;
+  genotype_source?: string | null;
   sex_checks: ApiSampleIntegritySexCheck[];
   relatedness_checks: ApiSampleIntegrityRelatednessCheck[];
   mendelian_checks: ApiSampleIntegrityMendelianCheck[];
+  paternity_check?: ApiSampleIntegrityPaternityCheck | null;
+  fetal_sex_check?: ApiSampleIntegrityFetalSexCheck | null;
   autosomal_sites: number;
   notes: string[];
 }

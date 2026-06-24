@@ -3701,12 +3701,15 @@ async def fetch_imputed_phased_genotypes(
     start: int,
     end: int,
     limit: int,
+    source: str | None = "glimpse2",
 ) -> list[tuple[int, str, str, list[str], list[str]]]:
-    """Lean, family-scoped fetch of imputed (GLIMPSE2) variant positions, the
-    ref/alt alleles, and the per-sample phased genotype strings in a region — no
-    annotation hydration, so it stays cheap even for tens of thousands of sites.
-    Used by the phased-marker parent-of-origin computation and relative haplotype
-    colouring. Each row is ``(pos, ref, alt, sample_ids, gts)``."""
+    """Lean, family-scoped fetch of variant positions, the ref/alt alleles, and
+    the per-sample genotype strings in a region — no annotation hydration, so it
+    stays cheap even for tens of thousands of sites. Used by the phased-marker
+    parent-of-origin computation, relative haplotype colouring (``source=glimpse2``,
+    phased ``0|1``) and sample-integrity QC (which also reads ``clair3`` SNVs,
+    unphased ``0/1``). Pass ``source=None`` to read across all callsets. Each row
+    is ``(pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
     filters = SmallVariantQueryFilters(
@@ -3715,7 +3718,7 @@ async def fetch_imputed_phased_genotypes(
         chromosome=chrom,
         start=start,
         end=end,
-        source="glimpse2",
+        source=source,
         overlap=True,
     )
     where_clauses, params, _ = _small_query_filter_parts(context, filters)
@@ -3734,6 +3737,25 @@ async def fetch_imputed_phased_genotypes(
         (int(row[0]), str(row[1]), str(row[2]), [str(s) for s in row[3]], [str(g) for g in row[4]])
         for row in rows
     ]
+
+
+async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[str]:
+    """Distinct small-variant callset ``source`` values for the family (e.g.
+    ``glimpse2``, ``clair3``). Lets sample-integrity QC pick the right genotype
+    source for the application without hard-coding it."""
+    if not context.assembly_name:
+        return []
+    filters = SmallVariantQueryFilters(page=1, page_size=1)
+    where_clauses, params, _ = _small_query_filter_parts(context, filters)
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    query = f"""
+        SELECT DISTINCT e.source AS source
+        FROM {entries_table} AS e
+        WHERE {' AND '.join(where_clauses)}
+        LIMIT 50
+    """
+    rows = await _execute_clickhouse(query, params)
+    return [str(row[0]) for row in rows if row[0]]
 
 
 async def _fetch_structural_variant_rows(

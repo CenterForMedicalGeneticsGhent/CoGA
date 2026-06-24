@@ -49,7 +49,9 @@ from ..schemas import (
     NiptCoverageRegionOut,
     NiptCoverageSummaryOut,
     NiptFetalFractionOut,
+    SampleIntegrityFetalSexCheckOut,
     SampleIntegrityMendelianCheckOut,
+    SampleIntegrityPaternityCheckOut,
     SampleIntegrityQcOut,
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
@@ -1079,6 +1081,34 @@ async def get_family_sample_integrity_qc_endpoint(
     return SampleIntegrityQcOut(
         family_id=family_id,
         overall_status=report.overall_status,
+        application=report.application,
+        application_label=report.application_label,
+        application_summary=report.application_summary,
+        genotype_source=report.genotype_source,
+        paternity_check=(
+            SampleIntegrityPaternityCheckOut(
+                father=report.paternity_check.father,
+                cat7_transmitted=report.paternity_check.cat7_transmitted,
+                cat8_absent=report.paternity_check.cat8_absent,
+                informative_sites=report.paternity_check.informative_sites,
+                status=report.paternity_check.status,
+                message=report.paternity_check.message,
+            )
+            if report.paternity_check is not None
+            else None
+        ),
+        fetal_sex_check=(
+            SampleIntegrityFetalSexCheckOut(
+                inferred_sex=report.fetal_sex_check.inferred_sex,
+                x_transmitted=report.fetal_sex_check.x_transmitted,
+                x_not_transmitted=report.fetal_sex_check.x_not_transmitted,
+                informative_sites=report.fetal_sex_check.informative_sites,
+                status=report.fetal_sex_check.status,
+                message=report.fetal_sex_check.message,
+            )
+            if report.fetal_sex_check is not None
+            else None
+        ),
         sex_checks=[
             SampleIntegritySexCheckOut(
                 sample_id=check.sample_id,

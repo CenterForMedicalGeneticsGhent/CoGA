@@ -5,11 +5,17 @@ import random
 from backend.app.services.sample_integrity_qc import (
     PedigreeSpec,
     classify_relatedness,
+    evaluate_fetal_sex,
+    evaluate_paternity,
     evaluate_sample_integrity,
     infer_sex,
     king_relatedness,
     mendelian_stats,
+    profile_for,
+    resolve_application,
 )
+
+_WGS = profile_for("wgs")
 
 N_SITES = 4_000
 
@@ -146,7 +152,7 @@ def test_evaluate_clean_trio_passes() -> None:
         "CHILD": [(0, 0)] * N_SITES,
     }
     spec = _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"})
-    report = evaluate_sample_integrity(autosomal, x, spec)
+    report = evaluate_sample_integrity(autosomal, x, spec, profile=_WGS)
 
     assert report.overall_status == "pass"
     pc = [c for c in report.relatedness_checks if c.expected_relationship == "parent-child"]
@@ -160,7 +166,7 @@ def test_evaluate_swapped_child_fails_relatedness_and_mendel() -> None:
     stranger = _founder(random.Random(123))
     autosomal = {"FATHER": father, "MOTHER": mother, "CHILD": stranger}
     spec = _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"})
-    report = evaluate_sample_integrity(autosomal, {}, spec)
+    report = evaluate_sample_integrity(autosomal, {}, spec, profile=_WGS)
 
     assert report.overall_status == "fail"
     pc = [c for c in report.relatedness_checks if c.expected_relationship == "parent-child"]
@@ -174,9 +180,84 @@ def test_evaluate_sex_mismatch_fails() -> None:
     # CHILD genotypes on X are heterozygous (female-like) but recorded male.
     x = {"CHILD": _founder(random.Random(14))}
     spec = _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"})
-    report = evaluate_sample_integrity(autosomal, x, spec)
+    report = evaluate_sample_integrity(autosomal, x, spec, profile=_WGS)
 
     child_sex = next(c for c in report.sex_checks if c.sample_id == "CHILD")
     assert child_sex.inferred_sex == "female"
     assert child_sex.status == "fail"
     assert report.overall_status == "fail"
+
+
+# --- Application resolution + per-profile gating -----------------------------
+
+def test_resolve_application_per_input_shape() -> None:
+    assert resolve_application(analysis_type="monogenic_nipt", roles={}, parents_of={}, sample_count=3) == "nipt"
+    assert resolve_application(
+        analysis_type="", roles={"E1": "embryo", "F": "father", "M": "mother"},
+        parents_of={"E1": {"father": "F", "mother": "M"}}, sample_count=3,
+    ) == "pgt"
+    assert resolve_application(analysis_type="", roles={"A": "father", "B": "mother"}, parents_of={}, sample_count=2) == "couple"
+    assert resolve_application(analysis_type="", roles={"A": "proband"}, parents_of={}, sample_count=1) == "single"
+    assert resolve_application(
+        analysis_type="", roles={"P": "proband", "F": "father", "M": "mother"},
+        parents_of={"P": {"father": "F", "mother": "M"}}, sample_count=3,
+    ) == "wgs"
+
+
+def test_single_profile_runs_sex_only() -> None:
+    autosomal = {"S": _founder(random.Random(20))}
+    x = {"S": [(0, 0)] * N_SITES}
+    spec = PedigreeSpec(recorded_sex={"S": "male"}, parents_of={})
+    report = evaluate_sample_integrity(autosomal, x, spec, profile=profile_for("single"))
+    assert report.application == "single"
+    assert report.sex_checks and report.sex_checks[0].status == "pass"
+    assert report.relatedness_checks == [] and report.mendelian_checks == []
+
+
+def test_couple_profile_keeps_unrelated_confirmation_and_flags_relatedness() -> None:
+    rng = random.Random(21)
+    a = _founder(rng)
+    b = _founder(rng)  # independent -> unrelated
+    spec = PedigreeSpec(recorded_sex={"A": "male", "B": "female"}, parents_of={})
+    ok = evaluate_sample_integrity({"A": a, "B": b}, {}, spec, profile=profile_for("couple"))
+    # The expected-unrelated confirmation is kept (not suppressed) for couples.
+    assert len(ok.relatedness_checks) == 1
+    assert ok.relatedness_checks[0].inferred_relationship == "unrelated"
+    assert ok.relatedness_checks[0].status == "pass"
+    # A secretly-identical couple (sample mixup / consanguinity) is flagged.
+    dup = evaluate_sample_integrity({"A": a, "B": a}, {}, spec, profile=profile_for("couple"))
+    assert dup.relatedness_checks[0].status == "fail"
+    assert dup.overall_status == "fail"
+
+
+def test_nipt_profile_runs_no_genotype_checks() -> None:
+    # NIPT skips genotype sex/relatedness/Mendelian even if genotypes are passed.
+    father, mother, child = _trio(22)
+    autosomal = {"FATHER": father, "MOTHER": mother, "CHILD": child}
+    spec = _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"})
+    report = evaluate_sample_integrity(autosomal, {}, spec, profile=profile_for("nipt"))
+    assert report.application == "nipt"
+    assert report.sex_checks == []
+    assert report.relatedness_checks == []
+    assert report.mendelian_checks == []
+
+
+def test_evaluate_paternity_supported_vs_mixup() -> None:
+    # Plenty of cat-7 (paternal transmitted), little cat-8 absence -> paternity ok.
+    ok = evaluate_paternity("FATHER", {7: 40, 8: 2})
+    assert ok.status == "pass" and ok.cat7_transmitted == 40
+    # Paternal alleles essentially absent -> non-paternity / mixup.
+    bad = evaluate_paternity("FATHER", {7: 0, 8: 30})
+    assert bad.status == "fail"
+    # Too few paternal-informative sites -> warn, not a confident verdict.
+    thin = evaluate_paternity("FATHER", {7: 2, 8: 1})
+    assert thin.status == "warn"
+
+
+def test_evaluate_fetal_sex_wraps_the_call() -> None:
+    female = evaluate_fetal_sex("female", 12, 0, 12)
+    assert female.status == "pass" and "female" in female.message
+    male = evaluate_fetal_sex("male", 0, 15, 15)
+    assert male.status == "pass" and "male" in male.message
+    unknown = evaluate_fetal_sex("indeterminate", 1, 2, 3)
+    assert unknown.status == "warn"

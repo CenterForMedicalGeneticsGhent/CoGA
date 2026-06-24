@@ -29,6 +29,11 @@ describe('FamilySampleQcPage', () => {
       data: {
         family_id: 'FAM1',
         overall_status: 'fail',
+        application: 'wgs',
+        application_label: 'Long-read WGS family',
+        application_summary: 'Full pedigree QC on the SNV call set.',
+        genotype_source: 'clair3',
+        paternity_check: null,
         autosomal_sites: 90000,
         notes: [],
         sex_checks: [
@@ -91,6 +96,11 @@ describe('FamilySampleQcPage', () => {
       data: {
         family_id: 'FAM1',
         overall_status: 'pass',
+        application: 'wgs',
+        application_label: 'Long-read WGS family',
+        application_summary: 'Full pedigree QC on the SNV call set.',
+        genotype_source: 'clair3',
+        paternity_check: null,
         autosomal_sites: 90000,
         notes: [],
         sex_checks: [],
@@ -104,5 +114,50 @@ describe('FamilySampleQcPage', () => {
     expect(
       await screen.findByText(/All sample-integrity checks passed/),
     ).toBeInTheDocument();
+  });
+
+  it('adapts to the NIPT application: shows paternity, hides genotype sections', async () => {
+    apiMock.get.mockResolvedValue({
+      data: {
+        family_id: 'FAM1',
+        overall_status: 'pass',
+        application: 'nipt',
+        application_label: 'Monogenic NIPT (cfDNA)',
+        application_summary: 'Paternity is confirmed from paternal-transmitted sites (categories 7/8).',
+        genotype_source: null,
+        sex_checks: [],
+        relatedness_checks: [],
+        mendelian_checks: [],
+        paternity_check: {
+          father: 'FATHER',
+          cat7_transmitted: 40,
+          cat8_absent: 2,
+          informative_sites: 42,
+          status: 'pass',
+          message: 'Paternity supported: paternal transmission observed.',
+        },
+        fetal_sex_check: {
+          inferred_sex: 'female',
+          x_transmitted: 12,
+          x_not_transmitted: 0,
+          informative_sites: 12,
+          status: 'pass',
+          message: 'Fetal sex appears female: paternal X transmitted.',
+        },
+        autosomal_sites: 0,
+        notes: [],
+      },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('Paternity (cfDNA categories 7/8)')).toBeInTheDocument();
+    expect(screen.getByText(/Father FATHER — 40 paternal-transmitted/)).toBeInTheDocument();
+    expect(screen.getByText('Fetal sex (paternal X transmission)')).toBeInTheDocument();
+    expect(screen.getByText(/Fetus appears female — 12 paternal-X transmitted/)).toBeInTheDocument();
+    // Genotype-based sections are not rendered for the cfDNA application.
+    expect(screen.queryByText('Sex concordance')).not.toBeInTheDocument();
+    expect(screen.queryByText('Relatedness vs pedigree')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mendelian-error rate')).not.toBeInTheDocument();
   });
 });
