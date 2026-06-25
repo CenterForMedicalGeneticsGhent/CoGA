@@ -30,6 +30,7 @@ from .clickhouse_small_variants import (
     has_affected_het_call,
     variants_share_gene,
 )
+from .clinical_audit_service import record_review_changes
 from .family_metadata_context import FamilyMetadataContext
 from .metadata_service import CurrentUser
 # Re-exported here so existing `from ...small_variant_review_pg import _json_payload`
@@ -1996,6 +1997,25 @@ async def upsert_small_variant_review(
     elif not compound_het_requested and existing is not None and _document_has_compound_het_review(existing):
         data.update(_preserve_existing_compound_het(existing))
 
+    # The before -> after state for the immutable clinical audit trail (Phase 2).
+    new_state = {
+        "acmg_class": acmg_class,
+        "acmg": normalized_acmg,
+        "tags": normalized_tags,
+        "note": normalized_note,
+    }
+
+    async def _audit() -> None:
+        await record_review_changes(
+            session,
+            family_uuid=context.family_uuid,
+            family_identifier=context.family_id,
+            variant_id=variant_id,
+            user=user,
+            existing=existing,
+            new_state=new_state,
+        )
+
     if existing is not None:
         merged = {**existing, **data}
         if _review_document_has_any_content(merged):
@@ -2004,6 +2024,7 @@ async def upsert_small_variant_review(
                 review_id=existing["id"],
                 fields=merged,
             )
+            await _audit()
             await session.commit()
             updated = await _fetch_review_row(
                 session,
@@ -2014,6 +2035,7 @@ async def upsert_small_variant_review(
                 raise HTTPException(status_code=500, detail="Review update failed")
             return _serialize_review(updated)
         await _delete_review_row(session, existing["id"])
+        await _audit()
         await session.commit()
         return SmallVariantReviewOut(variant_id=variant_id, tags=[])
 
@@ -2027,6 +2049,7 @@ async def upsert_small_variant_review(
             },
             created_at=now,
         )
+        await _audit()
         await session.commit()
         created = await _fetch_review_row(
             session,

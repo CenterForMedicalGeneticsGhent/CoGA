@@ -11628,6 +11628,45 @@ a.button-danger:hover {
   color: var(--color-text-muted, #64748b);
 }
 
+/* Immutable clinical audit trail: who classified / tagged / annotated what, when. */
+.report-audit {
+  display: grid;
+  gap: 0.5rem;
+}
+.report-audit-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.report-audit-lead {
+  margin: 0;
+  font-size: 0.86rem;
+}
+.report-audit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+.report-audit-item {
+  display: grid;
+  grid-template-columns: 11rem 1fr auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.82rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+}
+.report-audit-time {
+  color: var(--color-text-muted, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+.report-audit-actor {
+  color: var(--color-text-muted, #64748b);
+  white-space: nowrap;
+}
+
 /* Provenance footer: generation timestamp + the annotation/reference versions. */
 .report-footer {
   display: grid;

@@ -370,6 +370,22 @@ export interface ApiClassificationDrift {
   drifted: ApiClassificationDriftItem[];
 }
 
+export interface ApiClinicalAuditEvent {
+  id: string;
+  created_at: string;
+  variant_id: string | null;
+  actor: string;
+  action: string;
+  summary: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+export interface ApiClinicalAudit {
+  family_id: string;
+  events: ApiClinicalAuditEvent[];
+}
+
 export interface ApiSampleIntegrityQc {
   family_id: string;
   overall_status: QcStatus;

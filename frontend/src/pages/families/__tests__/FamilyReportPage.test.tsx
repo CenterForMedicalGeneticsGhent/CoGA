@@ -218,4 +218,43 @@ describe('FamilyReportPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/classified by alice/)).toBeInTheDocument();
   });
+
+  it('renders the immutable clinical audit trail', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/clinical-audit') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            events: [
+              {
+                id: 'e1',
+                created_at: '2026-06-25T09:04:00Z',
+                variant_id: '1-100-A-G',
+                actor: 'alice',
+                action: 'classification',
+                summary: 'Classification unclassified → VUS (class 3)',
+                before: null,
+                after: null,
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText('Classification audit trail')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Classification unclassified → VUS \(class 3\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText('alice')).toBeInTheDocument();
+    expect(screen.getByText(/2026-06-25 09:04 UTC/)).toBeInTheDocument();
+  });
 });

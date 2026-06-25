@@ -4,7 +4,11 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
-import type { ApiAnnotationManifest, ApiClassificationDrift } from '../../lib/apiTypes';
+import type {
+  ApiAnnotationManifest,
+  ApiClassificationDrift,
+  ApiClinicalAudit,
+} from '../../lib/apiTypes';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
 import {
@@ -238,6 +242,14 @@ const FamilyReportPage: React.FC = () => {
     enabled: Boolean(familyId),
     queryFn: async () =>
       (await api.get(`/families/${familyId}/classification-drift`)).data as ApiClassificationDrift,
+  });
+
+  // Immutable clinical audit trail (who classified / tagged / annotated what, when).
+  const { data: audit } = useQuery<ApiClinicalAudit>({
+    queryKey: ['family', familyId, 'clinical-audit'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/clinical-audit`)).data as ApiClinicalAudit,
   });
 
   const presentHpoTerms = useMemo(() => {
@@ -603,6 +615,29 @@ const FamilyReportPage: React.FC = () => {
         })}
         </>
       )}
+
+      {audit?.events?.length ? (
+        <section className="surface-card report-audit">
+          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <p className="report-paragraph report-audit-lead">
+            An immutable record of who classified, tagged or annotated each variant.
+          </p>
+          <ul className="report-audit-list">
+            {audit.events.map((event) => (
+              <li key={event.id} className="report-audit-item">
+                <span className="report-audit-time">
+                  {event.created_at.replace('T', ' ').slice(0, 16)} UTC
+                </span>
+                <span className="report-audit-summary">
+                  {event.variant_id ? <strong>{event.variant_id}</strong> : null}{' '}
+                  {event.summary || event.action}
+                </span>
+                <span className="report-audit-actor">{event.actor}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <footer className="surface-card report-footer">
         <p className="report-footer-timestamp">
