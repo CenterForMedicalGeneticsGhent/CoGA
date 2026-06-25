@@ -398,6 +398,26 @@ class ClassificationDriftOut(BaseModel):
     drifted: List[ClassificationDriftItem] = Field(default_factory=list)
 
 
+class ClinicalAuditEventOut(BaseModel):
+    """One immutable clinical action (who did what, when, before -> after)."""
+
+    id: str
+    created_at: datetime
+    variant_id: Optional[str] = None
+    actor: str
+    action: str
+    summary: Optional[str] = None
+    before: Optional[Dict[str, Any]] = None
+    after: Optional[Dict[str, Any]] = None
+
+
+class ClinicalAuditOut(BaseModel):
+    """A family's clinical audit timeline (most recent first)."""
+
+    family_id: str
+    events: List[ClinicalAuditEventOut] = Field(default_factory=list)
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 

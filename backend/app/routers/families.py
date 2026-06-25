@@ -56,6 +56,7 @@ from ..schemas import (
     AnnotationManifestOut,
     AnnotationManifestUpdate,
     ClassificationDriftOut,
+    ClinicalAuditOut,
     SampleIntegrityQcOut,
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
@@ -119,6 +120,7 @@ from ..services.annotation_manifest_service import (
     set_family_annotation_manifest,
 )
 from ..services.classification_drift_service import evaluate_classification_drift
+from ..services.clinical_audit_service import list_clinical_audit
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     get_family_nipt_coverage,
@@ -1118,6 +1120,20 @@ async def get_family_classification_drift_endpoint(
 ) -> ClassificationDriftOut:
     return ClassificationDriftOut.model_validate(
         await evaluate_classification_drift(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.get("/{family_id}/clinical-audit", response_model=ClinicalAuditOut)
+async def get_family_clinical_audit_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ClinicalAuditOut:
+    return ClinicalAuditOut.model_validate(
+        await list_clinical_audit(
             session, family_id=family_id, user=user, project_id=project_id
         )
     )
