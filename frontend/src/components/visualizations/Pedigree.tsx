@@ -1186,14 +1186,12 @@ const Pedigree: React.FC<Props> = ({
       const xLinkedRecessiveFemaleCarrier =
         carrier && normalizedInheritance === 'XLR' && rowSex === '2';
       const qc = qcStatusBySample[row.iid];
-      const fill = affected ? 'black' : 'white';
-      // The individual's own symbol carries the QC verdict: its outline turns
-      // green (pass) / amber (warn) / red (fail), or stays black when not assessed.
-      const stroke = qc
-        ? QC_RING_COLORS[qc.status]
-        : highlighted
-          ? '#b91c1c'
-          : 'black';
+      // The individual's own symbol carries the QC verdict: its outline — and any
+      // filled region (affected fill, carrier half-fill) — turns green (pass) /
+      // amber (warn) / red (fail), or stays the default colour when not assessed.
+      const qcColor = qc ? QC_RING_COLORS[qc.status] : undefined;
+      const fill = affected ? qcColor ?? 'black' : 'white';
+      const stroke = qcColor ?? (highlighted ? '#b91c1c' : 'black');
       const strokeWidth = qc ? (qc.status === 'fail' ? 3 : 2.2) : highlighted ? 2.4 : 1;
       const generationIndex =
         layout.generationMembers[position.generation]?.indexOf(row.iid) ?? -1;
@@ -1210,7 +1208,7 @@ const Pedigree: React.FC<Props> = ({
 
       const appendCarrierFill = () => {
         if (!carrier || affected) return;
-        const cFill = carrierFillFor(member?.carrier_type);
+        const cFill = qcColor ?? carrierFillFor(member?.carrier_type);
 
         if (rowSex === '1') {
           // Male: draw left half of the square

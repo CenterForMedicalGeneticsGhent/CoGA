@@ -153,7 +153,7 @@ describe('FamilySampleQcPage', () => {
     expect(container.querySelector('.qc-genotype-sex--match')?.textContent).toMatch(/male/);
   });
 
-  it('adapts to NIPT: paternity + fetal sex cards, no genotype table or matrix', async () => {
+  it('adapts to NIPT: paternity, fetal sex, parent sex + category QC, no relatedness matrix', async () => {
     mockApi(
       {
         family_id: 'FAM1',
@@ -161,8 +161,27 @@ describe('FamilySampleQcPage', () => {
         application: 'nipt',
         application_label: 'Monogenic NIPT (cfDNA)',
         application_summary: 'Paternity is confirmed from paternal-transmitted sites (categories 7/8).',
-        genotype_source: null,
-        sex_checks: [],
+        genotype_source: 'vardict',
+        sex_checks: [
+          {
+            sample_id: 'FATHER',
+            recorded_sex: 'male',
+            inferred_sex: 'male',
+            x_het_rate: 0.01,
+            x_sites: 400,
+            status: 'pass',
+            message: 'Genotype sex matches the record.',
+          },
+          {
+            sample_id: 'MOTHER',
+            recorded_sex: 'female',
+            inferred_sex: 'female',
+            x_het_rate: 0.3,
+            x_sites: 400,
+            status: 'pass',
+            message: 'Genotype sex matches the record.',
+          },
+        ],
         relatedness_checks: [],
         mendelian_checks: [],
         paternity_check: {
@@ -180,6 +199,15 @@ describe('FamilySampleQcPage', () => {
           informative_sites: 12,
           status: 'pass',
           message: 'Fetal sex appears female: paternal X transmitted.',
+        },
+        category_qc_check: {
+          denovo: 1,
+          paternal_absent: 2,
+          maternal_informative: 60,
+          maternal_inherited: 30,
+          maternal_inherited_rate: 0.5,
+          status: 'pass',
+          message: 'Category distribution within expectation.',
         },
         autosomal_sites: 0,
         notes: [],
@@ -202,8 +230,12 @@ describe('FamilySampleQcPage', () => {
     expect(screen.getByText(/Father FATHER — 40 paternal-transmitted/)).toBeInTheDocument();
     expect(screen.getByText('Fetal sex (paternal X transmission)')).toBeInTheDocument();
     expect(screen.getByText(/Fetus appears female — 12 paternal-X transmitted/)).toBeInTheDocument();
-    // Genotype-based table and matrix do not render for the cfDNA application.
-    expect(screen.queryByText('Family members & per-sample checks')).not.toBeInTheDocument();
+    // Parents are now sexed (X zygosity), so the per-sample table renders; the
+    // cfDNA category QC card shows the maternal transmission rate.
+    expect(screen.getByText('Family members & per-sample checks')).toBeInTheDocument();
+    expect(screen.getByText('cfDNA category QC')).toBeInTheDocument();
+    expect(screen.getByText(/Maternal transmission 50%/)).toBeInTheDocument();
+    // No genotype relatedness matrix for the cfDNA application.
     expect(screen.queryByText('Relatedness vs pedigree')).not.toBeInTheDocument();
   });
 });

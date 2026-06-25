@@ -125,11 +125,28 @@ const buildQcStatusBySample = (
   return result;
 };
 
-// kinship in [0, ~0.5]; tint stronger for closer relationships.
-const kinshipBackground = (kinship: number): string => {
-  const alpha = Math.max(0, Math.min(0.85, kinship * 1.8));
-  return `rgba(37, 99, 235, ${alpha.toFixed(3)})`;
+// Each inferred relationship gets a distinct hue so the matrix reads at a glance.
+const RELATIONSHIP_COLORS: Record<string, string> = {
+  duplicate: '#7c3aed', // self / monozygotic twin / sample duplicate
+  'parent-child': '#2563eb',
+  sibling: '#0d9488',
+  'second-degree': '#d97706',
+  'third-degree': '#f59e0b',
+  unrelated: '#64748b',
+  indeterminate: '#cbd5e1',
 };
+
+const relationshipColor = (relationship: string): string =>
+  RELATIONSHIP_COLORS[relationship] ?? '#64748b';
+
+const RELATIONSHIP_LEGEND: Array<{ key: string; label: string }> = [
+  { key: 'duplicate', label: 'Duplicate / MZ twin' },
+  { key: 'parent-child', label: 'Parent–child' },
+  { key: 'sibling', label: 'Sibling' },
+  { key: 'second-degree', label: '2nd degree' },
+  { key: 'third-degree', label: '3rd degree' },
+  { key: 'unrelated', label: 'Unrelated' },
+];
 
 const QcRingLegend: React.FC = () => (
   <ul className="qc-ring-legend" aria-label="Pedigree QC legend">
@@ -258,16 +275,20 @@ const RelatednessMatrix: React.FC<{
           </tr>
         </thead>
         <tbody>
-          {samples.map((rowSample) => (
+          {samples.map((rowSample, rowIndex) => (
             <tr key={rowSample}>
               <th scope="row">{rowSample}</th>
-              {samples.map((colSample) => {
-                if (rowSample === colSample) {
+              {samples.map((colSample, colIndex) => {
+                if (rowIndex === colIndex) {
                   return (
                     <td key={colSample} className="qc-matrix-diag">
                       —
                     </td>
                   );
+                }
+                // Symmetric matrix → show only the lower-left triangle once.
+                if (colIndex > rowIndex) {
+                  return <td key={colSample} className="qc-matrix-empty" aria-hidden="true" />;
                 }
                 const check = byPair.get([rowSample, colSample].sort().join('|'));
                 if (!check) {
@@ -279,15 +300,18 @@ const RelatednessMatrix: React.FC<{
                     : check.status === 'warn'
                       ? ' qc-matrix-cell--warn'
                       : '';
+                const color = relationshipColor(check.inferred_relationship);
                 const tooltip = `${check.sample_a} ↔ ${check.sample_b}: expected ${check.expected_relationship}, observed ${check.inferred_relationship}. φ=${check.kinship.toFixed(3)}, IBS0=${check.ibs0_rate.toFixed(3)}. ${check.message}`;
                 return (
                   <td
                     key={colSample}
                     className={`qc-matrix-cell${emphasis}`}
-                    style={{ background: kinshipBackground(check.kinship) }}
+                    style={{ background: `${color}22` }}
                   >
                     <InfoTip label={tooltip} className="qc-matrix-cell-inner">
-                      <span className="qc-matrix-rel">{check.inferred_relationship}</span>
+                      <span className="qc-matrix-rel" style={{ color }}>
+                        {check.inferred_relationship}
+                      </span>
                       <span className="qc-matrix-metric">φ {check.kinship.toFixed(3)}</span>
                       <span className="qc-matrix-metric">IBS0 {check.ibs0_rate.toFixed(3)}</span>
                     </InfoTip>
@@ -298,6 +322,17 @@ const RelatednessMatrix: React.FC<{
           ))}
         </tbody>
       </table>
+      <ul className="qc-matrix-legend" aria-label="Relationship colours">
+        {RELATIONSHIP_LEGEND.map((entry) => (
+          <li key={entry.key}>
+            <span
+              className="qc-matrix-legend-swatch"
+              style={{ background: relationshipColor(entry.key) }}
+            />
+            {entry.label}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };
@@ -468,8 +503,9 @@ const FamilySampleQcPage: React.FC = () => {
         <section className="surface-card space-y-2">
           <h2 className="section-title">{relatednessTitle}</h2>
           <p className="table-subtle">
-            Pairwise kinship (φ) and IBS0; cell shade tracks kinship strength. Pairs whose observed
-            relationship contradicts the pedigree are flagged in red.
+            Pairwise kinship (φ) and IBS0, coloured by the inferred relationship (lower triangle —
+            the matrix is symmetric). Pairs whose observed relationship contradicts the pedigree —
+            including co-parents who look related (consanguinity) — are outlined in red.
           </p>
           <RelatednessMatrix samples={relatednessSamples} checks={qc.relatedness_checks} />
         </section>
@@ -488,6 +524,24 @@ const FamilySampleQcPage: React.FC = () => {
                 paternal-X transmitted, {qc.fetal_sex_check.x_not_transmitted} absent
               </p>
               <p className="table-subtle">{qc.fetal_sex_check.message}</p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {qc.category_qc_check ? (
+        <section className="surface-card space-y-2">
+          <h2 className="section-title">cfDNA category QC</h2>
+          <div className="qc-check-row">
+            <StatusChip status={qc.category_qc_check.status} />
+            <div className="qc-check-body">
+              <p className="qc-check-title">
+                Maternal transmission {(qc.category_qc_check.maternal_inherited_rate * 100).toFixed(0)}%
+                ({qc.category_qc_check.maternal_inherited}/{qc.category_qc_check.maternal_informative}{' '}
+                maternal-het sites) · {qc.category_qc_check.denovo} de-novo ·{' '}
+                {qc.category_qc_check.paternal_absent} paternal-absent
+              </p>
+              <p className="table-subtle">{qc.category_qc_check.message}</p>
             </div>
           </div>
         </section>

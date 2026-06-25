@@ -322,6 +322,16 @@ export interface ApiSampleIntegrityFetalSexCheck {
   message: string;
 }
 
+export interface ApiSampleIntegrityCategoryQc {
+  denovo: number;
+  paternal_absent: number;
+  maternal_informative: number;
+  maternal_inherited: number;
+  maternal_inherited_rate: number;
+  status: QcStatus;
+  message: string;
+}
+
 export type SampleQcApplication = 'wgs' | 'pgt' | 'nipt' | 'couple' | 'single' | 'unknown';
 
 export interface ApiSampleIntegrityQc {
@@ -336,6 +346,7 @@ export interface ApiSampleIntegrityQc {
   mendelian_checks: ApiSampleIntegrityMendelianCheck[];
   paternity_check?: ApiSampleIntegrityPaternityCheck | null;
   fetal_sex_check?: ApiSampleIntegrityFetalSexCheck | null;
+  category_qc_check?: ApiSampleIntegrityCategoryQc | null;
   autosomal_sites: number;
   notes: string[];
 }

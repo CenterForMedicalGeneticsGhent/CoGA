@@ -24,10 +24,15 @@ from .nipt import resolve_nipt_trio
 from .sample_integrity_qc import (
     FetalSexCheck,
     Genotype,
+    NiptCategoryQc,
     PaternityCheck,
     PedigreeSpec,
     SampleIntegrityReport,
+    SexCheck,
+    _evaluate_sex,
+    _norm_sex,
     evaluate_fetal_sex,
+    evaluate_nipt_category_qc,
     evaluate_paternity,
     evaluate_sample_integrity,
     profile_for,
@@ -95,13 +100,45 @@ def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
     return PedigreeSpec(recorded_sex=recorded_sex, parents_of=pedigree.parents_of)
 
 
+async def _nipt_parent_sex_checks(
+    context: FamilyMetadataContext, *, parents: list[str]
+) -> list[SexCheck]:
+    """Sex the NIPT parents from X-SNV zygosity (father hemizygous, mother het).
+
+    The cfDNA sample is a maternal+fetal mixture, so it is excluded — only the
+    germline parents are sexed, reusing the genotype X-heterozygosity test.
+    """
+    present = [p for p in parents if p and p in context.sample_name_to_uuid]
+    if not present or not context.assembly_name:
+        return []
+    source = _choose_genotype_source(await fetch_family_variant_sources(context))
+    if not source:
+        return []
+    x_genotypes = await _load_chromosome(context, QC_X_CHROM, QC_X_SITES, present, source)
+    recorded = {
+        str(row["sample_id"]): str(row.get("sex") or "")
+        for row in context.sample_rows
+        if row.get("sample_id")
+    }
+    return [
+        _evaluate_sex(pid, _norm_sex(recorded.get(pid)), x_genotypes.get(pid)) for pid in present
+    ]
+
+
 async def _nipt_checks(
-    session: AsyncSession, *, family, family_id: str, user: CurrentUser, project_id: str | None
-) -> tuple[PaternityCheck | None, FetalSexCheck | None]:
-    """NIPT cfDNA integrity: paternity (cat 7/8) and fetal sex (paternal X)."""
+    session: AsyncSession,
+    *,
+    family,
+    family_id: str,
+    user: CurrentUser,
+    project_id: str | None,
+    context: FamilyMetadataContext,
+) -> tuple[PaternityCheck | None, FetalSexCheck | None, NiptCategoryQc | None, list[SexCheck]]:
+    """NIPT cfDNA integrity: paternity (cat 7/8), fetal sex (paternal X), category
+    distribution QC, and germline parent sex (X zygosity)."""
     trio = resolve_nipt_trio(family)
     if trio is None:
-        return None, None
+        return None, None, None, []
     # Imported lazily: nipt_service pulls in the heavy analysis stack.
     from .nipt_service import run_family_nipt_analysis
 
@@ -113,7 +150,11 @@ async def _nipt_checks(
     fetal_sex = evaluate_fetal_sex(
         fs.inferred, fs.x_transmitted, fs.x_not_transmitted, fs.informative_sites
     )
-    return paternity, fetal_sex
+    category_qc = evaluate_nipt_category_qc(result.category_counts)
+    parent_sex = await _nipt_parent_sex_checks(
+        context, parents=[trio.father_sample_id, trio.mother_sample_id]
+    )
+    return paternity, fetal_sex, category_qc, parent_sex
 
 
 async def get_family_sample_integrity_qc(
@@ -143,9 +184,18 @@ async def get_family_sample_integrity_qc(
 
     paternity_check: PaternityCheck | None = None
     fetal_sex_check: FetalSexCheck | None = None
+    category_qc_check: NiptCategoryQc | None = None
+    nipt_parent_sex_checks: list[SexCheck] = []
     if profile.run_paternity:
-        paternity_check, fetal_sex_check = await _nipt_checks(
-            session, family=family, family_id=family_id, user=user, project_id=project_id
+        paternity_check, fetal_sex_check, category_qc_check, nipt_parent_sex_checks = (
+            await _nipt_checks(
+                session,
+                family=family,
+                family_id=family_id,
+                user=user,
+                project_id=project_id,
+                context=context,
+            )
         )
 
     autosomal: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
@@ -171,4 +221,6 @@ async def get_family_sample_integrity_qc(
         genotype_source=genotype_source,
         paternity_check=paternity_check,
         fetal_sex_check=fetal_sex_check,
+        category_qc_check=category_qc_check,
+        extra_sex_checks=nipt_parent_sex_checks,
     )
