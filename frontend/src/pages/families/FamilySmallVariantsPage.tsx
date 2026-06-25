@@ -6,6 +6,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import Pedigree from '../../components/visualizations/Pedigree';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import LoadingBar from '../../components/LoadingBar';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import {
@@ -263,6 +264,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   if (!variantQueryReady || (isLoading && !data)) {
     return (
       <PageState
+        loading
         kicker="Small Variants"
         title="Loading small variants"
         message="Collecting filtered small variant calls for this family."
@@ -402,6 +404,7 @@ const FamilySmallVariantsPage: React.FC = () => {
       </section>
 
       <div className="variant-results-region">
+        {isFetching ? <LoadingBar label="Loading variants" /> : null}
         {isFetching ? (
           <>
             <div className="variant-results-overlay" aria-hidden="true" />
