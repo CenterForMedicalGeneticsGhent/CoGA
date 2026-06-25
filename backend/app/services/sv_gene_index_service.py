@@ -1,0 +1,149 @@
+"""Per-family SV→gene index (SNV + SV compound het, Phase 0).
+
+Stores which genes a family's structural variants hit, so the small-variant workspace can
+flag genes that also carry an SV (the cross-type "second hit"). This module owns only the
+Postgres rows + the badge summary; the ClickHouse scan that populates it lives in
+``clickhouse_family_variants`` (which holds the SV helpers). See docs/snv-sv-compound-het.md.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from sqlalchemy import bindparam, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# Genotype groupings (mirrors the structural genotype groups used elsewhere).
+_HET_GTS = {"0/1", "1/0", "0|1", "1|0"}
+_HOM_GTS = {"1/1", "1|1"}
+
+
+async def is_index_built(session: AsyncSession, family_uuid: str) -> bool:
+    found = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM family_sv_gene_index_status WHERE family_id = CAST(:fid AS uuid)"
+            ),
+            {"fid": family_uuid},
+        )
+    ).scalar()
+    return found is not None
+
+
+async def store_sv_gene_index(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    gene_map: dict[str, list[dict[str, Any]]],
+    sv_total: int,
+) -> None:
+    """Replace the family's index with ``gene -> [svs]`` and mark it built."""
+    await session.execute(
+        text("DELETE FROM family_sv_gene_index WHERE family_id = CAST(:fid AS uuid)"),
+        {"fid": family_uuid},
+    )
+    if gene_map:
+        await session.execute(
+            text(
+                """
+                INSERT INTO family_sv_gene_index (family_id, gene_symbol, sv_count, svs)
+                VALUES (CAST(:fid AS uuid), :gene_symbol, :sv_count, CAST(:svs AS jsonb))
+                """
+            ),
+            [
+                {
+                    "fid": family_uuid,
+                    "gene_symbol": gene.upper(),
+                    "sv_count": len(svs),
+                    "svs": json.dumps(svs),
+                }
+                for gene, svs in gene_map.items()
+            ],
+        )
+    await session.execute(
+        text(
+            """
+            INSERT INTO family_sv_gene_index_status (family_id, sv_total, gene_count, computed_at)
+            VALUES (CAST(:fid AS uuid), :sv_total, :gene_count, now())
+            ON CONFLICT (family_id) DO UPDATE SET
+                sv_total = EXCLUDED.sv_total,
+                gene_count = EXCLUDED.gene_count,
+                computed_at = now()
+            """
+        ),
+        {"fid": family_uuid, "sv_total": sv_total, "gene_count": len(gene_map)},
+    )
+    await session.commit()
+
+
+async def get_sv_second_hits(
+    session: AsyncSession, *, family_uuid: str, gene_symbols: set[str]
+) -> dict[str, dict[str, Any]]:
+    """Return ``{GENE -> {sv_count, svs}}`` for the requested genes that carry an SV."""
+    if not gene_symbols:
+        return {}
+    upper_genes = sorted({gene.upper() for gene in gene_symbols if gene})
+    if not upper_genes:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT gene_symbol, sv_count, svs
+                FROM family_sv_gene_index
+                WHERE family_id = CAST(:fid AS uuid) AND gene_symbol IN :genes
+                """
+            ).bindparams(bindparam("genes", expanding=True)),
+            {"fid": family_uuid, "genes": upper_genes},
+        )
+    ).mappings().all()
+    result: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        svs = row["svs"] if isinstance(row["svs"], list) else json.loads(row["svs"] or "[]")
+        result[row["gene_symbol"]] = {"sv_count": row["sv_count"], "svs": svs}
+    return result
+
+
+def summarize_second_hit(
+    svs: list[dict[str, Any]], affected_samples: list[str]
+) -> dict[str, Any]:
+    """Compact badge summary: which SV types hit the gene and the zygosity in affected
+    individuals (the headline being a deletion, which can unmask a recessive SNV)."""
+    sv_types = sorted({str(sv.get("sv_type") or "SV").upper() for sv in svs})
+    affected = set(affected_samples or [])
+    zygosities: set[str] = set()
+    for sv in svs:
+        gt_map = sv.get("gt") or {}
+        for sample in affected:
+            gt = str(gt_map.get(sample, "")).strip()
+            if gt in _HOM_GTS:
+                zygosities.add("hom")
+            elif gt in _HET_GTS:
+                zygosities.add("het")
+    if "hom" in zygosities and "het" in zygosities:
+        affected_zygosity: str | None = "mixed"
+    elif "hom" in zygosities:
+        affected_zygosity = "hom"
+    elif "het" in zygosities:
+        affected_zygosity = "het"
+    else:
+        affected_zygosity = None
+    return {
+        "sv_count": len(svs),
+        "sv_types": sv_types,
+        "affected_zygosity": affected_zygosity,
+        "has_deletion": any(t in {"DEL", "CNV"} for t in sv_types),
+    }
+
+
+async def clear_family_sv_gene_index(session: AsyncSession, family_uuid: str) -> None:
+    await session.execute(
+        text("DELETE FROM family_sv_gene_index WHERE family_id = CAST(:fid AS uuid)"),
+        {"fid": family_uuid},
+    )
+    await session.execute(
+        text("DELETE FROM family_sv_gene_index_status WHERE family_id = CAST(:fid AS uuid)"),
+        {"fid": family_uuid},
+    )
+    await session.commit()

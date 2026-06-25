@@ -1906,6 +1906,18 @@ class VariantInternalCohortOut(BaseModel):
     families: int = 0
 
 
+class SvSecondHitOut(BaseModel):
+    """The gene of this small variant is also hit by a structural variant — the cross-type
+    "second hit" that can complete a recessive (compound-het) genotype."""
+
+    sv_count: int
+    sv_types: List[str] = Field(default_factory=list)
+    # Zygosity of the overlapping SV in affected individuals ("het" / "hom" / "mixed").
+    affected_zygosity: Optional[str] = None
+    # A deletion (or CNV) can remove the second copy and unmask a heterozygous SNV.
+    has_deletion: bool = False
+
+
 class VariantPriorityOut(BaseModel):
     combined_score: float
     variant_score: float
@@ -1980,6 +1992,7 @@ class VariantOut(ApiDocumentModel):
     review: Optional[SmallVariantReviewOut] = None
     internal_cohort: Optional[VariantInternalCohortOut] = None
     priority: Optional[VariantPriorityOut] = None
+    sv_second_hit: Optional[SvSecondHitOut] = None
 
 
 class SmallVariantGroupOut(BaseModel):

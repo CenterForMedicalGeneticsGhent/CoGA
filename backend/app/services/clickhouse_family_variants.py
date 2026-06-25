@@ -25,6 +25,7 @@ from ..schemas import (
     SmallVariantSummaryOut,
     SmallVariantTranscriptOut,
     VariantInternalCohortOut,
+    SvSecondHitOut,
     VariantOut,
     VariantPage,
     VariantPriorityOut,
@@ -43,6 +44,12 @@ from .small_variant_review_pg import (
     list_matching_small_variant_review_ids,
 )
 from .monarch_phenotype_score import score_genes_for_hpo
+from .sv_gene_index_service import (
+    get_sv_second_hits,
+    is_index_built,
+    store_sv_gene_index,
+    summarize_second_hit,
+)
 from .variant_ranking_cache import (
     canonical_filters,
     compute_ranking_hashes,
@@ -2287,6 +2294,84 @@ async def fetch_recurrent_small_variant_ids(
     return [(str(variant_id), int(carriers or 0)) for variant_id, carriers in rows]
 
 
+async def _scan_family_sv_gene_map(
+    context: FamilyMetadataContext,
+) -> tuple[dict[str, list[dict[str, Any]]], int]:
+    """Scan the family's structural variants and group them by overlapped gene."""
+    if not context.assembly_name:
+        return {}, 0
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    rows = await execute_clickhouse(
+        f"""
+        SELECT e.variantId, e.svType, e.chrom, e.start, e.end, e.gene_symbols,
+               e.calls.sampleId, e.calls.gt
+        FROM {entries_table} AS e
+        WHERE e.family_guid = %(family_guid)s AND e.sign = 1 AND length(e.gene_symbols) > 0
+        """,
+        {"family_guid": context.family_uuid},
+    )
+    gene_map: dict[str, list[dict[str, Any]]] = {}
+    sv_ids: set[str] = set()
+    for variant_id, sv_type, chrom, start, end, genes, sample_ids, gts in rows:
+        sv_ids.add(str(variant_id))
+        gt_map = {
+            str(sample): str(gt)
+            for sample, gt in zip(sample_ids or [], gts or [])
+            if sample not in (None, "")
+        }
+        sv = {
+            "sv_id": str(variant_id),
+            "sv_type": str(sv_type or ""),
+            "chr": str(chrom or ""),
+            "start": int(start) if start is not None else None,
+            "end": int(end) if end is not None else None,
+            "gt": gt_map,
+        }
+        for gene in genes or []:
+            symbol = str(gene).strip()
+            if symbol:
+                gene_map.setdefault(symbol.upper(), []).append(sv)
+    return gene_map, len(sv_ids)
+
+
+async def _ensure_family_sv_gene_index(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> None:
+    """Build the family's SV→gene index once (lazily); cleared on SV re-import."""
+    if await is_index_built(session, context.family_uuid):
+        return
+    gene_map, sv_total = await _scan_family_sv_gene_map(context)
+    await store_sv_gene_index(
+        session, family_uuid=context.family_uuid, gene_map=gene_map, sv_total=sv_total
+    )
+
+
+async def _attach_sv_second_hits(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    variants: Sequence[VariantOut],
+) -> None:
+    """Flag small variants whose gene is also hit by a structural variant (best-effort)."""
+    try:
+        await _ensure_family_sv_gene_index(session, context)
+        genes = {str(variant.gene).upper() for variant in variants if variant.gene}
+        second_hits = await get_sv_second_hits(
+            session, family_uuid=context.family_uuid, gene_symbols=genes
+        )
+        if not second_hits:
+            return
+        affected = list(context.affected_sample_names or [])
+        for variant in variants:
+            hit = second_hits.get((variant.gene or "").upper())
+            if hit:
+                variant.sv_second_hit = SvSecondHitOut.model_validate(
+                    summarize_second_hit(hit["svs"], affected)
+                )
+    except Exception:  # noqa: BLE001 - the second-hit overlay must never break the page
+        logger.warning("SV second-hit overlay failed for family %s", context.family_id, exc_info=True)
+
+
 async def _hydrate_small_variant_outs(
     session: AsyncSession,
     *,
@@ -2295,6 +2380,7 @@ async def _hydrate_small_variant_outs(
 ) -> None:
     if not variants:
         return
+    await _attach_sv_second_hits(session, context=context, variants=variants)
 
     review_map = await get_small_variant_review_map(
         session,
