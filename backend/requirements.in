@@ -1,0 +1,51 @@
+# Top-level (human-edited) runtime dependencies for the CoGA backend.
+#
+# This file expresses INTENT (the direct dependencies and their version
+# constraints). The fully-pinned, hash-locked install set is the compiled
+# `requirements.txt`, generated from this file with pip-tools against
+# Python 3.10 (the deployed/CI runtime). Do not edit requirements.txt by hand.
+#
+# Regenerate after changing this file:
+#     ./scripts/compile-requirements.sh
+#
+# Why pinned + hashed: CoGA is an in-house IVD (IVDR Art. 5(5)); a clinical
+# build must be byte-for-byte reproducible and supply-chain-verifiable
+# (technical file TF-08 SOUP register, TF-13 cybersecurity).
+
+fastapi==0.138.0
+# Starlette is pinned explicitly because it is the ASGI core that regressed:
+# under a Starlette upgrade the collection-root redirect normalisation in
+# app/main.py stopped taking effect, so /api/* 307-redirected to the internal
+# backend host. Keep pinned until that is re-verified against a newer release.
+starlette==1.3.1
+uvicorn[standard]==0.49.0
+sqlalchemy>=2.0.51
+greenlet>=3.5.2
+asyncpg
+clickhouse-connect[async]>=1.3.0,<2
+pydantic[email]>=2.13.4
+pydantic-settings>=2.14.2
+python-jose[cryptography]
+passlib[bcrypt]==1.7.4
+# pin bcrypt to avoid incompatibilities with passlib
+bcrypt==3.2.0
+python-multipart
+python-dotenv
+httpx
+pyfaidx
+pysam
+PyYAML
+
+# Clinical CNV knowledgebase build script (scripts/clinical_cnv_knowledgebase.py),
+# invoked as a subprocess by the admin "rebuild knowledgebase" action.
+pandas
+requests
+beautifulsoup4
+lxml
+
+intervaltree
+tqdm
+
+# AWS S3 access for production storage backend (STORAGE_BACKEND=s3): presigned URLs
+# for IGV alignments and staging of family-package sources.
+boto3

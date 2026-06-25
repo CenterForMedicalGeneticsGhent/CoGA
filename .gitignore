@@ -39,6 +39,11 @@ build/
 .vscode/
 .idea/
 
+# Generated SBOMs — produced on demand (scripts/generate-sbom.sh) and per build
+# in CI as retained artifacts; not committed (each run has a fresh serialNumber/
+# timestamp). See sbom/README.md.
+/sbom/*.cdx.json
+
 # Data files
 /data/families/
 /data/family-packages/
