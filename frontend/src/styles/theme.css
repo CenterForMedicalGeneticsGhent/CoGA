@@ -984,6 +984,40 @@ tbody tr:hover {
   color: var(--color-secondary);
 }
 
+/* "In-depth reference" link from a guide section to an in-app reference doc. */
+.user-guide-further-reading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0.9rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--color-border, #eef2f7);
+}
+.user-guide-further-reading-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted, #64748b);
+}
+.user-guide-doc-link {
+  font-weight: 600;
+}
+
+/* In-app reference doc (rendered from Markdown). */
+.reference-doc-page {
+  display: grid;
+  gap: 1rem;
+}
+.reference-doc-breadcrumb {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+}
+.reference-doc-prose h1 {
+  margin-top: 0;
+}
+
 /* Mini grid: flat hairline-topped blocks, no boxes. */
 .user-guide-mini-grid {
   display: grid;

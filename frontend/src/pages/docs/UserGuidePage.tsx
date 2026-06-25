@@ -15,6 +15,17 @@ type GuideSection = {
   content: React.ReactNode;
 };
 
+// Links a guide section to an in-depth, in-app reference document (rendered from a
+// bundled Markdown file at /docs/reference/:slug).
+const FurtherReading: React.FC<{ to: string; label: string }> = ({ to, label }) => (
+  <p className="user-guide-further-reading">
+    <span className="user-guide-further-reading-label">In-depth reference</span>
+    <Link to={to} className="user-guide-doc-link">
+      {label} →
+    </Link>
+  </p>
+);
+
 const guideSections: GuideSection[] = [
   {
     id: 'orientation',
@@ -362,6 +373,84 @@ const guideSections: GuideSection[] = [
           the pedigree and mark phenotype-dependent views as needing recomputation, but they never
           delete or reimport raw data.
         </p>
+      </>
+    ),
+  },
+  {
+    id: 'sample-qc',
+    title: 'Sample-integrity QC',
+    summary:
+      'An automated check — before you interpret — that a family’s samples are who the pedigree says: catches swaps, mislabelled relationships, wrong-sex labels, contamination and consanguinity.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Sample QC button' }],
+    content: (
+      <>
+        <p>
+          Open a family and press <strong>Sample QC</strong> to run an automated
+          sample-integrity check. It verifies that the samples are who the pedigree says they are{' '}
+          <em>before</em> any variant call, segregation analysis, or report is trusted — the failure
+          modes it catches (a swapped tube, a wrong parent, a mislabelled sex, contamination,
+          unexpected relatedness) quietly invalidate everything downstream.
+        </p>
+        <div className="user-guide-callout">
+          <strong>It adapts to the application.</strong> CoGA runs different assays with different
+          notions of integrity, so the page resolves the application first and runs only the
+          meaningful checks:
+        </div>
+        <ul>
+          <li>
+            <strong>Long-read WGS family</strong> — sex concordance, relatedness vs the pedigree, and
+            the Mendelian-error rate.
+          </li>
+          <li>
+            <strong>Shallow-WGS PGT</strong> — embryo sex and <em>parentage</em> (each embryo a true
+            child of both parents — no switch), plus Mendelian.
+          </li>
+          <li>
+            <strong>Monogenic NIPT (cfDNA)</strong> — paternity (categories 7/8), fetal sex (paternal
+            X transmission), germline parent sex, and a cfDNA category-distribution QC, instead of
+            genotype relatedness.
+          </li>
+          <li>
+            <strong>Carrier couple</strong> — sex per partner and a confirmation that the two are
+            unrelated.
+          </li>
+          <li>
+            <strong>Single targeted sample</strong> — sex only.
+          </li>
+        </ul>
+
+        <h3>Reading the page</h3>
+        <ul>
+          <li>
+            <strong>Pedigree with QC overlay.</strong> Each individual’s symbol carries its roll-up
+            verdict — the outline and any filled region turn <strong>green</strong> (pass),{' '}
+            <strong>amber</strong> (warning) or <strong>red</strong> (fail). Hover a symbol for why.
+          </li>
+          <li>
+            <strong>Per-sample table.</strong> Recorded sex vs genotype sex (green when concordant,
+            red on mismatch) and the Mendelian-error rate, colour-coded by status.
+          </li>
+          <li>
+            <strong>Relatedness matrix.</strong> A sample × sample grid (lower triangle — it is
+            symmetric) coloured by the inferred relationship, with kinship (φ) and IBS0 per cell. A
+            pair that contradicts the pedigree — including co-parents who look related
+            (consanguinity) — is outlined in red.
+          </li>
+          <li>
+            <strong>NIPT cards.</strong> For a cfDNA family, dedicated paternity, fetal-sex and
+            cfDNA-category-QC cards.
+          </li>
+        </ul>
+
+        <div className="user-guide-callout">
+          <strong>What to do with a warning or fail.</strong> A fail points to a real integrity
+          problem — resolve it (re-check the sample sheet, the pedigree, or the genotypes) before
+          interpreting. A warning usually means too little data to call confidently (few informative
+          sites, low fetal fraction); it weakens, but does not invalidate, the downstream analysis.
+          On partial or mock data the page degrades to warnings rather than failing.
+        </div>
+
+        <FurtherReading to="/docs/reference/sample-qc" label="Sample-integrity QC reference (checks, thresholds, data sources)" />
       </>
     ),
   },

@@ -28,6 +28,8 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
   - Drafting a clinical report from variants tagged `report`: variant description, ACMG motivation, gene context and HPO phenotype coupling.
 - [Family Member Management](family-member-management.md)
   - How phenotype/carrier/structure edits propagate, what is preserved versus marked stale, and the batch-update flow.
+- [Sample-integrity QC](../frontend/src/content/docs/sample-qc.md)
+  - Application-aware sample QC: sex concordance, KING relatedness + consanguinity, Mendelian-error rate, and the monogenic-NIPT cfDNA checks (paternity, fetal sex, parent sex, category QC), with thresholds and data sources. It is authored in the frontend so it renders in-app at `/docs/reference/sample-qc` (linked from the user guide) — viewable in the browser while the repository is private.
 - [Haplotype Segregation Analysis](haplotype-segregation-analysis.md)
   - The PGT haplotype track: pedigree-aware IBD founder colouring, the raw phased-marker overlay, the four-founder + grey + risk colour code, single-parent (donor) families, the derived embryo classification (affected/carrier/unaffected/uninformative) with recombination/uninformative-marker warnings, and the ROI marker overview + QC signals.
 - [Monogenic NIPT Analysis](monogenic-nipt.md)
