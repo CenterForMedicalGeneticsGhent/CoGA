@@ -85,3 +85,29 @@ def test_hash_changes_with_review_filter(monkeypatch) -> None:
     )
     # Excluded variants are part of the family state and change the ranking.
     assert _hash(monkeypatch, exc=["2-2-C-T"]) != _hash(monkeypatch, exc=None)
+
+
+def _hashes(monkeypatch, *, filters):
+    _patch_db(monkeypatch)
+    return asyncio.run(
+        vrc.compute_ranking_hashes(
+            None, context=_context(), filters=filters, patient_terms=[]
+        )
+    )
+
+
+def test_base_hash_is_panel_independent(monkeypatch) -> None:
+    # Two different panels over the same other inputs share a base_hash (so one can serve
+    # the other from a superset) but get distinct exact hashes.
+    inputs_a, base_a = _hashes(monkeypatch, filters=_default_filters(panel_id="panel-a"))
+    inputs_b, base_b = _hashes(monkeypatch, filters=_default_filters(panel_id="panel-b"))
+    assert base_a == base_b
+    assert inputs_a != inputs_b
+
+
+def test_base_hash_changes_with_a_non_panel_filter(monkeypatch) -> None:
+    _, base_a = _hashes(monkeypatch, filters=_default_filters(panel_id="p", impact=["HIGH"]))
+    _, base_b = _hashes(
+        monkeypatch, filters=_default_filters(panel_id="p", impact=["HIGH", "MODERATE"])
+    )
+    assert base_a != base_b

@@ -99,6 +99,50 @@ async def _monarch_release(session: AsyncSession) -> str | None:
     return str(release) if release else None
 
 
+def _digest(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+async def compute_ranking_hashes(
+    session: AsyncSession,
+    *,
+    context: Any,
+    filters: Any,
+    patient_terms: Any,
+    review_variant_ids: Any = None,
+    excluded_review_variant_ids: Any = None,
+    include_review_filter_active: bool = False,
+) -> tuple[str, str]:
+    """Return ``(inputs_hash, base_hash)``.
+
+    ``inputs_hash`` is the exact cache key. ``base_hash`` digests every input EXCEPT the
+    gene panel, so all panels over the same family/phenotype/filters share it — that lets
+    a narrower panel be served from a broader cached (superset) ranking.
+    """
+    # Review-tag filters are resolved to variant-id sets outside the filter object, so
+    # they must be folded into the hash or two otherwise-identical queries would collide.
+    review_signature = {
+        "active": bool(include_review_filter_active),
+        "include": sorted({str(v) for v in (review_variant_ids or [])}),
+        "exclude": sorted({str(v) for v in (excluded_review_variant_ids or [])}),
+    }
+    canonical = canonical_filters(filters)
+    panel_agnostic_filters = {key: value for key, value in canonical.items() if key != "panel_id"}
+    common = {
+        "algorithm": _ALGORITHM_VERSION,
+        "assembly": getattr(context, "assembly_name", None),
+        "review": review_signature,
+        "hpo": sorted({str(term) for term in (patient_terms or [])}),
+        "pedigree": await _pedigree_signature(session, context),
+        "monarch_release": await _monarch_release(session),
+    }
+    panel_version = await _panel_version(session, getattr(filters, "panel_id", None))
+    inputs_hash = _digest({**common, "filters": canonical, "panel_version": panel_version})
+    base_hash = _digest({**common, "filters": panel_agnostic_filters})
+    return inputs_hash, base_hash
+
+
 async def compute_inputs_hash(
     session: AsyncSession,
     *,
@@ -109,25 +153,16 @@ async def compute_inputs_hash(
     excluded_review_variant_ids: Any = None,
     include_review_filter_active: bool = False,
 ) -> str:
-    # Review-tag filters are resolved to variant-id sets outside the filter object, so
-    # they must be folded into the hash or two otherwise-identical queries would collide.
-    review_signature = {
-        "active": bool(include_review_filter_active),
-        "include": sorted({str(v) for v in (review_variant_ids or [])}),
-        "exclude": sorted({str(v) for v in (excluded_review_variant_ids or [])}),
-    }
-    payload = {
-        "algorithm": _ALGORITHM_VERSION,
-        "assembly": getattr(context, "assembly_name", None),
-        "filters": canonical_filters(filters),
-        "review": review_signature,
-        "hpo": sorted({str(term) for term in (patient_terms or [])}),
-        "pedigree": await _pedigree_signature(session, context),
-        "panel_version": await _panel_version(session, getattr(filters, "panel_id", None)),
-        "monarch_release": await _monarch_release(session),
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    inputs_hash, _base = await compute_ranking_hashes(
+        session,
+        context=context,
+        filters=filters,
+        patient_terms=patient_terms,
+        review_variant_ids=review_variant_ids,
+        excluded_review_variant_ids=excluded_review_variant_ids,
+        include_review_filter_active=include_review_filter_active,
+    )
+    return inputs_hash
 
 
 async def get_cached_ranking(
@@ -159,17 +194,22 @@ async def store_ranking(
     ranking_truncated: bool,
     ranking: list[dict[str, Any]],
     provenance: dict[str, Any] | None = None,
+    base_hash: str | None = None,
+    panel_id: str | None = None,
 ) -> None:
     await session.execute(
         text(
             """
             INSERT INTO family_variant_ranking_cache
-                (family_id, inputs_hash, total, total_is_estimated, ranking_truncated,
-                 ranking, provenance, computed_at)
+                (family_id, inputs_hash, base_hash, panel_id, total, total_is_estimated,
+                 ranking_truncated, ranking, provenance, computed_at)
             VALUES
-                (CAST(:family_uuid AS uuid), :inputs_hash, :total, :estimated, :truncated,
-                 CAST(:ranking AS jsonb), CAST(:provenance AS jsonb), now())
+                (CAST(:family_uuid AS uuid), :inputs_hash, :base_hash, :panel_id, :total,
+                 :estimated, :truncated, CAST(:ranking AS jsonb), CAST(:provenance AS jsonb),
+                 now())
             ON CONFLICT (family_id, inputs_hash) DO UPDATE SET
+                base_hash = EXCLUDED.base_hash,
+                panel_id = EXCLUDED.panel_id,
                 total = EXCLUDED.total,
                 total_is_estimated = EXCLUDED.total_is_estimated,
                 ranking_truncated = EXCLUDED.ranking_truncated,
@@ -181,6 +221,8 @@ async def store_ranking(
         {
             "family_uuid": family_uuid,
             "inputs_hash": inputs_hash,
+            "base_hash": base_hash,
+            "panel_id": panel_id,
             "total": total,
             "estimated": total_is_estimated,
             "truncated": ranking_truncated,
@@ -205,6 +247,33 @@ async def store_ranking(
         {"family_uuid": family_uuid, "keep": _MAX_CACHE_ROWS_PER_FAMILY},
     )
     await session.commit()
+
+
+async def find_superset_candidates(
+    session: AsyncSession, *, family_uuid: str, base_hash: str
+) -> list[dict[str, Any]]:
+    """Complete (non-truncated) cached rankings over the same panel-agnostic inputs.
+
+    Any of these can serve a narrower panel whose genes it covers. Largest first, so the
+    broadest superset (e.g. a no-panel all-genes ranking) is preferred.
+    """
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT inputs_hash, panel_id, total, total_is_estimated, ranking_truncated,
+                       ranking, computed_at
+                FROM family_variant_ranking_cache
+                WHERE family_id = CAST(:family_uuid AS uuid)
+                  AND base_hash = :base_hash
+                  AND ranking_truncated = FALSE
+                ORDER BY total DESC
+                """
+            ),
+            {"family_uuid": family_uuid, "base_hash": base_hash},
+        )
+    ).mappings().all()
+    return [dict(row) for row in rows]
 
 
 async def clear_family_ranking_cache(session: AsyncSession, family_uuid: str) -> None:

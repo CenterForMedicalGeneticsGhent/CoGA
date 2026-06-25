@@ -45,7 +45,8 @@ from .small_variant_review_pg import (
 from .monarch_phenotype_score import score_genes_for_hpo
 from .variant_ranking_cache import (
     canonical_filters,
-    compute_inputs_hash,
+    compute_ranking_hashes,
+    find_superset_candidates,
     get_cached_ranking,
     store_ranking,
 )
@@ -4285,6 +4286,108 @@ async def _serve_ranking_from_cache(
     )
 
 
+async def _serve_subpanel_from_superset(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    base_hash: str,
+    panel_constraints: PanelFilterConstraints,
+    page: int,
+    page_size: int,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage | None:
+    """Serve a gene panel from a broader cached ranking with the same panel-agnostic
+    inputs.
+
+    The per-variant scores don't depend on the panel, so a narrower panel's ranking is the
+    superset's ranking restricted to the panel's variants — in the same order. Membership
+    is re-validated against ClickHouse with the *exact* panel filter, so the result equals
+    a direct compute (no missed variants). Only complete (non-truncated) supersets whose
+    genes cover the request are used; otherwise returns None for a live compute.
+    """
+    request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
+    if not request_genes:
+        return None  # no gene panel to narrow from a gene-panel superset
+
+    candidates = await find_superset_candidates(
+        session, family_uuid=context.family_uuid, base_hash=base_hash
+    )
+    for candidate in candidates:
+        candidate_panel_id = candidate.get("panel_id")
+        if candidate_panel_id:
+            candidate_constraints = await _fetch_panel_constraints(
+                session, candidate_panel_id, assembly_id=context.assembly_id
+            )
+            candidate_genes = {gene.lower() for gene in (candidate_constraints.genes or []) if gene}
+            if not request_genes.issubset(candidate_genes):
+                continue  # this superset doesn't cover all the requested genes
+
+        ranking = candidate.get("ranking") or []
+        if isinstance(ranking, str):
+            try:
+                ranking = json.loads(ranking)
+            except json.JSONDecodeError:
+                continue
+        superset_ids = [str(entry["variant_id"]) for entry in ranking if entry.get("variant_id")]
+        if not superset_ids:
+            continue
+
+        # Re-validate which of the superset's variants are in the requested panel, using
+        # the exact panel filter (SQL + the same Python check the live path applies).
+        fetch_filters = SmallVariantQueryFilters(page=1, page_size=len(superset_ids) + 5)
+        records = await _fetch_small_variant_rows(
+            context,
+            fetch_filters,
+            include_variant_ids=superset_ids,
+            panel_constraints=panel_constraints,
+            limit=len(superset_ids) + 5,
+        )
+        by_id: dict[str, Any] = {}
+        for record in records:
+            if _small_record_matches(
+                record, fetch_filters, [], [], [], panel_constraints=panel_constraints
+            ):
+                by_id[str(record.variant_id)] = record
+
+        subset_ranking = [
+            entry for entry in ranking if str(entry.get("variant_id")) in by_id
+        ]
+        total = len(subset_ranking)
+        reported_total = min(total, _SMALL_COUNT_LIMIT)
+        skip = max(page - 1, 0) * page_size if page_size else 0
+        page_entries = subset_ranking[skip : skip + page_size] if page_size else subset_ranking[skip:]
+
+        page_variants: list[VariantOut] = []
+        for entry in page_entries:
+            record = by_id.get(str(entry.get("variant_id")))
+            if record is None:
+                continue
+            variant_out = _small_variant_out(record)
+            priority = entry.get("priority")
+            if priority:
+                try:
+                    variant_out.priority = VariantPriorityOut.model_validate(priority)
+                except Exception:  # noqa: BLE001 - fall back to live compute on a bad blob
+                    return None
+            page_variants.append(variant_out)
+        await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
+
+        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+        return VariantPage(
+            total=reported_total,
+            total_is_estimated=False,
+            unfiltered_total=unfiltered_total,
+            unfiltered_total_is_estimated=False,
+            count_limit=_SMALL_COUNT_LIMIT - 1,
+            ranking_truncated=False,
+            ranking_cached=True,
+            ranking_computed_at=candidate.get("computed_at"),
+            variants=page_variants,
+            small_variant_summary=small_variant_summary,
+        )
+    return None
+
+
 async def _prioritized_small_variants_page(
     session: AsyncSession,
     *,
@@ -4313,7 +4416,7 @@ async def _prioritized_small_variants_page(
     # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
     # when the inputs (filters + HPO + pedigree + panel + Monarch release) are unchanged.
     patient_terms, term_labels = await _affected_present_hpo(session, context)
-    inputs_hash = await compute_inputs_hash(
+    inputs_hash, base_hash = await compute_ranking_hashes(
         session,
         context=context,
         filters=filters,
@@ -4336,6 +4439,20 @@ async def _prioritized_small_variants_page(
         )
         if served is not None:
             return served
+
+    # No exact hit: a narrower panel can be served from a broader cached ranking with the
+    # same panel-agnostic inputs (scores are panel-independent), re-validating membership.
+    served = await _serve_subpanel_from_superset(
+        session,
+        context=context,
+        base_hash=base_hash,
+        panel_constraints=panel_constraints,
+        page=page,
+        page_size=page_size,
+        small_variant_summary=small_variant_summary,
+    )
+    if served is not None:
+        return served
 
     records = await _fetch_small_variant_rows(
         context,
@@ -4374,6 +4491,8 @@ async def _prioritized_small_variants_page(
             session,
             family_uuid=context.family_uuid,
             inputs_hash=inputs_hash,
+            base_hash=base_hash,
+            panel_id=filters.panel_id,
             total=0,
             total_is_estimated=capped,
             ranking_truncated=capped,
@@ -4501,6 +4620,8 @@ async def _prioritized_small_variants_page(
         session,
         family_uuid=context.family_uuid,
         inputs_hash=inputs_hash,
+        base_hash=base_hash,
+        panel_id=filters.panel_id,
         total=reported_total,
         total_is_estimated=total_is_estimated,
         ranking_truncated=capped,
