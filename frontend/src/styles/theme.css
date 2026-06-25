@@ -8533,6 +8533,11 @@ button.table-link:hover {
 .roi-markers-band--flank {
   opacity: 0.85;
 }
+/* A Mendelian error (genotype not inheritable from the parents) is emphasised
+   with a light-orange cell so it stands out from the white sequence. */
+.roi-markers-band--mendel {
+  background: #ffe8cc;
+}
 /* The two bands of a member touch; members are separated by a spacer row. */
 .roi-markers-bandrow .roi-markers-namecol {
   border-bottom: none;
@@ -8561,6 +8566,11 @@ button.table-link:hover {
 .roi-markers-tip-region,
 .roi-markers-tip-role {
   color: var(--color-text-muted, #64748b);
+}
+.roi-markers-tip-mendel {
+  margin-top: 4px;
+  color: #c2410c;
+  font-weight: 600;
 }
 
 .viewer-track-interactive {

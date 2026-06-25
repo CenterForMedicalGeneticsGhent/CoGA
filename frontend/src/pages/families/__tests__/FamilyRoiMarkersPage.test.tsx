@@ -216,4 +216,47 @@ describe('FamilyRoiMarkersPage', () => {
     );
     await waitFor(() => expect(screen.queryByTitle(/1,001,500 .*\(flank\)$/)).toBeNull());
   });
+
+  it('highlights Mendelian-error markers on the child with a light-orange cell', async () => {
+    const familyWithRel = {
+      ...family,
+      relationships: [
+        { id: 'r1', relationship_type: 'parent_child', sample_id_a: 'FATHER', sample_id_b: 'EMBRYO', role_a: 'father' },
+        { id: 'r2', relationship_type: 'parent_child', sample_id_a: 'MOTHER', sample_id_b: 'EMBRYO', role_a: 'mother' },
+      ],
+    };
+    // EMBRYO 1|1 from two 0|0 parents is an impossible transmission.
+    const phasedErr = {
+      samples: [
+        { sample: 'FATHER', markers: [{ pos: 1_000_500, hap1: 0, hap2: 0 }], reference: true, qc: null },
+        { sample: 'MOTHER', markers: [{ pos: 1_000_500, hap1: 0, hap2: 0 }], reference: true, qc: null },
+        {
+          sample: 'EMBRYO',
+          markers: [{ pos: 1_000_500, hap1: 1, hap2: 1 }],
+          reference: false,
+          qc: { informative_sites: 10, mendel_errors: 1, mendel_rate: 0.1 },
+        },
+      ],
+      sites: [{ pos: 1_000_500, ref: 'G', alt: 'A', gts: ['0|0', '0|0', '1|1'] }],
+      truncated: false,
+    };
+    (api.get as Mock).mockImplementation((url: string) => {
+      if (url === '/families/co1') return Promise.resolve({ data: familyWithRel });
+      if (url.endsWith('/phased-markers')) return Promise.resolve({ data: phasedErr });
+      if (url.endsWith('/haplotypes')) return Promise.resolve({ data: haplo });
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/ROI marker review/)).toBeTruthy());
+
+    // Both of the child's lane cells at the impossible site are flagged; parents are not.
+    expect(bandCell('EMBRYO', 1, 1_000_500)?.className).toContain('roi-markers-band--mendel');
+    expect(bandCell('EMBRYO', 2, 1_000_500)?.className).toContain('roi-markers-band--mendel');
+    expect(bandCell('FATHER', 1, 1_000_500)?.className).not.toContain('roi-markers-band--mendel');
+
+    // The cell tooltip explains it.
+    fireEvent.mouseMove(bandCell('EMBRYO', 1, 1_000_500) as HTMLElement, { clientX: 25, clientY: 25 });
+    expect((document.querySelector('.viz-tooltip') as HTMLElement).textContent).toContain('Mendelian error');
+  });
 });

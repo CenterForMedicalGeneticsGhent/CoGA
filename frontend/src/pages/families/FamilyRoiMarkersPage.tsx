@@ -98,6 +98,29 @@ const alleleBase = (index: string, ref: string, alt: string): string => {
   return alt.split(',')[n - 1] ?? '?';
 };
 
+const parseAlleles = (gt: string): number[] | null => {
+  const sep = gt.includes('|') ? '|' : gt.includes('/') ? '/' : null;
+  if (!sep) return null;
+  const alleles = gt.split(sep).map((part) => parseInt(part, 10));
+  return alleles.some((n) => Number.isNaN(n)) ? null : alleles;
+};
+
+// Mirrors the backend Mendelian check: the child genotype must form from one
+// allele of each parent (two parents), or share an allele with the lone parent.
+const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
+  if (parents.length >= 2) {
+    const childKey = [...child].sort((a, b) => a - b).join(',');
+    for (const pa of parents[0]) {
+      for (const ma of parents[1]) {
+        if ([pa, ma].sort((a, b) => a - b).join(',') === childKey) return true;
+      }
+    }
+    return false;
+  }
+  const parentAlleles = new Set(parents[0]);
+  return child.some((allele) => parentAlleles.has(allele));
+};
+
 const FamilyRoiMarkersPage: React.FC = () => {
   const { familyId = '' } = useParams();
   const [searchParams] = useSearchParams();
@@ -185,9 +208,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
 
   // Only the informative markers drive the segregation call; the rest are noise here.
   const baseSites = informativeSites;
-  const shownSites = baseSites.slice(0, MAX_COLUMNS);
+  const shownSites = useMemo(() => baseSites.slice(0, MAX_COLUMNS), [baseSites]);
   const siteByPos = useMemo(() => new Map(shownSites.map((s) => [s.pos, s])), [shownSites]);
-  const sampleOrder = (phased?.samples ?? []).map((s) => s.sample);
+  const sampleOrder = useMemo(() => (phased?.samples ?? []).map((s) => s.sample), [phased?.samples]);
   const qcBySample = useMemo(
     () => new Map((phased?.samples ?? []).map((s) => [s.sample, s.qc])),
     [phased?.samples],
@@ -205,6 +228,44 @@ const FamilyRoiMarkersPage: React.FC = () => {
     });
     return map;
   }, [phased?.samples]);
+
+  // child sample -> its parents' samples (sample_id_a = parent, sample_id_b = child).
+  const parentsOf = useMemo(() => {
+    const map = new Map<string, string[]>();
+    (family?.relationships ?? []).forEach((rel) => {
+      if (rel.relationship_type !== 'parent_child') return;
+      const parents = map.get(rel.sample_id_b) ?? [];
+      if (!parents.includes(rel.sample_id_a)) parents.push(rel.sample_id_a);
+      map.set(rel.sample_id_b, parents);
+    });
+    return map;
+  }, [family?.relationships]);
+
+  // Per child, the shown positions whose genotype can't be inherited from its
+  // (genotyped) parents — a Mendelian error, highlighted for emphasis.
+  const mendelErrorPosBySample = useMemo(() => {
+    const map = new Map<string, Set<number>>();
+    const idxBySample = new Map(sampleOrder.map((sample, index) => [sample, index]));
+    parentsOf.forEach((parents, child) => {
+      const childIdx = idxBySample.get(child);
+      const parentIdxs = parents
+        .map((p) => idxBySample.get(p))
+        .filter((i): i is number => i !== undefined);
+      if (childIdx === undefined || parentIdxs.length === 0) return;
+      const errors = new Set<number>();
+      shownSites.forEach((site) => {
+        const childAlleles = parseAlleles(site.gts[childIdx] ?? '');
+        if (!childAlleles) return;
+        const parentAlleles = parentIdxs
+          .map((i) => parseAlleles(site.gts[i] ?? ''))
+          .filter((a): a is number[] => a !== null);
+        if (parentAlleles.length < parentIdxs.length) return; // need every parent genotyped
+        if (!mendelianConsistent(parentAlleles, childAlleles)) errors.add(site.pos);
+      });
+      if (errors.size) map.set(child, errors);
+    });
+    return map;
+  }, [parentsOf, shownSites, sampleOrder]);
 
   if (familyLoading || phasedLoading) {
     return <PageState title="Loading ROI markers…" />;
@@ -291,6 +352,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     const lane = cell.dataset.lane ?? '';
     const base = cell.dataset.base ?? '';
     const informative = cell.dataset.informative === '1';
+    const mendelError = cell.dataset.mendel === '1';
     const site = siteByPos.get(pos);
     const role = roleBySample.get(sample);
     const flank = !inRoi(pos);
@@ -324,6 +386,12 @@ const FamilyRoiMarkersPage: React.FC = () => {
             </span>
             {informative ? '' : ' — uninformative (parent-of-origin unresolved here)'}
           </div>
+          {mendelError && (
+            <div className="roi-markers-tip-row roi-markers-tip-mendel">
+              ⚠ Mendelian error — this genotype can&apos;t be inherited from the parents (sample swap,
+              wrong pedigree, or genotyping noise).
+            </div>
+          )}
         </div>
       ),
     });
@@ -455,15 +523,19 @@ const FamilyRoiMarkersPage: React.FC = () => {
                     // informative (a resolved marker); otherwise mute it to grey.
                     const laneValue = markerLanes.get(sample)?.get(site.pos)?.[lane] ?? null;
                     const informative = laneValue !== null;
+                    const mendelError = mendelErrorPosBySample.get(sample)?.has(site.pos) ?? false;
                     return (
                       <td
                         key={site.pos}
-                        className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}`}
+                        className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}${
+                          mendelError ? ' roi-markers-band--mendel' : ''
+                        }`}
                         data-pos={site.pos}
                         data-sample={sample}
                         data-lane={laneIdx + 1}
                         data-base={base}
                         data-informative={informative ? '1' : '0'}
+                        data-mendel={mendelError ? '1' : '0'}
                       >
                         <span
                           className={`roi-markers-allele${informative ? '' : ' roi-markers-allele--muted'}`}
