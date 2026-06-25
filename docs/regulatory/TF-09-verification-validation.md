@@ -38,39 +38,23 @@ merge — without this, the gates are advisory. (Noted as open in [security-post
 - **Usability validation:** summative evaluation that intended users can use CoGA without unacceptable use error ([TF-12](TF-12-usability.md)).
 - **Reproducibility validation:** same validated input → identical content-hashed signed report (a 62304 §16.1 repeatability requirement; mechanism exists via the frozen sign-out).
 
-## 3. Software Requirements Specification (SRS) — structure to formalize
+## 3. Software Requirements Specification (SRS)
 
-CoGA's requirements currently live implicitly in the per-feature design docs. To meet 62304
-§5.2 and enable traceability, consolidate them into an SRS organized as:
-
-1. **Functional requirements** per module/application (derived from the "clinical question" and "what done means" sections of `docs/*.md`).
-2. **Performance requirements** (accuracy/concordance targets — from TF-10 acceptance criteria).
-3. **Interface/input requirements** (accepted input formats, device boundary — TF-02).
-4. **Risk-control requirements** (every control in TF-06 becomes a verifiable requirement).
-5. **Security & data-protection requirements** (RBAC, audit, encryption — TF-13/TF-14).
-6. **Usability requirements** (TF-12).
-7. **Regulatory/labelling requirements** (provenance footer, version display, IFU — TF-15).
-
-**🔲 ACTION:** produce the SRS as a controlled document (or a structured requirements
-register) so each requirement has a stable ID.
+The SRS is maintained as the controlled companion document
+**[TF-09a — Software Requirements Specification](TF-09a-software-requirements-specification.md)**:
+71 requirements with stable IDs across 13 areas (functional per application, performance,
+interface/input, risk-control, security, usability, reporting), each with a 62304 safety class
+and a link to its TF-06 hazard. It is derived from the per-feature design docs and the
+implementation/test inventory, and revised under change control (TF-18).
 
 ## 4. Requirements traceability matrix (RTM)
 
-The RTM is the spine 62304/IVDR expect: each requirement traces forward to design, code,
-and verifying test, and (for risk-control requirements) back to the hazard. Maintained as a
-controlled register; structure:
-
-| Req ID | Requirement | Source | Design ref | Implementation | Verifying test(s) | Risk (TF-06) | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| REQ-NIPT-001 | Estimate fetal fraction from category-7 sites with CI & N | monogenic-nipt.md | nipt_analysis.py | `services/nipt_analysis.py` | `test_*nipt*` | H6 | ◐ |
-| REQ-PGT-001 | Derive embryo ROI call gated by Mendel-error/informative-marker/recombination QC | haplotype-segregation-analysis.md | haplotype_lineage_service.py | service+frontend | concordance TF-10 §3.2 | H5 | ◐ |
-| REQ-ACMG-001 | Recompute ACMG class server-side; criteria overridable | acmg-classification.md | acmg_points.py | `services/*review*` | `test_acmg*` | H3 | ✅ |
-| REQ-TRACE-001 | Freeze content-hashed signed report; render from snapshot | clinical-traceability.md | report_signout_service.py | service | `test_report_signout.py` | H9 | ✅ |
-| REQ-SEC-001 | Project-scoped access on every PHI endpoint | security-posture.md | metadata_service.py | dependency | `test_access_control.py` | H11 | ✅ |
-| … | (populate from SRS) | | | | | | |
-
-> The examples are illustrative and reference real code/tests already present; the full RTM
-> is generated from the SRS and kept current as a release deliverable.
+The RTM — the spine 62304/IVDR expect — is maintained as the controlled companion document
+**[TF-09b — Requirements Traceability Matrix](TF-09b-requirements-traceability-matrix.md)**:
+each SRS requirement traced forward to implementation (`file::function`), verifying test(s),
+and back to its hazard, with an honest status (✅ directly verified · ◐ partial / clinically
+validated in TF-10 · ⚠ verification gap). TF-09b §3 lists the verification gaps as a CAPA
+backlog that must be closed before the first clinical release (see §6 below).
 
 ## 5. Anomaly handling
 

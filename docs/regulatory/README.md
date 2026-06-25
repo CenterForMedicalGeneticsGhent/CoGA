@@ -55,6 +55,8 @@ Numbered to mirror an IVDR Annex II/III dossier. Status legend: ✅ drafted ·
 | TF-07 | [Software Development & Lifecycle Plan](TF-07-software-lifecycle-plan.md) | Annex II §3 | IEC 62304 / 82304-1 | ✅ |
 | TF-08 | [SOUP & Reference-Database Register](TF-08-soup-register.md) | Annex II §3 | IEC 62304 §8 | ✅ |
 | TF-09 | [Software V&V Plan & Requirements Traceability](TF-09-verification-validation.md) | Annex II §3 | IEC 62304 §5.5–5.7 | ✅ |
+| TF-09a | [Software Requirements Specification (SRS)](TF-09a-software-requirements-specification.md) | Annex II §3 | IEC 62304 §5.2 | ✅ |
+| TF-09b | [Requirements Traceability Matrix (RTM)](TF-09b-requirements-traceability-matrix.md) | Annex II §3 | IEC 62304 §5.1.6 | ✅ |
 | TF-10 | [Performance Evaluation Plan](TF-10-performance-evaluation-plan.md) | Annex II §1.2; Annex XIII | IVDR Annex XIII | ✅ |
 | TF-11 | [Performance Evaluation Report](TF-11-performance-evaluation-report.md) | Annex XIII Part A | IVDR Annex XIII | ◐ template (awaiting study data) |
 | TF-12 | [Usability Engineering File](TF-12-usability.md) | Annex I §16 | IEC 62366-1 | ✅ |
