@@ -42,6 +42,12 @@ from .small_variant_review_pg import (
     list_matching_small_variant_review_ids,
 )
 from .monarch_phenotype_score import score_genes_for_hpo
+from .variant_ranking_cache import (
+    canonical_filters,
+    compute_inputs_hash,
+    get_cached_ranking,
+    store_ranking,
+)
 from .variant_prioritization import (
     MODE_COMPOUND_HET,
     MODE_DE_NOVO,
@@ -4206,6 +4212,76 @@ def _segregation_modes_by_variant(
     return modes
 
 
+async def _serve_ranking_from_cache(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    cached: dict[str, Any],
+    page: int,
+    page_size: int,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage | None:
+    """Rebuild a prioritised page from a cached ranking.
+
+    The cache holds the ranked (variant id + score breakdown) order; the page's variant
+    records and review state are fetched fresh so annotations and review status are never
+    served stale. Returns None on any reconstruction problem so the caller falls back to a
+    live compute.
+    """
+    ranking = cached.get("ranking") or []
+    if isinstance(ranking, str):
+        try:
+            ranking = json.loads(ranking)
+        except json.JSONDecodeError:
+            return None
+    total = int(cached.get("total") or 0)
+    total_is_estimated = bool(cached.get("total_is_estimated"))
+    ranking_truncated = bool(cached.get("ranking_truncated"))
+    reported_total = min(total, _SMALL_COUNT_LIMIT)
+    unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+
+    skip = max(page - 1, 0) * page_size if page_size else 0
+    page_entries = ranking[skip : skip + page_size] if page_size else ranking[skip:]
+    page_ids = [str(entry["variant_id"]) for entry in page_entries if entry.get("variant_id")]
+
+    page_variants: list[VariantOut] = []
+    if page_ids:
+        fetch_filters = SmallVariantQueryFilters(page=1, page_size=len(page_ids) + 5)
+        records = await _fetch_small_variant_rows(
+            context,
+            fetch_filters,
+            include_variant_ids=page_ids,
+            limit=len(page_ids) + 5,
+        )
+        by_id: dict[str, VariantOut] = {}
+        for record in records:
+            out = _small_variant_out(record)
+            by_id[str(out.id)] = out
+        for entry in page_entries:
+            variant_out = by_id.get(str(entry.get("variant_id")))
+            if variant_out is None:
+                continue
+            priority = entry.get("priority")
+            if priority:
+                try:
+                    variant_out.priority = VariantPriorityOut.model_validate(priority)
+                except Exception:  # noqa: BLE001 — a bad cached blob should fall back to live
+                    return None
+            page_variants.append(variant_out)
+        await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
+
+    return VariantPage(
+        total=reported_total,
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        ranking_truncated=ranking_truncated,
+        variants=page_variants,
+        small_variant_summary=small_variant_summary,
+    )
+
+
 async def _prioritized_small_variants_page(
     session: AsyncSession,
     *,
@@ -4230,6 +4306,33 @@ async def _prioritized_small_variants_page(
                 session, gene_query=filters.gene, assembly_id=context.assembly_id
             ),
         ]
+
+    # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
+    # when the inputs (filters + HPO + pedigree + panel + Monarch release) are unchanged.
+    patient_terms, term_labels = await _affected_present_hpo(session, context)
+    inputs_hash = await compute_inputs_hash(
+        session,
+        context=context,
+        filters=filters,
+        patient_terms=patient_terms,
+        review_variant_ids=review_variant_ids if include_review_filter_active else None,
+        excluded_review_variant_ids=excluded_review_variant_ids,
+        include_review_filter_active=include_review_filter_active,
+    )
+    cached = await get_cached_ranking(
+        session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
+    )
+    if cached is not None:
+        served = await _serve_ranking_from_cache(
+            session,
+            context=context,
+            cached=cached,
+            page=page,
+            page_size=page_size,
+            small_variant_summary=small_variant_summary,
+        )
+        if served is not None:
+            return served
 
     records = await _fetch_small_variant_rows(
         context,
@@ -4264,6 +4367,20 @@ async def _prioritized_small_variants_page(
         )
     ]
     if not filtered:
+        await store_ranking(
+            session,
+            family_uuid=context.family_uuid,
+            inputs_hash=inputs_hash,
+            total=0,
+            total_is_estimated=capped,
+            ranking_truncated=capped,
+            ranking=[],
+            provenance={
+                "hpo_count": len(patient_terms),
+                "panel_id": filters.panel_id,
+                "filters": canonical_filters(filters),
+            },
+        )
         return VariantPage(
             total=0,
             total_is_estimated=capped,
@@ -4275,7 +4392,6 @@ async def _prioritized_small_variants_page(
     modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
-    patient_terms, term_labels = await _affected_present_hpo(session, context)
 
     variants = [_small_variant_out(record) for record in filtered]
     gene_symbols = {variant.gene for variant in variants if variant.gene}
@@ -4374,6 +4490,31 @@ async def _prioritized_small_variants_page(
         total_is_estimated = ranked_total >= _SMALL_COUNT_LIMIT
 
     reported_total = min(total, _SMALL_COUNT_LIMIT)
+
+    # Cache the full ranked order (variant id + score breakdown) so the next open of an
+    # unchanged view is served without re-scoring. The page records + review state are
+    # re-fetched fresh on a cache hit.
+    await store_ranking(
+        session,
+        family_uuid=context.family_uuid,
+        inputs_hash=inputs_hash,
+        total=reported_total,
+        total_is_estimated=total_is_estimated,
+        ranking_truncated=capped,
+        ranking=[
+            {
+                "variant_id": str(variant.id),
+                "priority": variant.priority.model_dump(mode="json") if variant.priority else None,
+            }
+            for variant in variants
+        ],
+        provenance={
+                "hpo_count": len(patient_terms),
+                "panel_id": filters.panel_id,
+                "filters": canonical_filters(filters),
+            },
+    )
+
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_variants = variants[skip : skip + page_size] if page_size else variants[skip:]
     await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
@@ -4389,6 +4530,79 @@ async def _prioritized_small_variants_page(
         variants=page_variants,
         small_variant_summary=small_variant_summary,
     )
+
+
+async def precompute_family_ranking_safe(
+    family_identifier: str, user: Any, *, project_id: str | None = None
+) -> None:
+    """Best-effort background warm of the prioritised-ranking cache after an HPO or
+    pedigree edit.
+
+    Replays the family's most recent prioritised query with the now-current inputs, so
+    the next open of that view is served from cache instead of recomputing (~10s). Opens
+    its own session (the triggering request is long gone); logs and swallows every error.
+    Does nothing until a family has opened the prioritised view at least once (there is no
+    query to replay yet), so it never guesses filters.
+    """
+    from ..core.postgres import get_postgres_engine, get_postgres_sessionmaker
+    from .family_metadata_context import build_family_metadata_context
+
+    try:
+        get_postgres_engine()
+        async with get_postgres_sessionmaker()() as session:
+            context = await build_family_metadata_context(
+                session, family_identifier=family_identifier, user=user, project_id=project_id
+            )
+            row = (
+                await session.execute(
+                    text(
+                        """
+                        SELECT provenance
+                        FROM family_variant_ranking_cache
+                        WHERE family_id = CAST(:family_uuid AS uuid)
+                        ORDER BY computed_at DESC
+                        LIMIT 1
+                        """
+                    ),
+                    {"family_uuid": context.family_uuid},
+                )
+            ).mappings().first()
+            provenance = dict(row)["provenance"] if row else None
+            stored_filters = provenance.get("filters") if isinstance(provenance, dict) else None
+            if not stored_filters:
+                return  # nothing to replay yet — leave the first open as a (lazy) miss
+
+            filters = SmallVariantQueryFilters(**{**stored_filters, "page": 1, "page_size": 100})
+            panel_constraints = (
+                await _fetch_panel_constraints(
+                    session, filters.panel_id, assembly_id=context.assembly_id
+                )
+                if filters.panel_id
+                else PanelFilterConstraints()
+            )
+            # Replay the no-review default view (the high-value cached case). Computing it
+            # stores the ranking under the now-current inputs hash.
+            await _prioritized_small_variants_page(
+                session,
+                context=context,
+                filters=filters,
+                page=1,
+                page_size=100,
+                panel_constraints=panel_constraints,
+                review_variant_ids=None,
+                excluded_review_variant_ids=set(),
+                include_review_filter_active=False,
+                include_regions=[],
+                exclude_regions=[],
+                exclude_gene_regions=[],
+                exclude_gene_terms=[],
+                small_variant_summary=None,
+            )
+            logger.info("Warmed prioritised-ranking cache for family %s", family_identifier)
+    except Exception:  # pragma: no cover - background best-effort
+        logger.exception(
+            "Background ranking-cache warm failed for family %s", family_identifier
+        )
 
 
 async def get_family_small_variants_page(

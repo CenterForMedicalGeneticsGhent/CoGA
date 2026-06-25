@@ -136,6 +136,7 @@ from ..services.nipt_service import (
     run_family_nipt_analysis,
 )
 from ..services.bed_service import precompute_family_lineage_safe
+from ..services.clickhouse_family_variants import precompute_family_ranking_safe
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.paraphase_pg import get_family_paraphase_table_response
@@ -324,6 +325,7 @@ async def update_family_members_batch(
         # precomputed genome-overview lineage in the background (the hash guard keeps
         # the overview safe-but-grey until the new precompute lands).
         background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
         return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
@@ -380,6 +382,7 @@ async def update_family_member(
         # Role / affected status feed the haplotype lineage colours — refresh the
         # precomputed genome-overview lineage in the background.
         background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
         return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
@@ -406,6 +409,7 @@ async def delete_family_member(
         # Removing a member changes the pedigree — refresh the precomputed
         # genome-overview lineage in the background.
         background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
         return result
     except DBAPIError as exc:
         await _raise_metadata_schema_error_if_needed(session, exc)
@@ -560,6 +564,7 @@ async def create_family_member_hpo(
     family_id: str,
     sample_id: str,
     annotation: HpoAnnotationCreate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> HpoAnnotationOut:
@@ -568,12 +573,15 @@ async def create_family_member_hpo(
         family_identifier=family_id,
         user=user,
     )
-    return await create_individual_hpo_annotation(
+    result = await create_individual_hpo_annotation(
         session,
         family_uuid=context.family_uuid,
         sample_id=sample_id,
         payload=annotation,
     )
+    # Phenotypes changed: warm the prioritised-ranking cache so the next open is fast.
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.put("/{family_id}/hpo/{annotation_id}", response_model=HpoAnnotationOut)
@@ -581,6 +589,7 @@ async def update_family_hpo(
     family_id: str,
     annotation_id: str,
     annotation: HpoAnnotationUpdate,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> HpoAnnotationOut:
@@ -589,18 +598,21 @@ async def update_family_hpo(
         family_identifier=family_id,
         user=user,
     )
-    return await update_individual_hpo_annotation(
+    result = await update_individual_hpo_annotation(
         session,
         family_uuid=context.family_uuid,
         annotation_id=annotation_id,
         payload=annotation,
     )
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.delete("/{family_id}/hpo/{annotation_id}", status_code=204)
 async def delete_family_hpo(
     family_id: str,
     annotation_id: str,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> Response:
@@ -614,6 +626,7 @@ async def delete_family_hpo(
         family_uuid=context.family_uuid,
         annotation_id=annotation_id,
     )
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
     return Response(status_code=204)
 
 

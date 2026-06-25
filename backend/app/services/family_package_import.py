@@ -6871,6 +6871,21 @@ async def _execute_family_package_import_local(
         )
     else:
         logs.append("Family package import completed.")
+
+    # (Re)importing variant data changes the prioritised ranking, but the cache's input
+    # hash doesn't cover variant content — drop any cached ranking so it recomputes.
+    if not dry_run and session is not None:
+        from .variant_ranking_cache import clear_family_ranking_cache
+
+        try:
+            await clear_family_ranking_cache(session, family_context.family_uuid)
+        except Exception:  # noqa: BLE001 - best-effort cache invalidation
+            logger.warning(
+                "Failed to clear ranking cache after import for family %s",
+                family_context.family_id,
+                exc_info=True,
+            )
+
     return PackageExecutionResult(
         validation=validation,
         datasets=datasets,
