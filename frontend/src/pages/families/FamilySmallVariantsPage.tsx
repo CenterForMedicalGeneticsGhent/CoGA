@@ -318,7 +318,7 @@ const FamilySmallVariantsPage: React.FC = () => {
                       </div>
                     ) : null}
                     <div className="variant-summary-row">
-                      <span className="badge-chip">
+                      <span className="badge-chip badge-chip--emphasis">
                         Showing {formatVariantTotal(data?.total, data?.total_is_estimated)}
                       </span>
                       <span className="badge-chip">
