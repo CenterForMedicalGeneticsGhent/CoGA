@@ -4320,6 +4320,15 @@ tbody tr:hover {
   width: 3%;
 }
 
+.small-variant-col-view {
+  width: 4.5%;
+}
+
+/* Keep the "View" action label on a single line. */
+.small-variant-view-cell {
+  white-space: nowrap;
+}
+
 .small-variant-table .variant-allele-cell {
   white-space: normal;
 }
@@ -4594,12 +4603,6 @@ tbody tr:hover {
 .sv-second-hit-badge:focus-visible {
   filter: brightness(0.97);
   outline: none;
-}
-
-.sv-second-hit-badge-icon {
-  width: 0.78em;
-  height: 0.78em;
-  flex: 0 0 auto;
 }
 
 .sv-second-hit-badge--del {
@@ -9063,6 +9066,16 @@ a.button-danger:hover {
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+
+/* The filtered-count chip ("Showing N") — the headline number, so make it stand out from the
+   muted context chips beside it. */
+.badge-chip--emphasis {
+  background: var(--color-accent, #2563eb);
+  border-color: var(--color-accent, #2563eb);
+  color: #fff;
+  font-size: 0.58rem;
+  padding: 0.26rem 0.62rem;
 }
 
 .badge-chip--signature {
