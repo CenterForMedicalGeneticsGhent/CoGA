@@ -86,6 +86,19 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     },
   });
 
+  const { data: panels = [], isLoading: panelsLoading } = useQuery<StructuralGenePanel[]>({
+    queryKey: ['panels'],
+    queryFn: async () => {
+      const res = await api.get('/panels');
+      return res.data as StructuralGenePanel[];
+    },
+  });
+  // The generated Mendeliome panel scopes the standard default SV search.
+  const mendeliomePanelId = useMemo(
+    () => panels.find((panel) => panel.source === 'mendeliome')?._id,
+    [panels],
+  );
+
   const {
     activeFilterChips,
     activeFilterCount,
@@ -111,6 +124,8 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     family: familyData,
     locationSearch: location.search,
     navigate,
+    mendeliomePanelId,
+    panelsLoaded: !panelsLoading,
   });
   const [workspaceFeedback, setWorkspaceFeedback] = useState<{
     type: 'error' | 'success';
@@ -135,14 +150,6 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       ? 'Loading linked reference...'
       : 'Reference not linked',
   );
-
-  const { data: panels = [] } = useQuery<StructuralGenePanel[]>({
-    queryKey: ['panels'],
-    queryFn: async () => {
-      const res = await api.get('/panels');
-      return res.data as StructuralGenePanel[];
-    },
-  });
 
   const { data: presets = [] } = useQuery<StructuralVariantFilterPreset[]>({
     queryKey: ['family', familyId, 'structural-variant-filter-presets'],
