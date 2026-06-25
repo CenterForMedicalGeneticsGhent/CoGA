@@ -57,6 +57,9 @@ from ..schemas import (
     AnnotationManifestUpdate,
     ClassificationDriftOut,
     ClinicalAuditOut,
+    ReportSignoutDetail,
+    ReportSignoutListOut,
+    ReportSignoutRequest,
     SampleIntegrityQcOut,
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
@@ -121,6 +124,11 @@ from ..services.annotation_manifest_service import (
 )
 from ..services.classification_drift_service import evaluate_classification_drift
 from ..services.clinical_audit_service import list_clinical_audit
+from ..services.report_signout_service import (
+    get_report_signout,
+    list_report_signouts,
+    sign_out_report,
+)
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     get_family_nipt_coverage,
@@ -1135,6 +1143,54 @@ async def get_family_clinical_audit_endpoint(
     return ClinicalAuditOut.model_validate(
         await list_clinical_audit(
             session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.post("/{family_id}/report/sign-out", response_model=ReportSignoutDetail)
+async def sign_out_family_report_endpoint(
+    family_id: str,
+    payload: ReportSignoutRequest | None = None,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportSignoutDetail:
+    return ReportSignoutDetail.model_validate(
+        await sign_out_report(
+            session,
+            family_id=family_id,
+            user=user,
+            acknowledge_drift=bool(payload and payload.acknowledge_drift),
+            project_id=project_id,
+        )
+    )
+
+
+@router.get("/{family_id}/report/sign-outs", response_model=ReportSignoutListOut)
+async def list_family_report_signouts_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportSignoutListOut:
+    return ReportSignoutListOut.model_validate(
+        await list_report_signouts(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.get("/{family_id}/report/sign-outs/{version}", response_model=ReportSignoutDetail)
+async def get_family_report_signout_endpoint(
+    family_id: str,
+    version: int,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportSignoutDetail:
+    return ReportSignoutDetail.model_validate(
+        await get_report_signout(
+            session, family_id=family_id, version=version, user=user, project_id=project_id
         )
     )
 

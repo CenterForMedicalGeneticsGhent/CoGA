@@ -418,6 +418,31 @@ class ClinicalAuditOut(BaseModel):
     events: List[ClinicalAuditEventOut] = Field(default_factory=list)
 
 
+class ReportSignoutRequest(BaseModel):
+    """Sign out the current report. Drift must be explicitly acknowledged."""
+
+    acknowledge_drift: bool = False
+
+
+class ReportSignoutSummary(BaseModel):
+    version: int
+    signed_out_by: str
+    signed_out_at: datetime
+    content_hash: str
+
+
+class ReportSignoutDetail(ReportSignoutSummary):
+    """A frozen, content-hashed report snapshot."""
+
+    snapshot: Optional[Dict[str, Any]] = None
+
+
+class ReportSignoutListOut(BaseModel):
+    family_id: str
+    latest: Optional[ReportSignoutSummary] = None
+    signouts: List[ReportSignoutSummary] = Field(default_factory=list)
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 

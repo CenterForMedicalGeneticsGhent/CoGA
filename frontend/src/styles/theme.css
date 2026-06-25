@@ -11628,6 +11628,26 @@ a.button-danger:hover {
   color: var(--color-text-muted, #64748b);
 }
 
+/* Case sign-out: the frozen, versioned, content-hashed report record. */
+.report-signout {
+  border-left: 4px solid #16a34a;
+  background: #f0fdf4;
+  display: grid;
+  gap: 0.25rem;
+}
+.report-signout-line {
+  margin: 0;
+  font-weight: 600;
+  color: #166534;
+}
+.report-signout-hash {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--color-text-muted, #64748b);
+  word-break: break-all;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
 /* Immutable clinical audit trail: who classified / tagged / annotated what, when. */
 .report-audit {
   display: grid;
