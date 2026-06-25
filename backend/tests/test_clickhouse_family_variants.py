@@ -1916,3 +1916,57 @@ async def test_small_variant_track_mode_samples_across_filtered_region(
 
     assert page.total == 0
     assert [str(variant.id) for variant in page.variants] == ["v0", "v2", "v4", "v6", "v9"]
+
+
+def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
+    """A large gene panel (e.g. the Mendeliome) must not inline thousands of region
+    triples into the query — gene-symbol + gene-index matching covers it."""
+    from backend.app.services.clickhouse_family_variants import (
+        _PANEL_REGION_INLINE_LIMIT,
+        PanelFilterConstraints,
+        Region,
+        _small_panel_filter_condition,
+    )
+
+    context = _family_context()
+    filters = SmallVariantQueryFilters(page=1, page_size=100)
+    regions = tuple(
+        Region(chr="chr1", start=i * 100, end=i * 100 + 50)
+        for i in range(_PANEL_REGION_INLINE_LIMIT + 5)
+    )
+    params: dict = {}
+    condition = _small_panel_filter_condition(
+        context,
+        filters,
+        PanelFilterConstraints(genes=("BRCA1", "TP53"), regions=regions),
+        params=params,
+    )
+    assert condition is not None
+    # No region arrays were inlined (the expensive, query-bloating part).
+    assert not any(key.startswith("panel_region") for key in params)
+    # Gene matching is still present.
+    assert any(key.startswith("panel_gene") for key in params)
+
+
+def test_small_panel_filter_keeps_regions_for_normal_panels():
+    from backend.app.services.clickhouse_family_variants import (
+        PanelFilterConstraints,
+        Region,
+        _small_panel_filter_condition,
+    )
+
+    context = _family_context()
+    filters = SmallVariantQueryFilters(page=1, page_size=100)
+    params: dict = {}
+    condition = _small_panel_filter_condition(
+        context,
+        filters,
+        PanelFilterConstraints(
+            genes=("BRCA1",),
+            regions=(Region(chr="chr17", start=43044295, end=43125483),),
+        ),
+        params=params,
+    )
+    assert condition is not None
+    # A normal-sized panel still inlines its regions.
+    assert any(key.startswith("panel_region") for key in params)

@@ -2786,6 +2786,13 @@ def _small_region_filter_condition(
     )
 
 
+# Above this many panel regions, inlining the (chrom, start, end) arrays and running a
+# per-variant arrayExists over them is both slow and big enough to risk the ClickHouse
+# query-size limit. Large panels are gene panels (e.g. the ~5,300-gene Mendeliome), so the
+# compact gene-symbol + gene-index matching below covers them — skip the region expansion.
+_PANEL_REGION_INLINE_LIMIT = 1000
+
+
 def _small_panel_filter_condition(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -2794,10 +2801,18 @@ def _small_panel_filter_condition(
     params: dict[str, Any],
 ) -> str | None:
     conditions: list[str] = []
-    region_condition = _small_region_filter_condition(
-        panel_constraints.regions,
-        prefix="panel_region",
-        params=params,
+    skip_regions = (
+        bool(panel_constraints.genes)
+        and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT
+    )
+    region_condition = (
+        None
+        if skip_regions
+        else _small_region_filter_condition(
+            panel_constraints.regions,
+            prefix="panel_region",
+            params=params,
+        )
     )
     if region_condition:
         conditions.append(region_condition)
