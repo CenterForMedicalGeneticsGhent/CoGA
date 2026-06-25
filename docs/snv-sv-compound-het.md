@@ -1,6 +1,8 @@
 # SNV + SV compound heterozygosity — implementation plan
 
-**Status:** proposed (design reference, not yet implemented).
+**Status:** Phase 0 + Phase 1 implemented; Phase 2 (read-based phasing) pending an ingestion
+change. The badge, the `require_sv_second_hit` filter, and the trans/cis verdict below are
+live.
 **Goal:** surface genes hit by **both** a small variant (SNV/indel) **and** a structural
 variant (deletion, duplication, …) in the same individual — the cross-type compound-het /
 "second hit" mechanism that single-type pipelines miss — and tell the analyst whether the
@@ -175,19 +177,24 @@ covers the common trio case for both short- and long-read.
 
 ## 8. Phased delivery
 
-### Phase 0 — SV→gene index + SNV flag  *(foundation, current data)*
+### Phase 0 — SV→gene index + SNV flag ✅ *(shipped)*
+
 `family_sv_gene_index` + `sv_gene_index_service` + re-import invalidation; attach
-`sv_second_hit` to SNV results; badge in the table/cards. **Tests:** index built from a
-family's SVs; a gene with an SV is flagged; cleared on re-import.
+`sv_second_hit` to SNV results; badge in the table/cards.
 
-### Phase 1 — "second hit" filter + cross-type compound-het (segregation trans)
-`require_sv_second_hit` filter; `_snv_sv_compound_het_pairs` with trans/cis/unknown +
-deletion-unmasked; the pair view. **Tests:** het SNV + overlapping DEL in trans → flagged
-biallelic; both-in-unaffected → cis; affected-only → candidate.
+### Phase 1 — "second hit" filter + trans/cis verdict ✅ *(shipped)*
 
-### Phase 2 — read-based phasing  *(blocked on §7 ingestion change)*
+`require_sv_second_hit` filter (intersects the family's SV-hit genes with the panel/gene
+constraints, pagination-safe); the `phase` verdict (trans/cis/unknown by segregation) and the
+`deletion_unmasked` biallelic flag on `sv_second_hit`; the badge shows the phase and
+highlights the unmasked case. The match runs over every gene a variant overlaps (not just the
+primary annotation), so the filter and the badge agree.
+
+### Phase 2 — read-based phasing *(blocked on §7 ingestion change)*
+
 SV phase set in ingestion → haplotype-based cis/trans for long-read; surface the evidence
-tier on the verdict.
+tier on the verdict. (Trio/segregation trans already covers the common case and is always
+applied; read phasing layers in when SVs are phased.)
 
 ## 9. Decisions & open questions
 

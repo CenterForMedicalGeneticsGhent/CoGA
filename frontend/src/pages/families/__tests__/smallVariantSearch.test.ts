@@ -48,6 +48,7 @@ describe('smallVariantSearch preset helpers', () => {
         intervals: '',
         inheritance: '',
         prioritize: '',
+        require_sv_second_hit: '',
         expanded_carrier_screening: '',
         ps: '',
         type: '',

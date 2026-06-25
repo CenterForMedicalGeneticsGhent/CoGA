@@ -19,6 +19,47 @@ _HET_GTS = {"0/1", "1/0", "0|1", "1|0"}
 _HOM_GTS = {"1/1", "1|1"}
 
 
+def _gt_has_alt(gt: str | None) -> bool:
+    text_gt = str(gt or "").strip()
+    if not text_gt:
+        return False
+    return any(allele not in {"0", ".", ""} for allele in text_gt.replace("|", "/").split("/"))
+
+
+def _phase_verdict(
+    svs: list[dict[str, Any]],
+    affected: set[str],
+    unaffected: set[str],
+    snv_gt_by_sample: dict[str, str] | None,
+) -> str:
+    """trans / cis / unknown by segregation — the same rule as the SNV+SNV compound-het call.
+
+    A clean candidate needs the SNV heterozygous in every affected sample and the SV present
+    in every affected sample. It's ``trans`` (compound-het) when no unaffected individual
+    carries *both* hits, ``cis`` when one does, and ``unknown`` without that evidence.
+    """
+    if snv_gt_by_sample is None or not affected:
+        return "unknown"
+
+    snv_het_in_affected = all(
+        str(snv_gt_by_sample.get(sample, "")).strip() in _HET_GTS for sample in affected
+    )
+    sv_in_affected = all(
+        any(_gt_has_alt((sv.get("gt") or {}).get(sample)) for sv in svs) for sample in affected
+    )
+    if not (snv_het_in_affected and sv_in_affected):
+        return "unknown"
+
+    for sample in unaffected:
+        snv_alt = _gt_has_alt(snv_gt_by_sample.get(sample))
+        sv_alt = any(_gt_has_alt((sv.get("gt") or {}).get(sample)) for sv in svs)
+        if snv_alt and sv_alt:
+            return "cis"
+    if not unaffected:
+        return "unknown"  # no segregation evidence (e.g. singleton)
+    return "trans"
+
+
 async def is_index_built(session: AsyncSession, family_uuid: str) -> bool:
     found = (
         await session.execute(
@@ -105,11 +146,31 @@ async def get_sv_second_hits(
     return result
 
 
+async def get_sv_hit_genes(session: AsyncSession, *, family_uuid: str) -> list[str]:
+    """All genes the family's SVs hit (drives the ``require_sv_second_hit`` filter)."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT gene_symbol FROM family_sv_gene_index WHERE family_id = CAST(:fid AS uuid)"
+            ),
+            {"fid": family_uuid},
+        )
+    ).scalars().all()
+    return [str(row) for row in rows]
+
+
 def summarize_second_hit(
-    svs: list[dict[str, Any]], affected_samples: list[str]
+    svs: list[dict[str, Any]],
+    affected_samples: list[str],
+    *,
+    unaffected_samples: list[str] | None = None,
+    snv_gt_by_sample: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Compact badge summary: which SV types hit the gene and the zygosity in affected
-    individuals (the headline being a deletion, which can unmask a recessive SNV)."""
+    """Compact badge summary: which SV types hit the gene, the zygosity in affected
+    individuals, and — when the SNV genotype is supplied — the trans/cis phase verdict.
+
+    The headline is a deletion in trans with a heterozygous SNV: the deletion removes the
+    other allele, so the pair is effectively biallelic (``deletion_unmasked``)."""
     sv_types = sorted({str(sv.get("sv_type") or "SV").upper() for sv in svs})
     affected = set(affected_samples or [])
     zygosities: set[str] = set()
@@ -129,11 +190,16 @@ def summarize_second_hit(
         affected_zygosity = "het"
     else:
         affected_zygosity = None
+
+    phase = _phase_verdict(svs, affected, set(unaffected_samples or []), snv_gt_by_sample)
+    has_deletion = any(t in {"DEL", "CNV"} for t in sv_types)
     return {
         "sv_count": len(svs),
         "sv_types": sv_types,
         "affected_zygosity": affected_zygosity,
-        "has_deletion": any(t in {"DEL", "CNV"} for t in sv_types),
+        "has_deletion": has_deletion,
+        "phase": phase,
+        "deletion_unmasked": has_deletion and phase == "trans",
     }
 
 

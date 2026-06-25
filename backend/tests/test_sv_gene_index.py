@@ -43,6 +43,45 @@ def test_no_affected_genotype_leaves_zygosity_unknown() -> None:
     assert summary["has_deletion"] is False
 
 
+def test_phase_trans_with_unaffected_parents() -> None:
+    # Affected child het for the SNV; SV carried; neither unaffected parent carries both.
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": "0/1", "mother": "0/1", "father": "0/0"})],
+        ["child"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"child": "0/1", "mother": "0/0", "father": "0/1"},
+    )
+    assert summary["phase"] == "trans"
+    assert summary["deletion_unmasked"] is True  # DEL in trans with a het SNV → biallelic
+
+
+def test_phase_cis_when_unaffected_carries_both() -> None:
+    summary = summarize_second_hit(
+        [_sv("DUP", {"child": "0/1", "mother": "0/1"})],
+        ["child"],
+        unaffected_samples=["mother"],
+        snv_gt_by_sample={"child": "0/1", "mother": "0/1"},  # mother carries SNV + SV
+    )
+    assert summary["phase"] == "cis"
+    assert summary["deletion_unmasked"] is False
+
+
+def test_phase_unknown_for_singleton() -> None:
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": "0/1"})],
+        ["child"],
+        unaffected_samples=[],
+        snv_gt_by_sample={"child": "0/1"},
+    )
+    assert summary["phase"] == "unknown"
+    assert summary["deletion_unmasked"] is False
+
+
+def test_phase_unknown_without_snv_genotype() -> None:
+    summary = summarize_second_hit([_sv("DEL", {"S1": "0/1"})], ["S1"])
+    assert summary["phase"] == "unknown"
+
+
 def test_scan_groups_svs_by_gene(monkeypatch) -> None:
     rows = [
         # variantId, svType, chrom, start, end, gene_symbols, sampleIds, gts

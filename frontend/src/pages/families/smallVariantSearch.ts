@@ -179,6 +179,8 @@ export interface SvSecondHit {
   sv_types: string[];
   affected_zygosity?: string | null;
   has_deletion: boolean;
+  phase?: string;
+  deletion_unmasked?: boolean;
 }
 
 export interface SmallVariantPriorityMatch {
@@ -322,6 +324,7 @@ export type SmallFilterState = {
   inheritance: string;
   expanded_carrier_screening: string;
   prioritize: string;
+  require_sv_second_hit: string;
   ps: string;
   type: string;
   source: string;
@@ -558,6 +561,7 @@ const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
   inheritance: 'Inheritance',
   expanded_carrier_screening: 'Expanded carrier screening',
   prioritize: 'Phenotype prioritization',
+  require_sv_second_hit: 'Also hit by an SV',
   ps: 'Phase set',
   type: 'Variant type',
   source: 'Callset',
@@ -700,7 +704,7 @@ const normalizeStoredFilterValue = (
     if (value === true || value === 'true') return 'true';
     return '';
   }
-  if (key === 'prioritize') {
+  if (key === 'prioritize' || key === 'require_sv_second_hit') {
     if (value === true || value === 'true') return 'true';
     return '';
   }
@@ -716,6 +720,7 @@ export const createEmptySmallFilters = (): SmallFilterState => ({
   inheritance: '',
   expanded_carrier_screening: '',
   prioritize: '',
+  require_sv_second_hit: '',
   ps: '',
   type: '',
   source: '',
@@ -1121,6 +1126,9 @@ export const buildSmallVariantQueryParams = (
   );
   // Standard on: only an explicit "false" turns phenotype prioritization off.
   params.set('prioritize', currentFilters.prioritize === 'true' ? 'true' : 'false');
+  if (currentFilters.require_sv_second_hit === 'true') {
+    params.set('require_sv_second_hit', 'true');
+  }
   parseCommaSeparatedValues(currentFilters.exclude_review_tags).forEach((value) => {
     params.append('exclude_review_tag', value);
   });
@@ -1309,7 +1317,8 @@ export const serializePresetFilters = (filters: SmallFilterState): Record<string
         if (
           key === 'has_notes' ||
           key === 'expanded_carrier_screening' ||
-          key === 'prioritize'
+          key === 'prioritize' ||
+          key === 'require_sv_second_hit'
         ) {
           return [key, value === 'true'];
         }
