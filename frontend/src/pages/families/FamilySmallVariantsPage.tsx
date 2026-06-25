@@ -76,6 +76,20 @@ const FamilySmallVariantsPage: React.FC = () => {
     family?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Reference not linked',
   );
 
+  const { data: panels = [], isLoading: panelsLoading } = useQuery<GenePanel[]>({
+    queryKey: ['panels'],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const res = await api.get('/panels');
+      return res.data as GenePanel[];
+    },
+  });
+  // The generated Mendeliome panel scopes the default small-variant search.
+  const mendeliomePanelId = useMemo(
+    () => panels.find((panel) => panel.source === 'mendeliome')?._id,
+    [panels],
+  );
+
   const {
     activeFilterChips,
     activeFilterCount,
@@ -101,6 +115,8 @@ const FamilySmallVariantsPage: React.FC = () => {
     locationSearch: location.search,
     navigate,
     resolvedProjectId: projectId,
+    mendeliomePanelId,
+    panelsLoaded: !panelsLoading,
   });
   const [workspaceFeedback, setWorkspaceFeedback] = useState<{
     tone: 'error' | 'success';
@@ -108,15 +124,6 @@ const FamilySmallVariantsPage: React.FC = () => {
   } | null>(null);
   // Collapse the whole filter panel to give the variant cards more room.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
-
-  const { data: panels = [] } = useQuery<GenePanel[]>({
-    queryKey: ['panels'],
-    enabled: Boolean(familyId),
-    queryFn: async () => {
-      const res = await api.get('/panels');
-      return res.data as GenePanel[];
-    },
-  });
 
   const { data: presets = [] } = useQuery<SmallVariantFilterPreset[]>({
     queryKey: ['family', familyId, 'small-variant-filter-presets'],
