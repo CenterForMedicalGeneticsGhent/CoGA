@@ -3855,6 +3855,16 @@ tbody tr:hover {
   color: #92400e;
 }
 
+/* Subtle provenance note for a prioritised ranking served from cache. */
+.ranking-cache-note {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .variant-saved-layout {
   display: grid;
   gap: 0.75rem;

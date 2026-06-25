@@ -2014,6 +2014,10 @@ class VariantPage(BaseModel):
     # True when a prioritized request had more candidates than the ranking window, so
     # the ranking is incomplete and the user should narrow their filters.
     ranking_truncated: bool = False
+    # Provenance of a prioritized ranking: whether it was served from the cache and when
+    # the ranking was computed (so the UI can show a "from cache · N min ago" indicator).
+    ranking_cached: bool = False
+    ranking_computed_at: Optional[datetime] = None
     variants: List[VariantOut] = Field(default_factory=list)
     variant_groups: List[SmallVariantGroupOut] = Field(default_factory=list)
     summary: Optional[Dict[str, Dict[str, int]]] = None

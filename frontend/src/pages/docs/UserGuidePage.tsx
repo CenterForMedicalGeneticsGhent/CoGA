@@ -628,6 +628,20 @@ const guideSections: GuideSection[] = [
           at once: tighten the filters (frequency, impact, a gene panel, or an inheritance mode) so
           the full set is ranked.
         </div>
+
+        <div className="user-guide-callout">
+          <strong>It&rsquo;s cached, and stays fresh.</strong> The ranking is relatively expensive to
+          compute, so CoGA caches it: the first open computes it, every open after is near-instant
+          (a <em>“served from cache”</em> note shows when), and it refreshes automatically whenever
+          phenotypes, the pedigree, the panel, the filters or the annotations change. Narrowing from
+          the Mendeliome to a smaller gene panel is instant — it&rsquo;s served from the broader
+          ranking, since the scores don&rsquo;t depend on the panel.
+        </div>
+
+        <FurtherReading
+          to="/docs/reference/variant-ranking-cache"
+          label="Prioritised ranking & caching reference (invalidation, warming, sub-panel serving)"
+        />
       </>
     ),
   },
