@@ -812,6 +812,7 @@ export interface GeneLocation {
 export interface GenePanel {
   _id: string;
   name: string;
+  version?: number;
   genes: string[];
   gene_count?: number;
   regions: GeneLocation[];
@@ -824,4 +825,31 @@ export interface GenePanel {
   external_version?: string | null;
   external_url?: string | null;
   source_updated_at?: string | null;
+  source_metadata?: Record<string, unknown>;
+}
+
+export interface GenePanelVersionSummary {
+  version: number;
+  name: string;
+  source?: string | null;
+  external_version?: string | null;
+  gene_count: number;
+  created_by_email?: string | null;
+  created_at: string;
+}
+
+export interface GenePanelVersionList {
+  panel_id: string;
+  current_version: number;
+  versions: GenePanelVersionSummary[];
+}
+
+export interface MendeliomeRegenerateResponse {
+  panel: GenePanel;
+  message: string;
+  changed: boolean;
+  version: number;
+  monarch_release?: string | null;
+  gene_count: number;
+  missing_genes: string[];
 }

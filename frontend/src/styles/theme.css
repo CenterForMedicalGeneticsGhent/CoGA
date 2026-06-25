@@ -1254,6 +1254,19 @@ tbody tr:hover {
   margin-left: auto;
 }
 
+.panel-version-chip {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #475569);
+  background: var(--color-surface-muted, #f1f5f9);
+  border: 1px solid var(--color-border, #e2e8f0);
+}
+
 .admin-modal {
   width: min(100%, 44rem);
   max-height: 85vh;
@@ -9767,6 +9780,10 @@ a.button-danger:hover {
   white-space: nowrap;
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.family-catalog-added-heading {
+  text-align: right;
 }
 
 .family-catalog-samples-column {

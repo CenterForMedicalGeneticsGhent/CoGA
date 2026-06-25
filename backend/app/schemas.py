@@ -1618,6 +1618,7 @@ class DgvTrackOut(BaseModel):
 
 class GenePanelOut(ApiDocumentModel):
     name: str
+    version: int = 1
     genes: List[str] = Field(default_factory=list)
     gene_count: int = 0
     regions: List[GeneLocation] = Field(default_factory=list)
@@ -1639,9 +1640,49 @@ class GenePanelCreate(BaseModel):
     description: Optional[str] = None
 
 
+class GenePanelUpdate(BaseModel):
+    """Edit a manually-curated panel's genes (the full desired set) → a new version."""
+
+    genes: List[str] = Field(default_factory=list)
+    description: Optional[str] = None
+
+
 class GenePanelCreateResponse(BaseModel):
     panel: GenePanelOut
     message: str
+    missing_genes: List[str] = Field(default_factory=list)
+
+
+class GenePanelVersionSummary(BaseModel):
+    version: int
+    name: str
+    source: Optional[str] = None
+    external_version: Optional[str] = None
+    gene_count: int = 0
+    created_by_email: Optional[str] = None
+    created_at: datetime
+
+
+class GenePanelVersionDetail(GenePanelVersionSummary):
+    description: Optional[str] = None
+    genes: List[str] = Field(default_factory=list)
+    regions: List[GeneLocation] = Field(default_factory=list)
+    source_metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GenePanelVersionListOut(BaseModel):
+    panel_id: str
+    current_version: int
+    versions: List[GenePanelVersionSummary] = Field(default_factory=list)
+
+
+class MendeliomeRegenerateResponse(BaseModel):
+    panel: GenePanelOut
+    message: str
+    changed: bool
+    version: int
+    monarch_release: Optional[str] = None
+    gene_count: int = 0
     missing_genes: List[str] = Field(default_factory=list)
 
 
