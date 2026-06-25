@@ -178,6 +178,11 @@ const guideSections: GuideSection[] = [
           loaded per assembly. If a viewer cannot resolve coordinates or a gene lookup is empty, check
           that the reference layers for that assembly are present.
         </div>
+
+        <FurtherReading
+          to="/docs/reference/data-import"
+          label="Data import reference (intake paths, assay layers, the manifest/dry-run flow)"
+        />
       </>
     ),
   },
@@ -326,6 +331,11 @@ const guideSections: GuideSection[] = [
           candidate-gene panel is a live call to Monarch. If the tables have not been loaded yet, the
           profile blocks show an empty state rather than an error.
         </p>
+
+        <FurtherReading
+          to="/docs/reference/monarch-integration"
+          label="Phenotype matching with Monarch reference (the graph, ranking, and PP4)"
+        />
       </>
     ),
   },
@@ -1014,6 +1024,11 @@ const guideSections: GuideSection[] = [
           class is written back as the variant’s ACMG classification (and class tag), and the full
           per-criterion rationale is stored for audit and reuse.
         </div>
+
+        <FurtherReading
+          to="/docs/reference/acmg-classification"
+          label="ACMG classification reference (pre-check rules, points & class bands, mtDNA rules)"
+        />
       </>
     ),
   },
@@ -1367,6 +1382,11 @@ const guideSections: GuideSection[] = [
             it.
           </li>
         </ul>
+
+        <FurtherReading
+          to="/docs/reference/haplotype-segregation"
+          label="Haplotype segregation reference (founder colouring, derived embryo calls, QC)"
+        />
       </>
     ),
   },
@@ -1541,6 +1561,11 @@ const guideSections: GuideSection[] = [
           genotype. The only inputs are the combined VCF, the coverage and target regions, the pedigree,
           and your filter choices.
         </div>
+
+        <FurtherReading
+          to="/docs/reference/monogenic-nipt"
+          label="Monogenic NIPT reference (cfDNA workflow, fetal fraction, the 8 categories)"
+        />
       </>
     ),
   },
