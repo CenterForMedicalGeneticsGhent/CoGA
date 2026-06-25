@@ -4590,6 +4590,12 @@ tbody tr:hover {
   cursor: help;
 }
 
+.sv-second-hit-badge-icon {
+  width: 0.78em;
+  height: 0.78em;
+  flex: 0 0 auto;
+}
+
 .sv-second-hit-badge--del {
   color: var(--color-danger, #c61f2d);
   background: var(--color-danger-surface, #fdeced);

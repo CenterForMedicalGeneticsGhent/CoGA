@@ -18,7 +18,16 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
       className={`sv-second-hit-badge${hit.has_deletion ? ' sv-second-hit-badge--del' : ''}`}
       title={title}
     >
-      <span aria-hidden>⌖</span> SV: {types}
+      <svg
+        className="sv-second-hit-badge-icon"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        <circle cx="8" cy="8" r="1.7" fill="currentColor" />
+      </svg>
+      SV: {types}
       {hit.sv_count > 1 ? ` ×${hit.sv_count}` : ''}
     </span>
   );
