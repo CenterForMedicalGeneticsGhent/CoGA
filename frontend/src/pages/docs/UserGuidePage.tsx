@@ -15,6 +15,17 @@ type GuideSection = {
   content: React.ReactNode;
 };
 
+// Links a guide section to an in-depth, in-app reference document (rendered from a
+// bundled Markdown file at /docs/reference/:slug).
+const FurtherReading: React.FC<{ to: string; label: string }> = ({ to, label }) => (
+  <p className="user-guide-further-reading">
+    <span className="user-guide-further-reading-label">In-depth reference</span>
+    <Link to={to} className="user-guide-doc-link">
+      {label} →
+    </Link>
+  </p>
+);
+
 const guideSections: GuideSection[] = [
   {
     id: 'orientation',
@@ -167,6 +178,11 @@ const guideSections: GuideSection[] = [
           loaded per assembly. If a viewer cannot resolve coordinates or a gene lookup is empty, check
           that the reference layers for that assembly are present.
         </div>
+
+        <FurtherReading
+          to="/docs/reference/data-import"
+          label="Data import reference (intake paths, assay layers, the manifest/dry-run flow)"
+        />
       </>
     ),
   },
@@ -315,6 +331,11 @@ const guideSections: GuideSection[] = [
           candidate-gene panel is a live call to Monarch. If the tables have not been loaded yet, the
           profile blocks show an empty state rather than an error.
         </p>
+
+        <FurtherReading
+          to="/docs/reference/monarch-integration"
+          label="Phenotype matching with Monarch reference (the graph, ranking, and PP4)"
+        />
       </>
     ),
   },
@@ -362,6 +383,84 @@ const guideSections: GuideSection[] = [
           the pedigree and mark phenotype-dependent views as needing recomputation, but they never
           delete or reimport raw data.
         </p>
+      </>
+    ),
+  },
+  {
+    id: 'sample-qc',
+    title: 'Sample-integrity QC',
+    summary:
+      'An automated check — before you interpret — that a family’s samples are who the pedigree says: catches swaps, mislabelled relationships, wrong-sex labels, contamination and consanguinity.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Sample QC button' }],
+    content: (
+      <>
+        <p>
+          Open a family and press <strong>Sample QC</strong> to run an automated
+          sample-integrity check. It verifies that the samples are who the pedigree says they are{' '}
+          <em>before</em> any variant call, segregation analysis, or report is trusted — the failure
+          modes it catches (a swapped tube, a wrong parent, a mislabelled sex, contamination,
+          unexpected relatedness) quietly invalidate everything downstream.
+        </p>
+        <div className="user-guide-callout">
+          <strong>It adapts to the application.</strong> CoGA runs different assays with different
+          notions of integrity, so the page resolves the application first and runs only the
+          meaningful checks:
+        </div>
+        <ul>
+          <li>
+            <strong>Long-read WGS family</strong> — sex concordance, relatedness vs the pedigree, and
+            the Mendelian-error rate.
+          </li>
+          <li>
+            <strong>Shallow-WGS PGT</strong> — embryo sex and <em>parentage</em> (each embryo a true
+            child of both parents — no switch), plus Mendelian.
+          </li>
+          <li>
+            <strong>Monogenic NIPT (cfDNA)</strong> — paternity (categories 7/8), fetal sex (paternal
+            X transmission), germline parent sex, and a cfDNA category-distribution QC, instead of
+            genotype relatedness.
+          </li>
+          <li>
+            <strong>Carrier couple</strong> — sex per partner and a confirmation that the two are
+            unrelated.
+          </li>
+          <li>
+            <strong>Single targeted sample</strong> — sex only.
+          </li>
+        </ul>
+
+        <h3>Reading the page</h3>
+        <ul>
+          <li>
+            <strong>Pedigree with QC overlay.</strong> Each individual’s symbol carries its roll-up
+            verdict — the outline and any filled region turn <strong>green</strong> (pass),{' '}
+            <strong>amber</strong> (warning) or <strong>red</strong> (fail). Hover a symbol for why.
+          </li>
+          <li>
+            <strong>Per-sample table.</strong> Recorded sex vs genotype sex (green when concordant,
+            red on mismatch) and the Mendelian-error rate, colour-coded by status.
+          </li>
+          <li>
+            <strong>Relatedness matrix.</strong> A sample × sample grid (lower triangle — it is
+            symmetric) coloured by the inferred relationship, with kinship (φ) and IBS0 per cell. A
+            pair that contradicts the pedigree — including co-parents who look related
+            (consanguinity) — is outlined in red.
+          </li>
+          <li>
+            <strong>NIPT cards.</strong> For a cfDNA family, dedicated paternity, fetal-sex and
+            cfDNA-category-QC cards.
+          </li>
+        </ul>
+
+        <div className="user-guide-callout">
+          <strong>What to do with a warning or fail.</strong> A fail points to a real integrity
+          problem — resolve it (re-check the sample sheet, the pedigree, or the genotypes) before
+          interpreting. A warning usually means too little data to call confidently (few informative
+          sites, low fetal fraction); it weakens, but does not invalidate, the downstream analysis.
+          On partial or mock data the page degrades to warnings rather than failing.
+        </div>
+
+        <FurtherReading to="/docs/reference/sample-qc" label="Sample-integrity QC reference (checks, thresholds, data sources)" />
       </>
     ),
   },
@@ -416,6 +515,38 @@ const guideSections: GuideSection[] = [
           together. Per-sample genotype and quality thresholds (genotype, QUAL, DP, AF, AD) let you
           encode segregation expectations across the family directly in the search.
         </p>
+
+        <h3>Cross-type &ldquo;second hit&rdquo;: a gene also hit by a structural variant</h3>
+        <p>
+          Recessive disease is often caused by a small variant on one allele and a{' '}
+          <em>structural</em> variant on the other — most importantly an SNV plus an overlapping
+          deletion, which removes the second copy and makes a &ldquo;heterozygous&rdquo; SNV
+          effectively biallelic. Because small variants and structural variants are filtered in
+          separate workspaces, these pairs are easy to miss, so CoGA flags them for you.
+        </p>
+        <ul>
+          <li>
+            Any small variant whose gene is <strong>also hit by a structural variant</strong> carries
+            an <strong>SV badge</strong> showing the SV type and the zygosity in affected individuals.
+          </li>
+          <li>
+            A <strong>trans / cis</strong> verdict says whether the two hits sit on opposite alleles
+            (a compound-heterozygous candidate) or the same one — inferred from family segregation, and
+            read directly from the haplotypes when the SVs are phased (shown as a distinct badge).
+          </li>
+          <li>
+            A deletion in trans with a heterozygous SNV is highlighted as <strong>effectively
+            biallelic</strong> — the highest-yield case.
+          </li>
+          <li>
+            The <strong>Structural second hit</strong> filter (<em>&ldquo;Also hit by an SV&rdquo;</em>)
+            restricts the results to just these genes, so you can screen for the pattern in one pass.
+          </li>
+        </ul>
+        <FurtherReading
+          to="/docs/reference/sv-second-hit"
+          label="SNV + SV compound heterozygosity (cross-type second hit, trans/cis phasing)"
+        />
 
         <h3>Bi-sample partner analysis</h3>
         <p>
@@ -529,6 +660,20 @@ const guideSections: GuideSection[] = [
           at once: tighten the filters (frequency, impact, a gene panel, or an inheritance mode) so
           the full set is ranked.
         </div>
+
+        <div className="user-guide-callout">
+          <strong>It&rsquo;s cached, and stays fresh.</strong> The ranking is relatively expensive to
+          compute, so CoGA caches it: the first open computes it, every open after is near-instant
+          (a <em>“served from cache”</em> note shows when), and it refreshes automatically whenever
+          phenotypes, the pedigree, the panel, the filters or the annotations change. Narrowing from
+          the Mendeliome to a smaller gene panel is instant — it&rsquo;s served from the broader
+          ranking, since the scores don&rsquo;t depend on the panel.
+        </div>
+
+        <FurtherReading
+          to="/docs/reference/variant-ranking-cache"
+          label="Prioritised ranking & caching reference (invalidation, warming, sub-panel serving)"
+        />
       </>
     ),
   },
@@ -925,6 +1070,88 @@ const guideSections: GuideSection[] = [
           class is written back as the variant’s ACMG classification (and class tag), and the full
           per-criterion rationale is stored for audit and reuse.
         </div>
+
+        <FurtherReading
+          to="/docs/reference/acmg-classification"
+          label="ACMG classification reference (pre-check rules, points & class bands, mtDNA rules)"
+        />
+      </>
+    ),
+  },
+  {
+    id: 'clinical-report',
+    title: 'Clinical report, traceability & sign-out',
+    summary:
+      'Draft a report from the reported variants, and lock the result to exactly what produced it: a version footer, evidence-drift warnings, an immutable audit trail, and a frozen, content-hashed case sign-out.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Report link → Variants' }],
+    content: (
+      <>
+        <p>
+          Tag a variant with <strong>report</strong> and it joins the family&apos;s clinical
+          report (the <strong>Report</strong> link in the workspace <em>Variants</em> section).
+          The report drafts readable prose for each reported variant — description, ACMG
+          motivation, gene context and phenotype overlap — and is also the case&apos;s{' '}
+          <strong>provenance and sign-out</strong> surface: it locks the result to exactly what
+          produced it.
+        </p>
+        <div className="user-guide-callout">
+          <strong>Why this matters.</strong> Annotation sources move — a new ClinVar or gnomAD
+          release — so a classification made last month may rest on evidence that has since
+          changed. CoGA makes the versions, the changes, and the decisions explicit and
+          permanent, so a signed-out report can be reproduced and audited.
+        </div>
+
+        <h3>1 · Provenance footer — which versions</h3>
+        <p>
+          A footer states the generation timestamp and the annotation/reference{' '}
+          <strong>module versions</strong> behind the data — the pipeline layer (VEP, ClinVar,
+          gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp) and the reference layer (genome assembly +
+          release, Monarch). Pipeline versions are captured automatically at import (declared in
+          the import manifest) and can be recorded or overridden by an admin. The footer prints
+          with the report — it is part of the signed artifact.
+        </p>
+
+        <h3>2 · Evidence-drift banner — has anything changed</h3>
+        <p>
+          Every ACMG save <strong>freezes the evidence it was based on</strong> (the annotation
+          identity + the ClinVar significance at that moment). When you open the report, each
+          classification is compared against the current annotation; if the backing evidence has
+          changed, an amber banner flags it — e.g. <em>“ClinVar Uncertain significance →
+          Pathogenic”</em>. Re-review a flagged variant before sign-out. Classifications made
+          before this feature existed have no frozen evidence and are simply not checked.
+        </p>
+
+        <h3>3 · Classification audit trail — who did what, when</h3>
+        <p>
+          An immutable <strong>“Classification audit trail”</strong> lists every clinical action
+          on the family&apos;s variants — who classified, tagged or annotated which variant, when,
+          and what changed (before → after), including each sign-out. The events are written in
+          the same transaction as the change and the underlying table is{' '}
+          <strong>append-only at the database level</strong>, so the record can never be quietly
+          altered. (This is the clinical <em>action</em> log; the admin{' '}
+          <a href="#administration">audit log</a> records HTTP <em>access</em> separately.)
+        </p>
+
+        <h3>4 · Case sign-out — freeze the result</h3>
+        <p>
+          <strong>Sign out report</strong> freezes the manifest, the reported variant list (each
+          classification with its frozen evidence snapshot) and the drift state into a{' '}
+          <strong>versioned, SHA-256 content-hashed</strong> snapshot, stored append-only — a
+          signed-out report can never change. A green record appears on the report:{' '}
+          <em>“✓ Signed out — version 2 by … · Content hash …”</em>.
+        </p>
+        <div className="user-guide-callout">
+          <strong>The drift gate.</strong> If any reported classification has drifted, sign-out is
+          blocked until you re-review or explicitly <strong>acknowledge</strong> the drift — and
+          the acknowledgement is itself recorded in the snapshot and the audit trail. Signing out
+          again creates a new version (the button reads <em>Amend sign-out</em>); earlier versions
+          are never overwritten.
+        </div>
+
+        <FurtherReading
+          to="/docs/reference/clinical-traceability"
+          label="Report traceability & sign-out reference (footer, drift, audit, sign-out)"
+        />
       </>
     ),
   },
@@ -1201,6 +1428,11 @@ const guideSections: GuideSection[] = [
             it.
           </li>
         </ul>
+
+        <FurtherReading
+          to="/docs/reference/haplotype-segregation"
+          label="Haplotype segregation reference (founder colouring, derived embryo calls, QC)"
+        />
       </>
     ),
   },
@@ -1375,6 +1607,11 @@ const guideSections: GuideSection[] = [
           genotype. The only inputs are the combined VCF, the coverage and target regions, the pedigree,
           and your filter choices.
         </div>
+
+        <FurtherReading
+          to="/docs/reference/monogenic-nipt"
+          label="Monogenic NIPT reference (cfDNA workflow, fetal fraction, the 8 categories)"
+        />
       </>
     ),
   },

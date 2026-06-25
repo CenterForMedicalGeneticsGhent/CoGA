@@ -6,6 +6,7 @@ from backend.app.services.sample_integrity_qc import (
     PedigreeSpec,
     classify_relatedness,
     evaluate_fetal_sex,
+    evaluate_nipt_category_qc,
     evaluate_paternity,
     evaluate_sample_integrity,
     infer_sex,
@@ -261,3 +262,37 @@ def test_evaluate_fetal_sex_wraps_the_call() -> None:
     assert male.status == "pass" and "male" in male.message
     unknown = evaluate_fetal_sex("indeterminate", 1, 2, 3)
     assert unknown.status == "warn"
+
+
+def test_evaluate_nipt_category_qc() -> None:
+    # ~50% maternal transmission (30/60), no de-novo excess -> pass.
+    ok = evaluate_nipt_category_qc({1: 0, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2})
+    assert ok.status == "pass"
+    assert ok.maternal_inherited == 30 and ok.maternal_informative == 60
+    # De-novo (cat 1) excess -> fail (artifacts / contamination).
+    denovo = evaluate_nipt_category_qc({1: 50, 2: 30, 3: 15, 4: 15})
+    assert denovo.status == "fail" and "de-novo" in denovo.message
+    # Maternal transmission far from 50% -> fail (wrong mother / sample issue).
+    skewed = evaluate_nipt_category_qc({2: 90, 3: 5, 4: 5})
+    assert skewed.status == "fail" and "maternal transmission" in skewed.message
+
+
+def test_wgs_keeps_coparent_check_and_flags_consanguinity() -> None:
+    father, mother, child = _trio(30)
+    spec = _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"})
+
+    # Unrelated parents: the co-parent check is KEPT (visible) and confirms no consanguinity.
+    report = evaluate_sample_integrity(
+        {"FATHER": father, "MOTHER": mother, "CHILD": child}, {}, spec, profile=_WGS
+    )
+    coparent = [c for c in report.relatedness_checks if {c.sample_a, c.sample_b} == {"FATHER", "MOTHER"}]
+    assert len(coparent) == 1
+    assert coparent[0].status == "pass" and "consanguinity" in coparent[0].message.lower()
+
+    # Parents share genotypes (look related) -> flagged as consanguinity.
+    report2 = evaluate_sample_integrity(
+        {"FATHER": father, "MOTHER": father, "CHILD": child}, {}, spec, profile=_WGS
+    )
+    coparent2 = [c for c in report2.relatedness_checks if {c.sample_a, c.sample_b} == {"FATHER", "MOTHER"}]
+    assert len(coparent2) == 1
+    assert coparent2[0].status == "fail" and "consanguinity" in coparent2[0].message.lower()

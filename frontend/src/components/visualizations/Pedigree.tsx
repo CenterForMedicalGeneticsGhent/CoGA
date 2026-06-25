@@ -29,6 +29,11 @@ interface PedigreeRelationship {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface PedigreeQcStatus {
+  status: 'pass' | 'warn' | 'fail';
+  label?: string;
+}
+
 interface Props {
   rows: PedRow[];
   members?: PedigreeMember[];
@@ -36,7 +41,16 @@ interface Props {
   inheritanceModel?: string | null;
   phenotypeSampleIds?: string[];
   highlightedSampleIds?: string[];
+  // Per-sample QC roll-up drawn as a coloured ring around the node: green = pass,
+  // amber = warn, red (emphasised) = fail. The optional label becomes a tooltip.
+  qcStatusBySample?: Record<string, PedigreeQcStatus>;
 }
+
+const QC_RING_COLORS: Record<PedigreeQcStatus['status'], string> = {
+  pass: '#16a34a',
+  warn: '#d97706',
+  fail: '#dc2626',
+};
 
 type ParentInfo = {
   father?: string;
@@ -1002,6 +1016,7 @@ const Pedigree: React.FC<Props> = ({
   inheritanceModel,
   phenotypeSampleIds = [],
   highlightedSampleIds = [],
+  qcStatusBySample = {},
 }) => {
   const svgRef = useRef<SVGSVGElement | null>(null);
 
@@ -1170,9 +1185,14 @@ const Pedigree: React.FC<Props> = ({
       const highlighted = highlightedSampleSet.has(row.iid);
       const xLinkedRecessiveFemaleCarrier =
         carrier && normalizedInheritance === 'XLR' && rowSex === '2';
-      const fill = affected ? 'black' : 'white';
-      const stroke = highlighted ? '#b91c1c' : 'black';
-      const strokeWidth = highlighted ? 2.4 : 1;
+      const qc = qcStatusBySample[row.iid];
+      // The individual's own symbol carries the QC verdict: its outline — and any
+      // filled region (affected fill, carrier half-fill) — turns green (pass) /
+      // amber (warn) / red (fail), or stays the default colour when not assessed.
+      const qcColor = qc ? QC_RING_COLORS[qc.status] : undefined;
+      const fill = affected ? qcColor ?? 'black' : 'white';
+      const stroke = qcColor ?? (highlighted ? '#b91c1c' : 'black');
+      const strokeWidth = qc ? (qc.status === 'fail' ? 3 : 2.2) : highlighted ? 2.4 : 1;
       const generationIndex =
         layout.generationMembers[position.generation]?.indexOf(row.iid) ?? -1;
       const group = svg
@@ -1181,10 +1201,14 @@ const Pedigree: React.FC<Props> = ({
         .attr('data-generation', position.generation)
         .attr('data-generation-index', generationIndex)
         .attr('transform', `translate(${position.x}, ${position.y})`);
+      if (qc) {
+        group.attr('data-qc-status', qc.status);
+        group.append('title').text(qc.label || `QC: ${qc.status}`);
+      }
 
       const appendCarrierFill = () => {
         if (!carrier || affected) return;
-        const cFill = carrierFillFor(member?.carrier_type);
+        const cFill = qcColor ?? carrierFillFor(member?.carrier_type);
 
         if (rowSex === '1') {
           // Male: draw left half of the square
@@ -1297,7 +1321,7 @@ const Pedigree: React.FC<Props> = ({
         .attr('font-size', member?.role === 'embryo' ? 7 : 8)
         .text(row.iid);
     });
-  }, [rows, members, relationships, inheritanceModel, phenotypeSampleIds, highlightedSampleIds]);
+  }, [rows, members, relationships, inheritanceModel, phenotypeSampleIds, highlightedSampleIds, qcStatusBySample]);
 
   return <svg ref={svgRef} className="pedigree-svg" />;
 };

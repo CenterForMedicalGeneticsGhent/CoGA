@@ -245,3 +245,27 @@ test('keeps multi-partner complex pedigrees from overlapping nodes', async () =>
     }
   }
 });
+
+test('colours each individual symbol by its QC status with a tooltip', async () => {
+  const { container } = render(
+    <Pedigree
+      rows={baseRows}
+      qcStatusBySample={{
+        DAD: { status: 'fail', label: 'Sex mismatch: recorded male, genotypes female' },
+        MOM: { status: 'pass', label: 'Sex female (matches record)' },
+      }}
+    />
+  );
+  await svgWidth(container);
+
+  // Father is a square: its own outline turns red on failure.
+  const dad = container.querySelector('[data-pedigree-node="DAD"]');
+  expect(dad?.getAttribute('data-qc-status')).toBe('fail');
+  expect(dad?.querySelector('rect')?.getAttribute('stroke')).toBe('#dc2626');
+  expect(dad?.querySelector('title')?.textContent).toMatch(/Sex mismatch/);
+
+  // Mother is a circle: its outline turns green when checks pass.
+  const mom = container.querySelector('[data-pedigree-node="MOM"]');
+  expect(mom?.getAttribute('data-qc-status')).toBe('pass');
+  expect(mom?.querySelector('circle')?.getAttribute('stroke')).toBe('#16a34a');
+});
