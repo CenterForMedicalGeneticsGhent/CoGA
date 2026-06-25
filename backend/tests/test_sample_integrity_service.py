@@ -118,21 +118,24 @@ def test_service_swapped_child_fails(monkeypatch) -> None:
     assert any(c.status == "fail" for c in report.mendelian_checks)
 
 
-def test_service_nipt_runs_paternity_not_genotype_checks(monkeypatch) -> None:
-    # A monogenic-NIPT family routes to the paternity path (cat 7/8), with no
-    # genotype sex/relatedness/Mendelian checks.
+def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> None:
+    # A monogenic-NIPT family runs paternity (cat 7/8) + fetal sex + the category
+    # distribution QC + germline parent sex (X zygosity, cfDNA excluded), but no
+    # genotype relatedness/Mendelian checks.
     _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    # The cfDNA sample is the mother member's maternal-plasma sample, so it sexes
+    # the mother; there is no separate maternal germline sample.
     monkeypatch.setattr(
         sample_integrity_service, "resolve_nipt_trio",
         lambda family: types.SimpleNamespace(
-            father_sample_id="FATHER", cfdna_sample_id="CFDNA", mother_sample_id="MOTHER"
+            father_sample_id="FATHER", cfdna_sample_id="MOTHER"
         ),
     )
     import backend.app.services.nipt_service as nipt_service
 
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
         return types.SimpleNamespace(
-            category_counts={7: 40, 8: 2},
+            category_counts={1: 1, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
             fetal_sex=types.SimpleNamespace(
                 inferred="female", x_transmitted=12, x_not_transmitted=0, informative_sites=12
             ),
@@ -146,10 +149,43 @@ def test_service_nipt_runs_paternity_not_genotype_checks(monkeypatch) -> None:
         )
     )
     assert report.application == "nipt"
-    assert report.sex_checks == [] and report.relatedness_checks == [] and report.mendelian_checks == []
+    assert report.relatedness_checks == [] and report.mendelian_checks == []
+    # The two germline parents are sexed from X zygosity; the cfDNA mixture is not.
+    assert {c.sample_id for c in report.sex_checks} == {"FATHER", "MOTHER"}
+    assert all(c.status == "pass" for c in report.sex_checks)
     assert report.paternity_check is not None
     assert report.paternity_check.father == "FATHER"
     assert report.paternity_check.status == "pass"
     # Fetal sex from paternal-X transmission rides along with the NIPT path.
     assert report.fetal_sex_check is not None and report.fetal_sex_check.inferred_sex == "female"
+    # Category QC: ~50% maternal transmission (30/60), de-novo low.
+    assert report.category_qc_check is not None
+    assert report.category_qc_check.maternal_inherited == 30
+    assert report.category_qc_check.maternal_informative == 60
+    assert report.category_qc_check.status == "pass"
     assert report.overall_status == "pass"
+
+
+def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> None:
+    # Mock/partial data: the cfDNA analysis raises -> the page degrades to a
+    # warning with an explanatory note instead of 500-ing.
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+    import backend.app.services.nipt_service as nipt_service
+
+    async def _boom(session, *, family_id, user, project_id=None, **kwargs):
+        raise RuntimeError("no cfDNA variants")
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _boom)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+    assert report.overall_status == "warn"
+    assert any("NIPT cfDNA analysis could not run" in note for note in report.notes)
+    assert report.paternity_check is None

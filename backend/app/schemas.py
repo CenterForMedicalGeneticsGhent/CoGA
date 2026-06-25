@@ -335,6 +335,18 @@ class SampleIntegrityFetalSexCheckOut(BaseModel):
     message: str
 
 
+class SampleIntegrityCategoryQcOut(BaseModel):
+    """NIPT category-distribution QC (de-novo / paternal-absent / maternal transmission)."""
+
+    denovo: int
+    paternal_absent: int
+    maternal_informative: int
+    maternal_inherited: int
+    maternal_inherited_rate: float
+    status: str
+    message: str
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 
@@ -356,6 +368,7 @@ class SampleIntegrityQcOut(BaseModel):
     mendelian_checks: List[SampleIntegrityMendelianCheckOut] = Field(default_factory=list)
     paternity_check: Optional[SampleIntegrityPaternityCheckOut] = None
     fetal_sex_check: Optional[SampleIntegrityFetalSexCheckOut] = None
+    category_qc_check: Optional[SampleIntegrityCategoryQcOut] = None
     autosomal_sites: int = 0
     notes: List[str] = Field(default_factory=list)
 
