@@ -123,10 +123,12 @@ def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> 
     # distribution QC + germline parent sex (X zygosity, cfDNA excluded), but no
     # genotype relatedness/Mendelian checks.
     _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    # The cfDNA sample is the mother member's maternal-plasma sample, so it sexes
+    # the mother; there is no separate maternal germline sample.
     monkeypatch.setattr(
         sample_integrity_service, "resolve_nipt_trio",
         lambda family: types.SimpleNamespace(
-            father_sample_id="FATHER", cfdna_sample_id="CFDNA", mother_sample_id="MOTHER"
+            father_sample_id="FATHER", cfdna_sample_id="MOTHER"
         ),
     )
     import backend.app.services.nipt_service as nipt_service
@@ -162,3 +164,28 @@ def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> 
     assert report.category_qc_check.maternal_informative == 60
     assert report.category_qc_check.status == "pass"
     assert report.overall_status == "pass"
+
+
+def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> None:
+    # Mock/partial data: the cfDNA analysis raises -> the page degrades to a
+    # warning with an explanatory note instead of 500-ing.
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+    import backend.app.services.nipt_service as nipt_service
+
+    async def _boom(session, *, family_id, user, project_id=None, **kwargs):
+        raise RuntimeError("no cfDNA variants")
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _boom)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+    assert report.overall_status == "warn"
+    assert any("NIPT cfDNA analysis could not run" in note for note in report.notes)
+    assert report.paternity_check is None

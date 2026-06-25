@@ -11428,6 +11428,8 @@ a.button-danger:hover {
   border-collapse: separate;
   border-spacing: 3px;
   font-size: 0.8rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .qc-matrix th {

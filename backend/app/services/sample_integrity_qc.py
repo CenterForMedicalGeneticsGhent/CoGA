@@ -640,10 +640,11 @@ def evaluate_sample_integrity(
     fetal_sex_check: FetalSexCheck | None = None,
     category_qc_check: NiptCategoryQc | None = None,
     extra_sex_checks: list[SexCheck] | None = None,
+    extra_notes: list[str] | None = None,
 ) -> SampleIntegrityReport:
     """Run the checks the application profile enables and roll up an overall status."""
     samples = sorted(autosomal)
-    notes: list[str] = []
+    notes: list[str] = list(extra_notes or [])
 
     sex_checks = (
         [
@@ -725,6 +726,9 @@ def evaluate_sample_integrity(
         + ([paternity_check.status] if paternity_check is not None else [])
         + ([fetal_sex_check.status] if fetal_sex_check is not None else [])
         + ([category_qc_check.status] if category_qc_check is not None else [])
+        # A degraded run (e.g. genotypes/cfDNA analysis unavailable) surfaces as a
+        # visible warning rather than a silent skip.
+        + (["warn"] if extra_notes else [])
     )
     overall = _worst(all_statuses) if all_statuses else "skip"
 
