@@ -3,8 +3,9 @@ import type { SvSecondHit } from './smallVariantSearch';
 
 /**
  * Flags a small variant whose gene is also hit by a structural variant — the cross-type
- * "second hit" that can complete a recessive genotype. A deletion (red) is highlighted
- * because it can remove the second copy and unmask a heterozygous SNV.
+ * "second hit" that can complete a recessive genotype. A deletion in trans with a het SNV
+ * (deletion_unmasked) is the headline: the deletion removes the other allele, so the pair is
+ * effectively biallelic.
  *
  * The explanation is shown via a fixed-position hover/focus tooltip rather than the native
  * `title` attribute: the badge's inline SVG icon swallows the pointer, so `title` never
@@ -16,9 +17,18 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
 
   const types = hit.sv_types.length ? hit.sv_types.join(', ') : 'SV';
   const zygosity = hit.affected_zygosity ? ` · ${hit.affected_zygosity}` : '';
-  const message = hit.has_deletion
-    ? `This gene is also hit by a structural variant (${types}${zygosity}). A deletion can remove the second allele and unmask a heterozygous SNV — check for a possible compound heterozygote.`
-    : `This gene is also hit by a structural variant (${types}${zygosity}) — a possible cross-type second hit.`;
+  const phase = hit.phase === 'trans' || hit.phase === 'cis' ? hit.phase : '';
+  const unmasked = Boolean(hit.deletion_unmasked);
+
+  const phaseSentence =
+    hit.phase === 'trans'
+      ? ' It segregates in trans (on the other allele) — a compound-heterozygous candidate.'
+      : hit.phase === 'cis'
+        ? ' It appears in cis (the same allele as this SNV).'
+        : '';
+  const message = unmasked
+    ? `This gene is also hit by a deletion (${types}${zygosity}) in trans with this heterozygous SNV — the deletion removes the other allele, so the gene is effectively biallelic.`
+    : `This gene is also hit by a structural variant (${types}${zygosity}) — a possible cross-type second hit.${phaseSentence}`;
 
   const showTip = (event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -26,10 +36,18 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
   };
   const hideTip = () => setTip(null);
 
+  const className = [
+    'sv-second-hit-badge',
+    hit.has_deletion ? 'sv-second-hit-badge--del' : '',
+    unmasked ? 'sv-second-hit-badge--unmasked' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <>
       <span
-        className={`sv-second-hit-badge${hit.has_deletion ? ' sv-second-hit-badge--del' : ''}`}
+        className={className}
         tabIndex={0}
         onMouseEnter={showTip}
         onMouseLeave={hideTip}
@@ -47,6 +65,7 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
         </svg>
         SV: {types}
         {hit.sv_count > 1 ? ` ×${hit.sv_count}` : ''}
+        {phase ? <span className="sv-second-hit-phase">{phase}</span> : null}
       </span>
       {tip ? (
         <span

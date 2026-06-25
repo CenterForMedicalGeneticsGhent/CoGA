@@ -45,6 +45,7 @@ from .small_variant_review_pg import (
 )
 from .monarch_phenotype_score import score_genes_for_hpo
 from .sv_gene_index_service import (
+    get_sv_hit_genes,
     get_sv_second_hits,
     is_index_built,
     store_sv_gene_index,
@@ -2136,6 +2137,9 @@ def _small_variant_out(record: SmallVariantRecord) -> VariantOut:
         ps=next((call.ps for call in record.calls if call.ps is not None), None),
         gene=_annotation_gene(annotation) or (record.gene_symbols[0] if record.gene_symbols else None),
         gene_id=_annotation_gene_id(annotation),
+        # Every gene the variant overlaps (not just the primary annotation's gene) — lets the
+        # SV second-hit overlay match the same genes the require_sv_second_hit filter uses.
+        gene_symbols=list(record.gene_symbols),
         impact=_annotation_text(annotation, "impact"),
         effect=_annotation_effect(annotation),
         clinvar=_annotation_clinvar(annotation),
@@ -2346,6 +2350,18 @@ async def _ensure_family_sv_gene_index(
     )
 
 
+def _variant_gene_keys(variant: VariantOut) -> list[str]:
+    """Upper-cased genes a variant hits, primary gene first (for SV second-hit matching)."""
+    keys: list[str] = []
+    if variant.gene:
+        keys.append(variant.gene.upper())
+    for symbol in variant.gene_symbols or []:
+        upper = str(symbol).upper()
+        if upper and upper not in keys:
+            keys.append(upper)
+    return keys
+
+
 async def _attach_sv_second_hits(
     session: AsyncSession,
     *,
@@ -2355,18 +2371,29 @@ async def _attach_sv_second_hits(
     """Flag small variants whose gene is also hit by a structural variant (best-effort)."""
     try:
         await _ensure_family_sv_gene_index(session, context)
-        genes = {str(variant.gene).upper() for variant in variants if variant.gene}
+        genes: set[str] = set()
+        for variant in variants:
+            genes.update(_variant_gene_keys(variant))
         second_hits = await get_sv_second_hits(
             session, family_uuid=context.family_uuid, gene_symbols=genes
         )
         if not second_hits:
             return
-        affected = list(context.affected_sample_names or [])
+        affected, unaffected = _family_affected_unaffected_sample_names(context)
         for variant in variants:
-            hit = second_hits.get((variant.gene or "").upper())
+            hit = next(
+                (second_hits[gene] for gene in _variant_gene_keys(variant) if gene in second_hits),
+                None,
+            )
             if hit:
+                snv_gt = {gt.sample: gt.gt for gt in (variant.genotypes or []) if gt.sample}
                 variant.sv_second_hit = SvSecondHitOut.model_validate(
-                    summarize_second_hit(hit["svs"], affected)
+                    summarize_second_hit(
+                        hit["svs"],
+                        list(affected),
+                        unaffected_samples=list(unaffected),
+                        snv_gt_by_sample=snv_gt,
+                    )
                 )
     except Exception:  # noqa: BLE001 - the second-hit overlay must never break the page
         logger.warning("SV second-hit overlay failed for family %s", context.family_id, exc_info=True)
@@ -3661,6 +3688,17 @@ def _small_query_filter_parts(
     if panel_condition:
         where_clauses.append(panel_condition)
 
+    # "Second hit": restrict to genes also hit by a structural variant (intersected with any
+    # panel/gene constraint above). sv_hit_genes is resolved from the family's SV→gene index.
+    if filters.require_sv_second_hit:
+        sv_hit_condition = (
+            _small_gene_filter_condition(filters.sv_hit_genes, prefix="sv_hit_gene", params=params)
+            if filters.sv_hit_genes
+            else None
+        )
+        # No SV-hit genes (or none resolved) ⇒ nothing can qualify.
+        where_clauses.append(sv_hit_condition or "0")
+
     include_region_condition = _small_region_filter_condition(
         include_regions,
         prefix="include_region",
@@ -4874,6 +4912,7 @@ async def get_family_small_variants_page(
     exclude_review_tags: list[str] | None = None,
     has_notes: bool = False,
     overlap: bool = False,
+    require_sv_second_hit: bool = False,
     prioritize: bool = False,
     track_mode: bool = False,
     track_result_limit: int | None = None,
@@ -4923,6 +4962,7 @@ async def get_family_small_variants_page(
         panel_id=panel_id,
         sample_filters=sample_filters or [],
         overlap=overlap,
+        require_sv_second_hit=require_sv_second_hit,
     )
     if count_only:
         # Presence check only (family dashboard): probe the indexed family_guid
@@ -4932,6 +4972,11 @@ async def get_family_small_variants_page(
         # total (0 or 1) and no rows.
         exists = await _family_has_small_variants(context)
         return VariantPage(total=1 if exists else 0, variants=[])
+    if filters.require_sv_second_hit:
+        # Resolve the family's SV-hit gene set once; every query path below reads it off
+        # ``filters`` to intersect results with genes that also carry a structural variant.
+        await _ensure_family_sv_gene_index(session, context)
+        filters.sv_hit_genes = await get_sv_hit_genes(session, family_uuid=context.family_uuid)
     small_variant_summary = None if track_mode else await _fetch_small_variant_summary(context)
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:

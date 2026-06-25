@@ -4608,6 +4608,23 @@ tbody tr:hover {
   border-color: var(--color-danger-border, #efb6bb);
 }
 
+/* A deletion in trans with a het SNV (effectively biallelic) — strongest emphasis. */
+.sv-second-hit-badge--unmasked {
+  box-shadow: 0 0 0 1px var(--color-danger, #c61f2d);
+  font-weight: 700;
+}
+
+.sv-second-hit-phase {
+  margin-left: 0.25rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.08);
+}
+
 /* Fixed hover/focus tooltip — escapes the variant table's scroll clip and renders even
    when the pointer is over the badge's inline SVG (which swallows the native title). */
 .sv-second-hit-tooltip {
