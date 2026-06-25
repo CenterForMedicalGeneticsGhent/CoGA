@@ -1,0 +1,9 @@
+# Top-level (human-edited) test/CI dependencies for the CoGA backend.
+#
+# Compiles (with the runtime deps it pulls in via -r) to the fully-pinned,
+# hash-locked `requirements-dev.txt`, which CI installs. Do not edit the
+# compiled file by hand. Regenerate with ./scripts/compile-requirements.sh
+-r requirements.in
+
+pytest==9.1.1
+pytest-asyncio==1.4.0
