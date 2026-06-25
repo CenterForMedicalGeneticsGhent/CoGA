@@ -8488,31 +8488,41 @@ button.table-link:hover {
   font-weight: 700;
   cursor: help;
 }
-/* One member = two stacked homolog bands; the allele sits on its lineage-coloured band. */
+/* One member = two stacked homolog rows. The nucleotide sits on a white cell with
+   the lineage colour shown as a thin band line underneath it (see -band-line). */
 .roi-markers-band {
+  position: relative;
   width: 1.6rem;
   min-width: 1.6rem;
-  height: 1.15rem;
+  height: 1.35rem;
   padding: 0;
   text-align: center;
   font-family: var(--font-mono, monospace);
   font-weight: 700;
   font-size: 0.7rem;
-  line-height: 1.15rem;
   letter-spacing: 0.3px;
-  /* band colour is set inline; a faint seam keeps adjacent markers countable */
-  border-right: 1px solid rgba(255, 255, 255, 0.4);
+  background: var(--color-surface, #fff);
+  border-right: 1px solid var(--color-border, #eef2f7);
   border-bottom: none;
 }
-/* IGV nucleotide colour set inline. */
+/* The lineage colour (blue/green/grey) as a thin line under the nucleotide. */
+.roi-markers-band-line {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 2px;
+  height: 3px;
+  border-radius: 1.5px;
+}
+/* IGV nucleotide colour set inline; sits in the upper part, clear of the band line. */
 .roi-markers-allele {
-  display: inline-block;
+  display: block;
+  line-height: 1.05rem;
   font-weight: 800;
 }
-/* Uninformative alleles are muted — lighter weight on top of the grey colour. */
+/* Uninformative alleles are dark grey (colour set inline) and a touch lighter weight. */
 .roi-markers-allele--muted {
   font-weight: 600;
-  opacity: 0.85;
 }
 /* The ROI stands at full strength; flanking context (only shown when zoomed out) is
    lightly muted but kept readable, and in-ROI position headers get a soft tint. */

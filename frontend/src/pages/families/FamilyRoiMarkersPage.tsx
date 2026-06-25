@@ -71,9 +71,9 @@ const NUCLEOTIDE_COLORS: Record<string, string> = {
 };
 const nucleotideColor = (base: string): string =>
   (base.length === 1 ? NUCLEOTIDE_COLORS[base.toUpperCase()] : undefined) ?? '#cbd5e1';
-// Uninformative alleles (lane not resolved for this member) are muted to grey so the
+// Uninformative alleles (lane not resolved for this member) are dark grey so the
 // eye lands on the nucleotides that actually carry segregation signal.
-const UNINFORMATIVE_COLOR = '#6b7280';
+const UNINFORMATIVE_COLOR = '#374151';
 
 const coveringSegment = (segments: HapSegment[], pos: number): HapSegment | null => {
   let lo = 0;
@@ -319,7 +319,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
           </div>
           <div className="roi-markers-tip-row">
             allele{' '}
-            <span style={{ color: informative ? nucleotideColor(base) : '#6b7280', fontWeight: 700 }}>{base}</span>
+            <span style={{ color: informative ? nucleotideColor(base) : UNINFORMATIVE_COLOR, fontWeight: 700 }}>
+              {base}
+            </span>
             {informative ? '' : ' — uninformative (parent-of-origin unresolved here)'}
           </div>
         </div>
@@ -338,11 +340,11 @@ const FamilyRoiMarkersPage: React.FC = () => {
           Informative phased markers for every family member across the ROI {roi.chr}:
           {roi.start.toLocaleString()}–{roi.end.toLocaleString()}. The view opens on the ROI; use the zoom and
           pan controls to widen the window for flanking context. Genotypes are derived from the phased imputed
-          data; cell colours show the inherited haplotype (blue = paternal, green = maternal, grey =
-          untransmitted/donor), matching the chromosome view. The ROI is bracketed by an orange line between
-          members and any flanking markers are dimmed; each member shows its two homolog bands with the
-          inherited allele on each band — alleles are nucleotide-coloured where the lane is informative and
-          greyed where it is not. Use it to re-check the ROI for errors, artefacts and recombination.
+          data; each marker shows its nucleotide allele on white above a thin lineage-coloured band line
+          (blue = paternal, green = maternal, grey = untransmitted/donor), matching the chromosome view. The
+          ROI is bracketed by an orange line between members and any flanking markers are dimmed; each member
+          shows its two homolog rows — the allele is nucleotide-coloured where the lane is informative and
+          dark grey where it is not. Use it to re-check the ROI for errors, artefacts and recombination.
         </p>
         <HaplotypeLegend inheritanceModel={inheritanceModel} />
       </div>
@@ -457,7 +459,6 @@ const FamilyRoiMarkersPage: React.FC = () => {
                       <td
                         key={site.pos}
                         className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}`}
-                        style={{ background: bg || undefined }}
                         data-pos={site.pos}
                         data-sample={sample}
                         data-lane={laneIdx + 1}
@@ -470,6 +471,8 @@ const FamilyRoiMarkersPage: React.FC = () => {
                         >
                           {base}
                         </span>
+                        {/* The lineage colour is a thin band line under the nucleotide. */}
+                        <span className="roi-markers-band-line" style={{ background: bg || undefined }} />
                       </td>
                     );
                   })}
