@@ -11462,13 +11462,19 @@ a.button-danger:hover {
   background: rgba(100, 116, 139, 0.05);
 }
 
+/* The cell is a real <td> (keeps the table grid intact); the flex stack lives on
+   an inner element so the matrix doesn't collapse. */
 .qc-matrix-cell {
-  display: flex;
+  padding: 0;
+}
+
+.qc-matrix-cell-inner {
+  display: inline-flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 0.05rem;
   line-height: 1.25;
+  cursor: help;
 }
 
 .qc-matrix-cell--warn {

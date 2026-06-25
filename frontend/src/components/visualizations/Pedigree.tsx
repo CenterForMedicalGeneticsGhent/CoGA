@@ -1185,9 +1185,16 @@ const Pedigree: React.FC<Props> = ({
       const highlighted = highlightedSampleSet.has(row.iid);
       const xLinkedRecessiveFemaleCarrier =
         carrier && normalizedInheritance === 'XLR' && rowSex === '2';
+      const qc = qcStatusBySample[row.iid];
       const fill = affected ? 'black' : 'white';
-      const stroke = highlighted ? '#b91c1c' : 'black';
-      const strokeWidth = highlighted ? 2.4 : 1;
+      // The individual's own symbol carries the QC verdict: its outline turns
+      // green (pass) / amber (warn) / red (fail), or stays black when not assessed.
+      const stroke = qc
+        ? QC_RING_COLORS[qc.status]
+        : highlighted
+          ? '#b91c1c'
+          : 'black';
+      const strokeWidth = qc ? (qc.status === 'fail' ? 3 : 2.2) : highlighted ? 2.4 : 1;
       const generationIndex =
         layout.generationMembers[position.generation]?.indexOf(row.iid) ?? -1;
       const group = svg
@@ -1196,6 +1203,10 @@ const Pedigree: React.FC<Props> = ({
         .attr('data-generation', position.generation)
         .attr('data-generation-index', generationIndex)
         .attr('transform', `translate(${position.x}, ${position.y})`);
+      if (qc) {
+        group.attr('data-qc-status', qc.status);
+        group.append('title').text(qc.label || `QC: ${qc.status}`);
+      }
 
       const appendCarrierFill = () => {
         if (!carrier || affected) return;
@@ -1289,23 +1300,6 @@ const Pedigree: React.FC<Props> = ({
       }
 
       appendCarrierFill();
-
-      const qc = qcStatusBySample[row.iid];
-      if (qc) {
-        const ring = group
-          .append('circle')
-          .attr('data-qc-ring', row.iid)
-          .attr('data-qc-status', qc.status)
-          .attr('cx', 0)
-          .attr('cy', 0)
-          .attr('r', NODE_SIZE / 2 + 5)
-          .attr('fill', 'none')
-          .attr('stroke', QC_RING_COLORS[qc.status])
-          .attr('stroke-width', qc.status === 'fail' ? 3.2 : 2);
-        if (qc.label) {
-          ring.append('title').text(qc.label);
-        }
-      }
 
       if (hasPhenotypeAnnotation) {
         group

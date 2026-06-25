@@ -101,7 +101,7 @@ describe('FamilySampleQcPage', () => {
     expect(screen.getByText('Pedigree & sample integrity')).toBeInTheDocument();
     await waitFor(() =>
       expect(
-        container.querySelector('[data-qc-ring="CHILD"][data-qc-status="fail"]'),
+        container.querySelector('[data-pedigree-node="CHILD"][data-qc-status="fail"]'),
       ).toBeTruthy(),
     );
     // Sample table colour-codes the genotype sex mismatch and shows the Mendelian rate.
@@ -147,7 +147,7 @@ describe('FamilySampleQcPage', () => {
     expect(await screen.findByText(/All sample-integrity checks passed/)).toBeInTheDocument();
     await waitFor(() =>
       expect(
-        container.querySelector('[data-qc-ring="CHILD"][data-qc-status="pass"]'),
+        container.querySelector('[data-pedigree-node="CHILD"][data-qc-status="pass"]'),
       ).toBeTruthy(),
     );
     expect(container.querySelector('.qc-genotype-sex--match')?.textContent).toMatch(/male/);

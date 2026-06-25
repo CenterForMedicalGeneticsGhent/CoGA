@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import InfoTip from '../../components/InfoTip';
 import Pedigree, { type PedigreeQcStatus } from '../../components/visualizations/Pedigree';
 import type {
   ApiFamilyRecord,
@@ -191,33 +192,42 @@ const SampleQcTable: React.FC<{
                 <td>{formatSex(member.sex)}</td>
                 <td>
                   {sex ? (
-                    <span
+                    <InfoTip
+                      label={sex.message}
                       className={`qc-genotype-sex qc-genotype-sex--${sexMismatch ? 'mismatch' : 'match'}`}
                     >
                       {formatSex(sex.inferred_sex)}
                       {sexMismatch ? ' ✗' : ' ✓'}
-                    </span>
+                    </InfoTip>
                   ) : (
                     <span className="dashboard-link-note">-</span>
                   )}
                 </td>
                 <td>
                   {mendel ? (
-                    <span
+                    <InfoTip
+                      label={mendel.message}
                       className={`qc-mendel qc-mendel--${mendel.status === 'pass' ? 'ok' : mendel.status}`}
-                      title={mendel.message}
                     >
                       {(mendel.mendel_rate * 100).toFixed(2)}%
                       <span className="qc-mendel-sub">
                         {' '}
                         ({mendel.mendel_errors.toLocaleString()}/{mendel.informative_sites.toLocaleString()})
                       </span>
-                    </span>
+                    </InfoTip>
                   ) : (
                     <span className="dashboard-link-note">-</span>
                   )}
                 </td>
-                <td>{ring ? <StatusChip status={ring.status} /> : <StatusChip status="skip" />}</td>
+                <td>
+                  {ring?.label ? (
+                    <InfoTip label={ring.label}>
+                      <StatusChip status={ring.status} />
+                    </InfoTip>
+                  ) : (
+                    <StatusChip status={ring?.status ?? 'skip'} />
+                  )}
+                </td>
               </tr>
             );
           })}
@@ -269,16 +279,18 @@ const RelatednessMatrix: React.FC<{
                     : check.status === 'warn'
                       ? ' qc-matrix-cell--warn'
                       : '';
+                const tooltip = `${check.sample_a} ↔ ${check.sample_b}: expected ${check.expected_relationship}, observed ${check.inferred_relationship}. φ=${check.kinship.toFixed(3)}, IBS0=${check.ibs0_rate.toFixed(3)}. ${check.message}`;
                 return (
                   <td
                     key={colSample}
                     className={`qc-matrix-cell${emphasis}`}
                     style={{ background: kinshipBackground(check.kinship) }}
-                    title={`${check.sample_a} ↔ ${check.sample_b}: expected ${check.expected_relationship}, observed ${check.inferred_relationship}. ${check.message}`}
                   >
-                    <span className="qc-matrix-rel">{check.inferred_relationship}</span>
-                    <span className="qc-matrix-metric">φ {check.kinship.toFixed(3)}</span>
-                    <span className="qc-matrix-metric">IBS0 {check.ibs0_rate.toFixed(3)}</span>
+                    <InfoTip label={tooltip} className="qc-matrix-cell-inner">
+                      <span className="qc-matrix-rel">{check.inferred_relationship}</span>
+                      <span className="qc-matrix-metric">φ {check.kinship.toFixed(3)}</span>
+                      <span className="qc-matrix-metric">IBS0 {check.ibs0_rate.toFixed(3)}</span>
+                    </InfoTip>
                   </td>
                 );
               })}
@@ -426,8 +438,8 @@ const FamilySampleQcPage: React.FC = () => {
             <QcRingLegend />
           </div>
           <p className="table-subtle">
-            Each individual is ringed by its roll-up QC status — sex concordance and Mendelian
-            transmission. Hover a ring for details.
+            Each individual&apos;s symbol is outlined by its roll-up QC status — sex concordance and
+            Mendelian transmission. Hover a symbol (or a row in the table below) for details.
           </p>
           <div className="qc-pedigree-frame overflow-x-auto">
             <Pedigree
