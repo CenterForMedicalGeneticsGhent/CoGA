@@ -6,6 +6,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import Pedigree from '../../components/visualizations/Pedigree';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import LoadingBar from '../../components/LoadingBar';
 import StructuralVariantFilterForm from './StructuralVariantFilterForm';
 import StructuralVariantResults from './StructuralVariantResults';
 import {
@@ -280,6 +281,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   if (isLoading && !data) {
     return (
       <PageState
+        loading
         kicker="Structural Variants"
         title="Loading structural variants"
         message="Preparing the structural variant table, summaries, and filters."
@@ -380,6 +382,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       </section>
 
       <div className="variant-results-region">
+        {isFetching ? <LoadingBar label="Loading variants" /> : null}
         {isFetching ? (
           <>
             <div className="variant-results-overlay" aria-hidden="true" />
