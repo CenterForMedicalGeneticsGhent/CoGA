@@ -53,6 +53,8 @@ from ..schemas import (
     SampleIntegrityFetalSexCheckOut,
     SampleIntegrityMendelianCheckOut,
     SampleIntegrityPaternityCheckOut,
+    AnnotationManifestOut,
+    AnnotationManifestUpdate,
     SampleIntegrityQcOut,
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
@@ -111,6 +113,10 @@ from ..services.monarch_semsim import (
 from ..services.metadata_service import CurrentUser
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
 from ..services.sample_integrity_service import get_family_sample_integrity_qc
+from ..services.annotation_manifest_service import (
+    get_family_annotation_manifest,
+    set_family_annotation_manifest,
+)
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     get_family_nipt_coverage,
@@ -1066,6 +1072,38 @@ async def get_family_nipt_coverage_summary(
             )
             for region in summary.low_coverage_regions
         ],
+    )
+
+
+@router.get("/{family_id}/annotation-manifest", response_model=AnnotationManifestOut)
+async def get_family_annotation_manifest_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> AnnotationManifestOut:
+    return AnnotationManifestOut.model_validate(
+        await get_family_annotation_manifest(
+            session, family_id=family_id, user=user, project_id=project_id
+        )
+    )
+
+
+@router.put("/{family_id}/annotation-manifest", response_model=AnnotationManifestOut)
+async def set_family_annotation_manifest_endpoint(
+    family_id: str,
+    payload: AnnotationManifestUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> AnnotationManifestOut:
+    return AnnotationManifestOut.model_validate(
+        await set_family_annotation_manifest(
+            session,
+            family_id=family_id,
+            user=user,
+            modules=payload.modules,
+            source=payload.source or "manual",
+        )
     )
 
 

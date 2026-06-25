@@ -11601,6 +11601,27 @@ a.button-danger:hover {
   color: var(--color-text-muted, #64748b);
 }
 
+/* Provenance footer: generation timestamp + the annotation/reference versions. */
+.report-footer {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.74rem;
+  color: var(--color-text-muted, #64748b);
+}
+.report-footer-timestamp {
+  margin: 0;
+  font-weight: 600;
+}
+.report-footer-versions {
+  margin: 0;
+  line-height: 1.5;
+}
+.report-footer-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.68rem;
+}
+
 .report-variant-head {
   display: flex;
   align-items: center;

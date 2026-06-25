@@ -4,6 +4,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import type { ApiAnnotationManifest } from '../../lib/apiTypes';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
 import {
@@ -219,6 +220,16 @@ const FamilyReportPage: React.FC = () => {
       return res.data as FamilyHpoAnnotation[];
     },
   });
+
+  // Provenance footer: which annotation/reference modules + versions backed the report.
+  const { data: manifest } = useQuery<ApiAnnotationManifest>({
+    queryKey: ['family', familyId, 'annotation-manifest'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
+  });
+  // The moment the report was produced (becomes the frozen sign-out time in Phase 3).
+  const generatedAt = useMemo(() => new Date(), []);
 
   const presentHpoTerms = useMemo(() => {
     const byId = new Map<string, string>();
@@ -554,6 +565,24 @@ const FamilyReportPage: React.FC = () => {
         })}
         </>
       )}
+
+      <footer className="surface-card report-footer">
+        <p className="report-footer-timestamp">
+          Report generated {generatedAt.toISOString().replace('T', ' ').slice(0, 16)} UTC
+        </p>
+        <p className="report-footer-versions">
+          <span className="report-footer-label">Modules &amp; versions:</span>{' '}
+          {manifest?.modules?.some((module) => module.version)
+            ? manifest.modules
+                .filter((module) => module.version)
+                .map(
+                  (module) =>
+                    `${module.label} ${module.version}${module.detail ? ` (${module.detail})` : ''}`,
+                )
+                .join(' · ')
+            : 'not recorded for this family'}
+        </p>
+      </footer>
     </div>
   );
 };
