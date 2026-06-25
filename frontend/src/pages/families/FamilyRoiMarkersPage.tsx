@@ -71,9 +71,9 @@ const NUCLEOTIDE_COLORS: Record<string, string> = {
 };
 const nucleotideColor = (base: string): string =>
   (base.length === 1 ? NUCLEOTIDE_COLORS[base.toUpperCase()] : undefined) ?? '#cbd5e1';
-// Uninformative alleles (lane not resolved for this member) are muted to grey so the
+// Uninformative alleles (lane not resolved for this member) are a light grey so the
 // eye lands on the nucleotides that actually carry segregation signal.
-const UNINFORMATIVE_COLOR = '#6b7280';
+const UNINFORMATIVE_COLOR = '#cbd5e1';
 
 const coveringSegment = (segments: HapSegment[], pos: number): HapSegment | null => {
   let lo = 0;
@@ -96,6 +96,29 @@ const alleleBase = (index: string, ref: string, alt: string): string => {
   const n = parseInt(index, 10);
   if (Number.isNaN(n)) return '·';
   return alt.split(',')[n - 1] ?? '?';
+};
+
+const parseAlleles = (gt: string): number[] | null => {
+  const sep = gt.includes('|') ? '|' : gt.includes('/') ? '/' : null;
+  if (!sep) return null;
+  const alleles = gt.split(sep).map((part) => parseInt(part, 10));
+  return alleles.some((n) => Number.isNaN(n)) ? null : alleles;
+};
+
+// Mirrors the backend Mendelian check: the child genotype must form from one
+// allele of each parent (two parents), or share an allele with the lone parent.
+const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
+  if (parents.length >= 2) {
+    const childKey = [...child].sort((a, b) => a - b).join(',');
+    for (const pa of parents[0]) {
+      for (const ma of parents[1]) {
+        if ([pa, ma].sort((a, b) => a - b).join(',') === childKey) return true;
+      }
+    }
+    return false;
+  }
+  const parentAlleles = new Set(parents[0]);
+  return child.some((allele) => parentAlleles.has(allele));
 };
 
 const FamilyRoiMarkersPage: React.FC = () => {
@@ -185,9 +208,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
 
   // Only the informative markers drive the segregation call; the rest are noise here.
   const baseSites = informativeSites;
-  const shownSites = baseSites.slice(0, MAX_COLUMNS);
+  const shownSites = useMemo(() => baseSites.slice(0, MAX_COLUMNS), [baseSites]);
   const siteByPos = useMemo(() => new Map(shownSites.map((s) => [s.pos, s])), [shownSites]);
-  const sampleOrder = (phased?.samples ?? []).map((s) => s.sample);
+  const sampleOrder = useMemo(() => (phased?.samples ?? []).map((s) => s.sample), [phased?.samples]);
   const qcBySample = useMemo(
     () => new Map((phased?.samples ?? []).map((s) => [s.sample, s.qc])),
     [phased?.samples],
@@ -205,6 +228,44 @@ const FamilyRoiMarkersPage: React.FC = () => {
     });
     return map;
   }, [phased?.samples]);
+
+  // child sample -> its parents' samples (sample_id_a = parent, sample_id_b = child).
+  const parentsOf = useMemo(() => {
+    const map = new Map<string, string[]>();
+    (family?.relationships ?? []).forEach((rel) => {
+      if (rel.relationship_type !== 'parent_child') return;
+      const parents = map.get(rel.sample_id_b) ?? [];
+      if (!parents.includes(rel.sample_id_a)) parents.push(rel.sample_id_a);
+      map.set(rel.sample_id_b, parents);
+    });
+    return map;
+  }, [family?.relationships]);
+
+  // Per child, the shown positions whose genotype can't be inherited from its
+  // (genotyped) parents — a Mendelian error, highlighted for emphasis.
+  const mendelErrorPosBySample = useMemo(() => {
+    const map = new Map<string, Set<number>>();
+    const idxBySample = new Map(sampleOrder.map((sample, index) => [sample, index]));
+    parentsOf.forEach((parents, child) => {
+      const childIdx = idxBySample.get(child);
+      const parentIdxs = parents
+        .map((p) => idxBySample.get(p))
+        .filter((i): i is number => i !== undefined);
+      if (childIdx === undefined || parentIdxs.length === 0) return;
+      const errors = new Set<number>();
+      shownSites.forEach((site) => {
+        const childAlleles = parseAlleles(site.gts[childIdx] ?? '');
+        if (!childAlleles) return;
+        const parentAlleles = parentIdxs
+          .map((i) => parseAlleles(site.gts[i] ?? ''))
+          .filter((a): a is number[] => a !== null);
+        if (parentAlleles.length < parentIdxs.length) return; // need every parent genotyped
+        if (!mendelianConsistent(parentAlleles, childAlleles)) errors.add(site.pos);
+      });
+      if (errors.size) map.set(child, errors);
+    });
+    return map;
+  }, [parentsOf, shownSites, sampleOrder]);
 
   if (familyLoading || phasedLoading) {
     return <PageState title="Loading ROI markers…" />;
@@ -291,6 +352,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     const lane = cell.dataset.lane ?? '';
     const base = cell.dataset.base ?? '';
     const informative = cell.dataset.informative === '1';
+    const mendelError = cell.dataset.mendel === '1';
     const site = siteByPos.get(pos);
     const role = roleBySample.get(sample);
     const flank = !inRoi(pos);
@@ -319,9 +381,17 @@ const FamilyRoiMarkersPage: React.FC = () => {
           </div>
           <div className="roi-markers-tip-row">
             allele{' '}
-            <span style={{ color: informative ? nucleotideColor(base) : '#6b7280', fontWeight: 700 }}>{base}</span>
+            <span style={{ color: informative ? nucleotideColor(base) : UNINFORMATIVE_COLOR, fontWeight: 700 }}>
+              {base}
+            </span>
             {informative ? '' : ' — uninformative (parent-of-origin unresolved here)'}
           </div>
+          {mendelError && (
+            <div className="roi-markers-tip-row roi-markers-tip-mendel">
+              ⚠ Mendelian error — this genotype can&apos;t be inherited from the parents (sample swap,
+              wrong pedigree, or genotyping noise).
+            </div>
+          )}
         </div>
       ),
     });
@@ -338,11 +408,11 @@ const FamilyRoiMarkersPage: React.FC = () => {
           Informative phased markers for every family member across the ROI {roi.chr}:
           {roi.start.toLocaleString()}–{roi.end.toLocaleString()}. The view opens on the ROI; use the zoom and
           pan controls to widen the window for flanking context. Genotypes are derived from the phased imputed
-          data; cell colours show the inherited haplotype (blue = paternal, green = maternal, grey =
-          untransmitted/donor), matching the chromosome view. The ROI is bracketed by an orange line between
-          members and any flanking markers are dimmed; each member shows its two homolog bands with the
-          inherited allele on each band — alleles are nucleotide-coloured where the lane is informative and
-          greyed where it is not. Use it to re-check the ROI for errors, artefacts and recombination.
+          data; each marker shows its nucleotide allele on white above a continuous lineage-coloured band
+          (blue = paternal, green = maternal, grey = untransmitted/donor), matching the chromosome view. The
+          ROI is bracketed by an orange line between members and any flanking markers are dimmed; each member
+          shows its two homolog rows — the allele is nucleotide-coloured where the lane is informative and
+          light grey where it is not. Use it to re-check the ROI for errors, artefacts and recombination.
         </p>
         <HaplotypeLegend inheritanceModel={inheritanceModel} />
       </div>
@@ -453,16 +523,19 @@ const FamilyRoiMarkersPage: React.FC = () => {
                     // informative (a resolved marker); otherwise mute it to grey.
                     const laneValue = markerLanes.get(sample)?.get(site.pos)?.[lane] ?? null;
                     const informative = laneValue !== null;
+                    const mendelError = mendelErrorPosBySample.get(sample)?.has(site.pos) ?? false;
                     return (
                       <td
                         key={site.pos}
-                        className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}`}
-                        style={{ background: bg || undefined }}
+                        className={`roi-markers-band${inRoi(site.pos) ? '' : ' roi-markers-band--flank'}${
+                          mendelError ? ' roi-markers-band--mendel' : ''
+                        }`}
                         data-pos={site.pos}
                         data-sample={sample}
                         data-lane={laneIdx + 1}
                         data-base={base}
                         data-informative={informative ? '1' : '0'}
+                        data-mendel={mendelError ? '1' : '0'}
                       >
                         <span
                           className={`roi-markers-allele${informative ? '' : ' roi-markers-allele--muted'}`}
@@ -470,6 +543,8 @@ const FamilyRoiMarkersPage: React.FC = () => {
                         >
                           {base}
                         </span>
+                        {/* The lineage colour is a thin band line under the nucleotide. */}
+                        <span className="roi-markers-band-line" style={{ background: bg || undefined }} />
                       </td>
                     );
                   })}
