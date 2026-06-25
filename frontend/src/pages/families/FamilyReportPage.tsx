@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -8,6 +8,7 @@ import type {
   ApiAnnotationManifest,
   ApiClassificationDrift,
   ApiClinicalAudit,
+  ApiReportSignoutList,
 } from '../../lib/apiTypes';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
@@ -252,6 +253,46 @@ const FamilyReportPage: React.FC = () => {
       (await api.get(`/families/${familyId}/clinical-audit`)).data as ApiClinicalAudit,
   });
 
+  // Case sign-out: the frozen, versioned, content-hashed report record.
+  const queryClient = useQueryClient();
+  const { data: signouts } = useQuery<ApiReportSignoutList>({
+    queryKey: ['family', familyId, 'report-signouts'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/report/sign-outs`)).data as ApiReportSignoutList,
+  });
+
+  const signOut = useMutation({
+    mutationFn: async (acknowledgeDrift: boolean) =>
+      (
+        await api.post(`/families/${familyId}/report/sign-out`, {
+          acknowledge_drift: acknowledgeDrift,
+        })
+      ).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signouts'] });
+      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
+    },
+  });
+
+  const handleSignOut = async () => {
+    try {
+      await signOut.mutateAsync(false);
+    } catch (error) {
+      const response = (error as { response?: { status?: number; data?: { detail?: string } } })
+        .response;
+      if (response?.status === 409) {
+        const detail =
+          response.data?.detail || 'Evidence has changed since some classifications were made.';
+        if (window.confirm(`${detail}\n\nSign out anyway?`)) {
+          await signOut.mutateAsync(true);
+        }
+      } else {
+        throw error;
+      }
+    }
+  };
+
   const presentHpoTerms = useMemo(() => {
     const byId = new Map<string, string>();
     hpoAnnotations
@@ -304,8 +345,33 @@ const FamilyReportPage: React.FC = () => {
           <button type="button" className="form-button" onClick={() => window.print()}>
             Print report
           </button>
+          <button
+            type="button"
+            className="form-button"
+            onClick={handleSignOut}
+            disabled={signOut.isPending}
+          >
+            {signOut.isPending
+              ? 'Signing out…'
+              : signouts?.latest
+                ? 'Amend sign-out'
+                : 'Sign out report'}
+          </button>
         </div>
       </header>
+
+      {signouts?.latest ? (
+        <section className="surface-card report-signout">
+          <p className="report-signout-line">
+            ✓ Signed out — version {signouts.latest.version} by{' '}
+            <strong>{signouts.latest.signed_out_by}</strong> on{' '}
+            {signouts.latest.signed_out_at.replace('T', ' ').slice(0, 16)} UTC
+          </p>
+          <p className="report-signout-hash">
+            <span className="report-footer-label">Content hash</span> {signouts.latest.content_hash}
+          </p>
+        </section>
+      ) : null}
 
       <section className="surface-card report-intro">
         <p className="report-paragraph">

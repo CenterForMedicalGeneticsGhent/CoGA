@@ -386,6 +386,20 @@ export interface ApiClinicalAudit {
   events: ApiClinicalAuditEvent[];
 }
 
+export interface ApiReportSignout {
+  version: number;
+  signed_out_by: string;
+  signed_out_at: string;
+  content_hash: string;
+  snapshot?: Record<string, unknown> | null;
+}
+
+export interface ApiReportSignoutList {
+  family_id: string;
+  latest: ApiReportSignout | null;
+  signouts: ApiReportSignout[];
+}
+
 export interface ApiSampleIntegrityQc {
   family_id: string;
   overall_status: QcStatus;

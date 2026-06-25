@@ -8,6 +8,7 @@ import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
+  post: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -256,5 +257,37 @@ describe('FamilyReportPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('alice')).toBeInTheDocument();
     expect(screen.getByText(/2026-06-25 09:04 UTC/)).toBeInTheDocument();
+  });
+
+  it('shows the frozen sign-out record when the case is signed out', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            latest: {
+              version: 2,
+              signed_out_by: 'bjorn',
+              signed_out_at: '2026-06-25T10:00:00Z',
+              content_hash: 'abc123def456',
+            },
+            signouts: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText(/Signed out — version 2 by/)).toBeInTheDocument();
+    expect(screen.getByText(/abc123def456/)).toBeInTheDocument();
+    // Once signed out, the action becomes an amendment.
+    expect(screen.getByRole('button', { name: /Amend sign-out/ })).toBeInTheDocument();
   });
 });
