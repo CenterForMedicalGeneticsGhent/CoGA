@@ -8,6 +8,7 @@ import acmgClassification from '../../content/docs/acmg-classification.md?raw';
 import haplotypeSegregation from '../../content/docs/haplotype-segregation.md?raw';
 import monogenicNipt from '../../content/docs/monogenic-nipt.md?raw';
 import variantRankingCache from '../../content/docs/variant-ranking-cache.md?raw';
+import svSecondHit from '../../content/docs/sv-second-hit.md?raw';
 import clinicalTraceability from '../../content/docs/clinical-traceability.md?raw';
 
 export interface ReferenceDoc {
@@ -66,6 +67,13 @@ export const referenceDocs: ReferenceDoc[] = [
     summary:
       'How the phenotype-prioritised view is cached and kept fresh: automatic invalidation, background warming, the cache indicator, and serving a sub-panel instantly from the broader Mendeliome ranking.',
     markdown: variantRankingCache,
+  },
+  {
+    slug: 'sv-second-hit',
+    title: 'SNV + SV compound heterozygosity',
+    summary:
+      'The cross-type "second hit": flagging genes hit by both a small variant and a structural variant, the "Also hit by an SV" filter, and the trans/cis verdict by segregation or read phasing (deletion-unmasking).',
+    markdown: svSecondHit,
   },
   {
     slug: 'clinical-traceability',
