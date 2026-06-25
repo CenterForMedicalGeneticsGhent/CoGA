@@ -516,6 +516,38 @@ const guideSections: GuideSection[] = [
           encode segregation expectations across the family directly in the search.
         </p>
 
+        <h3>Cross-type &ldquo;second hit&rdquo;: a gene also hit by a structural variant</h3>
+        <p>
+          Recessive disease is often caused by a small variant on one allele and a{' '}
+          <em>structural</em> variant on the other — most importantly an SNV plus an overlapping
+          deletion, which removes the second copy and makes a &ldquo;heterozygous&rdquo; SNV
+          effectively biallelic. Because small variants and structural variants are filtered in
+          separate workspaces, these pairs are easy to miss, so CoGA flags them for you.
+        </p>
+        <ul>
+          <li>
+            Any small variant whose gene is <strong>also hit by a structural variant</strong> carries
+            an <strong>SV badge</strong> showing the SV type and the zygosity in affected individuals.
+          </li>
+          <li>
+            A <strong>trans / cis</strong> verdict says whether the two hits sit on opposite alleles
+            (a compound-heterozygous candidate) or the same one — inferred from family segregation, and
+            read directly from the haplotypes when the SVs are phased (shown as a distinct badge).
+          </li>
+          <li>
+            A deletion in trans with a heterozygous SNV is highlighted as <strong>effectively
+            biallelic</strong> — the highest-yield case.
+          </li>
+          <li>
+            The <strong>Structural second hit</strong> filter (<em>&ldquo;Also hit by an SV&rdquo;</em>)
+            restricts the results to just these genes, so you can screen for the pattern in one pass.
+          </li>
+        </ul>
+        <FurtherReading
+          to="/docs/reference/sv-second-hit"
+          label="SNV + SV compound heterozygosity (cross-type second hit, trans/cis phasing)"
+        />
+
         <h3>Bi-sample partner analysis</h3>
         <p>
           A special case is the coupled partner analysis — a dedicated filter for (expanded) preconception
