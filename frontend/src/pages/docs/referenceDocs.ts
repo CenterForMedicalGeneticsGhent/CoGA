@@ -7,6 +7,7 @@ import monarchIntegration from '../../content/docs/monarch-integration.md?raw';
 import acmgClassification from '../../content/docs/acmg-classification.md?raw';
 import haplotypeSegregation from '../../content/docs/haplotype-segregation.md?raw';
 import monogenicNipt from '../../content/docs/monogenic-nipt.md?raw';
+import variantRankingCache from '../../content/docs/variant-ranking-cache.md?raw';
 import clinicalTraceability from '../../content/docs/clinical-traceability.md?raw';
 
 export interface ReferenceDoc {
@@ -58,6 +59,13 @@ export const referenceDocs: ReferenceDoc[] = [
     summary:
       'The cell-free-DNA two-sample trio workflow plus the fetal-fraction estimator and the eight-category per-variant classification algorithm.',
     markdown: monogenicNipt,
+  },
+  {
+    slug: 'variant-ranking-cache',
+    title: 'Prioritised ranking & caching',
+    summary:
+      'How the phenotype-prioritised view is cached and kept fresh: automatic invalidation, background warming, the cache indicator, and serving a sub-panel instantly from the broader Mendeliome ranking.',
+    markdown: variantRankingCache,
   },
   {
     slug: 'clinical-traceability',
