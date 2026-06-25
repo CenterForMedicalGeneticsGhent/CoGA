@@ -2306,11 +2306,6 @@ async def _scan_family_sv_gene_map(
     """Scan the family's structural variants and group them by overlapped gene."""
     if not context.assembly_name:
         return {}, 0
-    # Ensure the SV entries table is up to date (notably the calls.ps phase-set column added
-    # for read-based phasing) before selecting it. Local import avoids a circular dependency.
-    from .clickhouse_variant_storage import ensure_clickhouse_variant_tables
-
-    await ensure_clickhouse_variant_tables(context.assembly_name)
     entries_table = _structural_table_name(context.assembly_name, "entries")
     rows = await execute_clickhouse(
         f"""
@@ -2357,6 +2352,12 @@ async def _ensure_family_sv_gene_index(
     """Build the family's SV→gene index once (lazily); cleared on SV re-import."""
     if await is_index_built(session, context.family_uuid):
         return
+    # Ensure the SV entries table is current (notably the calls.ps phase-set column added for
+    # read-based phasing) before the scan selects it. Local import avoids a circular dependency.
+    if context.assembly_name:
+        from .clickhouse_variant_storage import ensure_clickhouse_variant_tables
+
+        await ensure_clickhouse_variant_tables(context.assembly_name)
     gene_map, sv_total = await _scan_family_sv_gene_map(context)
     await store_sv_gene_index(
         session, family_uuid=context.family_uuid, gene_map=gene_map, sv_total=sv_total
