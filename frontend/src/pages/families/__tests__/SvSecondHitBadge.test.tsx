@@ -35,6 +35,26 @@ describe('SvSecondHitBadge', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
+  it('marks read-based phasing distinctly and says so in the tooltip', () => {
+    const { container } = render(
+      <SvSecondHitBadge
+        hit={{
+          sv_count: 1,
+          sv_types: ['DEL'],
+          affected_zygosity: 'het',
+          has_deletion: true,
+          phase: 'trans',
+          phase_evidence: 'read',
+          deletion_unmasked: true,
+        }}
+      />,
+    );
+    const phaseChip = container.querySelector('.sv-second-hit-phase') as HTMLElement;
+    expect(phaseChip.classList.contains('sv-second-hit-phase--read')).toBe(true);
+    fireEvent.mouseEnter(container.querySelector('.sv-second-hit-badge') as HTMLElement);
+    expect(screen.getByRole('tooltip').textContent).toMatch(/by read phasing/i);
+  });
+
   it('shows the cis phase and tooltip for a duplication-only hit, on focus', () => {
     const { container } = render(
       <SvSecondHitBadge

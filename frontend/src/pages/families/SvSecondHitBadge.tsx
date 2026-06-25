@@ -18,16 +18,23 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
   const types = hit.sv_types.length ? hit.sv_types.join(', ') : 'SV';
   const zygosity = hit.affected_zygosity ? ` · ${hit.affected_zygosity}` : '';
   const phase = hit.phase === 'trans' || hit.phase === 'cis' ? hit.phase : '';
+  const byReads = hit.phase_evidence === 'read';
   const unmasked = Boolean(hit.deletion_unmasked);
 
+  // Read-based phasing (shared phase set) is direct evidence; segregation is inferred.
+  const how = byReads
+    ? ' by read phasing'
+    : hit.phase_evidence === 'segregation'
+      ? ' by segregation'
+      : '';
   const phaseSentence =
     hit.phase === 'trans'
-      ? ' It segregates in trans (on the other allele) — a compound-heterozygous candidate.'
+      ? ` It is in trans (on the other allele)${how} — a compound-heterozygous candidate.`
       : hit.phase === 'cis'
-        ? ' It appears in cis (the same allele as this SNV).'
+        ? ` It is in cis (the same allele as this SNV)${how}.`
         : '';
   const message = unmasked
-    ? `This gene is also hit by a deletion (${types}${zygosity}) in trans with this heterozygous SNV — the deletion removes the other allele, so the gene is effectively biallelic.`
+    ? `This gene is also hit by a deletion (${types}${zygosity}) in trans${how} with this heterozygous SNV — the deletion removes the other allele, so the gene is effectively biallelic.`
     : `This gene is also hit by a structural variant (${types}${zygosity}) — a possible cross-type second hit.${phaseSentence}`;
 
   const showTip = (event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>) => {
@@ -65,7 +72,14 @@ const SvSecondHitBadge: React.FC<{ hit?: SvSecondHit | null }> = ({ hit }) => {
         </svg>
         SV: {types}
         {hit.sv_count > 1 ? ` ×${hit.sv_count}` : ''}
-        {phase ? <span className="sv-second-hit-phase">{phase}</span> : null}
+        {phase ? (
+          <span
+            className={`sv-second-hit-phase${byReads ? ' sv-second-hit-phase--read' : ''}`}
+          >
+            {phase}
+            {byReads ? '✓' : ''}
+          </span>
+        ) : null}
       </span>
       {tip ? (
         <span

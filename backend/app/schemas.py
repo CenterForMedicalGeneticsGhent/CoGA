@@ -1916,9 +1916,12 @@ class SvSecondHitOut(BaseModel):
     affected_zygosity: Optional[str] = None
     # A deletion (or CNV) can remove the second copy and unmask a heterozygous SNV.
     has_deletion: bool = False
-    # Phase of the SNV vs the SV by segregation: "trans" (compound-het candidate),
-    # "cis" (same allele), or "unknown".
+    # Phase of the SNV vs the SV: "trans" (compound-het candidate), "cis" (same allele),
+    # or "unknown".
     phase: str = "unknown"
+    # How the phase was determined: "read" (shared phase set on long-read data) or
+    # "segregation" (trio/affected-unaffected); None when phase is unknown.
+    phase_evidence: Optional[str] = None
     # A deletion in trans with a heterozygous SNV — effectively biallelic.
     deletion_unmasked: bool = False
 
