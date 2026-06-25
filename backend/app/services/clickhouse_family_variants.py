@@ -261,6 +261,8 @@ class StructuralVariantCall:
     qual: float | None
     read_support: int | None
     filter: str | None
+    # Phase set (PS) for read-based cis/trans against a phased SNV; None when unphased.
+    phase_set: int | None = None
 
 
 @dataclass(slots=True)
@@ -2308,7 +2310,7 @@ async def _scan_family_sv_gene_map(
     rows = await execute_clickhouse(
         f"""
         SELECT e.variantId, e.svType, e.chrom, e.start, e.end, e.gene_symbols,
-               e.calls.sampleId, e.calls.gt
+               e.calls.sampleId, e.calls.gt, e.calls.ps
         FROM {entries_table} AS e
         WHERE e.family_guid = %(family_guid)s AND e.sign = 1 AND length(e.gene_symbols) > 0
         """,
@@ -2316,12 +2318,17 @@ async def _scan_family_sv_gene_map(
     )
     gene_map: dict[str, list[dict[str, Any]]] = {}
     sv_ids: set[str] = set()
-    for variant_id, sv_type, chrom, start, end, genes, sample_ids, gts in rows:
+    for variant_id, sv_type, chrom, start, end, genes, sample_ids, gts, phase_sets in rows:
         sv_ids.add(str(variant_id))
         gt_map = {
             str(sample): str(gt)
             for sample, gt in zip(sample_ids or [], gts or [])
             if sample not in (None, "")
+        }
+        ps_map = {
+            str(sample): int(ps)
+            for sample, ps in zip(sample_ids or [], phase_sets or [])
+            if sample not in (None, "") and ps is not None
         }
         sv = {
             "sv_id": str(variant_id),
@@ -2330,6 +2337,7 @@ async def _scan_family_sv_gene_map(
             "start": int(start) if start is not None else None,
             "end": int(end) if end is not None else None,
             "gt": gt_map,
+            "ps": ps_map,
         }
         for gene in genes or []:
             symbol = str(gene).strip()
@@ -2344,6 +2352,12 @@ async def _ensure_family_sv_gene_index(
     """Build the family's SV→gene index once (lazily); cleared on SV re-import."""
     if await is_index_built(session, context.family_uuid):
         return
+    # Ensure the SV entries table is current (notably the calls.ps phase-set column added for
+    # read-based phasing) before the scan selects it. Local import avoids a circular dependency.
+    if context.assembly_name:
+        from .clickhouse_variant_storage import ensure_clickhouse_variant_tables
+
+        await ensure_clickhouse_variant_tables(context.assembly_name)
     gene_map, sv_total = await _scan_family_sv_gene_map(context)
     await store_sv_gene_index(
         session, family_uuid=context.family_uuid, gene_map=gene_map, sv_total=sv_total
@@ -2387,12 +2401,18 @@ async def _attach_sv_second_hits(
             )
             if hit:
                 snv_gt = {gt.sample: gt.gt for gt in (variant.genotypes or []) if gt.sample}
+                snv_ps = {
+                    gt.sample: int(gt.ps)
+                    for gt in (variant.genotypes or [])
+                    if gt.sample and gt.ps is not None
+                }
                 variant.sv_second_hit = SvSecondHitOut.model_validate(
                     summarize_second_hit(
                         hit["svs"],
                         list(affected),
                         unaffected_samples=list(unaffected),
                         snv_gt_by_sample=snv_gt,
+                        snv_ps_by_sample=snv_ps,
                     )
                 )
     except Exception:  # noqa: BLE001 - the second-hit overlay must never break the page

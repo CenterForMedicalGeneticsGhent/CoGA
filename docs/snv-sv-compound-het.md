@@ -1,8 +1,8 @@
 # SNV + SV compound heterozygosity — implementation plan
 
-**Status:** Phase 0 + Phase 1 implemented; Phase 2 (read-based phasing) pending an ingestion
-change. The badge, the `require_sv_second_hit` filter, and the trans/cis verdict below are
-live.
+**Status:** Phases 0–2 implemented. The badge, the `require_sv_second_hit` filter, the
+trans/cis verdict, and read-based phasing (when SVs carry a phase set) are all live;
+trio/segregation is always applied as the fallback.
 **Goal:** surface genes hit by **both** a small variant (SNV/indel) **and** a structural
 variant (deletion, duplication, …) in the same individual — the cross-type compound-het /
 "second hit" mechanism that single-type pipelines miss — and tell the analyst whether the
@@ -42,7 +42,7 @@ The "done" criteria:
 | SNV compound-het pairing (SNV+SNV) | ✅ | `_compound_het_pairs` / `_records_form_compound_het_pair` (`clickhouse_family_variants.py`): both het in **all affected**, and **not both** in any unaffected → trans by segregation |
 | Inheritance / de-novo (parent genotypes) | ✅ | `_record_matches_de_novo`, `_segregation_modes_by_variant`; pedigree via `FamilyMetadataContext` (`affected_sample_names`, `relationship_rows`, `sample_rows`) |
 | **SNV phasing** | ✅ | `SNV_INDEL/entries.calls.ps` (phase set, per sample) |
-| **SV phasing** | ❌ **gap** | `SV/entries` has **no** phase set; SV GTs are unphased (`0/1`, `1/1`, never `0\|1`) |
+| **SV phasing** | ✅ (Phase 2) | `SV/entries.calls.ps` now captured from the VCF `PS`; phased `GT` (`a\|b`) preserved. `NULL` for unphased calls (no phased SVs in current data) |
 | Per-family precompute + invalidation pattern | ✅ (reuse) | `variant_ranking_cache.py` + `family_variant_ranking_cache` (inputs-hash cache, cleared on re-import in `family_package_import.py`) |
 | SNV results UI (badges, filter form) | ✅ | `SmallVariantResults.tsx`, `SmallVariantFilterForm.tsx`, `smallVariantSearch.ts` |
 
@@ -62,7 +62,7 @@ Four building blocks, layered so each is independently shippable.
 A precomputed map, per family, of **which genes are hit by an SV** and the SV details needed
 to reason about a second hit:
 
-```
+```text
 gene_symbol → [ { sv_id, sv_type, chr, start, end, length,
                   per_affected_gt: {sample: gt}, hits_count } ]
 ```
@@ -160,20 +160,24 @@ post-import point that clears the ranking cache (`family_package_import.py`).
 - Symmetric **"also hit by an SNV"** flag on the SV page (cheap once the index exists; build
   the SNV-gene side of the index too, or reuse the SNV gene set).
 
-## 7. The phasing prerequisite (read-based cis/trans)
+## 7. Read-based cis/trans (implemented)
 
-The long-read cis/trans you want needs the **SV calls to be phased**, which the current
-ingestion does not capture (`SV/entries` has no phase set). To unlock it:
+Long-read cis/trans needs the **SV calls to be phased**. The ingestion now captures this:
 
 1. **Upstream:** phase the SV VCF (e.g. Sniffles2 + HiPhase / LongPhase), so SV records carry
-   a haplotype / phase set per sample.
-2. **Ingestion:** carry the SV phase set into `SV/entries` (a `calls.ps` array, mirroring
-   SNV).
-3. **Backend:** in (D), when both the SNV and SV have a phase set in the same block, derive
-   cis/trans from the haplotype directly; fall back to segregation otherwise.
+   a phase set (`PS`) per sample.
+2. **Ingestion:** the SV loader reads `PS` (`structural_variant_ingest.parse_phase_set`) and
+   stores it in a `calls.ps Array(Nullable(UInt64))` column on `SV/entries` (mirroring SNV);
+   the phased `GT` (`a|b`) is preserved verbatim. Unphased calls store `NULL` — backward
+   compatible.
+3. **Backend:** `_read_phase_verdict` compares, per affected sample, the haplotype each alt
+   sits on when the SNV and an SV **share a phase set**; a demonstrated cis in any affected
+   sample rules out the biallelic mechanism. `sv_second_hit.phase_evidence` is `"read"` when
+   this fires, else `"segregation"`.
 
-Until then, **trans is segregation-based** (trio/affected-unaffected), which is robust and
-covers the common trio case for both short- and long-read.
+**Segregation is always applied as the fallback** (trio/affected-unaffected), so non-phased
+and short-read cases still get a verdict; read phasing simply upgrades the evidence when a
+shared phase set is present. The badge marks read-based phase distinctly (accent chip).
 
 ## 8. Phased delivery
 
@@ -190,11 +194,12 @@ constraints, pagination-safe); the `phase` verdict (trans/cis/unknown by segrega
 highlights the unmasked case. The match runs over every gene a variant overlaps (not just the
 primary annotation), so the filter and the badge agree.
 
-### Phase 2 — read-based phasing *(blocked on §7 ingestion change)*
+### Phase 2 — read-based phasing ✅ *(shipped)*
 
-SV phase set in ingestion → haplotype-based cis/trans for long-read; surface the evidence
-tier on the verdict. (Trio/segregation trans already covers the common case and is always
-applied; read phasing layers in when SVs are phased.)
+SV phase set captured in ingestion (`calls.ps`) → haplotype-based cis/trans when the SNV and
+SV share a phase set; `phase_evidence` (`read` / `segregation`) surfaced on the verdict and
+the badge. Trio/segregation is always applied as the fallback, so the common case is covered
+whether or not the SVs are phased.
 
 ## 9. Decisions & open questions
 

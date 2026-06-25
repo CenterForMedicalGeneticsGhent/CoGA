@@ -9,8 +9,16 @@ from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services.sv_gene_index_service import summarize_second_hit
 
 
-def _sv(sv_type: str, gt: dict[str, str]) -> dict:
-    return {"sv_id": "v", "sv_type": sv_type, "chr": "1", "start": 1, "end": 9, "gt": gt}
+def _sv(sv_type: str, gt: dict[str, str], ps: dict[str, int] | None = None) -> dict:
+    return {
+        "sv_id": "v",
+        "sv_type": sv_type,
+        "chr": "1",
+        "start": 1,
+        "end": 9,
+        "gt": gt,
+        "ps": ps or {},
+    }
 
 
 def test_deletion_in_affected_is_flagged_and_het() -> None:
@@ -82,11 +90,61 @@ def test_phase_unknown_without_snv_genotype() -> None:
     assert summary["phase"] == "unknown"
 
 
+def test_read_phase_trans_from_shared_phase_set() -> None:
+    # SNV alt on hap 1 (0|1), SV alt on hap 0 (1|0), same phase set 1000 → trans by reads.
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": "1|0"}, ps={"child": 1000})],
+        ["child"],
+        unaffected_samples=[],  # singleton → segregation could not decide, but reads can
+        snv_gt_by_sample={"child": "0|1"},
+        snv_ps_by_sample={"child": 1000},
+    )
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "read"
+    assert summary["deletion_unmasked"] is True
+
+
+def test_read_phase_cis_from_shared_phase_set() -> None:
+    # Both alts on hap 1 (0|1) in the same block → cis by reads.
+    summary = summarize_second_hit(
+        [_sv("DUP", {"child": "0|1"}, ps={"child": 1000})],
+        ["child"],
+        snv_gt_by_sample={"child": "0|1"},
+        snv_ps_by_sample={"child": 1000},
+    )
+    assert summary["phase"] == "cis"
+    assert summary["phase_evidence"] == "read"
+
+
+def test_read_phase_skipped_for_different_phase_sets() -> None:
+    # Different PS blocks can't be compared → fall back to segregation (here unknown).
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": "1|0"}, ps={"child": 2000})],
+        ["child"],
+        unaffected_samples=[],
+        snv_gt_by_sample={"child": "0|1"},
+        snv_ps_by_sample={"child": 1000},
+    )
+    assert summary["phase"] == "unknown"
+    assert summary["phase_evidence"] is None
+
+
+def test_segregation_used_when_no_phasing() -> None:
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": "0/1", "mother": "0/1"})],
+        ["child"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"child": "0/1", "mother": "0/0", "father": "0/1"},
+    )
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "segregation"
+
+
 def test_scan_groups_svs_by_gene(monkeypatch) -> None:
     rows = [
-        # variantId, svType, chrom, start, end, gene_symbols, sampleIds, gts
-        ("sv1", "DEL", "1", 100, 200, ["BRCA2", "fgr"], ["S1", "S2"], ["0/1", "0/0"]),
-        ("sv2", "DUP", "1", 300, 400, ["BRCA2"], ["S1"], ["1/1"]),
+        # variantId, svType, chrom, start, end, gene_symbols, sampleIds, gts, ps
+        ("sv1", "DEL", "1", 100, 200, ["BRCA2", "fgr"], ["S1", "S2"], ["0|1", "0/0"], [1000, None]),
+        ("sv2", "DUP", "1", 300, 400, ["BRCA2"], ["S1"], ["1/1"], [None]),
     ]
 
     async def _fake_execute(query, params):  # noqa: ANN001
@@ -100,5 +158,6 @@ def test_scan_groups_svs_by_gene(monkeypatch) -> None:
     assert sv_total == 2  # two distinct SVs
     assert set(gene_map) == {"BRCA2", "FGR"}  # gene symbols upper-cased
     assert len(gene_map["BRCA2"]) == 2
-    assert gene_map["BRCA2"][0]["gt"] == {"S1": "0/1", "S2": "0/0"}
+    assert gene_map["BRCA2"][0]["gt"] == {"S1": "0|1", "S2": "0/0"}
+    assert gene_map["BRCA2"][0]["ps"] == {"S1": 1000}  # phase set captured, nulls dropped
     assert gene_map["FGR"][0]["sv_id"] == "sv1"

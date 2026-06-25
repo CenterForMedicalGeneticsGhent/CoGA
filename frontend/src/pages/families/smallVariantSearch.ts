@@ -180,6 +180,7 @@ export interface SvSecondHit {
   affected_zygosity?: string | null;
   has_deletion: boolean;
   phase?: string;
+  phase_evidence?: string | null;
   deletion_unmasked?: boolean;
 }
 

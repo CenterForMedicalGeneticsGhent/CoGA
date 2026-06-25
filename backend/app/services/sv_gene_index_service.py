@@ -26,6 +26,48 @@ def _gt_has_alt(gt: str | None) -> bool:
     return any(allele not in {"0", ".", ""} for allele in text_gt.replace("|", "/").split("/"))
 
 
+def _phased_alt_index(gt: str | None) -> int | None:
+    """Haplotype index (0/1) carrying the alt allele of a phased heterozygous GT (``a|b``).
+
+    Returns None unless the GT is phased and a clean het (exactly one alt allele)."""
+    text_gt = str(gt or "").strip()
+    if "|" not in text_gt:
+        return None
+    alleles = text_gt.split("|")
+    if len(alleles) != 2:
+        return None
+    alt_positions = [index for index, allele in enumerate(alleles) if allele not in {"0", ".", ""}]
+    return alt_positions[0] if len(alt_positions) == 1 else None
+
+
+def _read_phase_verdict(
+    svs: list[dict[str, Any]],
+    affected: set[str],
+    snv_gt_by_sample: dict[str, str] | None,
+    snv_ps_by_sample: dict[str, int] | None,
+) -> str | None:
+    """Read-based cis/trans: when the SNV and an SV share a phase set in an affected sample,
+    compare the haplotype each alt sits on. None when no phased pair is comparable."""
+    if not snv_gt_by_sample or not snv_ps_by_sample:
+        return None
+    verdicts: set[str] = set()
+    for sample in affected:
+        snv_index = _phased_alt_index(snv_gt_by_sample.get(sample))
+        snv_ps = snv_ps_by_sample.get(sample)
+        if snv_index is None or snv_ps is None:
+            continue
+        for sv in svs:
+            sv_index = _phased_alt_index((sv.get("gt") or {}).get(sample))
+            sv_ps = (sv.get("ps") or {}).get(sample)
+            if sv_index is None or sv_ps is None or int(sv_ps) != int(snv_ps):
+                continue
+            verdicts.add("cis" if sv_index == snv_index else "trans")
+    if not verdicts:
+        return None
+    # A demonstrated cis in any affected sample rules out the biallelic mechanism.
+    return "cis" if "cis" in verdicts else "trans"
+
+
 def _phase_verdict(
     svs: list[dict[str, Any]],
     affected: set[str],
@@ -165,6 +207,7 @@ def summarize_second_hit(
     *,
     unaffected_samples: list[str] | None = None,
     snv_gt_by_sample: dict[str, str] | None = None,
+    snv_ps_by_sample: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Compact badge summary: which SV types hit the gene, the zygosity in affected
     individuals, and — when the SNV genotype is supplied — the trans/cis phase verdict.
@@ -191,7 +234,15 @@ def summarize_second_hit(
     else:
         affected_zygosity = None
 
-    phase = _phase_verdict(svs, affected, set(unaffected_samples or []), snv_gt_by_sample)
+    # Prefer read-based phasing (phased SVs) when available; otherwise infer by segregation.
+    read_phase = _read_phase_verdict(svs, affected, snv_gt_by_sample, snv_ps_by_sample)
+    if read_phase is not None:
+        phase = read_phase
+        phase_evidence: str | None = "read"
+    else:
+        phase = _phase_verdict(svs, affected, set(unaffected_samples or []), snv_gt_by_sample)
+        phase_evidence = "segregation" if phase in {"trans", "cis"} else None
+
     has_deletion = any(t in {"DEL", "CNV"} for t in sv_types)
     return {
         "sv_count": len(svs),
@@ -199,6 +250,7 @@ def summarize_second_hit(
         "affected_zygosity": affected_zygosity,
         "has_deletion": has_deletion,
         "phase": phase,
+        "phase_evidence": phase_evidence,
         "deletion_unmasked": has_deletion and phase == "trans",
     }
 

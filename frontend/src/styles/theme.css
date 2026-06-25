@@ -4625,6 +4625,12 @@ tbody tr:hover {
   background: rgba(0, 0, 0, 0.08);
 }
 
+/* Read-based phase (direct, from a shared phase set) — stronger than inferred segregation. */
+.sv-second-hit-phase--read {
+  background: var(--color-accent, #2563eb);
+  color: #fff;
+}
+
 /* Fixed hover/focus tooltip — escapes the variant table's scroll clip and renders even
    when the pointer is over the badge's inline SVG (which swallows the native title). */
 .sv-second-hit-tooltip {
