@@ -155,6 +155,7 @@ export interface SmallVariant {
   review?: SmallVariantReview | null;
   internal_cohort?: SmallVariantInternalCohort | null;
   priority?: SmallVariantPriority | null;
+  sv_second_hit?: SvSecondHit | null;
   // mtDNA-specific ACMG context, attached by the mitochondrial page adapter for
   // MT variants so the modal can run the mt-specific evaluator.
   mito?: AcmgMitoContext | null;
@@ -171,6 +172,13 @@ export interface NiptClassification {
   observed_vaf?: number | null;
   confidence: number;
   flags: string[];
+}
+
+export interface SvSecondHit {
+  sv_count: number;
+  sv_types: string[];
+  affected_zygosity?: string | null;
+  has_deletion: boolean;
 }
 
 export interface SmallVariantPriorityMatch {

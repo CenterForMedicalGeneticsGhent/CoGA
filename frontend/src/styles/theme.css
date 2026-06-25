@@ -4573,6 +4573,29 @@ tbody tr:hover {
   color: var(--color-text-muted);
 }
 
+/* "Gene also hit by an SV" cross-type second-hit flag (see docs/snv-sv-compound-het.md). */
+.sv-second-hit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--color-warning-strong, #92580a);
+  background: var(--color-warning-surface, #fdf1d8);
+  border: 1px solid var(--color-warning-border, #e8c989);
+  cursor: help;
+}
+
+.sv-second-hit-badge--del {
+  color: var(--color-danger, #c61f2d);
+  background: var(--color-danger-surface, #fdeced);
+  border-color: var(--color-danger-border, #efb6bb);
+}
+
 .variant-card-subtitle {
   margin: 0;
   font-size: 0.92rem;
