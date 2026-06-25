@@ -686,6 +686,7 @@ async def get_family_structural_variants(
     overlap: bool = False,
     prioritize: bool = False,
     track_mode: bool = False,
+    count_only: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> VariantPage:
@@ -729,6 +730,7 @@ async def get_family_structural_variants(
         overlap=overlap,
         prioritize=prioritize,
         track_mode=track_mode,
+        count_only=count_only,
     )
     if track_mode:
         # The genome SV track reads only chr/start/end/type/source + per-sample
@@ -851,6 +853,7 @@ async def get_family_small_variants(
     prioritize: bool = False,
     track_mode: bool = False,
     track_result_limit: int | None = None,
+    count_only: bool = False,
     filters: Dict[str, Any] = Depends(_family_small_variant_filters),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -870,6 +873,7 @@ async def get_family_small_variants(
         prioritize=prioritize,
         track_mode=track_mode,
         track_result_limit=track_result_limit,
+        count_only=count_only,
         **filters,
     )
 

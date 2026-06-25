@@ -472,6 +472,61 @@ async def test_get_family_small_variants_page_uses_bounded_total_without_countin
 
 
 @pytest.mark.asyncio
+async def test_get_family_small_variants_page_count_only_probes_presence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[str] = []
+
+    async def fake_execute_clickhouse(query: str, _params: dict[str, object]):
+        queries.append(query)
+        return [(1,)]
+
+    async def fail_count(*_args, **_kwargs):
+        raise AssertionError("count_only must not run the bounded count")
+
+    async def fail_summary(_context):
+        raise AssertionError("count_only must not fetch the unfiltered summary")
+
+    async def fail_rows(*_args, **_kwargs):
+        raise AssertionError("count_only must not fetch full variant rows")
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._count_small_variant_rows_bounded",
+        fail_count,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_summary",
+        fail_summary,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_small_variant_rows",
+        fail_rows,
+    )
+
+    page = await get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=1,
+        count_only=True,
+    )
+
+    # Presence-bounded total (>0) with no row payload, resolved by a single cheap
+    # family_guid existence probe — no bounded count(), summary, or row fetch.
+    assert page.total == 1
+    assert page.variants == []
+    assert len(queries) == 1
+    assert "family_guid = %(family_guid)s" in queries[0]
+    assert "LIMIT 1" in queries[0]
+    assert "count()" not in queries[0]
+    assert "hasAny" not in queries[0]
+
+
+@pytest.mark.asyncio
 async def test_get_family_small_variants_track_mode_stops_before_heavy_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -772,6 +827,53 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[1][0]
     assert queries[1][1]["limit"] == 1
     assert queries[1][1]["offset"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_family_structural_variants_page_count_only_probes_presence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queries: list[str] = []
+
+    async def fake_execute_clickhouse(query: str, _params: dict[str, object]):
+        queries.append(query)
+        return [(1,)]
+
+    async def fail_summary(*_args, **_kwargs):
+        raise AssertionError("count_only must not run the structural summary")
+
+    async def fail_rows(*_args, **_kwargs):
+        raise AssertionError("count_only must not fetch full variant rows")
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_structural_variant_summary",
+        fail_summary,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._fetch_structural_variant_rows",
+        fail_rows,
+    )
+
+    page = await get_family_structural_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=1,
+        count_only=True,
+    )
+
+    assert page.total == 1
+    assert page.variants == []
+    assert page.summary == {}
+    # Presence probe only — resolved by a single cheap family_guid existence query.
+    assert len(queries) == 1
+    assert "family_guid = %(family_guid)s" in queries[0]
+    assert "LIMIT 1" in queries[0]
+    assert "GROUP BY" not in queries[0]
 
 
 def _structural_del_row(idx: int) -> tuple:
