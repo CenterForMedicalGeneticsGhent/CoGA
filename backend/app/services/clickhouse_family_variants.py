@@ -3274,6 +3274,48 @@ async def _fetch_small_variant_detail_map(
     return details
 
 
+async def _family_has_small_variants(context: FamilyMetadataContext) -> bool:
+    """Cheap presence probe for the family dashboard.
+
+    Filters on the indexed ``family_guid`` (and ``project_guid``) column with
+    ``LIMIT 1`` — the canonical per-family key, the same one
+    ``family_variant_summary`` is keyed by. The paginated query instead filters
+    by ``hasAny(calls.sampleId, …)`` membership, which can't use that index and
+    scans the table; for a yes/no presence check that scan is wasted. This answers
+    "does this family have small-variant data?" in a few ms.
+    """
+    if not context.assembly_name:
+        return False
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid}
+    if context.project_ids:
+        where_clauses.append("project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    rows = await _execute_clickhouse(
+        f"SELECT 1 FROM {entries_table} WHERE {' AND '.join(where_clauses)} LIMIT 1",
+        params,
+    )
+    return bool(rows)
+
+
+async def _family_has_structural_variants(context: FamilyMetadataContext) -> bool:
+    """Cheap structural-variant presence probe (see :func:`_family_has_small_variants`)."""
+    if not context.assembly_name:
+        return False
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    where_clauses = ["family_guid = %(family_guid)s", "sign = 1"]
+    params: dict[str, Any] = {"family_guid": context.family_uuid}
+    if context.project_ids:
+        where_clauses.append("project_guid IN %(project_ids)s")
+        params["project_ids"] = tuple(context.project_ids)
+    rows = await _execute_clickhouse(
+        f"SELECT 1 FROM {entries_table} WHERE {' AND '.join(where_clauses)} LIMIT 1",
+        params,
+    )
+    return bool(rows)
+
+
 async def _fetch_structural_variant_summary(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
@@ -4387,6 +4429,7 @@ async def get_family_small_variants_page(
     prioritize: bool = False,
     track_mode: bool = False,
     track_result_limit: int | None = None,
+    count_only: bool = False,
 ) -> VariantPage:
     normalized_inheritance = _normalize_small_variant_inheritance(inheritance)
     filters = SmallVariantQueryFilters(
@@ -4433,6 +4476,14 @@ async def get_family_small_variants_page(
         sample_filters=sample_filters or [],
         overlap=overlap,
     )
+    if count_only:
+        # Presence check only (family dashboard): probe the indexed family_guid
+        # column with LIMIT 1 instead of the bounded filtered count + unfiltered
+        # summary scan below. The dashboard only needs total > 0 to decide whether
+        # to surface the small-variants workspace, so report a presence-bounded
+        # total (0 or 1) and no rows.
+        exists = await _family_has_small_variants(context)
+        return VariantPage(total=1 if exists else 0, variants=[])
     small_variant_summary = None if track_mode else await _fetch_small_variant_summary(context)
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
@@ -5051,6 +5102,7 @@ async def get_family_structural_variants_page(
     overlap: bool = False,
     prioritize: bool = False,
     track_mode: bool = False,
+    count_only: bool = False,
 ) -> VariantPage:
     filters = StructuralVariantQueryFilters(
         page=page,
@@ -5086,6 +5138,13 @@ async def get_family_structural_variants_page(
     selected_samples = _selected_structural_samples(context, filters.selected_samples)
     if selected_samples is None:
         return VariantPage(total=0, variants=[], summary={})
+    if count_only:
+        # Presence check only (family dashboard): probe the indexed family_guid
+        # column with LIMIT 1 instead of the structural summary GROUP BY scan.
+        # The dashboard only needs total > 0 to decide whether to surface the
+        # structural-variants workspace.
+        exists = await _family_has_structural_variants(context)
+        return VariantPage(total=1 if exists else 0, variants=[], summary={})
     if prioritize and not track_mode:
         return await _prioritized_structural_variants_page(
             session,
