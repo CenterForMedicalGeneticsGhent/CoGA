@@ -434,10 +434,10 @@ const FamilyRoiMarkersPage: React.FC = () => {
           (blue = paternal, green = maternal, grey = untransmitted/donor), matching the chromosome view. The
           ROI is bracketed by an orange line between members and any flanking markers are dimmed; each member
           shows its two homolog rows — the allele is nucleotide-coloured where the lane is informative and
-          light grey where it is not. A cell is shaded <strong>light orange</strong> when the marker is
-          suspect (an impossible transmission or a disagreement with the haplotype block), and a very light
-          grey when the genotype is homozygous (uninformative for phasing). Use it to re-check the ROI for
-          errors, artefacts and recombination.
+          light grey where it is not. A cell is shaded <strong>darker orange</strong> for an impossible
+          transmission (a Mendelian error) and <strong>lighter orange</strong> when the marker merely
+          disagrees with the haplotype block, and a very light grey when the genotype is homozygous
+          (uninformative for phasing). Use it to re-check the ROI for errors, artefacts and recombination.
         </p>
         <HaplotypeLegend inheritanceModel={inheritanceModel} />
       </div>

@@ -8567,10 +8567,13 @@ button.table-link:hover {
 .roi-markers-band--flank {
   opacity: 0.85;
 }
-/* Suspect markers are emphasised with a light-orange cell so they stand out from
-   the white sequence: a Mendelian error (genotype not inheritable from the parents)
-   or a raw marker that disagrees with its cleaned haplotype block. */
-.roi-markers-band--mendel,
+/* Suspect markers get an orange cell, in two distinct shades:
+   a Mendelian error (genotype not inheritable from the parents) is the darker
+   orange; a raw marker that merely disagrees with its cleaned haplotype block is
+   the lighter orange. */
+.roi-markers-band--mendel {
+  background: #fdba74;
+}
 .roi-markers-band--block-mismatch {
   background: #ffe8cc;
 }
