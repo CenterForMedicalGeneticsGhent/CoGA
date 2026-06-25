@@ -334,6 +334,23 @@ export interface ApiSampleIntegrityCategoryQc {
 
 export type SampleQcApplication = 'wgs' | 'pgt' | 'nipt' | 'couple' | 'single' | 'unknown';
 
+export interface ApiAnnotationModule {
+  key: string;
+  label: string;
+  version: string | null;
+  detail: string | null;
+  layer: string; // 'pipeline' | 'reference'
+}
+
+export interface ApiAnnotationManifest {
+  family_id: string;
+  assembly: string | null;
+  source: string | null;
+  recorded_at: string | null;
+  recorded_by: string | null;
+  modules: ApiAnnotationModule[];
+}
+
 export interface ApiSampleIntegrityQc {
   family_id: string;
   overall_status: QcStatus;

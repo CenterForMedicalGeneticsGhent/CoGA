@@ -101,6 +101,21 @@ const mockApi = () => {
         ],
       });
     }
+    if (url === '/families/F1/annotation-manifest') {
+      return Promise.resolve({
+        data: {
+          family_id: 'F1',
+          assembly: 'GRCh38',
+          source: 'manual',
+          recorded_at: null,
+          recorded_by: null,
+          modules: [
+            { key: 'assembly', label: 'Reference assembly', version: 'GRCh38', detail: '2013-12-01', layer: 'reference' },
+            { key: 'clinvar', label: 'ClinVar', version: '2026-05', detail: null, layer: 'pipeline' },
+          ],
+        },
+      });
+    }
     return Promise.resolve({ data: {} });
   });
 };
@@ -139,6 +154,11 @@ describe('FamilyReportPage', () => {
 
     // Analyst note surfaced.
     expect(screen.getByText(/Strong candidate for the reported phenotype\./)).toBeInTheDocument();
+
+    // Provenance footer: a generation timestamp + the annotation/reference versions.
+    expect(await screen.findByText(/Report generated .* UTC/)).toBeInTheDocument();
+    expect(screen.getByText(/ClinVar 2026-05/)).toBeInTheDocument();
+    expect(screen.getByText(/Reference assembly GRCh38 \(2013-12-01\)/)).toBeInTheDocument();
   });
 
   it('shows an empty state when no variants are tagged for reporting', async () => {

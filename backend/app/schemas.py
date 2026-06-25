@@ -347,6 +347,34 @@ class SampleIntegrityCategoryQcOut(BaseModel):
     message: str
 
 
+class AnnotationModuleOut(BaseModel):
+    """One annotation/reference module and the version that backed the data."""
+
+    key: str
+    label: str
+    version: Optional[str] = None
+    detail: Optional[str] = None
+    layer: str  # "pipeline" (per-family upstream) | "reference" (platform-loaded)
+
+
+class AnnotationManifestOut(BaseModel):
+    """The annotation/reference version manifest for a family (report provenance)."""
+
+    family_id: str
+    assembly: Optional[str] = None
+    source: Optional[str] = None  # "manifest" | "vcf_header" | "manual"
+    recorded_at: Optional[datetime] = None
+    recorded_by: Optional[str] = None
+    modules: List[AnnotationModuleOut] = Field(default_factory=list)
+
+
+class AnnotationManifestUpdate(BaseModel):
+    """Record/override a family's upstream annotation module versions."""
+
+    modules: Dict[str, Any] = Field(default_factory=dict)
+    source: Optional[str] = "manual"
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 
