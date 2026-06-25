@@ -207,6 +207,8 @@ export interface SmallVariantPage {
   unfiltered_total_is_estimated?: boolean;
   count_limit?: number | null;
   ranking_truncated?: boolean;
+  ranking_cached?: boolean;
+  ranking_computed_at?: string | null;
   small_variant_summary?: SmallVariantSummary | null;
 }
 

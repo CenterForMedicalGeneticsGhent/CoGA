@@ -5,6 +5,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
 from uuid import UUID
 
@@ -4277,6 +4278,8 @@ async def _serve_ranking_from_cache(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         ranking_truncated=ranking_truncated,
+        ranking_cached=True,
+        ranking_computed_at=cached.get("computed_at"),
         variants=page_variants,
         small_variant_summary=small_variant_summary,
     )
@@ -4527,6 +4530,8 @@ async def _prioritized_small_variants_page(
         unfiltered_total_is_estimated=False,
         count_limit=_SMALL_COUNT_LIMIT - 1,
         ranking_truncated=capped,
+        ranking_cached=False,
+        ranking_computed_at=datetime.now(timezone.utc),
         variants=page_variants,
         small_variant_summary=small_variant_summary,
     )
