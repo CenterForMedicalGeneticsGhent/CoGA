@@ -1,0 +1,114 @@
+# TF-08 — SOUP & Reference-Database Register
+
+| Field | Value |
+| --- | --- |
+| Document ID | TF-08 |
+| Version | v0.1 DRAFT |
+| Status | Draft for internal review |
+| Owner | ‹CMGG software lead› |
+| Approver | ‹Lab director› |
+| Date | 2026-06-25 |
+| Standard | IEC 62304 §5.3.3, §7.1.3, §8.1.2 (SOUP); supports IVDR Annex I §16.2 & §16.4 |
+
+> **SOUP = Software Of Unknown Provenance.** IEC 62304 requires each SOUP item to be
+> identified (title, manufacturer, version), its functional/performance requirements
+> stated, and its published anomalies reviewed for relevance. CoGA has **two distinct
+> SOUP-like layers**: (A) the software platform/libraries, and (B) the **clinical
+> reference databases/knowledge sources**, whose *content version* directly affects
+> interpretation and is therefore version-pinned in the per-family manifest
+> ([clinical-traceability.md](../clinical-traceability.md)).
+
+The authoritative, always-current versions are the pinned `backend/requirements.txt`,
+`frontend/package-lock.json`, container base images, and the reference-import bookkeeping in
+Postgres. This register is reviewed and reconciled with those at each release (TF-18) and is
+the basis of the **SBOM** maintained in [TF-13](TF-13-cybersecurity.md).
+
+---
+
+## A. Platform & library SOUP
+
+Risk relevance: **H** = a defect could affect a clinical output or data integrity/security;
+**M** = could affect availability/usability; **L** = low. Version columns reflect the pin
+at drafting; reconcile at each release.
+
+### A.1 Backend (Python 3.10)
+
+| SOUP item | Version (pin) | Function in CoGA | Risk | Anomaly monitoring |
+| --- | --- | --- | --- | --- |
+| FastAPI | 0.138.0 | HTTP API framework | H | CVE/changelog watch; pinned |
+| Starlette | 1.3.1 | ASGI core (explicitly pinned after a routing regression) | H | Pinned; regression-driven |
+| uvicorn[standard] | 0.49.0 | ASGI server | M | Changelog |
+| SQLAlchemy | ≥2.0.51 | Postgres ORM / async sessions | H | Changelog/CVE |
+| asyncpg | latest | Postgres driver | H | CVE |
+| clickhouse-connect[async] | ≥1.3.0,<2 | ClickHouse client (variant store) | H | CVE/changelog |
+| pydantic / pydantic-settings | ≥2.13.4 / ≥2.14.2 | Data validation, settings | H | Changelog |
+| python-jose[cryptography] | latest | JWT verification | **H (security)** | CVE watch (auth) |
+| passlib[bcrypt] + bcrypt | 1.7.4 + 3.2.0 | Password hashing | **H (security)** | CVE watch |
+| pysam / pyfaidx | latest | VCF/BAM/FASTA access | H | Changelog |
+| pandas / numpy(impl) | latest | CNV knowledgebase build, analysis | M | Changelog |
+| requests / httpx / beautifulsoup4 / lxml | latest | External fetches, parsing | M | CVE watch |
+| intervaltree | latest | Interval ops | M | — |
+| boto3 | latest | S3 presigned access | M | CVE |
+| PyYAML, python-dotenv, python-multipart, tqdm, greenlet | latest | Support utilities | L–M | CVE watch |
+
+> **🔲 INPUT NEEDED:** several backend deps are unpinned (`asyncpg`, `pysam`, `pandas`,
+> `requests`, `boto3`, …). For a Class C device, pin all runtime dependencies to exact
+> versions (or a lockfile) so a clinical build is fully reproducible (TF-18).
+
+### A.2 Frontend (Node 20 / TypeScript 6)
+
+| SOUP item | Version | Function | Risk |
+| --- | --- | --- | --- |
+| react / react-dom | ^19.2 | UI runtime | H |
+| react-router-dom | ^7.18 | Routing | M |
+| @tanstack/react-query | ^5.101 | Server-state fetching/caching | H |
+| axios | ^1.18 | HTTP client (JWT) | H (security) |
+| d3 / @types/d3 | ^7.9 | Visualizations | M |
+| igv | ^3.8 | Embedded genome browser | M |
+| react-markdown / remark-gfm | ^10 / ^4 | In-app docs rendering | L |
+| vite | ^7.0 | Build/dev server | M (build) |
+| express | ^5.2 | Static serving (prod) | M |
+| typescript | ^6.0 | Type system (build-time) | M |
+
+### A.3 Datastores & base images (configuration-controlled)
+
+| Component | Version | Function | Risk |
+| --- | --- | --- | --- |
+| PostgreSQL | 16 (CI); ‹prod›  | Metadata, review state, audit, sign-out | H |
+| ClickHouse | 25.3 (CI); ‹prod› | Variant & interval-track store | H |
+| Docker base images | ‹pin digests› | Runtime packaging | M |
+
+> **🔲 INPUT NEEDED:** record the exact production Postgres/ClickHouse versions and pin
+> container base images by digest.
+
+## B. Clinical reference databases & knowledge sources
+
+These are not libraries but **versioned clinical content** whose release directly changes
+interpretation. CoGA already captures their versions in the per-family manifest and freezes
+them into the signed report; **evidence-drift detection** flags when a later release would
+change a prior classification ([clinical-traceability.md](../clinical-traceability.md)).
+
+| Source | Role | Version capture | Notes |
+| --- | --- | --- | --- |
+| Reference assembly (GRCh38, …) | Coordinate system | `assemblies` table (version, release_date) | Per-family manifest |
+| VEP (+ cache) | Functional annotation | per-family pipeline manifest / VCF header | Produced upstream; version recorded |
+| ClinVar | Clinical significance | reference import bookkeeping / manifest | Release date pinned |
+| gnomAD | Population frequency | manifest | Version pinned |
+| dbNSFP | In-silico predictors | manifest | Version pinned |
+| SpliceAI | Splice prediction | manifest | Model version |
+| GenCC | Gene-disease validity | reference import | Release |
+| PanelApp | Gene panels | reference import | Release |
+| HPO | Phenotype ontology | reference import | Release |
+| Monarch | Gene-disease/phenotype | `monarch_gene_disease.release_version` | Release |
+| ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date |
+
+**Policy:** updating any source in B is a controlled change (TF-18); the version manifest
+and drift detection ensure no signed report silently changes, and the **performance-evaluation
+scope** (TF-10/TF-11) records which versions were validated. Re-validation triggers on a
+source update are defined in TF-18.
+
+## C. Monitoring & update process
+
+1. **Security/anomaly monitoring** of layer A feeds the cybersecurity vulnerability process ([TF-13](TF-13-cybersecurity.md)); Dependabot PRs (already in use) are triaged, not auto-merged into a clinical release without CI + review.
+2. **Content-version monitoring** of layer B is operational (reference-import bookkeeping + drift detection); each update is a change-controlled event.
+3. This register is **reconciled against the lockfiles and reference-import records at every release** and republished as the SBOM.
