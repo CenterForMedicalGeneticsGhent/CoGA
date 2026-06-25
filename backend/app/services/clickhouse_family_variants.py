@@ -1429,6 +1429,8 @@ def _structural_record_matches(
     filters: StructuralVariantQueryFilters,
     include_regions: Sequence[Region],
     selected_samples: Sequence[str],
+    *,
+    panel_gene_terms: set[str] | None = None,
 ) -> bool:
     if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
         return False
@@ -1460,6 +1462,11 @@ def _structural_record_matches(
         return False
     if include_regions and not _variant_overlaps_regions(record.chr, record.start, record.end, include_regions):
         return False
+    # Large gene panels (the Mendeliome) are matched by gene symbol rather than expanded
+    # to thousands of regions — a per-SV overlap over those would dominate the request.
+    if panel_gene_terms is not None:
+        if {gene.lower() for gene in (record.gene_symbols or [])}.isdisjoint(panel_gene_terms):
+            return False
     if filters.gene and not _variant_hits_gene_symbols(record.gene_symbols, filters.gene):
         return False
     if selected_samples and not any(call.sample in set(selected_samples) for call in record.calls):
@@ -5262,12 +5269,19 @@ async def _prioritized_structural_variants_page(
     the best overlapped-gene HPO phenotype match, sort by combined score, then paginate.
     """
     include_regions: list[Region] = []
+    panel_gene_terms: set[str] | None = None
     if filters.panel_id:
-        include_regions.extend(
-            await _fetch_panel_regions(session, filters.panel_id, assembly_id=context.assembly_id)
+        panel_constraints = await _fetch_panel_constraints(
+            session, filters.panel_id, assembly_id=context.assembly_id
         )
-        if not include_regions:
+        if not panel_constraints.genes and not panel_constraints.regions:
             return VariantPage(total=0, variants=[], summary={})
+        if panel_constraints.genes and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT:
+            panel_gene_terms = {gene.lower() for gene in panel_constraints.genes if gene}
+        else:
+            include_regions.extend(panel_constraints.regions)
+            if not include_regions:
+                return VariantPage(total=0, variants=[], summary={})
     if filters.gene:
         gene_regions = await _fetch_gene_regions(
             session, gene_query=filters.gene, assembly_id=context.assembly_id
@@ -5309,7 +5323,9 @@ async def _prioritized_structural_variants_page(
         for record in records
         if record.variant_id not in excluded_review_variant_ids
         and ((not include_review_filter_active) or record.variant_id in review_variant_ids)
-        and _structural_record_matches(record, filters, include_regions, selected_samples)
+        and _structural_record_matches(
+            record, filters, include_regions, selected_samples, panel_gene_terms=panel_gene_terms
+        )
     ]
     if not filtered:
         return VariantPage(total=0, variants=[], summary={})
@@ -5541,16 +5557,21 @@ async def get_family_structural_variants_page(
         return VariantPage(total=total, variants=variants, summary=summary)
 
     include_regions: list[Region] = []
+    panel_gene_terms: set[str] | None = None
     if filters.panel_id:
-        include_regions.extend(
-            await _fetch_panel_regions(
-                session,
-                filters.panel_id,
-                assembly_id=context.assembly_id,
-            )
+        panel_constraints = await _fetch_panel_constraints(
+            session, filters.panel_id, assembly_id=context.assembly_id
         )
-        if not include_regions:
+        if not panel_constraints.genes and not panel_constraints.regions:
             return VariantPage(total=0, variants=[], summary={})
+        if panel_constraints.genes and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT:
+            # Big gene panel: match SVs by gene symbol (fast) instead of overlapping each
+            # against thousands of regions.
+            panel_gene_terms = {gene.lower() for gene in panel_constraints.genes if gene}
+        else:
+            include_regions.extend(panel_constraints.regions)
+            if not include_regions:
+                return VariantPage(total=0, variants=[], summary={})
     if filters.gene:
         gene_regions = await _fetch_gene_regions(
             session,
@@ -5592,7 +5613,9 @@ async def get_family_structural_variants_page(
         for record in records
         if record.variant_id not in excluded_review_variant_ids
         and ((not include_review_filter_active) or record.variant_id in review_variant_ids)
-        and _structural_record_matches(record, filters, include_regions, selected_samples)
+        and _structural_record_matches(
+            record, filters, include_regions, selected_samples, panel_gene_terms=panel_gene_terms
+        )
     ]
     summary: dict[str, dict[str, int]] = {}
     for record in filtered:
