@@ -1018,6 +1018,83 @@ const guideSections: GuideSection[] = [
     ),
   },
   {
+    id: 'clinical-report',
+    title: 'Clinical report, traceability & sign-out',
+    summary:
+      'Draft a report from the reported variants, and lock the result to exactly what produced it: a version footer, evidence-drift warnings, an immutable audit trail, and a frozen, content-hashed case sign-out.',
+    quickLinks: [{ label: 'Families', to: '/families', note: 'Report link → Variants' }],
+    content: (
+      <>
+        <p>
+          Tag a variant with <strong>report</strong> and it joins the family&apos;s clinical
+          report (the <strong>Report</strong> link in the workspace <em>Variants</em> section).
+          The report drafts readable prose for each reported variant — description, ACMG
+          motivation, gene context and phenotype overlap — and is also the case&apos;s{' '}
+          <strong>provenance and sign-out</strong> surface: it locks the result to exactly what
+          produced it.
+        </p>
+        <div className="user-guide-callout">
+          <strong>Why this matters.</strong> Annotation sources move — a new ClinVar or gnomAD
+          release — so a classification made last month may rest on evidence that has since
+          changed. CoGA makes the versions, the changes, and the decisions explicit and
+          permanent, so a signed-out report can be reproduced and audited.
+        </div>
+
+        <h3>1 · Provenance footer — which versions</h3>
+        <p>
+          A footer states the generation timestamp and the annotation/reference{' '}
+          <strong>module versions</strong> behind the data — the pipeline layer (VEP, ClinVar,
+          gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp) and the reference layer (genome assembly +
+          release, Monarch). Pipeline versions are captured automatically at import (declared in
+          the import manifest) and can be recorded or overridden by an admin. The footer prints
+          with the report — it is part of the signed artifact.
+        </p>
+
+        <h3>2 · Evidence-drift banner — has anything changed</h3>
+        <p>
+          Every ACMG save <strong>freezes the evidence it was based on</strong> (the annotation
+          identity + the ClinVar significance at that moment). When you open the report, each
+          classification is compared against the current annotation; if the backing evidence has
+          changed, an amber banner flags it — e.g. <em>“ClinVar Uncertain significance →
+          Pathogenic”</em>. Re-review a flagged variant before sign-out. Classifications made
+          before this feature existed have no frozen evidence and are simply not checked.
+        </p>
+
+        <h3>3 · Classification audit trail — who did what, when</h3>
+        <p>
+          An immutable <strong>“Classification audit trail”</strong> lists every clinical action
+          on the family&apos;s variants — who classified, tagged or annotated which variant, when,
+          and what changed (before → after), including each sign-out. The events are written in
+          the same transaction as the change and the underlying table is{' '}
+          <strong>append-only at the database level</strong>, so the record can never be quietly
+          altered. (This is the clinical <em>action</em> log; the admin{' '}
+          <a href="#administration">audit log</a> records HTTP <em>access</em> separately.)
+        </p>
+
+        <h3>4 · Case sign-out — freeze the result</h3>
+        <p>
+          <strong>Sign out report</strong> freezes the manifest, the reported variant list (each
+          classification with its frozen evidence snapshot) and the drift state into a{' '}
+          <strong>versioned, SHA-256 content-hashed</strong> snapshot, stored append-only — a
+          signed-out report can never change. A green record appears on the report:{' '}
+          <em>“✓ Signed out — version 2 by … · Content hash …”</em>.
+        </p>
+        <div className="user-guide-callout">
+          <strong>The drift gate.</strong> If any reported classification has drifted, sign-out is
+          blocked until you re-review or explicitly <strong>acknowledge</strong> the drift — and
+          the acknowledgement is itself recorded in the snapshot and the audit trail. Signing out
+          again creates a new version (the button reads <em>Amend sign-out</em>); earlier versions
+          are never overwritten.
+        </div>
+
+        <FurtherReading
+          to="/docs/reference/clinical-traceability"
+          label="Report traceability & sign-out reference (footer, drift, audit, sign-out)"
+        />
+      </>
+    ),
+  },
+  {
     id: 'specialised-analyses',
     title: 'Structural variants, repeats, Paraphase, and mtDNA',
     summary:
