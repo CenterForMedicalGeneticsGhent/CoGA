@@ -1,13 +1,25 @@
-# Clinical-grade traceability, sign-out & audit — implementation plan
+# Clinical-grade traceability, sign-out & audit
 
-**Status:** proposed (design reference, not yet implemented).
+**Status: ✅ Implemented** (all four phases shipped). This document began as the design
+plan and is retained as the design record; the **"Phased delivery"** section below maps
+each phase to the PR and the code that shipped it. The end-user description lives in the
+[in-app reference doc](../frontend/src/content/docs/clinical-traceability.md) and the
+**User Guide → "Clinical report, traceability & sign-out"** section.
+
 **Goal:** make a reported result *reproducible* and *medico-legally defensible* by locking
 it to exactly what produced it — the annotation/reference module versions, the filter
 settings, the variant list, and the classifier inputs — backed by an immutable record of
 who classified/tagged/edited what and when, and a frozen, versioned case sign-out.
 
-This document maps what exists today, the gaps, and a phased plan. It is grounded in the
-current code (file references inline).
+| Phase | Ships | PR |
+| --- | --- | --- |
+| 0 | Annotation/reference version **manifest** + report **footer** | #220 |
+| 1 | Per-classification **evidence snapshot** + **drift** surfacing | #221 |
+| 2 | Immutable **clinical audit trail** | #222 |
+| 3 | Case **sign-out** + frozen, versioned, content-hashed snapshot | #223 |
+
+This document maps what existed before, the gaps it closed, and how it was delivered. It is
+grounded in the current code (file references inline).
 
 ---
 
@@ -240,41 +252,62 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
 
 ---
 
-## 5. Phased delivery (each phase independently shippable + tested)
+## 5. Phased delivery — as shipped
 
-### Phase 0 — Version manifest & report footer  *(foundation)*
-- `family_annotation_manifest` table; `source_version`/`source_release_date` on
-  `reference_dataset_imports`; import hook (manifest field + VCF-header fallback + admin edit).
-- `get_annotation_version_manifest(family)` service + endpoint; a family **Provenance** panel
-  and a **report footer** (live) with timestamp + module/version list.
-- **Tests:** manifest capture from a manifest + from a VCF header; merge of platform + family
-  layers; footer renders all modules.
+### Phase 0 — Version manifest & report footer  *(foundation)* — ✅ #220
 
-### Phase 1 — Evidence snapshot + drift surfacing
-- `acmg_evidence_snapshot` / `cnv_evidence_snapshot` columns; capture on save (server-side fetch
-  of current annotation + manifest stamp).
-- `evaluate_classification_drift(family)`; `⚠ evidence changed` badge + diff; family + cohort
-  "stale classifications" list.
-- **Tests:** snapshot persisted on classify; drift detected when `annotationSetHash` changes /
-  ClinVar flips; no false drift when unchanged.
+- `family_annotation_manifest` table + `source_version`/`source_release_date`/`source_url` on
+  `reference_dataset_imports` (`030_family_annotation_manifest.sql`). Capture is free: the import
+  already flows `manifest.metadata` into `family.metadata`, so a pipeline-declared
+  `annotation_manifest` is read as a fallback; `PUT /families/{id}/annotation-manifest` records
+  or overrides it.
+- `annotation_manifest_service.py` merges the per-family **pipeline** layer with the platform
+  **reference** layer (assembly + release date, Monarch release, read live); pipeline wins,
+  unknown modules pass through. `GET /families/{id}/annotation-manifest`.
+- **Report footer** (`FamilyReportPage.tsx`): generation timestamp + the full module/version list.
+- **Tests:** `backend/tests/test_annotation_manifest.py` (merge precedence + order; metadata
+  fallback) + the footer test in `FamilyReportPage.test.tsx`.
 
-### Phase 2 — Clinical audit trail
-- `clinical_audit_events` (+ append-only trigger); emit on classify/tag/note/structure/sign-out
-  with before/after; per-family audit timeline UI; wire the `started_after/before` filters that
-  already exist in the audit service but aren't exposed.
-- **Tests:** every clinical mutation emits one event with correct delta; immutability trigger
-  blocks UPDATE/DELETE (mirror the existing `029` test).
+### Phase 1 — Evidence snapshot + drift surfacing — ✅ #221
 
-### Phase 3 — Case sign-out & frozen report snapshot
-- `family_report_snapshots` (+ append-only trigger); sign-out endpoint + locked status; report
-  renders from the frozen snapshot for signed-out cases (live for drafts); footer shows version
-  + hash + manifest; amend → new version.
-- **Tests:** sign-out freezes the exact variant list + classifications + manifest; content hash
-  stable; signed snapshot is immutable; amend creates v2 without touching v1; re-render of a
-  signed report is byte-identical regardless of later edits.
+- `acmg_evidence_snapshot` JSONB on `small_variant_reviews` (`031_…`). Captured on every ACMG
+  save from the ClickHouse record the save path already fetches: `annotation_version` +
+  `annotationSetHash` (the drift key) + ClinVar significance. `get_small_variant_family_record`
+  was extended to return the annotation identity.
+- `classification_drift_service.py` compares each classification's frozen snapshot against the
+  current annotation → `current` / `drifted` / `variant_missing`, with ClinVar + version
+  from→to (drift only when both hashes are known and differ). `GET /families/{id}/classification-drift`;
+  an amber drift banner on the report.
+- **Tests:** `backend/tests/test_classification_drift.py` (snapshot extraction, dash handling,
+  diff states, service) + the drift-banner test.
 
-Phase 0 unblocks the footer and the manifest used by Phases 1 and 3. Phases 1–3 are otherwise
-independent and can be reordered to priority.
+### Phase 2 — Clinical audit trail — ✅ #222
+
+- `clinical_audit_events` append-only table + DB-level immutability trigger (`032_…`, mirroring
+  `029`). `clinical_audit_service.py` derives granular before→after events (classification with
+  ACMG class + criteria, tags added/removed, note lifecycle) and writes them **in the same
+  transaction** as the review save (`upsert_small_variant_review`).
+  `GET /families/{id}/clinical-audit`; a "Classification audit trail" section on the report.
+- **Tests:** `backend/tests/test_clinical_audit.py` (diff logic, one insert per change) + the
+  audit-timeline test; immutability proven live (raw UPDATE/DELETE rejected).
+
+### Phase 3 — Case sign-out & frozen report snapshot — ✅ #223
+
+- `report_signouts` append-only table + immutability trigger (`033_…`). `report_signout_service.py`
+  freezes the manifest + reported variant list + each classification & its evidence snapshot +
+  the drift state, SHA-256 content-hashes a canonical encoding, and stores it as the next
+  **version**; the sign-out is recorded in the audit trail.
+- **Drift gate:** sign-out returns `409` if any classification has drifted, unless
+  `acknowledge_drift` is set (baked into the snapshot + audit event).
+- `POST /families/{id}/report/sign-out`, `GET .../report/sign-outs`,
+  `GET .../report/sign-outs/{version}`. The report carries a green frozen sign-out record
+  (version · who · when · content hash) and a "Sign out / Amend sign-out" action.
+- **Tests:** `backend/tests/test_report_signout.py` (canonical hash stable + order-independent;
+  drift gate 409 / acknowledged; clean sign-out) + the sign-out-record test; immutability proven
+  live.
+
+The four phases shipped as independent, CI-green PRs in order; each migration applies on startup
+via the dollar-quote-aware loader and is exercised by the CI smoke job.
 
 ---
 
