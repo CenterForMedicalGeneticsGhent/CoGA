@@ -117,6 +117,7 @@ const ReferenceCatalogPage = lazy(
 );
 const SettingsPage = lazy(() => import('./pages/settings/SettingsPage'));
 const UserGuidePage = lazy(() => import('./pages/docs/UserGuidePage'));
+const ReferenceDocPage = lazy(() => import('./pages/docs/ReferenceDocPage'));
 const NewFeaturesPage = lazy(() => import('./pages/product/NewFeaturesPage'));
 const FamilyIgvPage = lazy(() => import('./pages/families/FamilyIgvPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
@@ -264,6 +265,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 element={routeElement(<GenePanelDetailPage />)}
               />
               <Route path="/docs" element={routeElement(<UserGuidePage />)} />
+              <Route path="/docs/reference/:slug" element={routeElement(<ReferenceDocPage />)} />
               <Route element={<RequireAdmin />}>
                 <Route
                   path="/admin"
