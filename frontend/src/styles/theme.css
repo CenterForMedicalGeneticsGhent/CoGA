@@ -11657,6 +11657,13 @@ a.button-danger:hover {
   margin-right: auto;
 }
 
+/* The relatedness matrix is content-width and centred via the auto margins above. The shared
+   `.data-table-shell table { width: 100% }` rule is more specific and would otherwise stretch
+   it full-width (defeating the centring), so narrow it back here. */
+.data-table-shell .qc-matrix {
+  width: auto;
+}
+
 .qc-matrix th {
   padding: 0.3rem 0.5rem;
   font-weight: 600;
