@@ -1,0 +1,90 @@
+# TF-09 — Software Verification & Validation Plan & Requirements Traceability
+
+| Field | Value |
+| --- | --- |
+| Document ID | TF-09 |
+| Version | v0.1 DRAFT |
+| Status | Draft for internal review |
+| Owner | ‹CMGG software lead› |
+| Approver | ‹Lab director› |
+| Date | 2026-06-25 |
+| Standards | IEC 62304 §5.5–5.7, §5.1.6 (traceability); IVDR Annex I §16.1 |
+
+> Defines how CoGA is **verified** (built right: requirements → design → code → tests) and
+> **validated** (right product: meets clinical need). Verification is largely operational
+> via the test suites and CI; validation is covered by the performance evaluation
+> ([TF-10](TF-10-performance-evaluation-plan.md)) and usability validation ([TF-12](TF-12-usability.md)).
+
+---
+
+## 1. Verification strategy & levels
+
+| Level | Method | Where | Gate |
+| --- | --- | --- | --- |
+| Unit | pytest (backend), vitest (frontend) | `backend/tests`, `frontend/src/**/*.test.tsx` | CI `backend`, `frontend` jobs |
+| Static analysis | TypeScript `tsc`, ESLint | frontend | CI `frontend` job |
+| Integration | Real-startup smoke against Postgres 16 + ClickHouse 25.3 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
+| System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
+| Regression | Full suite re-run on every PR & push to main | CI | Required checks |
+
+**CI enforcement:** the gates in `.github/workflows/ci.yml` run on every PR and on push to
+`main`. **🔲 ACTION:** mark `backend`, `smoke`, and `frontend` as **required status checks**
+in branch protection (a GitHub setting, not in the workflow file) so they must pass before
+merge — without this, the gates are advisory. (Noted as open in [security-posture.md §5](../security-posture.md).)
+
+## 2. Validation strategy
+
+- **Clinical/analytical validation:** concordance against validated comparator assays per application — 50 BeGECS couples, 100 PGT embryos, 30 WGS trios, 30 monogenic NIPT samples ([TF-10](TF-10-performance-evaluation-plan.md)); results in [TF-11](TF-11-performance-evaluation-report.md).
+- **Usability validation:** summative evaluation that intended users can use CoGA without unacceptable use error ([TF-12](TF-12-usability.md)).
+- **Reproducibility validation:** same validated input → identical content-hashed signed report (a 62304 §16.1 repeatability requirement; mechanism exists via the frozen sign-out).
+
+## 3. Software Requirements Specification (SRS) — structure to formalize
+
+CoGA's requirements currently live implicitly in the per-feature design docs. To meet 62304
+§5.2 and enable traceability, consolidate them into an SRS organized as:
+
+1. **Functional requirements** per module/application (derived from the "clinical question" and "what done means" sections of `docs/*.md`).
+2. **Performance requirements** (accuracy/concordance targets — from TF-10 acceptance criteria).
+3. **Interface/input requirements** (accepted input formats, device boundary — TF-02).
+4. **Risk-control requirements** (every control in TF-06 becomes a verifiable requirement).
+5. **Security & data-protection requirements** (RBAC, audit, encryption — TF-13/TF-14).
+6. **Usability requirements** (TF-12).
+7. **Regulatory/labelling requirements** (provenance footer, version display, IFU — TF-15).
+
+**🔲 ACTION:** produce the SRS as a controlled document (or a structured requirements
+register) so each requirement has a stable ID.
+
+## 4. Requirements traceability matrix (RTM)
+
+The RTM is the spine 62304/IVDR expect: each requirement traces forward to design, code,
+and verifying test, and (for risk-control requirements) back to the hazard. Maintained as a
+controlled register; structure:
+
+| Req ID | Requirement | Source | Design ref | Implementation | Verifying test(s) | Risk (TF-06) | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| REQ-NIPT-001 | Estimate fetal fraction from category-7 sites with CI & N | monogenic-nipt.md | nipt_analysis.py | `services/nipt_analysis.py` | `test_*nipt*` | H6 | ◐ |
+| REQ-PGT-001 | Derive embryo ROI call gated by Mendel-error/informative-marker/recombination QC | haplotype-segregation-analysis.md | haplotype_lineage_service.py | service+frontend | concordance TF-10 §3.2 | H5 | ◐ |
+| REQ-ACMG-001 | Recompute ACMG class server-side; criteria overridable | acmg-classification.md | acmg_points.py | `services/*review*` | `test_acmg*` | H3 | ✅ |
+| REQ-TRACE-001 | Freeze content-hashed signed report; render from snapshot | clinical-traceability.md | report_signout_service.py | service | `test_report_signout.py` | H9 | ✅ |
+| REQ-SEC-001 | Project-scoped access on every PHI endpoint | security-posture.md | metadata_service.py | dependency | `test_access_control.py` | H11 | ✅ |
+| … | (populate from SRS) | | | | | | |
+
+> The examples are illustrative and reference real code/tests already present; the full RTM
+> is generated from the SRS and kept current as a release deliverable.
+
+## 5. Anomaly handling
+
+Defects found in verification or in the field are recorded, risk-assessed (could it affect a
+clinical result? → severity per TF-06), fixed under change control (TF-18), regression-tested,
+and — where clinically relevant — fed to vigilance/CAPA (TF-17). The append-only clinical
+audit trail aids reconstruction of any affected case.
+
+## 6. Release verification checklist (per clinical release)
+
+- [ ] All CI gates green (backend, smoke, frontend) on the release commit.
+- [ ] RTM updated; no requirement without a passing verifying test.
+- [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
+- [ ] SOUP register / SBOM (TF-08/TF-13) reconciled; no unaddressed high-severity vuln.
+- [ ] Change-significance assessed (TF-18); re-validation run if triggered (TF-10).
+- [ ] Version/build identifier updated and visible in the report footer.
+- [ ] Release record signed (TF-18); lab director authorization.
