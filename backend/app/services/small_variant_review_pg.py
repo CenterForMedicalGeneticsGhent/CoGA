@@ -310,6 +310,33 @@ def _acmg_json_or_none(value: Any) -> str | None:
     return _json_payload(value)
 
 
+def _json_or_none(value: Any) -> str | None:
+    """Serialize a JSONB column value, or None for SQL NULL."""
+    return None if value is None else _json_payload(value)
+
+
+def build_evidence_snapshot(record: Any, captured_at: datetime) -> dict[str, Any]:
+    """Freeze the evidence a classification was based on (clinical traceability).
+
+    The annotation-set identity (``annotation_set_hash``) is the cheap drift key —
+    it changes whenever any annotation changes — alongside the ClinVar significance,
+    the most decision-relevant value, read from the per-transcript annotations.
+    """
+    clinvar = None
+    for annotation in getattr(record, "annotations", None) or []:
+        value = annotation.get("clinvar") or annotation.get("clinvarClinicalSignificance")
+        text_value = str(value).strip() if value not in (None, "", ".", "-") else ""
+        if text_value:
+            clinvar = text_value
+            break
+    return {
+        "annotation_version": getattr(record, "annotation_version", None),
+        "annotation_set_hash": getattr(record, "annotation_set_hash", None),
+        "clinvar": clinvar,
+        "captured_at": captured_at.isoformat(),
+    }
+
+
 def _deserialize_acmg(value: Any) -> AcmgClassificationPayload | None:
     if not value:
         return None
@@ -526,6 +553,7 @@ _SMALL_VARIANT_REVIEW_SELECT = """
                 acmg,
                 acmg_point_total,
                 acmg_class,
+                acmg_evidence_snapshot,
                 updated_by,
                 created_at,
                 updated_at
@@ -613,6 +641,7 @@ async def _update_review_row(
                 acmg = CAST(:acmg_json AS jsonb),
                 acmg_point_total = :acmg_point_total,
                 acmg_class = :acmg_class,
+                acmg_evidence_snapshot = CAST(:acmg_evidence_snapshot_json AS jsonb),
                 updated_by = :updated_by,
                 updated_at = :updated_at
             WHERE id = CAST(:review_id AS uuid)
@@ -633,6 +662,7 @@ async def _update_review_row(
             "acmg_json": _acmg_json_or_none(fields.get("acmg")),
             "acmg_point_total": fields.get("acmg_point_total"),
             "acmg_class": fields.get("acmg_class"),
+            "acmg_evidence_snapshot_json": _json_or_none(fields.get("acmg_evidence_snapshot")),
             "review_id": review_id,
         },
     )
@@ -670,6 +700,7 @@ async def _insert_review_row(
                 acmg,
                 acmg_point_total,
                 acmg_class,
+                acmg_evidence_snapshot,
                 updated_by,
                 created_at,
                 updated_at
@@ -696,6 +727,7 @@ async def _insert_review_row(
                 CAST(:acmg_json AS jsonb),
                 :acmg_point_total,
                 :acmg_class,
+                CAST(:acmg_evidence_snapshot_json AS jsonb),
                 :updated_by,
                 :created_at,
                 :updated_at
@@ -717,6 +749,7 @@ async def _insert_review_row(
             "acmg_json": _acmg_json_or_none(fields.get("acmg")),
             "acmg_point_total": fields.get("acmg_point_total"),
             "acmg_class": fields.get("acmg_class"),
+            "acmg_evidence_snapshot_json": _json_or_none(fields.get("acmg_evidence_snapshot")),
             "family_id": family_uuid,
             "created_at": created_at,
         },
@@ -1734,10 +1767,15 @@ async def upsert_small_variant_review(
     acmg_requested = "acmg" in payload.model_fields_set
     if acmg_requested:
         normalized_acmg, acmg_point_total, acmg_class = _normalize_acmg_payload(payload.acmg)
+        # Freeze the evidence the classification was based on (None if it was cleared).
+        acmg_evidence_snapshot = (
+            build_evidence_snapshot(variant, now) if normalized_acmg else None
+        )
     else:
         normalized_acmg = (existing or {}).get("acmg")
         acmg_point_total = (existing or {}).get("acmg_point_total")
         acmg_class = (existing or {}).get("acmg_class")
+        acmg_evidence_snapshot = (existing or {}).get("acmg_evidence_snapshot")
 
     if compound_het_requested and compound_het_payload is not None:
         normalized_compound_het_classification = (
@@ -1909,6 +1947,7 @@ async def upsert_small_variant_review(
                 "acmg": None,
                 "acmg_point_total": None,
                 "acmg_class": None,
+                "acmg_evidence_snapshot": None,
                 "updated_by": user.username,
                 "updated_at": now,
                 **_preserve_existing_compound_het(existing),
@@ -1948,6 +1987,7 @@ async def upsert_small_variant_review(
         "acmg": normalized_acmg,
         "acmg_point_total": acmg_point_total,
         "acmg_class": acmg_class,
+        "acmg_evidence_snapshot": acmg_evidence_snapshot,
         "updated_by": user.username,
         "updated_at": now,
     }

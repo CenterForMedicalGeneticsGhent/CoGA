@@ -375,6 +375,29 @@ class AnnotationManifestUpdate(BaseModel):
     source: Optional[str] = "manual"
 
 
+class ClassificationDriftItem(BaseModel):
+    """A classification whose backing annotation changed since it was made."""
+
+    variant_id: str
+    acmg_class: Optional[str] = None
+    classified_by: Optional[str] = None
+    classified_at: Optional[datetime] = None
+    status: str  # "drifted" | "variant_missing"
+    annotation_version_from: Optional[str] = None
+    annotation_version_to: Optional[str] = None
+    clinvar_from: Optional[str] = None
+    clinvar_to: Optional[str] = None
+
+
+class ClassificationDriftOut(BaseModel):
+    """Evidence-drift summary for a family's ACMG classifications."""
+
+    family_id: str
+    checked: int
+    drifted_count: int
+    drifted: List[ClassificationDriftItem] = Field(default_factory=list)
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 

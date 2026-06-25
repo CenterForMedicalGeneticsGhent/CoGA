@@ -175,4 +175,47 @@ describe('FamilyReportPage', () => {
 
     expect(await screen.findByText(/No variants are currently tagged for reporting/)).toBeInTheDocument();
   });
+
+  it('warns when a classification’s evidence has drifted since it was made', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/classification-drift') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            checked: 2,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '1-100-A-G',
+                acmg_class: 'acmg_class_4',
+                classified_by: 'alice',
+                classified_at: null,
+                status: 'drifted',
+                annotation_version_from: 'v1',
+                annotation_version_to: 'v2',
+                clinvar_from: 'Uncertain significance',
+                clinvar_to: 'Pathogenic',
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toBeInTheDocument();
+    expect(screen.getByText('1-100-A-G')).toBeInTheDocument();
+    expect(
+      screen.getByText(/ClinVar Uncertain significance → Pathogenic/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/classified by alice/)).toBeInTheDocument();
+  });
 });

@@ -4,7 +4,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
-import type { ApiAnnotationManifest } from '../../lib/apiTypes';
+import type { ApiAnnotationManifest, ApiClassificationDrift } from '../../lib/apiTypes';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { formatLocus } from './smallVariantResultUtils';
 import {
@@ -231,6 +231,15 @@ const FamilyReportPage: React.FC = () => {
   // The moment the report was produced (becomes the frozen sign-out time in Phase 3).
   const generatedAt = useMemo(() => new Date(), []);
 
+  // Evidence drift: classifications whose backing annotation changed since they
+  // were made — a sign-out guardrail against stale interpretations.
+  const { data: drift } = useQuery<ApiClassificationDrift>({
+    queryKey: ['family', familyId, 'classification-drift'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(`/families/${familyId}/classification-drift`)).data as ApiClassificationDrift,
+  });
+
   const presentHpoTerms = useMemo(() => {
     const byId = new Map<string, string>();
     hpoAnnotations
@@ -301,6 +310,35 @@ const FamilyReportPage: React.FC = () => {
           scientist before clinical use.
         </p>
       </section>
+
+      {drift && drift.drifted_count > 0 ? (
+        <section className="surface-card report-drift" role="alert">
+          <p className="report-drift-title">
+            ⚠ {drift.drifted_count} classification{drift.drifted_count === 1 ? '' : 's'}{' '}
+            {drift.drifted_count === 1 ? 'has' : 'have'} evidence changes since being made
+          </p>
+          <p className="report-paragraph report-drift-lead">
+            The annotation backing the following classification
+            {drift.drifted_count === 1 ? '' : 's'} has changed since it was recorded. Re-review
+            before sign-out.
+          </p>
+          <ul className="report-drift-list">
+            {drift.drifted.map((item) => (
+              <li key={item.variant_id}>
+                <strong>{item.variant_id}</strong>
+                {item.status === 'variant_missing'
+                  ? ' — no longer present in the dataset'
+                  : item.clinvar_from !== item.clinvar_to
+                    ? ` — ClinVar ${item.clinvar_from || 'n/a'} → ${item.clinvar_to || 'n/a'}`
+                    : ' — annotation set changed'}
+                {item.classified_by ? (
+                  <span className="report-drift-meta"> (classified by {item.classified_by})</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {variants.length === 0 && structuralVariants.length === 0 ? (
         <section className="surface-card report-empty">

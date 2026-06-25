@@ -55,6 +55,7 @@ from ..schemas import (
     SampleIntegrityPaternityCheckOut,
     AnnotationManifestOut,
     AnnotationManifestUpdate,
+    ClassificationDriftOut,
     SampleIntegrityQcOut,
     SampleIntegrityRelatednessCheckOut,
     SampleIntegritySexCheckOut,
@@ -117,6 +118,7 @@ from ..services.annotation_manifest_service import (
     get_family_annotation_manifest,
     set_family_annotation_manifest,
 )
+from ..services.classification_drift_service import evaluate_classification_drift
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     get_family_nipt_coverage,
@@ -1103,6 +1105,20 @@ async def set_family_annotation_manifest_endpoint(
             user=user,
             modules=payload.modules,
             source=payload.source or "manual",
+        )
+    )
+
+
+@router.get("/{family_id}/classification-drift", response_model=ClassificationDriftOut)
+async def get_family_classification_drift_endpoint(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> ClassificationDriftOut:
+    return ClassificationDriftOut.model_validate(
+        await evaluate_classification_drift(
+            session, family_id=family_id, user=user, project_id=project_id
         )
     )
 
