@@ -11601,6 +11601,33 @@ a.button-danger:hover {
   color: var(--color-text-muted, #64748b);
 }
 
+/* Evidence-drift callout: classifications whose backing annotation changed. */
+.report-drift {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+  display: grid;
+  gap: 0.4rem;
+}
+.report-drift-title {
+  margin: 0;
+  font-weight: 700;
+  color: #92400e;
+}
+.report-drift-lead {
+  margin: 0;
+}
+.report-drift-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.86rem;
+  color: #78350f;
+}
+.report-drift-meta {
+  color: var(--color-text-muted, #64748b);
+}
+
 /* Provenance footer: generation timestamp + the annotation/reference versions. */
 .report-footer {
   display: grid;

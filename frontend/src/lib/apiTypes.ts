@@ -351,6 +351,25 @@ export interface ApiAnnotationManifest {
   modules: ApiAnnotationModule[];
 }
 
+export interface ApiClassificationDriftItem {
+  variant_id: string;
+  acmg_class: string | null;
+  classified_by: string | null;
+  classified_at: string | null;
+  status: string; // 'drifted' | 'variant_missing'
+  annotation_version_from: string | null;
+  annotation_version_to: string | null;
+  clinvar_from: string | null;
+  clinvar_to: string | null;
+}
+
+export interface ApiClassificationDrift {
+  family_id: string;
+  checked: number;
+  drifted_count: number;
+  drifted: ApiClassificationDriftItem[];
+}
+
 export interface ApiSampleIntegrityQc {
   family_id: string;
   overall_status: QcStatus;
