@@ -57,6 +57,17 @@ MIN_PATERNITY_SITES = 10
 PATERNITY_WARN_FN_RATE = 0.40
 PATERNITY_FAIL_FN_RATE = 0.70
 
+# --- NIPT category-distribution QC ------------------------------------------
+# De novo (category 1) is rare; an excess flags artifacts or contamination.
+NIPT_DENOVO_WARN_RATE = 0.05
+NIPT_DENOVO_FAIL_RATE = 0.15
+# A true mother transmits each maternal-het allele to the fetus ~50% of the time
+# (categories 3+4 inherited vs 2 not inherited). Gross deviation flags the wrong
+# mother / a sample issue; cfDNA detection biases keep the tolerance wide.
+MIN_MATERNAL_TRANSMISSION_SITES = 20
+MATERNAL_TRANSMISSION_WARN_DELTA = 0.15
+MATERNAL_TRANSMISSION_FAIL_DELTA = 0.30
+
 
 @dataclass(slots=True)
 class SexCheck:
@@ -123,6 +134,24 @@ class FetalSexCheck:
     message: str
 
 
+@dataclass(slots=True)
+class NiptCategoryQc:
+    """QC on the NIPT category distribution.
+
+    De-novo (category 1) and paternal-absent (category 8) excess flag artifacts /
+    non-paternity, and the maternal transmission rate (categories 3+4 inherited vs
+    2 not inherited) should sit near 50% for the true mother.
+    """
+
+    denovo: int  # category 1
+    paternal_absent: int  # category 8
+    maternal_informative: int  # categories 2 + 3 + 4
+    maternal_inherited: int  # categories 3 + 4
+    maternal_inherited_rate: float
+    status: Status
+    message: str
+
+
 # The five applications CoGA runs, each with a different input modality and a
 # different set of meaningful integrity checks (see profile_for).
 ApplicationKind = Literal["wgs", "pgt", "nipt", "couple", "single", "unknown"]
@@ -152,6 +181,7 @@ class SampleIntegrityReport:
     mendelian_checks: list[MendelianCheck] = field(default_factory=list)
     paternity_check: PaternityCheck | None = None
     fetal_sex_check: FetalSexCheck | None = None
+    category_qc_check: NiptCategoryQc | None = None
     autosomal_sites: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -347,11 +377,13 @@ def _relationship_check(
     b: str,
     expected: str,
     autosomal: dict[str, list[Genotype | None]],
+    *,
+    coparents: bool = False,
 ) -> RelatednessCheck:
     kinship, ibs0, n = king_relatedness(autosomal.get(a, []), autosomal.get(b, []))
     inferred = classify_relatedness(kinship, ibs0, n)
     metrics = f"kinship {kinship:.3f}, IBS0 {ibs0:.2%}, {n} sites"
-    status, message = _relationship_status(expected, inferred, n, metrics)
+    status, message = _relationship_status(expected, inferred, n, metrics, coparents=coparents)
     return RelatednessCheck(a, b, expected, inferred, kinship, ibs0, n, status, message)
 
 
@@ -360,7 +392,7 @@ _FIRST_DEGREE = {"parent-child", "sibling"}
 
 
 def _relationship_status(
-    expected: str, inferred: str, n: int, metrics: str
+    expected: str, inferred: str, n: int, metrics: str, *, coparents: bool = False
 ) -> tuple[Status, str]:
     if inferred == "indeterminate" or n < MIN_RELATEDNESS_SITES:
         return "warn", f"Too few shared sites to assess relatedness ({metrics})."
@@ -375,11 +407,19 @@ def _relationship_status(
         if inferred in _FIRST_DEGREE:
             return "pass", f"Consistent with full siblings ({metrics})."
         return "fail", f"Recorded siblings but genotypes look {inferred} ({metrics})."
-    # Expected unrelated (co-parents, or any pair with no asserted relationship).
+    # Expected unrelated. Co-parents get a consanguinity-oriented reading.
     if inferred == "unrelated":
+        if coparents:
+            return "pass", f"Parents are unrelated — no consanguinity ({metrics})."
         return "pass", f"Unrelated, as expected ({metrics})."
     if inferred in ("third-degree", "second-degree"):
+        if coparents:
+            return "warn", f"Parents look {inferred} — possible consanguinity ({metrics})."
         return "warn", f"Unexpected relatedness — looks {inferred} ({metrics})."
+    if coparents:
+        return "fail", (
+            f"Parents look {inferred} ({metrics}) — consanguinity or a sample duplication."
+        )
     return "fail", (
         f"Recorded unrelated but genotypes look {inferred} ({metrics}) — "
         "possible duplicate or swap."
@@ -544,6 +584,51 @@ def evaluate_fetal_sex(
                          f"{'transmitted' if inferred == 'female' else 'not transmitted'} ({metrics}).")
 
 
+def evaluate_nipt_category_qc(category_counts: dict[int, int]) -> NiptCategoryQc:
+    """QC the cfDNA category distribution: de-novo / paternal-absent excess and
+    the maternal transmission rate (~50% for the true mother)."""
+    counts = {int(k): int(v) for k, v in category_counts.items()}
+    total = sum(counts.values())
+    denovo = counts.get(1, 0)
+    paternal_absent = counts.get(8, 0)
+    maternal_informative = counts.get(2, 0) + counts.get(3, 0) + counts.get(4, 0)
+    maternal_inherited = counts.get(3, 0) + counts.get(4, 0)
+    rate = maternal_inherited / maternal_informative if maternal_informative else 0.0
+
+    statuses: list[Status] = ["pass"]
+    issues: list[str] = []
+
+    if total:
+        denovo_rate = denovo / total
+        if denovo_rate >= NIPT_DENOVO_FAIL_RATE:
+            statuses.append("fail")
+            issues.append(f"de-novo (cat 1) excess {denovo}/{total} ({denovo_rate:.0%}) — artifacts/contamination")
+        elif denovo_rate >= NIPT_DENOVO_WARN_RATE:
+            statuses.append("warn")
+            issues.append(f"elevated de-novo (cat 1) {denovo}/{total} ({denovo_rate:.0%})")
+
+    if maternal_informative >= MIN_MATERNAL_TRANSMISSION_SITES:
+        delta = abs(rate - 0.5)
+        metrics = f"{maternal_inherited}/{maternal_informative} maternal-het sites"
+        if delta >= MATERNAL_TRANSMISSION_FAIL_DELTA:
+            statuses.append("fail")
+            issues.append(f"maternal transmission {rate:.0%} far from 50% ({metrics}) — wrong mother or sample issue")
+        elif delta >= MATERNAL_TRANSMISSION_WARN_DELTA:
+            statuses.append("warn")
+            issues.append(f"maternal transmission {rate:.0%} off 50% ({metrics})")
+
+    status = _worst(statuses)
+    if status == "pass":
+        message = (
+            f"Category distribution within expectation — maternal transmission {rate:.0%}, "
+            f"{denovo} de-novo, {paternal_absent} paternal-absent."
+        )
+    else:
+        message = "; ".join(issues) + "."
+    return NiptCategoryQc(denovo, paternal_absent, maternal_informative, maternal_inherited,
+                          rate, status, message)
+
+
 def evaluate_sample_integrity(
     autosomal: dict[str, list[Genotype | None]],
     x_genotypes: dict[str, list[Genotype | None]],
@@ -553,10 +638,13 @@ def evaluate_sample_integrity(
     genotype_source: str | None = None,
     paternity_check: PaternityCheck | None = None,
     fetal_sex_check: FetalSexCheck | None = None,
+    category_qc_check: NiptCategoryQc | None = None,
+    extra_sex_checks: list[SexCheck] | None = None,
+    extra_notes: list[str] | None = None,
 ) -> SampleIntegrityReport:
     """Run the checks the application profile enables and roll up an overall status."""
     samples = sorted(autosomal)
-    notes: list[str] = []
+    notes: list[str] = list(extra_notes or [])
 
     sex_checks = (
         [
@@ -566,6 +654,10 @@ def evaluate_sample_integrity(
         if profile.run_sex
         else []
     )
+    # Genotype-derived sex checks the profile doesn't run inline (e.g. NIPT parents
+    # checked off-cycle from the cfDNA path).
+    if extra_sex_checks:
+        sex_checks = sex_checks + list(extra_sex_checks)
 
     # Build expected relationships from the pedigree, then assess every pair.
     expected: dict[tuple[str, str], str] = {}
@@ -577,19 +669,32 @@ def evaluate_sample_integrity(
         if a in autosomal and b in autosomal:
             expected.setdefault(tuple(sorted((a, b))), "sibling")
 
+    # Pairs who are both parents of the same child are expected unrelated; keep
+    # them so the matrix confirms "no consanguinity" (or flags it).
+    coparent_pairs: set[tuple[str, str]] = set()
+    for parents in spec.parents_of.values():
+        pids = sorted({p for p in parents.values() if p in autosomal})
+        for i in range(len(pids)):
+            for j in range(i + 1, len(pids)):
+                coparent_pairs.add((pids[i], pids[j]))
+
     relatedness_checks: list[RelatednessCheck] = []
     if profile.run_relatedness:
         for i, a in enumerate(samples):
             for b in samples[i + 1:]:
-                exp = expected.get((a, b), "unrelated")
-                check = _relationship_check(a, b, exp, autosomal)
-                # For a couple the "unrelated" confirmation IS the result we want,
-                # so keep it; elsewhere suppress the noise of expected-unrelated
-                # pairs and keep only asserted pairs or surprising findings.
+                pair = (a, b)
+                is_coparent = pair in coparent_pairs
+                exp = expected.get(pair, "unrelated")
+                check = _relationship_check(a, b, exp, autosomal, coparents=is_coparent)
+                # For a couple, or co-parents (consanguinity check), the "unrelated"
+                # confirmation IS a wanted result, so keep it; elsewhere suppress the
+                # noise of expected-unrelated passes and keep only asserted pairs or
+                # surprising findings.
                 if (
                     exp == "unrelated"
                     and check.status == "pass"
                     and profile.application != "couple"
+                    and not is_coparent
                 ):
                     continue
                 relatedness_checks.append(check)
@@ -620,6 +725,10 @@ def evaluate_sample_integrity(
         + [c.status for c in mendelian_checks]
         + ([paternity_check.status] if paternity_check is not None else [])
         + ([fetal_sex_check.status] if fetal_sex_check is not None else [])
+        + ([category_qc_check.status] if category_qc_check is not None else [])
+        # A degraded run (e.g. genotypes/cfDNA analysis unavailable) surfaces as a
+        # visible warning rather than a silent skip.
+        + (["warn"] if extra_notes else [])
     )
     overall = _worst(all_statuses) if all_statuses else "skip"
 
@@ -634,6 +743,7 @@ def evaluate_sample_integrity(
         mendelian_checks=mendelian_checks,
         paternity_check=paternity_check,
         fetal_sex_check=fetal_sex_check,
+        category_qc_check=category_qc_check,
         autosomal_sites=autosomal_sites,
         notes=notes,
     )
