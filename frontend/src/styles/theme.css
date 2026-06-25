@@ -8567,10 +8567,16 @@ button.table-link:hover {
 .roi-markers-band--flank {
   opacity: 0.85;
 }
-/* A Mendelian error (genotype not inheritable from the parents) is emphasised
-   with a light-orange cell so it stands out from the white sequence. */
-.roi-markers-band--mendel {
+/* Suspect markers are emphasised with a light-orange cell so they stand out from
+   the white sequence: a Mendelian error (genotype not inheritable from the parents)
+   or a raw marker that disagrees with its cleaned haplotype block. */
+.roi-markers-band--mendel,
+.roi-markers-band--block-mismatch {
   background: #ffe8cc;
+}
+/* Homozygous markers are uninformative for phasing — a very light grey. */
+.roi-markers-band--homozygous {
+  background: #f4f5f7;
 }
 /* The two bands of a member touch; members are separated by a spacer row. */
 .roi-markers-bandrow .roi-markers-namecol {
