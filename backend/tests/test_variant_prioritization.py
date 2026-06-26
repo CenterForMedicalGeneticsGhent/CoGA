@@ -12,7 +12,11 @@ from backend.app.services.variant_prioritization import (
     segregation_weight,
     structural_pathogenicity_score,
 )
-from backend.app.services.monarch_phenotype_score import phenomizer_score
+from backend.app.services.monarch_phenotype_score import (
+    _MAX_GENE_TERMS,
+    _cap_terms_by_ic,
+    phenomizer_score,
+)
 
 
 def test_pathogenicity_clinvar_pathogenic_overrides() -> None:
@@ -245,3 +249,29 @@ def test_phenomizer_score_unrelated_terms_is_low() -> None:
     )
     # Only the low-IC root is shared.
     assert score.score < 0.1
+
+
+def test_cap_terms_by_ic_breaks_ic_ties_deterministically() -> None:
+    # P0-2: with every term sharing the same IC, the tiebreaker alone decides which
+    # survive the cap. The deterministic id tiebreaker yields the lexicographically
+    # smallest ids in sorted order, independent of set hashing / PYTHONHASHSEED; the
+    # old IC-only sort returned set-iteration order (process-dependent), which for a
+    # large tied set is virtually never the sorted order.
+    ids = [f"HP:{i:07d}" for i in range(_MAX_GENE_TERMS + 80)]
+    ic = {hid: 2.5 for hid in ids}
+    capped = _cap_terms_by_ic(set(ids), ic, _MAX_GENE_TERMS)
+    assert capped == sorted(ids)[:_MAX_GENE_TERMS]
+
+
+def test_cap_terms_by_ic_keeps_ic_descending_primary_order() -> None:
+    ic = {"HP:zzz": 9.0, "HP:aaa": 1.0, "HP:mmm": 5.0}
+    assert _cap_terms_by_ic({"HP:aaa", "HP:mmm", "HP:zzz"}, ic, 10) == [
+        "HP:zzz",
+        "HP:mmm",
+        "HP:aaa",
+    ]
+
+
+def test_cap_terms_by_ic_unknown_ic_sinks_to_bottom() -> None:
+    ic = {"HP:has": 4.0}
+    assert _cap_terms_by_ic({"HP:has", "HP:missing"}, ic, 10) == ["HP:has", "HP:missing"]

@@ -8,8 +8,11 @@ from fastapi import HTTPException
 from backend.app.services.clickhouse_family_variants import (
     PanelFilterConstraints,
     Region,
+    _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
     SmallVariantCall,
     SmallVariantRecord,
+    StructuralVariantCall,
+    StructuralVariantRecord,
     _compound_het_partner_map,
     _chromosome_options,
     _execute_clickhouse,
@@ -20,12 +23,18 @@ from backend.app.services.clickhouse_family_variants import (
     _small_variant_out,
     _small_record_matches,
     _normalize_small_variant_inheritance,
+    _prioritized_small_variants_page,
+    _prioritized_structural_variants_page,
     get_family_compound_het_candidates,
     get_family_small_variants_page,
     get_family_structural_variants_page,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters, parse_genotype_filter
+from backend.app.services.family_variant_filters import (
+    SmallVariantQueryFilters,
+    StructuralVariantQueryFilters,
+    parse_genotype_filter,
+)
 from backend.app.schemas import SmallVariantSummaryOut
 
 
@@ -1710,7 +1719,13 @@ async def test_compound_het_candidates_scopes_fetch_to_source_gene(
 
     async def fake_fetch(context, filters, **kwargs):
         include = kwargs.get("include_variant_ids")
-        fetch_calls.append({"gene": filters.gene, "include": list(include) if include else None})
+        fetch_calls.append(
+            {
+                "gene": filters.gene,
+                "include": list(include) if include else None,
+                "limit": kwargs.get("limit"),
+            }
+        )
         if include:
             wanted = set(include)
             return [r for r in all_records if r.variant_id in wanted]
@@ -1744,6 +1759,12 @@ async def test_compound_het_candidates_scopes_fetch_to_source_gene(
     # The other gene was never queried (no whole-family scan).
     assert all(call["gene"] != "GENE2" for call in fetch_calls)
     assert all(call["include"] is not None or call["gene"] == "GENE1" for call in fetch_calls)
+    # P0-6: the gene-scoped partner scan is bounded (not an unbounded fetch).
+    scan_calls = [call for call in fetch_calls if call["include"] is None]
+    assert scan_calls
+    assert all(
+        call["limit"] == _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS + 1 for call in scan_calls
+    )
 
 
 @pytest.mark.asyncio
@@ -1771,6 +1792,7 @@ async def test_compound_het_candidates_falls_back_without_gene_name(
     v2 = _no_gene_name("v2", _COMPOUND_HET_PAIR_CALLS_B)
     all_records = [v1, v2]
     genes_seen: list[str | None] = []
+    scan_limits: list[int | None] = []
 
     async def fake_fetch(context, filters, **kwargs):
         include = kwargs.get("include_variant_ids")
@@ -1778,6 +1800,7 @@ async def test_compound_het_candidates_falls_back_without_gene_name(
             wanted = set(include)
             return [r for r in all_records if r.variant_id in wanted]
         genes_seen.append(filters.gene)
+        scan_limits.append(kwargs.get("limit"))
         return all_records
 
     async def fake_review_map(*_a, **_k):
@@ -1800,6 +1823,10 @@ async def test_compound_het_candidates_falls_back_without_gene_name(
     # gene_id-only source still finds the partner via the whole-family fallback.
     assert [str(variant.id) for variant in page.variants] == ["v2"]
     assert genes_seen == [None]
+    # P0-6: the gene_id-only whole-family fallback is intentionally left UNBOUNDED — a
+    # blind row cap could silently drop a genuine same-gene_id partner (rows are ordered
+    # by genomic position). Guard against a regression that re-introduces a silent cap.
+    assert scan_limits == [None]
 
 
 @pytest.mark.asyncio
@@ -1970,3 +1997,144 @@ def test_small_panel_filter_keeps_regions_for_normal_panels():
     assert condition is not None
     # A normal-sized panel still inlines its regions.
     assert any(key.startswith("panel_region") for key in params)
+
+
+@pytest.mark.asyncio
+async def test_prioritized_small_variants_tie_order_is_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # P0-4: two variants that score identically must rank in a fully-determined,
+    # fetch-order-independent order (the rank is frozen into the cache/report). The
+    # str(v.id) tiebreaker makes the order total regardless of the fetch order.
+    calls = [_small_call("PROBAND", "0/1")]
+    rec_a = _small_variant("1-100-A-G", "GENE1", calls=calls, start=100)
+    rec_b = _small_variant("1-200-A-G", "GENE1", calls=calls, start=200)
+
+    m = "backend.app.services.clickhouse_family_variants."
+
+    async def _no_hpo(*_a, **_k):
+        return (set(), {})
+
+    async def _hashes(*_a, **_k):
+        return ("inputs-hash", "base-hash")
+
+    async def _none(*_a, **_k):
+        return None
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    async def _run(order):
+        async def _fetch(*_a, **_k):
+            return list(order)
+
+        monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)
+        monkeypatch.setattr(m + "compute_ranking_hashes", _hashes)
+        monkeypatch.setattr(m + "get_cached_ranking", _none)
+        monkeypatch.setattr(m + "_serve_subpanel_from_superset", _none)
+        monkeypatch.setattr(m + "_fetch_small_variant_rows", _fetch)
+        monkeypatch.setattr(m + "_fetch_gene_constraint_metric_map", _empty)
+        monkeypatch.setattr(m + "_segregation_modes_by_variant", lambda *a, **k: {})
+        monkeypatch.setattr(m + "canonical_filters", lambda *a, **k: {})
+        monkeypatch.setattr(m + "store_ranking", _none)
+        monkeypatch.setattr(m + "_hydrate_small_variant_outs", _none)
+        monkeypatch.setattr(m + "_small_record_matches", lambda *a, **k: True)
+        page = await _prioritized_small_variants_page(
+            None,  # type: ignore[arg-type]
+            context=_family_context(),
+            filters=SmallVariantQueryFilters(page=1, page_size=50),
+            page=1,
+            page_size=50,
+            panel_constraints=PanelFilterConstraints(),
+            review_variant_ids=None,
+            excluded_review_variant_ids=set(),
+            include_review_filter_active=False,
+            include_regions=[],
+            exclude_regions=[],
+            exclude_gene_regions=[],
+            exclude_gene_terms=[],
+            small_variant_summary=None,
+        )
+        return [str(variant.id) for variant in page.variants]
+
+    forward = await _run([rec_a, rec_b])
+    reverse_ = await _run([rec_b, rec_a])
+    # Determinism: identical scores resolve to the same order regardless of fetch order.
+    assert forward == reverse_
+    # reverse=True applies to the whole key tuple, so equal-score ties order by
+    # DESCENDING variant id.
+    assert forward == ["1-200-A-G", "1-100-A-G"]
+
+
+@pytest.mark.asyncio
+async def test_prioritized_structural_variants_tie_order_is_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # P0-4 (SV path): two SVs that score identically must rank in a fully-determined,
+    # fetch-order-independent order via the item[0].variant_id tiebreaker.
+    def _sv(variant_id: str, *, start: int) -> StructuralVariantRecord:
+        return StructuralVariantRecord(
+            variant_key=None,
+            variant_id=variant_id,
+            chr="1",
+            start=start,
+            end=start + 100,
+            sv_type="DEL",
+            source="sniffles",
+            remote_chr=None,
+            remote_start=None,
+            remote_end=None,
+            sv_len=-100,
+            filters=["PASS"],
+            gene_symbols=["GENE1"],
+            annotations=[{}],
+            calls=[
+                StructuralVariantCall(
+                    sample="PROBAND",
+                    gt="0/1",
+                    qual=None,
+                    read_support=None,
+                    filter="PASS",
+                )
+            ],
+        )
+
+    rec_a = _sv("sv-100", start=100)
+    rec_b = _sv("sv-200", start=200)
+
+    m = "backend.app.services.clickhouse_family_variants."
+
+    async def _no_hpo(*_a, **_k):
+        return (set(), {})
+
+    async def _empty_set(*_a, **_k):
+        return set()
+
+    async def _empty(*_a, **_k):
+        return {}
+
+    async def _run(order):
+        async def _fetch(*_a, **_k):
+            return list(order)
+
+        monkeypatch.setattr(m + "_fetch_structural_variant_rows", _fetch)
+        monkeypatch.setattr(m + "_structural_record_matches", lambda *a, **k: True)
+        monkeypatch.setattr(m + "_affected_present_hpo", _no_hpo)
+        monkeypatch.setattr(m + "list_matching_structural_variant_review_ids", _empty_set)
+        monkeypatch.setattr(m + "get_structural_variant_review_map", _empty)
+        monkeypatch.setattr(m + "_fetch_structural_cytoband_map", _empty)
+        page = await _prioritized_structural_variants_page(
+            None,  # type: ignore[arg-type]
+            context=_family_context(),
+            filters=StructuralVariantQueryFilters(page=1, page_size=50),
+            page=1,
+            page_size=50,
+            selected_samples=["PROBAND"],
+        )
+        return [str(variant.id) for variant in page.variants]
+
+    forward = await _run([rec_a, rec_b])
+    reverse_ = await _run([rec_b, rec_a])
+    assert forward == reverse_
+    # reverse=True -> equal-score ties order by DESCENDING variant id.
+    assert forward == ["sv-200", "sv-100"]
