@@ -370,6 +370,16 @@ const FamilyReportPage: React.FC = () => {
           <p className="report-signout-hash">
             <span className="report-footer-label">Content hash</span> {signouts.latest.content_hash}
           </p>
+          {signouts.latest.software_version ? (
+            <p className="report-signout-software">
+              <span className="report-footer-label">Software</span>{' '}
+              {`CoGA ${signouts.latest.software_version}${
+                signouts.latest.git_sha && signouts.latest.git_sha !== 'unknown'
+                  ? ` (${signouts.latest.git_sha.slice(0, 7)})`
+                  : ''
+              }`}
+            </p>
+          ) : null}
         </section>
       ) : null}
 

@@ -1,6 +1,13 @@
-from starlette.requests import Request
+import asyncio
+import json
+import logging
 
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from app.core.coga_logging import JsonLogFormatter
 from app.core.config import settings
+from app.middleware import request_logging as rl
 from app.middleware.request_logging import (
     _derive_db_update,
     _query_string_for_logging,
@@ -126,3 +133,75 @@ def test_query_string_for_logging_sanitizes_sensitive_values(monkeypatch) -> Non
     )
 
     assert _query_string_for_logging(request) == "family_id=%2A%2A%2A&sample=%2A%2A%2A&start=1"
+
+
+def test_request_body_excluded_from_stdout_log_but_kept_in_audit(monkeypatch) -> None:
+    # P0-5: the clinical request body must NOT reach the stdout application log, but
+    # must still be persisted to the access-controlled audit DB.
+    captured_audit: list = []
+
+    async def _fake_write(payload):
+        captured_audit.append(payload)
+
+    monkeypatch.setattr(rl, "write_audit_log_event", _fake_write)
+
+    class _Capture(logging.Handler):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lines: list[dict] = []
+            self.setFormatter(JsonLogFormatter())
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.lines.append(json.loads(self.format(record)))
+
+    handler = _Capture()
+    rl.logger._logger.addHandler(handler)
+    previous_level = rl.logger._logger.level
+    rl.logger._logger.setLevel(logging.INFO)
+    try:
+        body = json.dumps({"patient_name": "Jane Doe", "hpo": ["HP:0001250"]}).encode()
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/families/F1/notes",
+            "scheme": "http",
+            "query_string": b"",
+            "http_version": "1.1",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+            "client": ("127.0.0.1", 1234),
+            "server": ("testserver", 80),
+            "path_params": {"family_id": "F1"},
+        }
+        sent = {"done": False}
+
+        async def receive():
+            if not sent["done"]:
+                sent["done"] = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return {"type": "http.disconnect"}
+
+        async def call_next(_request):
+            return JSONResponse({"ok": True})
+
+        asyncio.run(rl.log_request_response(Request(scope, receive), call_next))
+    finally:
+        rl.logger._logger.removeHandler(handler)
+        rl.logger._logger.setLevel(previous_level)
+
+    assert handler.lines, "expected a stdout log line"
+    line = handler.lines[-1]
+    # The clinical body and its values must be absent from the stdout log payload.
+    assert "requestBody" not in line
+    assert "Jane Doe" not in json.dumps(line)
+    # Non-PHI request metadata is still logged.
+    assert "httpRequest" in line
+
+    # The audit DB still receives the full request body.
+    assert captured_audit, "expected an audit-log payload"
+    assert captured_audit[-1].request_body == {
+        "patient_name": "Jane Doe",
+        "hpo": ["HP:0001250"],
+    }
