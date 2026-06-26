@@ -147,3 +147,11 @@ jobs:
           name: sbom-cyclonedx
           path: sbom/*.cdx.json
           retention-days: 90
+
+  catalogue:
+    name: catalogue (test overview in sync)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check docs/testing.md lists every test file
+        run: ./scripts/check-test-catalogue.sh

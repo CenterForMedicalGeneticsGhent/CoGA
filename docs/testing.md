@@ -356,8 +356,16 @@ complementary file→purpose index.
 
 ## Keeping this current
 
-This catalogue is maintained by hand; the test tree is authoritative. To regenerate the file
-list + per-file test counts when adding/removing tests:
+This catalogue is maintained by hand, but a **CI guard enforces it**: the `catalogue` job runs
+[`scripts/check-test-catalogue.sh`](../scripts/check-test-catalogue.sh), which fails if any test
+file in the tree is missing from this document — or if this document references a test file that
+no longer exists. Run it locally before pushing:
+
+```bash
+./scripts/check-test-catalogue.sh
+```
+
+To regenerate the file list + per-file test counts when adding/removing tests:
 
 ```bash
 # backend
