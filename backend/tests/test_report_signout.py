@@ -150,3 +150,51 @@ def test_serialize_signout_exposes_frozen_software_identity() -> None:
     serialized = rss._serialize_signout(row)
     assert serialized["software_version"] == "2.0.0"
     assert serialized["git_sha"] == "deadbeef"
+
+
+def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> None:
+    # P0-3: identical clinical content with drift rows arriving in different orders
+    # (Postgres returns equal-updated_at rows arbitrarily) must hash identically. The
+    # canonical hash sorts dict keys but not list element order, so the snapshot must
+    # order the drift list by the unique variant_id.
+    rows = [
+        {"variant_id": "2-200-C-T", "acmg_class": "acmg_class_3"},
+        {"variant_id": "1-100-A-G", "acmg_class": "acmg_class_4"},
+    ]
+
+    def _patch(drift_rows):
+        async def _ctx(session, *, family_identifier, user, project_id=None):
+            return types.SimpleNamespace(family_uuid="u1", family_id="FAM1")
+
+        async def _manifest(session, *, family_id, user, project_id=None):
+            return {
+                "assembly": "GRCh38",
+                "modules": [{"key": "clinvar", "version": "2026-05"}],
+            }
+
+        async def _drift(session, *, family_id, user, project_id=None):
+            return {
+                "checked": len(drift_rows),
+                "drifted_count": len(drift_rows),
+                "drifted": list(drift_rows),
+            }
+
+        async def _reviews(session, family_uuid):
+            return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4"}]
+
+        monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
+        monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
+        monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
+        monkeypatch.setattr(rss, "_reported_reviews", _reviews)
+
+    _patch(rows)
+    snap_a = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _patch(list(reversed(rows)))
+    snap_b = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+
+    assert rss._canonical_hash(snap_a) == rss._canonical_hash(snap_b)
+    # The hashed snapshot orders the drift list by variant_id, not by input order.
+    assert [d["variant_id"] for d in snap_b["drift"]["drifted"]] == [
+        "1-100-A-G",
+        "2-200-C-T",
+    ]

@@ -4733,6 +4733,10 @@ async def _prioritized_small_variants_page(
         key=lambda v: (
             v.priority.combined_score if v.priority else 0.0,
             v.priority.variant_score if v.priority else 0.0,
+            # Stable, fully-determined final tiebreaker: equal-score variants are
+            # ordered by variant id so rank assignment, the page slice, and the
+            # persisted ranking-cache order are reproducible run-to-run.
+            str(v.id),
         ),
         reverse=True,
     )
@@ -5545,7 +5549,14 @@ async def _prioritized_structural_variants_page(
         scored_records.append((record, priority))
 
     scored_records.sort(
-        key=lambda item: (item[1].combined_score, item[1].variant_score), reverse=True
+        key=lambda item: (
+            item[1].combined_score,
+            item[1].variant_score,
+            # Stable, fully-determined final tiebreaker (see small-variant sort):
+            # equal-score SVs are ordered by variant id for reproducible ranks.
+            item[0].variant_id,
+        ),
+        reverse=True,
     )
     for index, (_record, priority) in enumerate(scored_records, start=1):
         priority.rank = index
@@ -5845,12 +5856,21 @@ async def get_family_compound_het_candidates(
         return VariantPage(total=0, variants=[])
     source_gene, _source_gene_id = _primary_gene_keys(source_record)
     if source_gene:
+        # Gene-scoped scan: a single gene holds at most a few hundred variants, so cap
+        # it defensively well above any realistic count (the cap never bites in
+        # practice; partners are recomputed identically below it).
         records = await _fetch_small_variant_rows(
-            context, SmallVariantQueryFilters(page=1, page_size=1, gene=source_gene)
+            context,
+            SmallVariantQueryFilters(page=1, page_size=1, gene=source_gene),
+            limit=_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS + 1,
         )
     else:
-        # No gene name to scope by (the partner key is then a bare gene_id, which
-        # the fetch cannot filter on); fall back to the whole-family scan.
+        # No gene SYMBOL to scope by (the partner key is a bare gene_id, which the fetch
+        # cannot filter on), so the whole-family scan is required to find the same-gene_id
+        # partner. It is intentionally left UNBOUNDED: a blind row cap here (rows are
+        # ORDER BY genomic position) could silently drop a genuine partner that sorts
+        # beyond the cap, producing a missed-partner clinical result. Bounding this safely
+        # needs gene_id-scoped fetching (a follow-up), not a blind LIMIT.
         records = await _fetch_small_variant_rows(
             context, SmallVariantQueryFilters(page=1, page_size=1)
         )
