@@ -372,3 +372,28 @@ def test_prefer_external_overrides_the_computed_estimate_and_still_flags() -> No
 
     assert est.ff == 0.30  # external value is used as the headline
     assert est.disagreement is True  # disagreement still flagged
+
+
+# --------------------------------------------------------------------------- #
+# Degraded / incomplete input fails safe (REQ-PERF-003, risk H6)
+# --------------------------------------------------------------------------- #
+
+
+def test_estimate_fetal_fraction_fails_safe_on_empty_input() -> None:
+    est = estimate_fetal_fraction([], NiptQualityThresholds())
+
+    assert est.n_sites == 0
+    assert est.ff_computed is None  # no spurious estimate from no evidence
+    assert est.ff == 0.0
+    assert est.low_confidence is True
+    assert est.disagreement is False
+
+
+def test_run_nipt_analysis_fails_safe_on_empty_input() -> None:
+    result = run_nipt_analysis([], NiptQualityThresholds())
+
+    # No crash, and the fetal fraction is reported as low-confidence / unknown
+    # rather than a fabricated value.
+    assert result.fetal_fraction.n_sites == 0
+    assert result.fetal_fraction.ff_computed is None
+    assert result.fetal_fraction.low_confidence is True
