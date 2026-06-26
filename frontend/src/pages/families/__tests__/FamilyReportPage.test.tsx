@@ -276,6 +276,8 @@ describe('FamilyReportPage', () => {
               signed_out_by: 'bjorn',
               signed_out_at: '2026-06-25T10:00:00Z',
               content_hash: 'abc123def456',
+              software_version: '0.1.0',
+              git_sha: 'abc1234def567',
             },
             signouts: [],
           },
@@ -287,7 +289,75 @@ describe('FamilyReportPage', () => {
 
     expect(await screen.findByText(/Signed out — version 2 by/)).toBeInTheDocument();
     expect(screen.getByText(/abc123def456/)).toBeInTheDocument();
+    // The frozen software identity ("as signed") is shown: version + short git sha.
+    expect(screen.getByText(/CoGA 0\.1\.0 \(abc1234\)/)).toBeInTheDocument();
     // Once signed out, the action becomes an amendment.
     expect(screen.getByRole('button', { name: /Amend sign-out/ })).toBeInTheDocument();
+  });
+
+  it('hides the Software line for a pre-binding sign-out (backfill-safe)', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            latest: {
+              version: 1,
+              signed_out_by: 'bjorn',
+              signed_out_at: '2026-06-25T10:00:00Z',
+              content_hash: 'oldhash',
+              software_version: null,
+              git_sha: null,
+            },
+            signouts: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText(/Signed out — version 1 by/)).toBeInTheDocument();
+    // Older sign-outs predate version-binding: no Software line, no crash.
+    expect(screen.queryByText('Software')).not.toBeInTheDocument();
+  });
+
+  it('omits the git-sha parens when the build identity is unknown', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            latest: {
+              version: 1,
+              signed_out_by: 'bjorn',
+              signed_out_at: '2026-06-25T10:00:00Z',
+              content_hash: 'h',
+              software_version: '0.0.0+unknown',
+              git_sha: 'unknown',
+            },
+            signouts: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    // An unstamped build shows the version but suppresses the "(unknown)" parens.
+    expect(await screen.findByText('CoGA 0.0.0+unknown')).toBeInTheDocument();
+    expect(screen.queryByText(/unknown\)/)).not.toBeInTheDocument();
   });
 });
