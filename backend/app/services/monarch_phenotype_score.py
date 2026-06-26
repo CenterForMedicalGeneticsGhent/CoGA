@@ -210,6 +210,21 @@ def phenomizer_score(
     return GenePhenotypeScore(score=score, matched=matched)
 
 
+def _cap_terms_by_ic(
+    terms: Iterable[str], ic: dict[str, float], limit: int
+) -> list[str]:
+    """Keep the ``limit`` most-informative terms, deterministically.
+
+    ``terms`` may be a set, so IC ties are broken on the term id (ascending) to keep
+    the selection reproducible run-to-run — without the id tiebreaker the survivors of
+    the cap depend on set-iteration order (PYTHONHASHSEED), which would perturb the
+    phenotype score and the variant ranking frozen into the cache/report. ``-ic`` keeps
+    the primary order IC-descending (equivalent to the previous ``reverse=True``); the
+    ``ic.get(t, 0.0)`` default is preserved so a term with unknown IC sinks to the bottom.
+    """
+    return sorted(terms, key=lambda t: (-ic.get(t, 0.0), t))[:limit]
+
+
 async def score_genes_for_hpo(
     session: AsyncSession,
     *,
@@ -233,19 +248,18 @@ async def score_genes_for_hpo(
     # Keep the most informative patient terms (highest IC), not the lexicographically
     # first ones, when bounding the set — a deeply phenotyped patient shouldn't have
     # the scoring driven by HPO-id ordering.
-    patient = sorted(patient_all, key=lambda t: ic.get(t, 0.0), reverse=True)[
-        :_MAX_PATIENT_TERMS
-    ]
+    patient = _cap_terms_by_ic(patient_all, ic, _MAX_PATIENT_TERMS)
 
     gene_terms_map, _label_map = await _gene_phenotype_terms(session, symbols)
     if not gene_terms_map:
         return {}
 
-    # Cap each gene's term set to the most informative terms to bound cost.
-    capped: dict[str, list[str]] = {}
-    for symbol, terms in gene_terms_map.items():
-        ordered = sorted(terms, key=lambda t: ic.get(t, 0.0), reverse=True)
-        capped[symbol] = ordered[:_MAX_GENE_TERMS]
+    # Cap each gene's term set to the most informative terms to bound cost
+    # (deterministically — see _cap_terms_by_ic).
+    capped: dict[str, list[str]] = {
+        symbol: _cap_terms_by_ic(terms, ic, _MAX_GENE_TERMS)
+        for symbol, terms in gene_terms_map.items()
+    }
 
     all_terms = set(patient)
     for terms in capped.values():

@@ -93,7 +93,15 @@ async def build_report_snapshot(
         "drift": {
             "checked": drift["checked"],
             "drifted_count": drift["drifted_count"],
-            "drifted": drift["drifted"],
+            # The live drift endpoint orders drifted rows by updated_at (non-unique),
+            # so the list order is non-deterministic on ties. Sort by the unique,
+            # stable variant_id here so the hashed snapshot (content_hash) is
+            # reproducible for identical content; json.dumps(sort_keys=True) canonicalizes
+            # dict keys but never list-element order. Scoped to the sign-out/hash path
+            # only — the endpoint keeps its most-recent-first display order.
+            "drifted": sorted(
+                drift["drifted"], key=lambda item: item.get("variant_id") or ""
+            ),
         },
         "reported_variants": reported,
     }
