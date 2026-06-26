@@ -331,3 +331,44 @@ def test_run_nipt_analysis_end_to_end_recovers_ff_and_categories() -> None:
     assert result.category_counts[7] == 40
     assert result.category_counts[3] == 1
     assert result.category_counts[1] == 1
+
+
+# --------------------------------------------------------------------------- #
+# External fetal-fraction reconciliation (REQ-NIPT-005, risk H6)
+# --------------------------------------------------------------------------- #
+# An externally-supplied FF is recorded and a disagreement with the computed
+# estimate is flagged, but the computed estimate stays the default unless the
+# caller explicitly prefers the external value.
+
+
+def _cat7_sites(ff_true: float = 0.10, *, dp: int = 400, n: int = 40):
+    alt = round(dp * ff_true / 2)
+    return [_site(f"cat7-{i}", father_state="het", dp=dp, alt=alt) for i in range(n)]
+
+
+def test_external_ff_agreement_is_recorded_without_disagreement() -> None:
+    est = estimate_fetal_fraction(_cat7_sites(0.10), NiptQualityThresholds(), external_ff=0.10)
+
+    assert est.ff_external == 0.10
+    assert est.disagreement is False
+    assert est.ff == est.ff_computed  # computed estimate is the headline value
+    assert est.method == "category7_pooled+external"
+
+
+def test_external_ff_disagreement_is_flagged_but_does_not_override() -> None:
+    est = estimate_fetal_fraction(_cat7_sites(0.10), NiptQualityThresholds(), external_ff=0.30)
+
+    assert est.ff_external == 0.30
+    assert est.disagreement is True
+    # The disagreement is surfaced, but the computed estimate remains the default.
+    assert est.ff == est.ff_computed
+    assert est.ff_computed is not None and abs(est.ff_computed - 0.10) < 0.02
+
+
+def test_prefer_external_overrides_the_computed_estimate_and_still_flags() -> None:
+    est = estimate_fetal_fraction(
+        _cat7_sites(0.10), NiptQualityThresholds(), external_ff=0.30, prefer_external=True
+    )
+
+    assert est.ff == 0.30  # external value is used as the headline
+    assert est.disagreement is True  # disagreement still flagged
