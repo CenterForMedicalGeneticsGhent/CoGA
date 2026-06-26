@@ -1,0 +1,23 @@
+# gitleaks config — extends the default ruleset and allowlists documented
+# non-secrets so the secret-scan gate is green-by-default and fires only on a
+# genuinely new secret. Every entry below is justified in SECURITY-AUDIT-ALLOWLIST.md.
+title = "CoGA gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented non-secrets: deliberate CI test fixtures and placeholder/example values"
+regexes = [
+  # Deliberate, non-production placeholder secrets used only by the CI smoke job
+  # (.github/workflows/ci.yml). They are not valid credentials for any environment.
+  '''ci-smoke-not-a-real-secret''',
+  '''ci-admin-not-a-real-secret''',
+]
+paths = [
+  # .env.example ships placeholder values (e.g. change-me) by design; it is the
+  # template operators copy and replace, never a real secret store.
+  '''\.env\.example''',
+  # Generated CycloneDX SBOMs are dependency inventories (names + hashes), not secrets.
+  '''sbom/.*\.cdx\.json''',
+]
