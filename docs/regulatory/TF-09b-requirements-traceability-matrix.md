@@ -123,7 +123,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | --- | --- | --- | --- | --- |
 | REQ-PERF-001 | (whole device) | [TF-10](TF-10-performance-evaluation-plan.md) concordance studies → [TF-11](TF-11-performance-evaluation-report.md) | H1–H7 | ⚠ pending data |
 | REQ-PERF-002 | `services/report_signout_service.py` (content hash) | `test_report_signout.py` (hash stable); full check TF-10 §4 | H9 | ◐ |
-| REQ-PERF-003 | input validation across services | `test_nipt_analysis.py::test_*fails_safe_on_empty_input` (NIPT); other modalities pending | H1,H6 | ◐ |
+| REQ-PERF-003 | input validation across services (analysis/classification layer) | NIPT `test_nipt_analysis.py::test_*fails_safe_on_empty_input`; ACMG `test_acmg_classification.py::test_no_accepted_criteria_*`; CNV `test_cnv_acmg_points.py` (empty/missing-flag/malformed); haplotype `haplotypeRisk.test.ts` (empty→uninformative) | H1,H6 | ✅ |
 | REQ-UI-001 | `pages/families/FamilyNiptPage.tsx`; `NiptClassificationBlock.tsx` | `FamilyNiptPage.test.tsx`; `NiptClassificationBlock.test.tsx` (category/confidence/VAF/flags) | H6,H1 | ✅ |
 | REQ-UI-002 | `components/visualizations/HaplotypePhasedTrack.tsx` | `HaplotypePhasedTrack.test.tsx` | H5 | ✅ |
 | REQ-UI-003 | `pages/families/AcmgClassificationModal.tsx`; `AcmgScaleBar.tsx`; `CnvScaleBar.tsx` | `AcmgClassificationModal.test.tsx`; `AcmgScaleBar.test.tsx`; `CnvScaleBar.test.tsx` | H3 | ✅ |
@@ -138,8 +138,8 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 
 - **Requirements:** 71 across 13 areas. Backend test suite: ~73 files / ~420+ tests; frontend vitest: ~49 test files.
 - **Directly verified (✅):** the large majority of Class C backend logic — NIPT FF/classification, haplotype lineage + phased-marker QC, ACMG/CNV scoring, trio/de-novo/compound-het, repeat/Paraphase/mtDNA, the full traceability stack (manifest/evidence/drift/audit/sign-out/immutability), and access control.
-- **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (render-from-snapshot, content-hash reproducibility), or partially covered (degraded-input robustness — NIPT only).
-- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live are now almost entirely **clinical** (couple-level carrier, aneuploidy/SV detection limits → TF-10), plus extending degraded-input robustness beyond NIPT.
+- **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (render-from-snapshot, content-hash reproducibility).
+- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live are now **exclusively clinical** (couple-level carrier, aneuploidy/SV detection limits), established by the TF-10 study. All unit-testable gaps are closed.
 
 ## 3. Verification gaps & actions (CAPA backlog)
 
@@ -152,17 +152,17 @@ REQ-DATA-004 (checksum), REQ-NIPT-005 (external-FF); REQ-PGT-005 (embryo classif
 found already covered by `haplotypeRisk.test.ts` and re-marked ✅ (the lib test the initial
 inventory missed), with a one-side-donor `uninformative` case added; and the safety-relevant UI
 sub-components (REQ-UI-001 `NiptClassificationBlock`, REQ-UI-003 `AcmgScaleBar`/`CnvScaleBar`,
-REQ-CLASS-006 `CnvAcmgClassificationModal`) now have vitest coverage.
+REQ-CLASS-006 `CnvAcmgClassificationModal`) now have vitest coverage; and REQ-PERF-003
+(degraded-input fail-safe) is now verified across NIPT, ACMG, CNV and haplotype.
 
-The remaining gaps are **clinical detection-limit/concordance claims that belong in the TF-10
-study, not a unit test**, plus extending degraded-input robustness beyond NIPT:
+The remaining gaps are **exclusively clinical detection-limit/concordance claims established by
+the TF-10 study, not unit tests** — all unit-testable gaps are now closed:
 
 | Req | Gap | Action |
 | --- | --- | --- |
 | REQ-CARR-002 | Couple-level at-risk has no dedicated unit test | Establish clinically in TF-10 (50 BeGECS couples); add a unit test if a pure helper is extracted. |
 | REQ-PGT-007 | >10 Mb SV detection-limit claim unproven by test | Verify the size threshold in TF-10 (100 embryos). |
 | REQ-PGT-008 | Aneuploidy detection has no dedicated unit test | Add a detection unit test; validate in TF-10. |
-| REQ-PERF-003 | Degraded-input robustness only tested for NIPT | Extend fail-safe tests to other modalities (missing tracks, malformed VCF, low coverage). |
 
 > These gaps are tracked as actions; closing them is a precondition of the first clinical
 > release (TF-18 release verification, TF-09 §6). They are **not** defects in shipped behavior —

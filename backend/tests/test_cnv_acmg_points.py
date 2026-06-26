@@ -78,3 +78,29 @@ def test_summed_evidence_reaches_likely_pathogenic() -> None:
     )
     assert total == 1.05
     assert key == "cnv_class_5"
+
+
+def test_no_accepted_criteria_is_vus_not_a_confident_call() -> None:
+    # Degraded / incomplete input must abstain (VUS), never auto-pathogenic/benign
+    # (REQ-PERF-003, risk H3).
+    total, key, _ = p.compute_classification("loss", [])
+    assert total == 0.0
+    assert key == "cnv_class_3"
+
+
+def test_criteria_missing_the_accepted_flag_are_ignored() -> None:
+    # An incomplete criterion (no `accepted`) must not score → stays VUS.
+    total, key, _ = p.compute_classification("loss", [{"code": "2A", "points": 1.0}])
+    assert total == 0.0
+    assert key == "cnv_class_3"
+
+
+def test_malformed_points_value_does_not_crash_the_classifier() -> None:
+    # A non-numeric points value must be handled gracefully (coerced, then clamped
+    # to the criterion's allowed range) — a valid classification, never a crash.
+    total, key, label = p.compute_classification(
+        "loss", [{"code": "2A", "points": "not-a-number", "accepted": True}]
+    )
+    assert isinstance(total, float)
+    assert key in {"cnv_class_1", "cnv_class_2", "cnv_class_3", "cnv_class_4", "cnv_class_5"}
+    assert isinstance(label, str) and label

@@ -132,3 +132,20 @@ def test_blob_round_trips_through_storage_helpers() -> None:
 def test_acmg_json_or_none_returns_none_for_empty() -> None:
     assert _acmg_json_or_none(None) is None
     assert _deserialize_acmg(None) is None
+
+
+def test_no_accepted_criteria_classifies_as_vus_not_pathogenic_or_benign() -> None:
+    # Degraded / incomplete input must abstain (VUS class 3), never auto-pathogenic
+    # or benign (REQ-PERF-003, risk H3). Unaccepted criteria — even a very-strong
+    # pathogenic PVS1 — must not score.
+    empty_points, empty_class, _ = acmg_points.compute_classification([])
+    assert empty_points == 0
+    assert empty_class == "acmg_class_3"
+
+    unconfirmed = [
+        {"code": "PVS1", "strength": "very_strong", "accepted": False},
+        {"code": "PM2", "strength": "moderate", "accepted": False},
+    ]
+    points, class_key, _ = acmg_points.compute_classification(unconfirmed)
+    assert points == 0
+    assert class_key == "acmg_class_3"

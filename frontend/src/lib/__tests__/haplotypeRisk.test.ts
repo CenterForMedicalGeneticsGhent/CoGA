@@ -387,3 +387,24 @@ describe('pedigree-aware lineage tags override role-based origin', () => {
     ]);
   });
 });
+
+describe('degraded / empty input fails safe (REQ-PERF-003)', () => {
+  it('yields a non-informative model and an uninformative embryo call', () => {
+    const model = inferDiseaseHaplotypes({
+      samples: [],
+      members: [],
+      inheritanceModel: 'AD',
+      region,
+    });
+    expect(model.informative).toBe(false);
+    expect(model.signatures).toEqual([]);
+
+    const risk = interpretSampleHaplotypeRisk({
+      model,
+      samples: [],
+      member: { sample_id: 'EMBRYO', role: 'embryo', sex: 'female' },
+      region,
+    });
+    expect(risk).toBe('uninformative');
+  });
+});
