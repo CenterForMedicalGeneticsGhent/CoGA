@@ -11,7 +11,7 @@ CoGA is organized around three areas: a family workspace, cross-cohort discovery
 ### Family workspace (`/families/:familyId`)
 
 - Pedigree-aware family dashboard with variant-review/curation summaries and an editable region of interest (ROI).
-- Per-data-type analysis views, surfaced only when that data is present: small variants (SNV/indel), structural variants, a combined variant summary, repeat expansions (TRGT), Paraphase, and mitochondrial (mtDNA) analysis.
+- Per-data-type analysis views, surfaced only when that data is present: small variants (SNV/indel), structural variants, a combined variant summary, repeat expansions (TRGT), Paraphase, and mitochondrial (mtDNA) analysis. The mtDNA view supports combined **mitochondrial-disease testing** where ONT long-read adaptive sampling reads the complete mtDNA and the nuclear mito-gene panel in one run — interpreted together, with the Sample QC checks (relatedness/sex/Mendelian, maternal lineage) used to flag sample swaps and data-integrity issues.
 - Genome visualization: whole-genome overview, per-chromosome view, Circos plot, and an embedded IGV browser.
 - Per-variant review with ACMG classification, tags, and notes. Phenotype (clinical status) and carrier status are tracked as independent axes.
 - Semi-automatic [ACMG classifier](docs/acmg-classification.md): pre-evaluates ACMG/AMP criteria from the variant, trio and gene data onto a points scale, with every criterion overridable.

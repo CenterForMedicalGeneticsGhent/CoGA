@@ -43,7 +43,7 @@ the relevant general safety and performance requirements of Annex I.
 | Device type | Software (standalone in-house IVD / MDSW) |
 | Version covered by this declaration | ‹X.Y.Z (git ‹hash›)› |
 | Risk class (informative) | ‹e.g. Class C per Annex VIII — to confirm with RA; declaration validity is not contingent on a class for in-house devices, but it is stated for transparency› |
-| Intended purpose | Decision-support software for filtering, visualization and interpretation of genomic data from validated NGS workflows, across four clinical applications: monogenic NIPT screening, expanded carrier screening (long-read), preimplantation genetic testing (PGT), and rare-disorder diagnostics (long-read). Full statement: [TF-01](TF-01-intended-purpose.md). |
+| Intended purpose | Decision-support software for filtering, visualization and interpretation of genomic data from validated NGS workflows, across five clinical applications: monogenic NIPT screening, expanded carrier screening (long-read), preimplantation genetic testing (PGT), rare-disorder diagnostics (long-read), and combined mtDNA + nuclear mitochondrial-disease testing (ONT long-read adaptive sampling). Full statement: [TF-01](TF-01-intended-purpose.md). |
 | Intended users / setting | Trained clinical laboratory professionals within CMGG, ISO 15189-accredited laboratory. |
 
 ### 3. Conformity statement

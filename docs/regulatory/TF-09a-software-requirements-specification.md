@@ -140,6 +140,18 @@
 | REQ-QC-001 | Provide a sample-integrity QC suite (sex check, relatedness, Mendelian consistency, heterozygosity ratio, per-mode variant counts). | C | H4 |
 | REQ-QC-002 | Surface sample-integrity QC at the family level for review before sign-out. | C | H4 |
 
+### 3.10 Mitochondrial disease — combined mtDNA + nuclear (REQ-MITO)
+
+Application 3.5: ONT long-read adaptive sampling produces the complete mtDNA and the nuclear
+mito-gene panel in one run; CoGA interprets both together. Reuses mtDNA (REQ-DIAG-006), nuclear
+small-variant/SV (REQ-DIAG-001/003), classification (REQ-CLASS-*) and Sample QC (REQ-QC-*).
+
+| ID | Requirement | Class | Risk |
+| --- | --- | --- | --- |
+| REQ-MITO-001 | Interpret the complete mtDNA and the nuclear mito-gene panel from a single adaptive-sampling run together in one family workspace. | C | H1 |
+| REQ-MITO-002 | Quantify mtDNA heteroplasmy and apply maternal-transmission logic (incl. a maternal haplogroup summary). | C | H13 |
+| REQ-MITO-003 | Require **Sample QC** review (relatedness/sex/Mendelian + maternal-lineage consistency) for data integrity and sample-swap detection before sign-out. | C | H4 |
+
 ## 4. Non-functional requirements
 
 ### 4.1 Performance (REQ-PERF) — defined in TF-10, evidenced in TF-11

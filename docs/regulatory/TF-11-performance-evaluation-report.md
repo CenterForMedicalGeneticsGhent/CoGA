@@ -60,6 +60,15 @@ Discordance adjudication: ‹table — case, CoGA call, comparator, root cause, 
 | Missed at-risk fetal calls | ‹…› | 0 | |
 | Low-FF/low-depth behavior | ‹…› | low-confidence, no forced call | |
 
+### 3.5 Mitochondrial disease — ONT adaptive sampling (N ‹…›)
+| Metric | Result | Acceptance | Pass? |
+| --- | --- | --- | --- |
+| mtDNA variant PPA/NPA vs comparator | ‹…› | ‹…› | |
+| Heteroplasmy quantitation agreement (Bland–Altman) | ‹…› | within ‹±X%› | |
+| Nuclear mito-gene causal-variant detection + ACMG concordance | ‹…› | 100% / within 1 tier | |
+| Maternal-inheritance concordance | ‹…› | ‹…› | |
+| Sample-QC sample-swap / maternal-lineage detection | ‹…› | correct on controls | |
+
 ## 4. Reproducibility & robustness
 ‹Content-hash reproducibility result; inter-operator subset; degraded-input behavior; optional GIAB/GeT-RM analytical baseline.›
 

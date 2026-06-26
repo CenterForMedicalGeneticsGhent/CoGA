@@ -47,6 +47,7 @@ analyst following the intended workflow, and CoGA's outcome is compared to the c
 | PGT (shallow WGS) | **PGT embryos** | **100 embryos** | Validated PGT result (‹SNP-array / current PGT-M/-A/-SR method›) and/or confirmatory testing |
 | Rare-disorder diagnostics (long-read) | **WGS trios** | **30 trios** | Validated diagnostic NGS result / established clinical conclusion |
 | Monogenic NIPT | **Monogenic NIPT samples** | **30 samples** | Validated comparator (‹invasive confirmatory genotype / established NIPT result / known fetal genotype›) |
+| Mitochondrial disease (ONT adaptive sampling) | **mtDNA + nuclear mito-gene cases** | **🔲 N (define)** | Validated comparator (‹established mtDNA assay + nuclear mito-gene NGS result; orthogonal heteroplasmy quantitation›) |
 
 > **🔲 INPUT NEEDED (per application):** name the exact comparator method, define
 > the unit of analysis and the "truth" source, and set the **acceptance criteria** (the
@@ -96,6 +97,14 @@ effect on agreement estimates noted.
   - Category assignment & inheritance calls: PPA/NPA/OPA vs the confirmed fetal genotype/comparator; **false-negative rate** (category-8 dropout behavior).
 - **Proposed acceptance (confirm):** FF within ‹±X absolute / ±Y%› of comparator; **no missed at-risk fetal calls** (false-negative is the safety-critical error for a screening test); category concordance ≥‹threshold› at adequate FF/coverage; correct low-confidence behavior at low FF/depth (no forced calls).
 - **Edge cases:** low fetal fraction, low depth, category-8 dropout, FF disagreement with external estimate.
+
+### 3.5 Mitochondrial disease — ONT adaptive sampling (N to define)
+- **Units of analysis:** the **mtDNA variant + heteroplasmy** call set (variant detection and heteroplasmy fraction), the **nuclear mito-gene** variant/diagnostic conclusion, and the combined **diagnostic conclusion**.
+- **Inputs:** annotated VCF(s)/tracks from the validated ONT adaptive-sampling run (complete mtDNA + nuclear mito-gene panel); HPO; pedigree (incl. mother where available).
+- **Metrics:** mtDNA variant PPA/NPA vs comparator; **heteroplasmy quantitation** agreement (bias/correlation, Bland–Altman) vs an orthogonal method; nuclear mito-gene causal-variant detection + ACMG-class concordance; maternal-inheritance concordance; **Sample-QC sample-swap/maternal-lineage detection** exercised (deliberate-mismatch controls where feasible).
+- **Proposed acceptance (confirm):** 100% detection of known causal mtDNA/nuclear variant(s); heteroplasmy within ‹±X%› of comparator; correct maternal-lineage QC behaviour; no missed causal variant.
+- **Edge cases:** low heteroplasmy near the limit of detection, homoplasmy, mtDNA coverage gaps, nuclear–mtDNA dual findings, single- vs multi-tissue heteroplasmy.
+- **🔲 INPUT NEEDED:** validation N, comparator method(s), heteroplasmy-agreement tolerance, and tissue scope.
 
 ## 4. Reproducibility, robustness & cross-cutting checks
 - **Reproducibility/repeatability:** same validated input → identical signed report (content-hash equality); re-analysis by a second analyst (inter-operator) on a subset.

@@ -118,6 +118,13 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-QC-001 | `services/sample_integrity_service.py` | `test_sample_integrity_qc.py` (22); `test_sample_integrity_service.py` | H4 | ✅ |
 | REQ-QC-002 | `routers/families.py` `/qc/sample-integrity` | `test_sample_integrity_service.py`; `FamilySampleQcPage.test.tsx` | H4 | ✅ |
 
+### Mitochondrial disease — combined mtDNA + nuclear (app 3.5)
+| Req | Implementation | Verifying test | Risk | Status |
+| --- | --- | --- | --- | --- |
+| REQ-MITO-001 | `services/mitochondrial_analysis.py` (mtDNA) + `clickhouse_family_variants.py` (nuclear mito-gene panel) | `test_mitochondrial_analysis.py`; `test_clickhouse_family_variants.py` — combined-assay clinical concordance → TF-10 §3.5 | H1 | ◐ |
+| REQ-MITO-002 | `services/mitochondrial_analysis.py` (heteroplasmy + maternal transmission) | `test_mitochondrial_analysis.py` (maternal, heteroplasmy, haplogroup) | H13 | ✅ |
+| REQ-MITO-003 | `services/sample_integrity_service.py` (data integrity / sample-swap gate) | `test_sample_integrity_qc.py`; `test_sample_integrity_service.py` | H4 | ✅ |
+
 ### Non-functional
 | Req | Implementation | Verifying test | Risk | Status |
 | --- | --- | --- | --- | --- |
@@ -136,10 +143,10 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 
 ## 2. Coverage summary
 
-- **Requirements:** 71 across 13 areas. Backend test suite: ~73 files / ~420+ tests; frontend vitest: ~49 test files.
+- **Requirements:** 74 across 14 areas (incl. the combined mtDNA + nuclear mitochondrial app, REQ-MITO). Backend test suite: ~73 files / ~420+ tests; frontend vitest: ~49 test files.
 - **Directly verified (✅):** the large majority of Class C backend logic — NIPT FF/classification, haplotype lineage + phased-marker QC, ACMG/CNV scoring, trio/de-novo/compound-het, repeat/Paraphase/mtDNA, the full traceability stack (manifest/evidence/drift/audit/sign-out/immutability), and access control.
 - **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (render-from-snapshot, content-hash reproducibility).
-- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live are now **exclusively clinical** (couple-level carrier, aneuploidy/SV detection limits), established by the TF-10 study. All unit-testable gaps are closed.
+- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live are now **exclusively clinical** (couple-level carrier, aneuploidy/SV detection limits, and the combined mtDNA+nuclear assay concordance), established by the TF-10 study. All unit-testable gaps are closed.
 
 ## 3. Verification gaps & actions (CAPA backlog)
 
@@ -163,6 +170,7 @@ the TF-10 study, not unit tests** — all unit-testable gaps are now closed:
 | REQ-CARR-002 | Couple-level at-risk has no dedicated unit test | Establish clinically in TF-10 (50 BeGECS couples); add a unit test if a pure helper is extracted. |
 | REQ-PGT-007 | >10 Mb SV detection-limit claim unproven by test | Verify the size threshold in TF-10 (100 embryos). |
 | REQ-PGT-008 | Aneuploidy detection has no dedicated unit test | Add a detection unit test; validate in TF-10. |
+| REQ-MITO-001 | Combined mtDNA + nuclear assay clinical concordance unproven | Establish in TF-10 §3.5 (mtDNA variant + heteroplasmy + nuclear concordance vs comparator). Components (mtDNA, nuclear, Sample QC) are unit-tested. |
 
 > These gaps are tracked as actions; closing them is a precondition of the first clinical
 > release (TF-18 release verification, TF-09 §6). They are **not** defects in shipped behavior —

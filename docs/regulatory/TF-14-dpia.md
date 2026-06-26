@@ -24,7 +24,7 @@
 | Data subjects | Patients, pregnant individuals + partner, prospective parents/couples, embryos (and, via family/pedigree, relatives). |
 | Categories of data | **Special category:** genetic data (variants, genotypes, haplotypes), health/clinical status, phenotype (HPO), reproductive/pregnancy data; identifiers/pedigree metadata; user account data (staff). |
 | Processing operations | Ingestion of validated genomic files, storage (Postgres + ClickHouse + file/object store), filtering/analysis/visualization, classification, reporting, audit logging. |
-| Scale & duration | All CMGG cases across the four applications; retention per clinical/legal record requirements. |
+| Scale & duration | All CMGG cases across the five applications; retention per clinical/legal record requirements. |
 
 ## 2. Lawful basis & special-category condition
 - **Lawful basis (Art. 6):** ‹typically Art. 6(1)(e) public-interest task / (c) legal obligation for healthcare — confirm with DPO›.
