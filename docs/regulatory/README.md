@@ -22,7 +22,7 @@ condition to the document that satisfies it.
 | Art. 5(5) condition | Requirement (paraphrased) | Satisfied by |
 | --- | --- | --- |
 | (a) | Device not transferred to another legal entity | [TF-04 Declaration](TF-04-declaration-of-conformity.md) §scope; CMGG deployment policy |
-| (b) | Manufacture & use under an appropriate **QMS** | CMGG ISO 15189 QMS + [TF-07 Software Lifecycle Plan](TF-07-software-lifecycle-plan.md) |
+| (b) | Manufacture & use under an appropriate **QMS** | CMGG ISO 15189 QMS — governing SOP **H11.1-OP5** (see §1a) + [TF-07 Software Lifecycle Plan](TF-07-software-lifecycle-plan.md) |
 | (c) | Laboratory compliant with **EN ISO 15189** (incl. accreditation) | CMGG accreditation certificate (referenced, not reproduced here) |
 | (d) | Justification that **no equivalent CE device** meets the need | [TF-05 Equivalence & Clinical-Need Justification](TF-05-equivalence-justification.md) |
 | (e) | Provide information on use to **competent authority** on request | [TF-04 Declaration](TF-04-declaration-of-conformity.md) §competent-authority; this whole file |
@@ -36,6 +36,28 @@ condition to the document that satisfies it.
 > points (b), (c) and (e)–(i) apply from **26 May 2024**; the point (d) equivalence
 > justification applies from **26 May 2028**. TF‑05 is therefore prepared ahead of
 > its legal deadline as part of the "as close to CE‑IVDR as possible" goal.
+
+### 1a. Governing CMGG QMS procedure (H11.1-OP5)
+
+This technical file is **not free-standing** — it operates under CMGG's controlled software
+procedure **`H11.1-OP5` "Methodologie voor softwareontwikkeling"** (CMG-H11.1-OP5, v1, in
+voege 16-04-2026), itself under the ISO 15189:2022 QMS (BELAC-accredited). Per that SOP,
+validation under IVDR uses **IEC 62304 "as inspiration"** (not strict compliance) plus
+**ISO/IEC 27001** (information security, CIA triad), **GDPR**, and **ISO 15189:2022**. The
+TF documents map onto the SOP as follows:
+
+| CMGG QMS artefact (H11.1-OP5) | This technical file |
+| --- | --- |
+| Methodology / lifecycle (projectaanvraag → analyse → ontwerp → implementatie → validatie → operationele fase) | [TF-07 Software Lifecycle Plan](TF-07-software-lifecycle-plan.md) |
+| **bio-IT ingangsvalidatie** of the software (template **H11.1-F12.2**, report `VAL-Sxxxx`), incl. the risk analysis | [TF-09 V&V](TF-09-verification-validation.md) + [TF-06 Risk Management](TF-06-risk-management-plan.md) |
+| **Klinische validatie** per analysis/method (**H11.1-OP1 §8**, templates H11.1-F11 / F2) | [TF-10 Performance Evaluation](TF-10-performance-evaluation-plan.md) / [TF-11](TF-11-performance-evaluation-report.md) |
+| Semantic versioning + patch/minor/major opvolgvalidatie (H11.1-F13 / F2); `Sxxxx` in CMGGMC ICT | [TF-18 Change & Configuration Management](TF-18-change-configuration-management.md) |
+| Information security (ISO 27001) / GDPR / DPO | [TF-13 Cybersecurity](TF-13-cybersecurity.md) / [TF-14 DPIA](TF-14-dpia.md) |
+| Operationele fase: incidents via CMGGMC, monitoring, sample↔version linkage | [TF-16 PMS](TF-16-post-market-surveillance-plan.md) / [TF-17 Vigilance/CAPA](TF-17-vigilance-capa.md) |
+
+> Terminology bridge: CMGG's **"bio-IT validation"** ≈ software V&V (TF-09); CMGG's
+> **"klinische validatie"** per method ≈ the per-application performance evaluation
+> (TF-10/TF-11). The device identifier is the CMGGMC **software number `Sxxxx`**.
 
 ---
 

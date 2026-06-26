@@ -19,7 +19,8 @@
 | Name | CoGA — Comprehensive Genomic Analysis |
 | Type | Software as a Medical Device (in-house IVD), standalone (MDSW per MDCG 2019-11) |
 | Manufacturer | Center for Medical Genetics Ghent (CMGG), Ghent University Hospital |
-| Version identifier | ‹semantic version + git commit hash›. **🔲 INPUT NEEDED:** define the version/UDI-DI-equivalent scheme and where it is displayed (see §8). |
+| Device identifier | CMGGMC **software number `Sxxxx`** (assigned in the CMGGMC ICT module per H11.1-OP5) — the UDI-DI-equivalent for this in-house device. **🔲 INPUT NEEDED:** the assigned `Sxxxx`. |
+| Version identifier | Semantic version `x.y.z` + git commit hash, shown in-app and in every report footer (see §8); change control in [TF-18](TF-18-change-configuration-management.md). |
 | Form of delivery | Server-deployed web application, used internally at CMGG; no physical media, no transfer to third parties. |
 
 ## 2. Intended purpose
@@ -78,7 +79,7 @@ these upstream modules are captured per family and frozen into the report
 | Semi-automatic ACMG/AMP classifier | Pre-position ACMG criteria, server-recompute points/class on save; overridable | [acmg-classification.md](../acmg-classification.md) |
 | Monogenic-NIPT analysis | Fetal-fraction estimation, 8-category VAF zygosity classification, inheritance presets, coverage/QC funnels | [monogenic-nipt.md](../monogenic-nipt.md) |
 | PGT haplotype segregation | Pedigree-IBD founder colouring, disease-haplotype inference, derived embryo classification + QC | [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md) |
-| Structural / CNV / aneuploidy review | SV second-hit, large-SV and aneuploidy interval tracks | [sv-second-hit.md](../sv-second-hit.md) |
+| Structural / CNV / aneuploidy review | SV second-hit, large-SV and aneuploidy interval tracks | [snv-sv-compound-het.md](../snv-sv-compound-het.md) |
 | Repeat / Paraphase / mtDNA | Specialized per-data-type views | README |
 | Visualization | Whole-genome, per-chromosome, Circos, embedded IGV | README |
 | Review & reporting | Per-variant ACMG/tags/notes, phenotype & carrier axes, version-pinned signed-out report | [report-template.md](../report-template.md), [clinical-traceability.md](../clinical-traceability.md) |

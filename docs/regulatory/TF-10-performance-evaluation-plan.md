@@ -17,6 +17,16 @@
 > accredited reference assays** (the comparator/predicate methods), on defined validation
 > sample sets, per clinical application. The resulting evidence is reported in
 > [TF-11 Performance Evaluation Report](TF-11-performance-evaluation-report.md).
+>
+> **In CMGG QMS terms (H11.1-OP5 §5.2 / H11.1-OP1 §8):** this is the **klinische validatie**
+> performed **per analysis/method** that uses CoGA — distinct from the software's bio-IT
+> ingangsvalidatie ([TF-09](TF-09-verification-validation.md)). It is coordinated by the
+> **business contactpersoon** with the bio-IT team, on template **H11.1-F11** (initial,
+> `VAL-procedurenummer`) / **H11.1-F2** (follow-up). The performance characteristics it
+> compares — using real data and external benchmark datasets (e.g. **GIAB**) where available
+> — are **accuracy, precision, reportable range, reference interval (where applicable), and
+> positive/negative controls**; the concordance metrics in §2–§3 below are how those map onto
+> CoGA's qualitative/interpretive outputs.
 
 ---
 

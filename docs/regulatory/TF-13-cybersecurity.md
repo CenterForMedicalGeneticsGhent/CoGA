@@ -24,6 +24,13 @@ Security risks are managed within the ISO 14971 process (TF-06): hazard **H11
 outputs. Threats are assessed for impact on safety (wrong/leaked result) as well as on
 confidentiality and availability.
 
+Per the governing SOP **H11.1-OP5**, CMGG applies an **ISO/IEC 27001** information-security
+lens across the whole lifecycle: everything around development, implementation and integration
+is treated as a potential risk to the **confidentiality, integrity and availability (CIA)** of
+the information, to be mitigated with appropriate measures, and this CIA risk analysis is part
+of the bio-IT ingangsvalidatie dossier (H11.1-F12.2). IEC 81001-5-1 / MDCG 2019-16 below give
+the device-specific security detail.
+
 ## 2. Security capabilities already implemented (from security-posture.md)
 - **AuthN:** JWT bearer (HS256), optional Azure AD; local fallback restricted to admins.
 - **AuthZ:** project-scoped RBAC enforced at one checkpoint on every PHI endpoint; SQL-level filtering, not post-filtering; admin-gated mutations; IDOR review passed (no unscoped PHI endpoint).
