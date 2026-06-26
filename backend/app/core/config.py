@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # frozen into every signed report's content hash).
     app_version: str = Field(default="0.0.0+unknown", alias="APP_VERSION")
     git_sha: str = Field(default="unknown", alias="GIT_SHA")
+    # Emit HSTS only where TLS terminates in front of the app (never over plain HTTP),
+    # so it is safe to leave off for the no-TLS local/compose stack.
+    enable_hsts: bool = Field(default=False, alias="ENABLE_HSTS")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     algorithm: str = "HS256"
     # Token lifetime set to 6 hours for user sessions

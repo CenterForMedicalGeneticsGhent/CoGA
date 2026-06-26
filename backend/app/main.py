@@ -22,6 +22,7 @@ from .core.postgres import (
 from .core.coga_logging import configure_json_logging
 from .dependencies import get_password_hash
 from .middleware.request_logging import log_request_response
+from .middleware.security_headers import security_headers_middleware
 from .routers import all_routers
 from .services.gene_info_jobs_pg import (
     gene_reference_refresh_worker,
@@ -134,7 +135,25 @@ async def lifespan(app: FastAPI):
         await close_postgres_engine()
 
 
-app = FastAPI(title="CoGA", version=settings.app_version, lifespan=lifespan)
+def _docs_kwargs() -> dict[str, str | None]:
+    """Disable the interactive API docs / OpenAPI route outside development.
+
+    Returns the FastAPI kwargs that turn off /docs, /redoc and /openapi.json in
+    production (schema-disclosure hardening). The in-process ``app.openapi()`` method
+    still works regardless — only the public HTTP routes are gated — so the
+    trailing-slash normaliser below (which reads ``app.openapi()``) is unaffected.
+    """
+    if settings.is_development:
+        return {}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+app = FastAPI(
+    title="CoGA",
+    version=settings.app_version,
+    lifespan=lifespan,
+    **_docs_kwargs(),
+)
 configure_json_logging()
 
 app.add_middleware(
@@ -192,3 +211,7 @@ async def normalize_api_collection_root_paths(request, call_next):
             request.scope["raw_path"] = raw_path + b"/"
 
     return await call_next(request)
+
+
+# Registered last → outermost: stamp the hardening headers onto every response.
+app.middleware("http")(security_headers_middleware)
