@@ -17,6 +17,8 @@ Use it alongside the in-app user guide at `/docs` when the application is runnin
   - Collection-by-collection schema reference for access control, reference layers, assay data, review state, gene caches, and repeat-expansion data.
 - [Security & PHI Posture](security-posture.md)
   - Access control / RBAC, audit logging (append-only), encryption, and the S3/deployment PHI-scoping checklist, plus the CI gates.
+- [Test Overview](testing.md)
+  - File-by-file catalogue of the backend (pytest, ~662 tests) and frontend (vitest, 388 tests) suites and the CI gates, with how-to-run and the requirement→test traceability cross-link.
 - [Roadmap](ROADMAP.md)
   - Current backlog and direction notes.
 - [Clinical Traceability, Sign-out & Audit (plan)](clinical-traceability.md)

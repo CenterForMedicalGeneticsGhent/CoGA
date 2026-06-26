@@ -154,6 +154,8 @@ See [docs/data-import.md](docs/data-import.md) for the current flow.
 
 ## Validation
 
+See [docs/testing.md](docs/testing.md) for a file-by-file catalogue of all tests (backend + frontend) and the CI gates.
+
 Backend tests:
 
 ```bash
@@ -177,6 +179,7 @@ npm run build
 - [docs/development.md](docs/development.md)
 - [docs/application-scheme.md](docs/application-scheme.md)
 - [docs/data-import.md](docs/data-import.md)
+- [docs/testing.md](docs/testing.md)
 
 ## Notes
 
