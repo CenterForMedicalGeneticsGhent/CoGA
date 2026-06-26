@@ -4,6 +4,7 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { rewriteProxyLocation } from './proxyLocation.mjs';
+import { securityHeaders } from './securityHeaders.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,6 +81,11 @@ app.use('/api', async (req, res) => {
   }
 });
 
+// SPA security headers — applied to the app shell + static assets below. The /api
+// proxy above already returned/ended its responses, so it keeps forwarding the
+// backend's own headers rather than these page-level ones.
+app.use(securityHeaders);
+
 // Serve static assets from the Vite build output
 app.use(express.static(distPath));
 
@@ -91,6 +97,12 @@ app.get(/.*/, (_req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Frontend running on port ${PORT}`);
-});
+// Only start listening when run directly (`node server.mjs`); importing this module
+// (e.g. from a test) must not bind a port.
+if (process.argv[1] === __filename) {
+  app.listen(PORT, () => {
+    console.log(`Frontend running on port ${PORT}`);
+  });
+}
+
+export { app };

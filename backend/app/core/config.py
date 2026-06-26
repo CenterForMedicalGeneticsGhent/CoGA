@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     app_env: str = Field(default="production", alias="APP_ENV")
+    # Emit HSTS only where TLS terminates in front of the app (never over plain HTTP),
+    # so it is safe to leave off for the no-TLS local/compose stack.
+    enable_hsts: bool = Field(default=False, alias="ENABLE_HSTS")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     algorithm: str = "HS256"
     # Token lifetime set to 6 hours for user sessions
