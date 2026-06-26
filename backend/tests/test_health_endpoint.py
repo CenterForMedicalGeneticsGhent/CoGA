@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from backend.app.core.config import settings
 from backend.app.main import app
 
 
@@ -24,3 +25,26 @@ def test_health_liveness_and_routing_without_datastores() -> None:
             assert client.get("/api/projects/").status_code == 401
     finally:
         app.state.skip_startup_tasks = False
+
+
+def test_version_endpoint_reports_build_identity() -> None:
+    app.state.skip_startup_tasks = True
+    try:
+        with TestClient(app) as client:
+            # /health stays EXACTLY {"status": "ok"} — /version is a separate endpoint,
+            # so the liveness/healthcheck contract is untouched.
+            assert client.get("/api/health").json() == {"status": "ok"}
+
+            resp = client.get("/api/version")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert set(body) == {"version", "git_sha"}
+            assert body["version"] == settings.app_version
+            assert body["git_sha"] == settings.git_sha
+    finally:
+        app.state.skip_startup_tasks = False
+
+
+def test_fastapi_app_version_is_wired_from_settings() -> None:
+    # version= is threaded into FastAPI(...), so OpenAPI/docs report the build identity.
+    assert app.version == settings.app_version

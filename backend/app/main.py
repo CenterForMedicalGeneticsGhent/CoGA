@@ -134,7 +134,7 @@ async def lifespan(app: FastAPI):
         await close_postgres_engine()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="CoGA", version=settings.app_version, lifespan=lifespan)
 configure_json_logging()
 
 app.add_middleware(

@@ -391,6 +391,10 @@ export interface ApiReportSignout {
   signed_out_by: string;
   signed_out_at: string;
   content_hash: string;
+  // Frozen software identity that produced this sign-out (null for sign-outs created
+  // before version-binding shipped). Extracted from the frozen JSONB snapshot.
+  software_version?: string | null;
+  git_sha?: string | null;
   snapshot?: Record<string, unknown> | null;
 }
 

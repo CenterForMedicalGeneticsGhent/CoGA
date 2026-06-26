@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     app_env: str = Field(default="production", alias="APP_ENV")
+    # Build identity, injected at image-build time via the APP_VERSION/GIT_SHA
+    # build-args. Free-form strings with permissive defaults so a missing/malformed
+    # value never crash-loops the clinical app; "unknown" is recorded honestly (and
+    # frozen into every signed report's content hash).
+    app_version: str = Field(default="0.0.0+unknown", alias="APP_VERSION")
+    git_sha: str = Field(default="unknown", alias="GIT_SHA")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
     algorithm: str = "HS256"
     # Token lifetime set to 6 hours for user sessions

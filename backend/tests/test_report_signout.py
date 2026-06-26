@@ -97,6 +97,61 @@ def test_sign_out_proceeds_with_acknowledged_drift(monkeypatch) -> None:
     assert out["snapshot"]["drift"]["drifted_count"] == 1
 
 
+def test_build_report_snapshot_freezes_software_identity(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    monkeypatch.setattr(rss.settings, "app_version", "1.2.3")
+    monkeypatch.setattr(rss.settings, "git_sha", "abc1234def5")
+    body = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert body["software"] == {"version": "1.2.3", "git_sha": "abc1234def5"}
+
+
+def test_software_identity_is_bound_into_content_hash(monkeypatch) -> None:
+    # Changing only the software identity changes the frozen content hash, proving the
+    # signed report is cryptographically bound to the exact code that produced it.
+    # Hashes the time-invariant snapshot BODY so the only varying input is the version.
+    def _body_hash(version: str, sha: str) -> str:
+        _patch_common(monkeypatch, drifted_count=0)
+        monkeypatch.setattr(rss.settings, "app_version", version)
+        monkeypatch.setattr(rss.settings, "git_sha", sha)
+        body = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+        return rss._canonical_hash(body)
+
+    assert _body_hash("1.0.0", "aaa") == _body_hash("1.0.0", "aaa")  # deterministic
+    assert _body_hash("1.0.0", "aaa") != _body_hash("1.0.1", "aaa")  # bound to version
+    assert _body_hash("1.0.0", "aaa") != _body_hash("1.0.0", "bbb")  # bound to git_sha
+
+
+def test_software_falls_back_to_honest_unknown_sentinels(monkeypatch) -> None:
+    # Unstamped build: the snapshot records the "unknown" sentinels (never blank/None),
+    # so the hash stays deterministic and the report honestly states the code is unknown.
+    _patch_common(monkeypatch, drifted_count=0)
+    monkeypatch.setattr(rss.settings, "app_version", "0.0.0+unknown")
+    monkeypatch.setattr(rss.settings, "git_sha", "unknown")
+    out = asyncio.run(
+        rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), acknowledge_drift=False)
+    )
+    assert out["snapshot"]["software"] == {"version": "0.0.0+unknown", "git_sha": "unknown"}
+    # The POST sign-out response surfaces the same frozen identity at top level as the
+    # GET list/detail endpoints (which extract it from the JSONB snapshot).
+    assert out["software_version"] == "0.0.0+unknown"
+    assert out["git_sha"] == "unknown"
+
+
+def test_serialize_signout_exposes_frozen_software_identity() -> None:
+    # The list/footer path surfaces the JSONB-extracted frozen identity as top-level fields.
+    row = {
+        "version": 1,
+        "signed_out_by": "x",
+        "signed_out_at": None,
+        "content_hash": "h",
+        "software_version": "2.0.0",
+        "git_sha": "deadbeef",
+    }
+    serialized = rss._serialize_signout(row)
+    assert serialized["software_version"] == "2.0.0"
+    assert serialized["git_sha"] == "deadbeef"
+
+
 def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> None:
     # P0-3: identical clinical content with drift rows arriving in different orders
     # (Postgres returns equal-updated_at rows arbitrarily) must hash identically. The

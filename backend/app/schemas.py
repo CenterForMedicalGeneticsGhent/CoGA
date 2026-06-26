@@ -429,6 +429,10 @@ class ReportSignoutSummary(BaseModel):
     signed_out_by: str
     signed_out_at: datetime
     content_hash: str
+    # Frozen software identity that produced this sign-out (NULL for sign-outs
+    # created before version-binding shipped). Extracted from the JSONB snapshot.
+    software_version: Optional[str] = None
+    git_sha: Optional[str] = None
 
 
 class ReportSignoutDetail(ReportSignoutSummary):
