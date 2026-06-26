@@ -13,6 +13,15 @@
 > This is the report that records the **results** of the validation studies defined in
 > TF-10 and states the **claimed performance** and **validated scope**. It is the document
 > a competent authority reads to judge GSPR §9.1. Sections are stubbed; fill on execution.
+>
+> **CMGG forms.** In CMGG's QMS this content is captured on the controlled templates: the
+> per-application **clinical validation** on **H11.1-F11** (`VAL-Pxx`, mapping in
+> [TF-10 §7](TF-10-performance-evaluation-plan.md)) and the **software** bio-IT validation on
+> **H11.1-F12.2** (`VAL-Sxx`, mapping in [TF-09 §7](TF-09-verification-validation.md)). This
+> document is the consolidated evidence those signed forms draw from; each form ends with the
+> conclusion **"voldoet / voldoet voorlopig / voldoet niet"** and a dated **vrijgave voor de
+> diagnostiek**, bekrachtigd by the eindverantwoordelijke(n) + kwaliteitsbeheerder (+ IT-team
+> coördinator for software).
 
 ---
 

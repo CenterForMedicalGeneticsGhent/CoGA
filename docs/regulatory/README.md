@@ -59,6 +59,22 @@ TF documents map onto the SOP as follows:
 > **"klinische validatie"** per method ≈ the per-application performance evaluation
 > (TF-10/TF-11). The device identifier is the CMGGMC **software number `Sxxxx`**.
 
+#### CMGG validation-report templates (the forms the TF docs feed)
+
+The TF documents are structured so the actual CMGG report forms can be filled directly:
+
+| CMGG form (version) | Purpose | Filled from |
+| --- | --- | --- |
+| **H11.1-F12.2** v5 (21-04-2026) | **In-house software** validation (bio-IT ingangsvalidatie), `VAL-Sxx` | [TF-09](TF-09-verification-validation.md) §7 + [TF-06](TF-06-risk-management-plan.md) §6a |
+| **H11.1-F11** v6 (05-01-2023) | **Clinical** validation per method/analysis, `VAL-Pxx` | [TF-10](TF-10-performance-evaluation-plan.md) §7 / [TF-11](TF-11-performance-evaluation-report.md) |
+| **H11.1-F13** v5 (16-08-2023) | **Limited change** / technical opvolgvalidatie, `VAL-Sxx-OPVx` | [TF-18](TF-18-change-configuration-management.md) §4 (minor) |
+| **H11.1-F2** / **F14** (verify) | **Clinical** opvolgvalidatie (major change) | [TF-18](TF-18-change-configuration-management.md) §4 (major) |
+| H11.1-F12.1 v5 (commercial software) | SOUP / third-party reference (CoGA is in-house) | [TF-08](TF-08-soup-register.md) |
+| H11.1-F10 (devices) | Not applicable (software-only device) | — |
+
+> **🔲 verify with CMGG quality:** the clinical-follow-up template is cited as **H11.1-F2** in
+> H11.1-OP5 but as **H11.1-F14** on the H11.1-F11 form — confirm the current code.
+
 ---
 
 ## 2. Document register (technical file contents)
