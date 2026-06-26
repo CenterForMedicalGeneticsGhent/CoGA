@@ -1,0 +1,21 @@
+name: CoGA CodeQL config
+
+# Focus analysis on first-party source; the security-extended suite adds the
+# higher-recall security queries. Pre-existing alerts are baselined per-PR by
+# CodeQL itself (see .github/workflows/security.yml), so this config only scopes
+# WHAT is analysed, not what blocks.
+queries:
+  - uses: security-extended
+
+paths:
+  - backend/app
+  - frontend/src
+
+paths-ignore:
+  - backend/tests
+  - tests
+  - "frontend/src/**/*.test.ts"
+  - "frontend/src/**/*.test.tsx"
+  - frontend/src/test
+  - frontend/dist
+  - "**/node_modules"

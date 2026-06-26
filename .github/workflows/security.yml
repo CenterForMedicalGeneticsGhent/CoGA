@@ -1,0 +1,100 @@
+name: Security
+
+# Dependency-vulnerability, secret, and SAST gates — the security counterpart to
+# ci.yml (which runs the tests). Mark "deps", "secret-scan" and the CodeQL checks as
+# required status checks in branch protection so a known-vulnerable dependency, a
+# committed secret, or a newly-introduced code-scanning alert blocks merge.
+#
+# Every suppression (the one no-fix dependency, the CI test-fixture allowlist, the
+# report-only dev-tree advisories) is documented and code-reviewed in
+# SECURITY-AUDIT-ALLOWLIST.md.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deps:
+    name: deps (pip-audit + npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+      - name: Audit backend dependencies (hash-locked)
+        # BLOCKING. Audits the exact locked set. The single --ignore-vuln is the one
+        # documented no-fix carve-out (ecdsa Minerva; see SECURITY-AUDIT-ALLOWLIST.md);
+        # any OTHER advisory — or a future ecdsa fix becoming available — fails the job.
+        run: |
+          pip install pip-audit==2.9.0
+          pip-audit -r backend/requirements.txt --require-hashes \
+            --ignore-vuln GHSA-wj6h-64fc-37mp
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Audit frontend production dependencies (high+)
+        # BLOCKING on the deployed (production) tree only: any new high/critical fails.
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Report dev-tree advisories (non-blocking)
+        # The remaining advisories are build/test-only (vitest/eslint toolchain), not in
+        # the shipped artifact. Surfaced as a warning; flip to blocking after the
+        # toolchain upgrade (see SECURITY-AUDIT-ALLOWLIST.md).
+        if: always()
+        working-directory: frontend
+        run: |
+          npm audit --audit-level=high \
+            || echo "::warning::dev-tree advisories present (build/test toolchain) — tracked, non-blocking"
+
+  secret-scan:
+    name: secret-scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Public repo: no GITLEAKS_LICENSE required. If this repo ever moves to an
+          # org that requires one, switch to the gitleaks binary:
+          #   gitleaks detect --no-banner --redact --config .gitleaks.toml --source .
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  codeql:
+    name: codeql (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Interpreted languages need no compilation step.
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+      - name: Analyze
+        # On a pull_request, the Code Scanning check fails only on alerts INTRODUCED by
+        # the PR diff; pre-existing alerts populate the Security tab without blocking —
+        # that diff-baseline is how the existing backlog is handled without an allowlist.
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
