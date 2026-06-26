@@ -13,6 +13,13 @@
 > Defines the lifecycle processes by which CoGA is developed, verified, released and
 > maintained "in accordance with the state of the art" (IVDR Annex I §16.2). It documents
 > the **existing engineering practice** of the project and the gaps to formalize.
+>
+> **Governing procedure.** This plan implements, for CoGA, CMGG's controlled software
+> procedure **`H11.1-OP5` "Methodologie voor softwareontwikkeling"** (v1, 16-04-2026).
+> Per that SOP, **IEC 62304 is applied "as inspiration"** (a guideline), alongside
+> ISO/IEC 27001 (information security), GDPR, and ISO 15189:2022 — IVDR is the regulation.
+> Where this document cites 62304 clauses, they structure the work; they are not a claim of
+> certified 62304 compliance.
 
 ---
 
@@ -31,6 +38,16 @@ merge → release), mapped onto the IEC 62304 processes below. The existing per-
 docs (e.g. [monogenic-nipt.md](../monogenic-nipt.md), [clinical-traceability.md](../clinical-traceability.md))
 are the project's de-facto design records; this plan formalizes the structure around them.
 
+These processes are the engineering realization of the **H11.1-OP5 phase flow**:
+**projectaanvraag** (a CMGGMC "Projectaanvraag nieuwe diagnostische Bio-IT toepassing"
+questionnaire — project description, analysis info, validation plan, data/IT infrastructure,
+planning — including a market-research / make-or-buy assessment, cf. [TF-05](TF-05-equivalence-justification.md))
+→ **functionele analyse** (DPO advice obtained when personal data is processed, [TF-14](TF-14-dpia.md))
+→ **ontwerp** → **implementatie** → **validatie** (bio-IT ingangsvalidatie
+[TF-09](TF-09-verification-validation.md) / [TF-06](TF-06-risk-management-plan.md) + clinical
+validation per method [TF-10](TF-10-performance-evaluation-plan.md)) → **operationele fase**
+([TF-16](TF-16-post-market-surveillance-plan.md) / [TF-17](TF-17-vigilance-capa.md)).
+
 | IEC 62304 process | How CoGA realizes it | Evidence / location |
 | --- | --- | --- |
 | 5.1 Development planning | This document; per-feature design docs | `docs/`, this file |
@@ -48,20 +65,28 @@ are the project's de-facto design records; this plan formalizes the structure ar
 
 ## 3. Roles & responsibilities
 
-| Role | Responsibility |
-| --- | --- |
-| Software lead / developer(s) | Requirements, design, implementation, unit/integration tests, SOUP monitoring |
-| Reviewer (independent) | Code review of every PR; verification that controls/tests exist |
-| Clinical lead(s) | Clinical requirements, acceptance criteria, performance-evaluation oversight |
-| Quality/RA | Lifecycle compliance, document control, risk file, release approval |
-| Lab director | Release authorization, residual-risk acceptance |
+Per H11.1-OP5 (CMGG roles):
 
-**🔲 INPUT NEEDED:** name holders; confirm independence of review for Class C.
+| Role (H11.1-OP5) | Responsibility |
+| --- | --- |
+| **bio-IT SPOC** | Single point of contact; triages project requests with the IT coördinator (and Sequencing Core); intake governance. |
+| **CMGG IT coördinator** | Project prioritization/planning; co-approves minor/major releases into production. |
+| **Projectverantwoordelijke** (project lead) | Owns design quality, implementation, the bio-IT ingangsvalidatie (incl. risk analysis), and release. |
+| **Developer(s)** | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
+| **Independent reviewer** | Code review of every PR / 4-eye approval (a second (bio-)IT team member) before merge. |
+| **Business contactpersoon** ("Klinisch coördinator") | Clinical requirements and coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
+| **Kwaliteitscel / labokwaliteitsverantwoordelijke** | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
+| **UZ Gent DPO** | Consulted when personal data is processed ([TF-14](TF-14-dpia.md)). |
+| **Lab director / Head of CMGG** | Release authorization, residual-risk acceptance. |
+
+> **🔲 INPUT NEEDED:** name the individual holders of each role for CoGA.
 
 ## 4. Development environment & tooling
 
+- **Environment separation (H11.1-OP5):** development never happens directly on a production system — it uses a dedicated dev environment, or the test environment where none exists.
+- **Registration & identifier:** CoGA is registered in the CMGGMC **ICT module** with a software number **`Sxxxx`**; semantic versioning `x.y.z` (see [TF-18](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
 - Languages/runtimes: Python 3.10 (backend), Node 20 / TypeScript 6 (frontend).
-- Source control: Git/GitHub; feature branches; **branch protection with required status checks** (to be enforced — see TF-09 §CI).
+- Source control: Git/GitHub; feature branches; pull/merge requests with code review via a project-specific checklist (DevOps); **branch protection with required status checks** (to be enforced — see TF-09 §CI).
 - Build/packaging: Docker / Docker Compose; pinned `backend/requirements.txt`, `frontend/package-lock.json`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`) — backend pytest, real-startup smoke, frontend tsc+eslint+vitest.
 - Tool validation: development tools (linters, test runners, CI) are not part of the device; their adequacy is evidenced by the gates they enforce. Compilers/build tools are configuration-controlled via pinned versions.

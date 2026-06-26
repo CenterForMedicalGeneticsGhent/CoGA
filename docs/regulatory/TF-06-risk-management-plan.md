@@ -14,6 +14,14 @@
 > Management File (RMF)** — the full hazard/FMEA analysis with risk estimates and control
 > verification — is maintained as a controlled spreadsheet/register referenced here; §6
 > seeds it with the principal hazards.
+>
+> **In CMGG QMS terms (H11.1-OP5 §5.1.3):** the risk analysis is part of the **bio-IT
+> ingangsvalidatie dossier** (template **H11.1-F12.2**). CMGG applies a **risk-based**
+> approach that treats everything around development, implementation and integration as a
+> potential risk to the **confidentiality, integrity and availability (CIA)** of the
+> information (ISO/IEC 27001), to be mitigated with appropriate measures — this complements
+> the ISO 14971 patient-safety hazards below; the RMF covers both. The risk analysis is
+> **reviewed at each minor/major change** ([TF-18](TF-18-change-configuration-management.md)).
 
 ---
 

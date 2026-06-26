@@ -59,6 +59,6 @@ PHI download scoping, refuse-to-start on default secrets; **plus the open deploy
 | Breach (confidentiality) | TF-13 controls + incident process (TF-17) + breach notification per GDPR Art. 33/34 | ‹…› |
 
 ## 7. Consultation & sign-off
-- **DPO opinion:** ‹to be recorded›.
+- **UZ Gent DPO opinion:** ‹to be recorded›. Per the governing SOP **H11.1-OP5 §4.2**, the DPO's advice is obtained during the **functional-analysis** phase whenever personal data is processed — so DPO consultation is a standing step of CoGA's lifecycle, not a one-off.
 - Prior consultation with the supervisory authority (Belgian DPA) **only if** high residual risk cannot be mitigated (Art. 36) — ‹assess with DPO›.
 - Review on material change to processing or device (TF-18) and at the PMS cadence (TF-16).

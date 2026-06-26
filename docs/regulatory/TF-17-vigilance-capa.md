@@ -25,9 +25,11 @@
 
 ## 2. Detection & intake
 Incidents/near-misses are detected via clinical-use review, the QC/drift signals, user
-reports (TF-15 contact), audit logs, or testing. All are logged in the incident register
-with: date, reporter, device version, application, affected case(s), description, and
-immediate containment.
+reports (TF-15 contact), audit logs, or testing, and are registered as **CMGGMC
+probleemmeldingen** per the H11.1-OP5 §6 operational phase. All are logged in the incident
+register with: date, reporter, **software number + version (`Sxxxx` `x.y.z`)**, application,
+affected case(s), description, and immediate containment. Where possible a **test covering the
+affected code** is written (H11.1-OP5 §6), feeding the regression suite ([TF-09](TF-09-verification-validation.md)).
 
 ## 3. Triage & risk assessment
 Each incident is risk-assessed against TF-06 (could it cause a wrong clinical result? what

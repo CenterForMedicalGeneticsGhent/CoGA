@@ -46,7 +46,7 @@ Legend — **Status:** ✅ met (evidence exists) · ◐ in progress · ⬜ not s
 | 14 | Devices with a **measuring function** | N/A* | N/A | Qualitative/interpretive; *NIPT fetal fraction is a derived QC estimate with CI, not a diagnostic measurement* — verify classification with RA |
 | 15 | Protection against radiation | N/A | N/A | — |
 | **16.1** | **Software/programmable systems shall ensure repeatability, reliability & performance** in line with intended use; single-fault safety | Yes | ◐ | Reproducible content-hashed sign-out + server-side recompute ([clinical-traceability](../clinical-traceability.md)); TF-09 V&V; TF-06 |
-| **16.2** | Software developed per **state of the art**: development lifecycle, risk management incl. **information security**, verification & validation | Yes | ◐ | [TF-07 Software Lifecycle Plan](TF-07-software-lifecycle-plan.md) (IEC 62304/82304-1); TF-06; TF-09; TF-13 |
+| **16.2** | Software developed per **state of the art**: development lifecycle, risk management incl. **information security**, verification & validation | Yes | ◐ | Governing CMGG SOP **H11.1-OP5** (IEC 62304 as inspiration + ISO 27001 + GDPR + ISO 15189) → [TF-07 Software Lifecycle Plan](TF-07-software-lifecycle-plan.md); TF-06; TF-09; TF-13 |
 | 16.3 | Mobile-platform-specific design considerations | N/A | N/A | Desktop browser in a controlled lab environment; no mobile intended use |
 | **16.4** | Set out **minimum hardware / IT-network / IT-security requirements** incl. protection against unauthorised access | Yes | ◐ | [security-posture](../security-posture.md) (RBAC, audit, secrets); TF-13; TF-15 IFU minimum-requirements section |
 | 17 | Devices connected to / equipped with energy sources | N/A | N/A | — |
@@ -70,7 +70,7 @@ Current open items (to be closed before declaration, or carried with justificati
 | 5 | No formal usability engineering file yet | TF-12 to be produced; interim: professional-only users, training under ISO 15189 competency. |
 | 9.1 | Performance evaluation not yet executed | TF-10 plan defined (concordance vs validated assays: 50 BeGECS couples, 100 PGT embryos, 30 WGS trios, 30 NIPT); TF-11 report pending execution. |
 | 13/16.4 | Deployment-level encryption-at-rest, TLS between services, secrets manager, byte-level S3 audit | Tracked in [security-posture](../security-posture.md) "Remaining (deployment)"; close via infrastructure work before clinical go-live. |
-| 16.2 | Formal IEC 62304 lifecycle documentation incomplete | Codebase practices exist (CI gates, tests, audit); to be formalized in TF-07/TF-09. |
+| 16.2 | Lifecycle documentation per the governing SOP H11.1-OP5 to be completed (62304 applied as inspiration, not strict) | Codebase practices exist (CI gates, tests, audit) and the SOP defines the process; the bio-IT ingangsvalidatie (H11.1-F12.2) + TF-07/TF-09 formalize it. |
 | 20.1 | IFU not yet issued as a controlled document | TF-15; in-app docs exist as basis. |
 
 > No GSPR is proposed to be *permanently* unmet; all open items have a remediation path.

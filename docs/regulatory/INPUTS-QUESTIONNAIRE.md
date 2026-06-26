@@ -9,6 +9,13 @@
 
 > Group A–F below feed specific documents (cited). Answers will be folded into the controlled
 > documents. "—" = not yet answered.
+>
+> **Several items are now answered by the governing SOP `H11.1-OP5`** (and folded into the TF
+> docs): the device-identifier scheme (CMGGMC software number `Sxxxx` + semantic versioning),
+> the role structure (bio-IT SPOC, IT coördinator, projectverantwoordelijke, business
+> contactpersoon, kwaliteitscel, DPO), the change-control model (patch/minor/major), and the
+> validation split (bio-IT vs clinical, templates H11.1-F12.2 / F11 / F2 / F13). Remaining
+> items are mostly **names/dates** and **per-application clinical comparators/thresholds**.
 
 ---
 
@@ -51,7 +58,7 @@
 | --- | --- | --- |
 | D1 | Confirm IEC 62304 safety class (C) and any justified lower-class decomposition | — |
 | D2 | Named role holders incl. **independent reviewer** for Class C | — |
-| D3 | Device version / UDI-equivalent scheme & where reference-data versions attach | — |
+| D3 | Device version / UDI-equivalent scheme & where reference-data versions attach | ✅ Answered by H11.1-OP5: CMGGMC software number **`Sxxxx`** + semantic `x.y.z`; reference-data versions attach via the per-case manifest. Still needed: the **assigned `Sxxxx`**. |
 | D4 | Approval to **pin all backend runtime dependencies** to exact versions | — |
 | D5 | Production Postgres & ClickHouse versions; pin container base-image digests | — |
 | D6 | Confirm SRS will be produced as a controlled document / requirements register | — |

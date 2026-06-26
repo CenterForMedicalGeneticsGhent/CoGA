@@ -14,6 +14,14 @@
 > **validated** (right product: meets clinical need). Verification is largely operational
 > via the test suites and CI; validation is covered by the performance evaluation
 > ([TF-10](TF-10-performance-evaluation-plan.md)) and usability validation ([TF-12](TF-12-usability.md)).
+>
+> **In CMGG QMS terms (H11.1-OP5):** this document is the **bio-IT ingangsvalidatie** of the
+> software — the entry validation done at first use, with acceptance criteria, test results
+> and conclusion, captured on template **H11.1-F12.2** as report **`VAL-Sxxxx`**, and
+> embedding the risk analysis ([TF-06](TF-06-risk-management-plan.md)). It is distinct from
+> the **clinical validation per analysis/method** (H11.1-OP1 §8), which is
+> [TF-10](TF-10-performance-evaluation-plan.md)/[TF-11](TF-11-performance-evaluation-report.md).
+> Acceptance testing uses **real data in an environment closely matching production**.
 
 ---
 
@@ -31,6 +39,12 @@
 `main`. **🔲 ACTION:** mark `backend`, `smoke`, and `frontend` as **required status checks**
 in branch protection (a GitHub setting, not in the workflow file) so they must pass before
 merge — without this, the gates are advisory. (Noted as open in [security-posture.md §5](../security-posture.md).)
+
+**Test level ↔ version level (H11.1-OP5 §4.4.6).** The depth of testing required for a change
+is tied to its semantic-version level ([TF-18](TF-18-change-configuration-management.md)):
+**patch** focuses on system tests confirming existing functionality is unaffected; **minor**
+verifies new *and* existing functionality (incl. integration tests); **major** requires
+thorough testing across all levels plus clinical opvolgvalidatie.
 
 ## 2. Validation strategy
 

@@ -26,8 +26,9 @@
 - **Documentation** — this technical file and the per-feature design docs.
 
 ## 2. Version identification
-- A single **device version identifier** (semantic version + git commit hash) identifies the released software; it is shown in-app and in every report footer (the UDI-DI-equivalent for this in-house device). **🔲 INPUT NEEDED:** finalize the scheme and where reference-data versions attach to it.
-- Each signed report already embeds the device + reference-data versions (content-hashed) — this is the per-case configuration record.
+- **Software number `Sxxxx`** — CoGA is registered in the CMGGMC ICT module and assigned a software number (`Sxxxx`) per H11.1-OP5; this is the device identifier (UDI-DI-equivalent) for this in-house device.
+- **Semantic version `x.y.z`** (+ git commit hash) identifies each released build; shown in-app and in every report footer. **Only major (`X.y.z`) versions are recorded in the CMGGMC ICT "Software" section** per H11.1-OP5 §4.4.5.
+- Each signed report already embeds the device + reference-data versions (content-hashed) — the per-case configuration record. Per the operational-phase rule, **every analysed sample is unambiguously linked to the software version used** ([TF-16](TF-16-post-market-surveillance-plan.md)).
 
 ## 3. Change-control workflow
 ```
@@ -36,20 +37,28 @@ Change request → impact analysis → significance assessment → implement (br
    → release approval (lab director) → release record → deploy → docs/RTM/SBOM updated
 ```
 
-## 4. Significance assessment (the key rule)
-For each change, classify and act:
+## 4. Significance assessment — semantic patch / minor / major (H11.1-OP5 §4.4.5, §5.4)
 
-| Change type | Examples | Required actions |
-| --- | --- | --- |
-| **Non-significant** | Cosmetic UI, docs, internal refactor with no behavior change | CI + review; release record. |
-| **Functional, non-safety** | New non-clinical view, performance optimization | CI + review; affected-requirement re-verification (TF-09). |
-| **Safety/performance-affecting** | Change to a classifier, filter, FF estimator, haplotype/embryo-call logic, SV/aneuploidy thresholds | Risk review (TF-06); **targeted re-validation** of the affected application (TF-10) before clinical release. |
-| **Reference-data/content update** | New ClinVar/gnomAD/panel release | Version-pinned via manifest; drift detection runs; assess whether validated scope still holds; record validated versions. |
-| **Intended-purpose / scope change** | New application, new panel/assay/assembly, changed claim | Update TF-01/TF-02; re-run/extend performance evaluation; **update the Declaration (TF-04) and equivalence (TF-05)**; re-assess GSPR (TF-03). |
-| **Security-affecting** | Auth/crypto/dependency-CVE | TF-13 process; security re-verification. |
+Every change is classified on the semantic version it produces; the version level drives the
+required follow-up validation ("opvolgvalidatie") and the approval authority. This is the
+CMGG impact-based model, applied to CoGA.
 
-> Rule of thumb: a change that could alter a **clinical output** or the **validated scope**
-> cannot reach clinical use without the corresponding re-validation and document update.
+| Level | Impact | Example triggers | Required actions | Approval |
+| --- | --- | --- | --- | --- |
+| **Patch `x.y.Z`** | Backward-compatible technical; **no functional/clinical impact** on output. | Dependency patch bump; bugfix with no output change; refactor/logging; security update; Nextflow/nf-core bump without behaviour change. | System test (+ unit test for the fix); note in **CHANGELOG.md**. **No follow-up validation report.** | 4-eye: a 2nd (bio-)IT team member. |
+| **Minor `x.Y.z`** | New backward-compatible functionality; **no change to clinical meaning / intended use**. | New/extended feature; bugfix with limited output change; performance change; parameter change within validated bounds. | Patch steps **+ technical opvolgvalidatie** (template **H11.1-F13**, `VAL-Sxxxx-OPVx`): compare to the previous validated version on a small fixed dataset (e.g. **GIAB**), document output diffs; **review the risk analysis** ([TF-06](TF-06-risk-management-plan.md)). No clinical follow-up, but **explicit confirmation that clinical interpretation is unchanged**. | Projectverantwoordelijke + IT coördinator. |
+| **Major `X.y.z`** | Backward-incompatible / **potential impact on clinical output, interpretation or intended use**. | Mapper/variant-caller/cut-off change; **other annotation or reference versions (e.g. VEP, genome build)**; pipeline-logic (filters/decision-rules/parameters) or **intended-use** change; new application/panel/assay/assembly. | Minor steps **+ clinical opvolgvalidatie per affected method** (template **H11.1-F2**) with the business contactpersoon ([TF-10](TF-10-performance-evaluation-plan.md)); update CMGGMC ICT; for intended-purpose/scope changes also update [TF-01](TF-01-intended-purpose.md)/[TF-02](TF-02-device-description.md), re-assess [TF-03 GSPR](TF-03-gspr-checklist.md), and the **Declaration ([TF-04](TF-04-declaration-of-conformity.md))** + **equivalence ([TF-05](TF-05-equivalence-justification.md))**. | Projectverantwoordelijke + IT coördinator + business contactpersoon. |
+
+> Rule of thumb (and the dividing line between minor and major): a change that could alter a
+> **clinical output**, **interpretation**, or the **validated scope/intended use** is a
+> **major** and cannot reach clinical use without clinical opvolgvalidatie and the
+> corresponding document updates.
+
+### 4a. Hotfix exception (H11.1-OP5 §7)
+For an acute operational problem with serious impact, a **hotfix** may skip steps of the
+methodology, **provided** the debug steps and changes are recorded in the project repository
+(so the rationale is reconstructable). After the hotfix, the change **must still pass through
+the normal §4 (patch/minor/major) flow**.
 
 ## 5. Release & deployment
 - Releases are built from a tagged commit with pinned dependencies (reproducible build).
