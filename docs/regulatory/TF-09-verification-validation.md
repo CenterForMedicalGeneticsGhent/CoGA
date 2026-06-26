@@ -86,3 +86,29 @@ audit trail aids reconstruction of any affected case.
 - [ ] Change-significance assessed (TF-18); re-validation run if triggered (TF-10).
 - [ ] Version/build identifier updated and visible in the report footer.
 - [ ] Release record signed (TF-18); lab director authorization.
+
+## 7. Mapping to the CMGG report form (H11.1-F12.2)
+
+The bio-IT ingangsvalidatie is reported on **template H11.1-F12.2** (in-house software, v5
+21-04-2026), filename `VAL-Sxx jaartal`, signed by the eindverantwoordelijke, the IT-team
+coördinator and the kwaliteitsbeheerder. Each form section is fed directly from this file:
+
+| H11.1-F12.2 section | Filled from |
+| --- | --- |
+| SITUERING — type software / soort acceptatietesten / gevolgen koppelingen | [TF-02](TF-02-device-description.md) (in-house, standalone MDSW); ingangstest vs upgrade per [TF-18](TF-18-change-configuration-management.md) |
+| GEGEVENS voor de IVDR (IH-IVD; functie diagnose/monitoring/…; kwalitatief) | [TF-01 Intended Purpose](TF-01-intended-purpose.md) |
+| BEOOGD GEBRUIK, DOEL | TF-01 + the SRS ([TF-09a](TF-09a-software-requirements-specification.md)) |
+| ACCEPTATIECRITERIA (juistheid, traceerbaarheid, gebruiksvriendelijkheid; **patiëntveiligheid, continuïteit, data-integriteit**) | TF-09a requirements + TF-10 acceptance criteria |
+| EFFECTIEVE UITVOERING — the five validation axes (below) | §1 verification levels + the test suites; [docs/testing.md](../testing.md) |
+| RISICOANALYSE — VEILIGHEIDSEISEN IVDR (Annex I §13.2/§14/§16.1–16.4 table) | [TF-06 §6a](TF-06-risk-management-plan.md) |
+| IMPLEMENTATIE (goedkeuring / bekendmaking / officiële ingebruikname) | [TF-18 §5](TF-18-change-configuration-management.md) |
+
+**The form's five validation axes**, with CoGA's evidence:
+
+| H11.1-F12.2 axis | CoGA evidence |
+| --- | --- |
+| **Gebruiksvriendelijkheid** (usability) | Usability engineering + summative evaluation ([TF-12](TF-12-usability.md)); frontend component tests. |
+| **Accuraatheid / patiëntveiligheid** — (on)juistheid (e.g. measuring function, patient-material identification) | The clinical-output logic (NIPT/PGT/ACMG/CNV/mtDNA) and its tests (TF-09b RTM); patient-material identity via the **Sample QC module** (relatedness/sex/Mendelian) — sample-swap control (TF-06 H4). |
+| **Traceerbaarheid** | Version manifest, evidence snapshots, immutable clinical audit, content-hashed sign-out ([clinical-traceability.md](../clinical-traceability.md)); each sample linked to the software version (TF-16). |
+| **Continuïteit** (back-up of data) | Postgres/ClickHouse backups, reproducible-from-snapshot reports; **🔲 deployment item** ([security-posture.md](../security-posture.md)). |
+| **Data-integriteit** | Append-only audit/sign-out (DB immutability triggers), file checksum verification (REQ-DATA-004), RBAC; encryption-at-rest is a **🔲 deployment item** ([TF-13](TF-13-cybersecurity.md)). |

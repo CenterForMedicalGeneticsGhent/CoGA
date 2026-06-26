@@ -103,6 +103,28 @@ control, residual risk, and V&V reference.
 | H12 | **Wrong assembly / off-scope panel/assay used** | All | S4 | Assembly-scoped storage; **🔲 add explicit off-scope guard**; IFU |
 | H13 | **Incorrect mtDNA heteroplasmy / maternal-inheritance interpretation** | mito (3.5) | S4 | Heteroplasmy quantification + maternal-transmission logic with QC; Sample QC for maternal-lineage integrity (H4); ACMG review/sign-out; verification in TF-10 (`test_mitochondrial_analysis.py`) |
 
+## 6a. IVDR Annex I software risk table (H11.1-F12.2 / H14.4-OP1)
+
+The CMGG in-house software validation form **H11.1-F12.2** carries a risk table keyed to the
+**IVDR Annex I** software requirements, scored **hoog / middelhoog / zeer laag / NVT** per the
+risk procedure **H14.4-OP1** (FMEA / What-if; templates H14.4-OP1-B2/B3). The ISO 14971
+hazards in §6 map onto those IVDR categories — and onto the BELAC ISO 15189 triad
+**patiëntveiligheid · continuïteit · data-integriteit** — as follows:
+
+| IVDR Annex I category (F12.2) | CoGA hazards / controls |
+| --- | --- |
+| **§13.2** interaction with environment / IT-environment, interference, koppelingen (wrong result, wrong patient-material identification) | H4 (sample/pedigree swap → Sample QC), H8 (stale reference data → drift), H12 (off-scope assembly/panel); upstream-pipeline boundary (TF-01 §4). |
+| **§14** measuring function (analytical error, correct units) | H6 (NIPT fetal-fraction estimate — a derived QC measure with CI); otherwise qualitative/interpretive. |
+| **§16.1** repeatability / reliability / performance; **single-fault-safe** | H9 (reproducibility — content-hashed snapshot, render-from-snapshot), H5/H6 safe "uninformative"/low-confidence fallbacks (PERF-003), server-side recompute. |
+| **§16.2** state-of-the-art development; information security; V&V | This file (TF-07/TF-09), TF-13 (infosec), H11. |
+| **§16.3** mobile computing platforms | N/A — desktop browser in the accredited lab (TF-01). |
+| **§16.4** minimum hardware / IT-network / IT-security (unauthorized access) | H11 (RBAC, audit); deployment items S-1…S-8 ([TF-13](TF-13-cybersecurity.md)). |
+
+Triad rollup: **patiëntveiligheid** = H1–H7, H10, H12, H13 (wrong/missed clinical call);
+**data-integriteit** = H8, H9, H11 (drift, reproducibility, integrity/access);
+**continuïteit** = availability/back-up (deployment, [security-posture](../security-posture.md)).
+Each row's residual score and action is recorded in the RMF and copied into the F12.2 table.
+
 ## 7. Residual risk & benefit-risk
 
 After controls, each residual risk is re-estimated in the RMF; overall residual risk and the

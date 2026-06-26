@@ -135,3 +135,27 @@ Ongoing concordance monitoring, drift events, and any new edge cases observed in
 use feed back per [TF-16 PMS](TF-16-post-market-surveillance-plan.md); the validated scope
 is re-confirmed on material change (new panel, assay, assembly, or algorithm version) via
 TF-18 change control, which defines when re-validation is required.
+
+## 7. Mapping to the CMGG report form (H11.1-F11)
+
+Each clinical application's evaluation is reported **per method/analysis** on **template
+H11.1-F11** (v6, 05-01-2023), filename `VAL-Pxx jaartal` (xx follows the analysis-protocol
+code H10.1-Pxx), signed by the laboratoriumverantwoordelijke(n) and kwaliteitsbeheerder.
+CoGA's qualitative/interpretive outputs map onto the form's performance vocabulary as follows:
+
+| H11.1-F11 parameter | For CoGA |
+| --- | --- |
+| Type test | **Qualitative** (variant/embryo/fetal-risk present or not); NIPT fetal fraction is a derived quantitative QC value. |
+| **Analytical performance** — qualitative: **analytische sensitiviteit / specificiteit** | = **PPA / NPA** vs the validated comparator (§2–§3). Genetic-test target: **~100% sensitivity** (no missed at-risk/causal call) — CoGA's safety-critical error in each §3 protocol. |
+| Trueness / precision (quantitative) | NIPT FF bias (Bland–Altman) + repeatability; mtDNA heteroplasmy agreement (§3.5). |
+| Herhaalbaarheid / reproduceerbaarheid | Content-hash reproducibility + inter-operator subset (§4). |
+| Vergelijking met een 2e onafhankelijke methode; controlemateriaal; **3/n regel**; EKE/interlab | The comparator assay is the independent method; reference materials (GIAB/GeT-RM, §4); estimate sens/spec with the **3/n rule** when control counts are small; EKE/interlab where available. |
+| Robuustheid, detectielimiet | Degraded-input fail-safe (REQ-PERF-003); >10 Mb SV / aneuploidy / heteroplasmy detection limits (§3.2, §3.5). |
+| Risico op staalverwisseling; subjectiviteit | Sample QC (sample-swap, TF-06 H4); inter-operator/blind re-read on a subset (§4). |
+| **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The signed-out clinical conclusion vs the established diagnosis (§3); for new applications, accumulate via PMPF (§6). |
+| Risicoanalyse — veiligheidseisen IVDR (§19) | [TF-06](TF-06-risk-management-plan.md) (shared with the bio-IT validation). |
+| Gevolgen voor kwaliteitsdocumentatie (§21) | Update the analysis protocol (H10.1-Pxx), IFU ([TF-15](TF-15-instructions-for-use.md)), and CMGGMC. |
+
+Pre-defined **aanvaardingscriteria** (the §3 "proposed acceptance" rows, confirmed with the
+clinical leads) go in the form's acceptance column; **🔲 INPUT NEEDED** items in §2–§3 are the
+fields still to fix before the form is signed.

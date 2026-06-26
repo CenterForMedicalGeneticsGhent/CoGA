@@ -60,6 +60,12 @@ methodology, **provided** the debug steps and changes are recorded in the projec
 (so the rationale is reconstructable). After the hotfix, the change **must still pass through
 the normal §4 (patch/minor/major) flow**.
 
+### 4b. Validation-report forms per change level
+- **First clinical release** — bio-IT ingangsvalidatie on **H11.1-F12.2** (`VAL-Sxx`, software) → [TF-09 §7](TF-09-verification-validation.md); clinical validation per method on **H11.1-F11** (`VAL-Pxx`) → [TF-10 §7](TF-10-performance-evaluation-plan.md).
+- **Minor** — technical opvolgvalidatie on **H11.1-F13** (`VAL-Sxx-OPVx`): compare to the previous validated version on a fixed dataset (GIAB), document output diffs, review the risk analysis.
+- **Major** — clinical opvolgvalidatie per affected method on **H11.1-F2** *(or H11.1-F14 — the SOP and the F11 form cite different codes; **🔲 confirm with CMGG quality**)*.
+- Approvals/signatures and the `voldoet / voldoet voorlopig / voldoet niet` + dated `vrijgave` are part of each form.
+
 ## 5. Release & deployment
 - Releases are built from a tagged commit with pinned dependencies (reproducible build).
 - The **release verification checklist** (TF-09 §6) must be complete and signed.
