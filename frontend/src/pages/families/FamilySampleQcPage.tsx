@@ -386,6 +386,7 @@ const FamilySampleQcPage: React.FC = () => {
   if (qcLoading) {
     return (
       <PageState
+        loading
         kicker="Sample QC"
         title="Running sample-integrity checks"
         message="Estimating relatedness, Mendelian-error rate and genotype sex."

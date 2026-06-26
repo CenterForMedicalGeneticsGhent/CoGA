@@ -119,6 +119,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
   if (isLoading || isLoadingShared) {
     return (
       <PageState
+        loading
         kicker="Summary"
         title="Loading variant summary"
         message="Calculating counts, sharing, and length distributions for this family."
