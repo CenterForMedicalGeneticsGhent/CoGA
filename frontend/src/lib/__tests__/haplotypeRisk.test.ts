@@ -151,6 +151,29 @@ describe('haplotype risk inference', () => {
     ).toBe('unaffected_non_carrier');
   });
 
+  it('returns uninformative for a recessive embryo when only one side resolves (donor/unknown side)', () => {
+    // Single-parent / donor PGT: only the known parent's (paternal) risk haplotype
+    // can be resolved; the donor (maternal) side is unknown. A recessive call needs
+    // BOTH sides, so the embryo must fall back to uninformative — never a confident
+    // "at risk"/"clear" — even though the model carries a paternal signature.
+    const members: HaplotypeMemberLike[] = [
+      { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+      { sample_id: 'EMBRYO', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    const samples: HaplotypeSampleLike[] = [
+      // maternal lane non-informative ('.') -> only the paternal side resolves
+      { sample: 'PROBAND', segments: [{ chr: '1', start: 0, end: 100, hap1: '1', hap2: '.' }] },
+      { sample: 'EMBRYO', segments: [{ chr: '1', start: 0, end: 100, hap1: '1', hap2: '0' }] },
+    ];
+
+    const model = inferDiseaseHaplotypes({ samples, members, inheritanceModel: 'AR', region });
+
+    expect(model.signatures.map((s) => s.kind)).toEqual(['recessive-paternal']);
+    expect(
+      interpretSampleHaplotypeRisk({ model, samples, member: members[1], region }),
+    ).toBe('uninformative');
+  });
+
   it('handles X-linked recessive male hemizygosity and carrier females', () => {
     const xRegion = { chr: 'X', start: 40, end: 60 };
     const members: HaplotypeMemberLike[] = [

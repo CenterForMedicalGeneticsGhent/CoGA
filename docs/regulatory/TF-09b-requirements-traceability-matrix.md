@@ -31,7 +31,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-NIPT-002 | `services/nipt_analysis.py::classify_site` | `test_nipt_analysis.py::test_category_*` | H6 | ✅ |
 | REQ-NIPT-003 | `services/nipt_analysis.py` | `test_nipt_analysis.py::test_ff_too_low_suppresses_fetal_inheritance` | H6 | ✅ |
 | REQ-NIPT-004 | `services/nipt_artifact_pg.py`, `services/nipt_service.py` | `test_nipt_artifact_pg.py`; `test_nipt_analysis.py::test_run_nipt_analysis_filter_counts` | H1 | ✅ |
-| REQ-NIPT-005 | `services/nipt_service.py` (external-FF cross-check) | — | H6 | ⚠ |
+| REQ-NIPT-005 | `services/nipt_analysis.py::estimate_fetal_fraction` (external-FF cross-check) | `test_nipt_analysis.py::test_external_ff_*` (agreement / flagged disagreement / prefer-external) | H6 | ✅ |
 | REQ-NIPT-006 | `services/nipt_coverage.py::summarize_on_target_coverage` | `test_nipt_coverage.py` (weighted median, low-coverage flags) | H1 | ✅ |
 | REQ-NIPT-007 | `services/nipt_service.py`; `routers/families.py` `/nipt/variants` | `test_nipt_service.py` (presets); `test_nipt_end_to_end.py::test_nipt_demo_recessive_at_risk` | — | ✅ |
 | REQ-NIPT-008 | `services/nipt_analysis.py` (category 8) | `test_nipt_analysis.py` (absence/category logic) | H6 | ✅ |
@@ -50,7 +50,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-PGT-002 | `services/haplotype_lineage_service.py` (segment smoothing) | `test_haplotype_lineage_service.py`; `test_phased_marker_service.py` (recombination) | H5 | ✅ |
 | REQ-PGT-003 | `services/phased_marker_service.py::compute_phased_markers` | `test_phased_marker_service.py` | H5 | ✅ |
 | REQ-PGT-004 | `services/phased_marker_service.py` (QC) | `test_phased_marker_service.py::test_qc_counts_informative_sites_and_mendel_errors` | H4 | ✅ |
-| REQ-PGT-005 | `frontend/src/lib/haplotypeRisk.ts`; `HaplotypePhasedTrack.tsx` | `HaplotypePhasedTrack.test.tsx` (integration) | H5 | ◐ |
+| REQ-PGT-005 | `frontend/src/lib/haplotypeRisk.ts`; `HaplotypePhasedTrack.tsx` | `haplotypeRisk.test.ts` (dominant/recessive/X-linked + uninformative incl. one-side donor); `HaplotypePhasedTrack.test.tsx` | H5 | ✅ |
 | REQ-PGT-006 | `services/haplotype_lineage_service.py`, `phased_marker_service.py` (single-parent) | `test_haplotype_lineage_service.py`; `test_phased_marker_service.py` (single-parent mode) | H5 | ✅ |
 | REQ-PGT-007 | `services/clickhouse_family_variants.py::get_family_structural_variants_page`; `sv_gene_index_service.py` | `test_sv_gene_index.py`; `test_structural_variant_track_slim.py` — >10 Mb claim → TF-10 | H7 | ◐ |
 | REQ-PGT-008 | SV/segment interval tracks (`clickhouse_interval_tracks.py`, SV catalog) | — (aneuploidy) clinical validation TF-10 (100 embryos) | H7 | ⚠ |
@@ -100,7 +100,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-SEC-004 | `services/audit_log_pg.py`; `middleware/request_logging.py` | `test_audit_log_pg.py`; `test_request_logging.py` | H11 | ✅ |
 | REQ-SEC-005 | `services/auth_rate_limit_pg.py` | `test_auth_rate_limit_pg.py` | H11 | ✅ |
 | REQ-SEC-006 | `core` settings `validate_security_defaults` | `test_config_security.py`; `test_config.py` | H11 | ✅ |
-| REQ-SEC-007 | `routers/cram.py` | `test_s3_import_and_cram.py`; `test_object_storage.py` (indirect) | H11 | ◐ |
+| REQ-SEC-007 | `routers/cram.py` | `test_s3_import_and_cram.py::test_alignment_*` (denied before serve; sample-outside-family) | H11 | ✅ |
 
 ### Ingestion & storage
 | Req | Implementation | Verifying test | Risk | Status |
@@ -108,7 +108,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-DATA-001 | `services/variant_upload_service.py::upload_family_small_variant_file` | `test_variant_upload_service.py` (GT/DP/AF/AD, QUAL) | H1 | ✅ |
 | REQ-DATA-002 | `services/variant_upload_service.py`; `clickhouse_family_variants.py` | `test_variant_upload_service.py` (PS block); `test_clickhouse_family_variants.py` (phasing) | H5 | ✅ |
 | REQ-DATA-003 | `services/structural_variant_ingest.py::iter_structural_variant_records` | `test_structural_variant_ingest.py`; `test_variant_upload_service.py` | — | ✅ |
-| REQ-DATA-004 | `services/raw_import_files_pg.py::verify_raw_import_file` | `test_s3_import_and_cram.py` (indirect) — explicit checksum test missing | H4 | ⚠ |
+| REQ-DATA-004 | `services/raw_import_files_pg.py::verify_raw_import_file` | `test_raw_import_file_verify.py` (verified / mismatch / missing / unverifiable) | H4 | ✅ |
 | REQ-DATA-005 | `services/family_package_import.py` | `test_family_package_import.py` (25); `test_nipt_package_import.py` | H4,H12 | ✅ |
 | REQ-DATA-006 | `services/clickhouse_variant_storage.py` | `test_clickhouse_variant_storage_ops.py`; `test_clickhouse_integrity.py` | H9 | ✅ |
 
@@ -123,12 +123,12 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | --- | --- | --- | --- | --- |
 | REQ-PERF-001 | (whole device) | [TF-10](TF-10-performance-evaluation-plan.md) concordance studies → [TF-11](TF-11-performance-evaluation-report.md) | H1–H7 | ⚠ pending data |
 | REQ-PERF-002 | `services/report_signout_service.py` (content hash) | `test_report_signout.py` (hash stable); full check TF-10 §4 | H9 | ◐ |
-| REQ-PERF-003 | input validation across services | — explicit degraded-input tests recommended | H1,H6 | ⚠ |
+| REQ-PERF-003 | input validation across services | `test_nipt_analysis.py::test_*fails_safe_on_empty_input` (NIPT); other modalities pending | H1,H6 | ◐ |
 | REQ-UI-001 | `pages/families/FamilyNiptPage.tsx` | `FamilyNiptPage.test.tsx` — `NiptClassificationBlock` untested (§3) | H6,H1 | ◐ |
 | REQ-UI-002 | `components/visualizations/HaplotypePhasedTrack.tsx` | `HaplotypePhasedTrack.test.tsx` | H5 | ✅ |
 | REQ-UI-003 | `pages/families/AcmgClassificationModal.tsx` | `AcmgClassificationModal.test.tsx` — `AcmgScaleBar` untested (§3) | H3 | ✅ |
 | REQ-UI-004 | `pages/families/FamilyReportPage.tsx` | `FamilyReportPage.test.tsx` | H8,H9 | ✅ |
-| REQ-UI-005 | `components/RequireAuth.tsx`, `RequireAdmin.tsx` | `RequireAuth.test.tsx` ✅; **`RequireAdmin` no test** | H11 | ⚠ |
+| REQ-UI-005 | `components/RequireAuth.tsx`, `RequireAdmin.tsx` | `RequireAuth.test.tsx`; `RequireAdmin.test.tsx` (unauth→login, viewer→dashboard, admin/superuser→content) | H11 | ✅ |
 | REQ-UI-006 | `pages/auth/LoginPage.tsx` | `LoginPage.test.tsx` (next-path validation) | H11 | ✅ |
 | REQ-UI-007 | `components/visualizations/Pedigree.tsx` | `Pedigree.test.tsx` (affected/carrier/QC ring) | H4 | ✅ |
 | REQ-RPT-001 | `pages/families/FamilyReportPage.tsx`; `report_signout_service.py` | `FamilyReportPage.test.tsx` | H9 | ✅ |
@@ -138,26 +138,26 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 
 - **Requirements:** 71 across 13 areas. Backend test suite: ~73 files / ~420+ tests; frontend vitest: ~49 test files.
 - **Directly verified (✅):** the large majority of Class C backend logic — NIPT FF/classification, haplotype lineage + phased-marker QC, ACMG/CNV scoring, trio/de-novo/compound-het, repeat/Paraphase/mtDNA, the full traceability stack (manifest/evidence/drift/audit/sign-out/immutability), and access control.
-- **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (embryo-classification lib, render-from-snapshot, CRAM access-before-presign, content-hash reproducibility).
-- **Gaps (⚠):** see §3 — these are the actions required before clinical go-live.
+- **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (render-from-snapshot, content-hash reproducibility), or partially covered (degraded-input robustness — NIPT only).
+- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live (couple-level carrier, aneuploidy/SV detection limits via TF-10, the untested UI sub-components).
 
 ## 3. Verification gaps & actions (CAPA backlog)
 
 Per the [TF-09 release checklist](TF-09-verification-validation.md) ("no requirement without a
-passing verifying test"), the following **Class C** requirements lack direct verification and
-must be closed (add a test, or establish via the TF-10 study) before sign-off:
+passing verifying test"), the remaining **Class C** requirements below lack direct verification
+and must be closed (add a test, or establish via the TF-10 study) before sign-off.
+
+**Closed (PR #244 + follow-up):** REQ-UI-005 (RequireAdmin), REQ-SEC-007 (access-before-serve),
+REQ-DATA-004 (checksum), REQ-NIPT-005 (external-FF). REQ-PGT-005 (embryo classification) was
+found already covered by `haplotypeRisk.test.ts` and re-marked ✅ (the lib test the initial
+inventory missed), with a one-side-donor `uninformative` case added.
 
 | Req | Gap | Action |
 | --- | --- | --- |
-| REQ-NIPT-005 | External-FF disagreement flag has no dedicated test | Add unit test in `test_nipt_service.py`/`test_nipt_analysis.py`. |
-| REQ-CARR-002 | Couple-level at-risk has no dedicated unit test | Add unit test; establish clinically in TF-10 (50 BeGECS couples). |
-| REQ-PGT-005 | Embryo classification logic (`haplotypeRisk.ts`) verified only via component test | Add a focused vitest for `inferDiseaseHaplotypes` / `interpretSampleHaplotypeRisk`. |
+| REQ-CARR-002 | Couple-level at-risk has no dedicated unit test | Establish clinically in TF-10 (50 BeGECS couples); add a unit test if a pure helper is extracted. |
 | REQ-PGT-007 | >10 Mb SV detection-limit claim unproven by test | Verify the size threshold in TF-10 (100 embryos). |
 | REQ-PGT-008 | Aneuploidy detection has no dedicated unit test | Add a detection unit test; validate in TF-10. |
-| REQ-SEC-007 | Access-check-before-presign only indirectly tested | Add an explicit test asserting denial without family/sample access. |
-| REQ-DATA-004 | File checksum verification only indirectly tested | Add an explicit `verify_raw_import_file` checksum test. |
-| REQ-PERF-003 | Degraded/incomplete-input robustness not explicitly tested | Add fail-safe tests (missing tracks, low coverage, malformed VCF). |
-| REQ-UI-005 | `RequireAdmin` route guard untested | Add `RequireAdmin.test.tsx`. |
+| REQ-PERF-003 | Degraded-input robustness only tested for NIPT | Extend fail-safe tests to other modalities (missing tracks, malformed VCF, low coverage). |
 | REQ-UI-001 / REQ-UI-003 | Safety-relevant UI sub-components untested: `NiptClassificationBlock`, `AcmgScaleBar`, `CnvAcmgClassificationModal`, `CnvScaleBar`, `SmallVariantReviewDialog` | Add vitest coverage; feeds the TF-12 usability summative. |
 
 > These gaps are tracked as actions; closing them is a precondition of the first clinical
