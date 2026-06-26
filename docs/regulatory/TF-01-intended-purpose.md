@@ -51,7 +51,7 @@ autoclassifier — every criterion is overridable."*)
 
 ## 3. Clinical applications (intended uses)
 
-CoGA is a single software device with four declared clinical applications. Each is a
+CoGA is a single software device with five declared clinical applications. Each is a
 distinct intended use with its own population, input, output, and limitations, and is
 evaluated separately in the Performance Evaluation (TF-10/TF-11).
 
@@ -83,6 +83,14 @@ evaluated separately in the Performance Evaluation (TF-10/TF-11).
 - **Population:** Patients (and families) with suspected rare Mendelian disease referred to CMGG. **🔲 INPUT NEEDED:** confirm whether proband-only and trio/family modes are both in scope.
 - **Nature of result:** Diagnostic decision support; final classification and reporting by the clinical laboratory.
 
+### 3.5 Combined mitochondrial-disease testing (ONT long-read adaptive sampling)
+- **Purpose:** Support **diagnostic** interpretation of mitochondrial disease by examining, in a single assay, the **complete mitochondrial genome (mtDNA)** together with the **nuclear genes implicated in mitochondrial pathologies**. An Oxford Nanopore (ONT) long-read **adaptive-sampling** run targets the entire mtDNA *and* the nuclear mito-gene panel simultaneously, so both genomes are examined in one go.
+- **Input:** Annotated VCF(s) and associated tracks from the validated ONT adaptive-sampling workflow, covering the full mtDNA and the nuclear mitochondrial-disease gene panel; HPO terms; pedigree. (The adaptive sampling itself is an upstream, separately-validated wet-lab/bioinformatics process; CoGA consumes its output — see §4.1.)
+- **Output:** Combined review in one family workspace — mtDNA analysis with **heteroplasmy** quantification and maternal-transmission logic (and a maternal haplogroup summary), plus nuclear small-variant/SV interpretation over the mito-gene panel, with semi-automatic ACMG/AMP classification and a reproducible signed-out report.
+- **Data integrity / sample swaps (explicit):** mtDNA follows the maternal lineage and the nuclear+mtDNA assay is interpreted jointly, so the **Sample QC module** — sex check, relatedness, Mendelian consistency, heterozygosity ratio and per-mode variant counts (`sample_integrity_service`; the family Sample-QC view) — **must be reviewed for data integrity and to detect sample swaps/contamination before sign-out**. The mtDNA maternal-haplogroup summary additionally supports maternal-lineage verification. See §4 condition 6 and [TF-06](TF-06-risk-management-plan.md) hazard H4.
+- **Population:** Patients with suspected mitochondrial disease (and, where available, the mother/family for maternal-lineage and trio analysis). **🔲 INPUT NEEDED:** confirm the nuclear mito-gene panel and version source, proband-only vs trio/maternal modes, and whether single- or multi-tissue heteroplasmy is in scope.
+- **Nature of result:** Diagnostic decision support; mtDNA heteroplasmy and maternal inheritance are interpreted with their QC, and final classification/reporting is by the laboratory.
+
 ---
 
 ## 4. Conditions of use, limitations & contraindications
@@ -95,6 +103,7 @@ statements and risk controls):
 3. **Screening vs diagnosis.** The NIPT (3.1) and carrier (3.2) applications are **screening**; at-risk findings require confirmatory diagnostic testing.
 4. **Inferred genotypes.** In NIPT (3.1) the fetal genotype and in PGT haplotyping (3.3) the embryo haplotype are **inferred**, not directly observed; CoGA exposes the QC signals (fetal fraction, informative-marker counts, Mendel-error rate, recombination proximity) that bound the reliability of those inferences, and these **must** be checked before trusting a call.
 5. **Defined assays/panels only.** Each application is valid only for the gene panels, assays, and assemblies for which it has been verified (TF-09/TF-11). Use outside the verified scope is off-label.
+6. **Sample identity & data integrity (Sample QC).** Before any result is signed out, the **Sample QC module** (relatedness, sex check, Mendelian consistency, heterozygosity ratio, per-mode variant counts — `sample_integrity_service`; the family Sample-QC view) **must be reviewed to confirm sample identity and detect sample swaps/contamination or data-integrity problems**. This is mandatory for the family/trio- and lineage-based applications (3.1, 3.3, 3.4) and especially for combined mtDNA/nuclear testing (3.5), where maternal-lineage discordance is an additional swap signal. See [TF-06](TF-06-risk-management-plan.md) hazard H4.
 
 **Not intended for:**
 - Primary base-calling, alignment, or variant calling (these are upstream).
@@ -108,6 +117,7 @@ statements and risk controls):
 ## 5. Open items requiring confirmation
 
 The **🔲 INPUT NEEDED** markers above (gestational-age window, carrier-panel scope, PGT
-sub-scopes and SV/aneuploidy thresholds, rare-disorder proband/trio modes) must be
-resolved with the responsible clinical leads before this statement is approved, as they
-fix the boundaries of the performance evaluation.
+sub-scopes and SV/aneuploidy thresholds, rare-disorder proband/trio modes, and the
+mitochondrial-disease nuclear mito-gene panel / proband-vs-trio / heteroplasmy-tissue
+scope) must be resolved with the responsible clinical leads before this statement is
+approved, as they fix the boundaries of the performance evaluation.

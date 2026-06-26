@@ -26,7 +26,8 @@
 ## 2. Intended purpose & users
 Full statement in [TF-01](TF-01-intended-purpose.md). Decision-support software for genomic
 interpretation across monogenic NIPT screening, expanded carrier screening (BeGECS,
-long-read), PGT (shallow WGS), and rare-disorder diagnostics (long-read). **For use by
+long-read), PGT (shallow WGS), rare-disorder diagnostics (long-read), and combined mtDNA +
+nuclear mitochondrial-disease testing (ONT long-read adaptive sampling). **For use by
 trained clinical laboratory professionals only**, in an ISO 15189-accredited laboratory.
 
 ## 3. Warnings, limitations & contraindications (from TF-01 §4)
@@ -35,7 +36,8 @@ trained clinical laboratory professionals only**, in an ISO 15189-accredited lab
 3. **Screening vs diagnosis** — NIPT and carrier-screening results are screening; at-risk findings require confirmatory diagnostic testing.
 4. **Inferred genotypes** — NIPT fetal genotype and PGT embryo haplotype are inferred, not observed; **check the QC signals** (fetal fraction & CI, informative-marker count, Mendel-error rate, recombination proximity) before trusting a call.
 5. **Validated scope only** — use only within the validated panels/assays/assemblies/populations (TF-11); use outside is off-label.
-6. **Not for** primary variant calling, somatic/oncology use, patient/home use, or non-accredited settings.
+6. **Sample identity & data integrity** — **review the Sample QC** (relatedness, sex, Mendelian consistency, maternal-lineage) to confirm sample identity and rule out sample swaps/contamination before sign-out — mandatory for family/trio and combined mtDNA/nuclear (mitochondrial) cases.
+7. **Not for** primary variant calling, somatic/oncology use, patient/home use, or non-accredited settings.
 
 ## 4. Instructions for safe use (per application)
 ‹Step-by-step operating instructions per application, referencing the in-app user guide.
@@ -45,6 +47,7 @@ analysis, and **how to interpret each QC/warning signal and what to do when it f
 - PGT — see [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md); read informative markers, Mendel errors, recombination near ROI, "uninformative" results, donor-family limits.
 - Carrier screening — couple-wise at-risk interpretation; reportable-variant confirmation.
 - Rare-disorder — multi-data-type review (SNV/SV/repeat/Paraphase/mtDNA); ACMG classification is overridable.
+- Mitochondrial (ONT adaptive sampling) — review the complete mtDNA (heteroplasmy %, maternal transmission, haplogroup) **and** the nuclear mito-gene panel together; **review the Sample QC for maternal-lineage/sample-swap integrity** before sign-out.
 
 ## 5. Interpretation of results & residual risks
 Outputs are candidates/pre-evaluations with QC. Residual risks the user must be aware of are

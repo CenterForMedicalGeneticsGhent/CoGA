@@ -18,7 +18,7 @@
 | A1 | Exact legal manufacturer name & address (CMGG / UZ Gent) for the declaration | — |
 | A2 | BELAC ISO 15189 accreditation number and the relevant scope reference | — |
 | A3 | Named responsible persons: device owner, quality/RA lead, lab director, (Art. 15 PRRC-equivalent if used) | — |
-| A4 | Confirm device scope: **one device, four applications** (recommended) vs separate files | — |
+| A4 | Confirm device scope: **one device, five applications** (recommended) vs separate files | — |
 | A5 | Confirm IVDR Annex VIII risk class to state for transparency (expected Class C) | — |
 | A6 | Confirm Belgian in-house transitional dates & any national provisions with FAMHP | — |
 | A7 | Where will the public Art. 5(5)(f) declaration be published? | — |
@@ -32,6 +32,7 @@
 | B4 | PGT: the exact claims for aneuploidy resolution and structural-variant size (≥10 Mb) | — |
 | B5 | Rare-disorder: proband-only and/or trio/family modes in scope? | — |
 | B6 | Supported reference assemblies (e.g. GRCh38 only?) | — |
+| B7 | Mitochondrial (ONT adaptive sampling): nuclear mito-gene panel & version source; proband-only vs trio/maternal modes; single- vs multi-tissue heteroplasmy scope | — |
 
 ## C. Performance evaluation → TF-10, TF-11
 | # | Question | Answer |
@@ -40,6 +41,7 @@
 | C2 | PGT (100 embryos): comparator (SNP-array / current PGT method) + confirmatory source; acceptance thresholds; aneuploidy & SV detection-limit claims | — |
 | C3 | WGS trios (30): comparator/established-diagnosis source; per-data-type acceptance | — |
 | C4 | Monogenic NIPT (30): comparator/known-fetal-genotype source; FF agreement tolerance; concordance threshold | — |
+| C4b | Mitochondrial (ONT adaptive sampling): **validation N**; comparator method(s) for mtDNA + nuclear; heteroplasmy-agreement tolerance; tissue scope | — |
 | C5 | Per application: prospective vs retrospective; consecutive vs enriched-for-positives case selection | — |
 | C6 | Will an analytical baseline run against a reference material (GIAB/GeT-RM) be included? | — |
 | C7 | PMPF: ongoing concordance sampling frequency & sample size per application | — |

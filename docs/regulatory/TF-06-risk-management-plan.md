@@ -19,7 +19,7 @@
 
 ## 1. Scope
 
-All four clinical applications of CoGA (TF-01) and the full software lifecycle (development,
+All five clinical applications of CoGA (TF-01) and the full software lifecycle (development,
 release, clinical use, change, decommissioning). Upstream wet-lab/bioinformatics risks are
 **out of scope** here (covered by their own validation) **except** at the interface: CoGA's
 assumptions about, and handling of, its inputs.
@@ -72,6 +72,7 @@ These are live and serve as risk controls; they are cited from the RMF:
 - Reproducibility & integrity: version manifest, per-classification evidence snapshot, evidence-drift detection, immutable clinical audit, content-hashed frozen sign-out, drift-gated sign-out, server-side score recompute. ([clinical-traceability.md](../clinical-traceability.md))
 - Access & accountability: project-scoped RBAC, admin-gated mutations, append-only access audit, refuse-to-start on default secrets. ([security-posture.md](../security-posture.md))
 - Analytic QC surfaced to the user: NIPT fetal-fraction CI + category-8 false-negative signal; PGT Mendel-error rate, informative-marker counts, recombination-proximity warnings, safe "uninformative" fallback, staleness-guarded haplotype precompute. ([monogenic-nipt.md](../monogenic-nipt.md), [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md))
+- **Sample identity & integrity:** the **Sample QC module** (relatedness, sex check, Mendelian consistency, heterozygosity ratio, per-mode variant counts) reviewed before sign-out to detect sample swaps/contamination/data-integrity issues — the explicit control for H4. (`sample_integrity_service`; REQ-QC-001/002; `test_sample_integrity_qc.py`)
 
 ## 6. Principal hazards (RMF seed)
 
@@ -83,7 +84,7 @@ control, residual risk, and V&V reference.
 | H1 | **Missed pathogenic variant** (over-aggressive filter; variant dropped by QUAL/artifact/frequency filter) | All | S4–S5 | Filter funnels with drop counts; configurable, reviewable filters; verification of filter logic (TF-09); IFU on filter limitations |
 | H2 | **False-positive / mis-prioritized variant** drives wrong conclusion | All | S3–S4 | ACMG decision support overridable; review/sign-out; internal/external frequency context |
 | H3 | **Wrong ACMG class** from incorrect criterion auto-positioning | All | S3–S4 | Overridable criteria, server recompute, evidence snapshot, drift surfacing; classifier verification vs reference set (TF-10/11) |
-| H4 | **Sample/pedigree swap or wrong inheritance model** → wrong segregation | PGT, WGS, NIPT | S5 | Mendel-error rate QC; pedigree-aware checks; **🔲 strengthen**: explicit sample-identity/QC gate |
+| H4 | **Sample/pedigree swap, contamination or wrong inheritance model** → wrong segregation/interpretation | PGT, WGS, NIPT, mito (3.5) | S5 | **Sample QC module** — relatedness, sex check, Mendelian consistency, heterozygosity ratio, per-mode variant counts (`sample_integrity_service`; family Sample-QC view; REQ-QC-001/002) — **mandatory review before sign-out** (TF-01 §4 cond. 6); per-child Mendel-error rate; mtDNA maternal-haplogroup consistency (3.5); verified by `test_sample_integrity_qc.py` |
 | H5 | **Wrong embryo classification** (recombination near ROI, sparse informative markers, mis-coloured relative) | PGT | S5 | Recombination-aware blocks, raw-marker overlay, informative-marker count, "uninformative" safe default, donor-side greying; verification on 100-embryo concordance (TF-10) |
 | H6 | **Incorrect fetal-fraction estimate** → mis-categorized fetal genotype | NIPT | S4–S5 | Cat-7 estimator with CI + N sites, category-8 dropout signal, external-FF disagreement flag; verification on 30-sample concordance (TF-10) |
 | H7 | **Missed/incorrect aneuploidy or large SV** | PGT | S4–S5 | SV/segment tracks; **define detection thresholds & verify** (>10 Mb claim) in TF-10 |
@@ -92,6 +93,7 @@ control, residual risk, and V&V reference.
 | H10 | **Use error** — analyst misreads a QC warning / signs out wrong candidate | All | S4–S5 | Usability engineering (TF-12); IFU; UI alerts; training under ISO 15189 competency |
 | H11 | **Unauthorized access / data integrity / confidentiality breach** (PHI) | All | S3–S4 | RBAC, audit, encryption/TLS (deployment open items, [security-posture](../security-posture.md)); TF-13, TF-14 |
 | H12 | **Wrong assembly / off-scope panel/assay used** | All | S4 | Assembly-scoped storage; **🔲 add explicit off-scope guard**; IFU |
+| H13 | **Incorrect mtDNA heteroplasmy / maternal-inheritance interpretation** | mito (3.5) | S4 | Heteroplasmy quantification + maternal-transmission logic with QC; Sample QC for maternal-lineage integrity (H4); ACMG review/sign-out; verification in TF-10 (`test_mitochondrial_analysis.py`) |
 
 ## 7. Residual risk & benefit-risk
 

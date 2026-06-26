@@ -25,8 +25,9 @@
 ## 2. Intended purpose
 
 See [TF-01 Intended Purpose Statement](TF-01-intended-purpose.md). CoGA is decision-support
-software for genomic variant interpretation across four clinical applications (monogenic
-NIPT, expanded carrier screening, PGT, rare-disorder diagnostics).
+software for genomic variant interpretation across five clinical applications (monogenic
+NIPT, expanded carrier screening, PGT, rare-disorder diagnostics, and combined mtDNA +
+nuclear mitochondrial-disease testing from ONT long-read adaptive sampling).
 
 ## 3. Device boundary
 
@@ -59,11 +60,11 @@ these upstream modules are captured per family and frozen into the report
 
 | Input | Description | Used by |
 | --- | --- | --- |
-| Annotated VCF (SNV/indel) | Single- or multi-sample, with VEP/ClinVar/gnomAD/dbNSFP/SpliceAI annotations; site QUAL and per-call GT/DP/AF/AD | All applications |
+| Annotated VCF (SNV/indel) | Single- or multi-sample, with VEP/ClinVar/gnomAD/dbNSFP/SpliceAI annotations; site QUAL and per-call GT/DP/AF/AD. For the mitochondrial app (3.5) this includes the nuclear mito-gene panel from the ONT adaptive-sampling run. | All applications |
 | Structural-variant VCF | SV calls | PGT (large SV), rare-disorder |
 | Interval tracks | Coverage, segments, copy-number, APCD, haplotype-lineage, in BED-like form | PGT (aneuploidy/SV/coverage), NIPT (coverage), rare-disorder |
 | Phased/imputed markers | Per-site phased genotypes for haplotype segregation | PGT |
-| Repeat expansions (TRGT), Paraphase, mtDNA results | Per-sample specialized caller outputs | Rare-disorder |
+| Repeat expansions (TRGT), Paraphase, mtDNA results | Per-sample specialized caller outputs; the **complete-mtDNA** call set from ONT adaptive sampling drives the mitochondrial app | Rare-disorder, mitochondrial (3.5) |
 | Pedigree / family metadata | Roles, parentage, sex, affected/carrier status, ROI, inheritance model, assay tags | All |
 | Reference data | Assembly, gene/transcript reference, ClinVar/gnomAD/GenCC/PanelApp/HPO/Monarch, clinical-CNV catalogue | All |
 

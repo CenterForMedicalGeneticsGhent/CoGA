@@ -29,6 +29,7 @@
 | Expanded carrier screening (BeGECS) | Couples/individuals in the **Belgian Expanded Genetic Carrier Screening** programme, on **long-read** sequencing | Carrier interpretation over the BeGECS gene set on long-read data, with couple-wise at-risk pairing, integrated with CMGG's validated long-read workflow. |
 | PGT (shallow WGS) | Couples / single-parent-plus-donor families in PGT | Imputation-based **haplotype segregation** + **direct mutation detection** + **simultaneous aneuploidy** + **large (>10 Mb) SV** read from shallow WGS, with embryo-anchored and donor pedigrees — an integrated combination no single CE-IVD product provides. |
 | Rare-disorder diagnostics | Patients with suspected rare Mendelian disease, **comprehensive long-read** sequencing | Unified review of SNV/indel, SV, repeat expansions (TRGT), Paraphase, and mtDNA from one long-read genome, with HPO/pedigree-aware prioritization and semi-automatic ACMG/AMP classification. |
+| Mitochondrial-disease testing (ONT adaptive sampling) | Patients with suspected mitochondrial disease (± mother/family) | **Joint interpretation of the complete mtDNA *and* the nuclear mito-gene panel** produced in one ONT long-read **adaptive-sampling** run — mtDNA heteroplasmy + maternal-transmission analysis alongside nuclear small-variant/SV review, in a single workspace with integrated Sample-QC sample-swap/lineage checks. No CE-IVD product interprets both genomes from this combined adaptive-sampling assay in CMGG's configuration. |
 
 ## 2. Market survey of candidate CE-marked devices
 
@@ -40,11 +41,12 @@
 | PGT-dedicated software | ‹…› | Partial: PGT-A or PGT-M | Typically array/SNP- or targeted-based; do not combine shallow-WGS imputation haplotyping **with** simultaneous aneuploidy **and** >10 Mb SV in CMGG's configuration. |
 | NIPT software | ‹…› | Partial: aneuploidy NIPT | Aneuploidy-focused; do not perform single-gene fetal-fraction-aware zygosity inference from a two-sample cfDNA/paternal VCF. |
 | Carrier-screening pipelines | ‹…› | Partial | Not aligned to the BeGECS panel on long-read, nor to CMGG's couple-wise reporting. |
+| Mitochondrial-disease panels / mtDNA tools | ‹…› | Partial: mtDNA *or* nuclear, separately | Typically analyse mtDNA and the nuclear mito-genes as separate assays/tools; do not interpret both from one ONT adaptive-sampling run with integrated heteroplasmy + maternal-lineage Sample-QC in CMGG's configuration. |
 
 ## 3. Equivalence conclusion
 
 No single CE-marked IVD device, nor a practical combination of them, meets the integrated,
-locally-validated needs of the four CMGG applications **at the appropriate level of
+locally-validated needs of the five CMGG applications **at the appropriate level of
 performance**, because: (a) each application is tightly coupled to CMGG's separately
 validated and accredited upstream workflows and their specific outputs (APCD/segment
 tracks, imputed/phased markers, two-sample cfDNA VCFs); (b) several analyses (monogenic-NIPT
