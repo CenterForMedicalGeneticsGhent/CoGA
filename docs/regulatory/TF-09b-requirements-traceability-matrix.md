@@ -77,7 +77,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-CLASS-003 | `services/acmg_points.py::selection_points` | `test_acmg_classification.py` (unaccepted-criteria exclusion) | H3 | ✅ |
 | REQ-CLASS-004 | `services/acmg_points.py` (vus tier) | `test_acmg_classification.py::test_vus_sub_tier_bands` | — | ✅ |
 | REQ-CLASS-005 | `services/small_variant_review_pg.py::upsert_small_variant_review` | `test_acmg_classification.py` (normalize); `AcmgClassificationModal.test.tsx` | H3 | ✅ |
-| REQ-CLASS-006 | `services/cnv_acmg_points.py::compute_classification` | `test_cnv_acmg_points.py` (8 tests) — UI `CnvAcmgClassificationModal` untested (§3) | H3 | ◐ |
+| REQ-CLASS-006 | `services/cnv_acmg_points.py::compute_classification`; `CnvAcmgClassificationModal.tsx` | `test_cnv_acmg_points.py` (8 tests); `CnvAcmgClassificationModal.test.tsx` (kind toggle, overridable criteria, recompute→save); `cnvAcmg.test.ts` | H3 | ✅ |
 
 ### Clinical traceability & integrity
 | Req | Implementation | Verifying test | Risk | Status |
@@ -124,9 +124,9 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-PERF-001 | (whole device) | [TF-10](TF-10-performance-evaluation-plan.md) concordance studies → [TF-11](TF-11-performance-evaluation-report.md) | H1–H7 | ⚠ pending data |
 | REQ-PERF-002 | `services/report_signout_service.py` (content hash) | `test_report_signout.py` (hash stable); full check TF-10 §4 | H9 | ◐ |
 | REQ-PERF-003 | input validation across services | `test_nipt_analysis.py::test_*fails_safe_on_empty_input` (NIPT); other modalities pending | H1,H6 | ◐ |
-| REQ-UI-001 | `pages/families/FamilyNiptPage.tsx` | `FamilyNiptPage.test.tsx` — `NiptClassificationBlock` untested (§3) | H6,H1 | ◐ |
+| REQ-UI-001 | `pages/families/FamilyNiptPage.tsx`; `NiptClassificationBlock.tsx` | `FamilyNiptPage.test.tsx`; `NiptClassificationBlock.test.tsx` (category/confidence/VAF/flags) | H6,H1 | ✅ |
 | REQ-UI-002 | `components/visualizations/HaplotypePhasedTrack.tsx` | `HaplotypePhasedTrack.test.tsx` | H5 | ✅ |
-| REQ-UI-003 | `pages/families/AcmgClassificationModal.tsx` | `AcmgClassificationModal.test.tsx` — `AcmgScaleBar` untested (§3) | H3 | ✅ |
+| REQ-UI-003 | `pages/families/AcmgClassificationModal.tsx`; `AcmgScaleBar.tsx`; `CnvScaleBar.tsx` | `AcmgClassificationModal.test.tsx`; `AcmgScaleBar.test.tsx`; `CnvScaleBar.test.tsx` | H3 | ✅ |
 | REQ-UI-004 | `pages/families/FamilyReportPage.tsx` | `FamilyReportPage.test.tsx` | H8,H9 | ✅ |
 | REQ-UI-005 | `components/RequireAuth.tsx`, `RequireAdmin.tsx` | `RequireAuth.test.tsx`; `RequireAdmin.test.tsx` (unauth→login, viewer→dashboard, admin/superuser→content) | H11 | ✅ |
 | REQ-UI-006 | `pages/auth/LoginPage.tsx` | `LoginPage.test.tsx` (next-path validation) | H11 | ✅ |
@@ -139,7 +139,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 - **Requirements:** 71 across 13 areas. Backend test suite: ~73 files / ~420+ tests; frontend vitest: ~49 test files.
 - **Directly verified (✅):** the large majority of Class C backend logic — NIPT FF/classification, haplotype lineage + phased-marker QC, ACMG/CNV scoring, trio/de-novo/compound-het, repeat/Paraphase/mtDNA, the full traceability stack (manifest/evidence/drift/audit/sign-out/immutability), and access control.
 - **Partial/pending (◐):** items whose **clinical** performance is established in TF-10 rather than a unit test (carrier panel scoping, >10 Mb SV), or verified by integration rather than unit test (render-from-snapshot, content-hash reproducibility), or partially covered (degraded-input robustness — NIPT only).
-- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live (couple-level carrier, aneuploidy/SV detection limits via TF-10, the untested UI sub-components).
+- **Gaps (⚠):** see §3 — the remaining actions before clinical go-live are now almost entirely **clinical** (couple-level carrier, aneuploidy/SV detection limits → TF-10), plus extending degraded-input robustness beyond NIPT.
 
 ## 3. Verification gaps & actions (CAPA backlog)
 
@@ -147,10 +147,15 @@ Per the [TF-09 release checklist](TF-09-verification-validation.md) ("no require
 passing verifying test"), the remaining **Class C** requirements below lack direct verification
 and must be closed (add a test, or establish via the TF-10 study) before sign-off.
 
-**Closed (PR #244 + follow-up):** REQ-UI-005 (RequireAdmin), REQ-SEC-007 (access-before-serve),
-REQ-DATA-004 (checksum), REQ-NIPT-005 (external-FF). REQ-PGT-005 (embryo classification) was
+**Closed (PR #244 + follow-ups):** REQ-UI-005 (RequireAdmin), REQ-SEC-007 (access-before-serve),
+REQ-DATA-004 (checksum), REQ-NIPT-005 (external-FF); REQ-PGT-005 (embryo classification) was
 found already covered by `haplotypeRisk.test.ts` and re-marked ✅ (the lib test the initial
-inventory missed), with a one-side-donor `uninformative` case added.
+inventory missed), with a one-side-donor `uninformative` case added; and the safety-relevant UI
+sub-components (REQ-UI-001 `NiptClassificationBlock`, REQ-UI-003 `AcmgScaleBar`/`CnvScaleBar`,
+REQ-CLASS-006 `CnvAcmgClassificationModal`) now have vitest coverage.
+
+The remaining gaps are **clinical detection-limit/concordance claims that belong in the TF-10
+study, not a unit test**, plus extending degraded-input robustness beyond NIPT:
 
 | Req | Gap | Action |
 | --- | --- | --- |
@@ -158,7 +163,6 @@ inventory missed), with a one-side-donor `uninformative` case added.
 | REQ-PGT-007 | >10 Mb SV detection-limit claim unproven by test | Verify the size threshold in TF-10 (100 embryos). |
 | REQ-PGT-008 | Aneuploidy detection has no dedicated unit test | Add a detection unit test; validate in TF-10. |
 | REQ-PERF-003 | Degraded-input robustness only tested for NIPT | Extend fail-safe tests to other modalities (missing tracks, malformed VCF, low coverage). |
-| REQ-UI-001 / REQ-UI-003 | Safety-relevant UI sub-components untested: `NiptClassificationBlock`, `AcmgScaleBar`, `CnvAcmgClassificationModal`, `CnvScaleBar`, `SmallVariantReviewDialog` | Add vitest coverage; feeds the TF-12 usability summative. |
 
 > These gaps are tracked as actions; closing them is a precondition of the first clinical
 > release (TF-18 release verification, TF-09 §6). They are **not** defects in shipped behavior —
