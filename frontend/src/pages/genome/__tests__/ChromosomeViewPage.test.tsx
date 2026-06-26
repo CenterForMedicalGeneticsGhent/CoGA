@@ -316,10 +316,15 @@ describe('ChromosomeViewPage', () => {
       .find((url) => url.startsWith('/chromosomes/GRCh38/'));
     expect(chromosomeCall).toBe('/chromosomes/GRCh38/MT');
 
-    const availabilityCall = (api.get as unknown as Mock).mock.calls
-      .map(([url]) => String(url))
-      .find((url) => url.startsWith('/families/F1/track-availability?'));
-    expect(availabilityCall).toContain('chrom=MT');
+    // The track-availability request can fire after the workspace first renders
+    // (separate query), so poll for it rather than reading mock.calls once — this
+    // was an intermittent CI failure (availabilityCall undefined under load).
+    await waitFor(() => {
+      const availabilityCall = (api.get as unknown as Mock).mock.calls
+        .map(([url]) => String(url))
+        .find((url) => url.startsWith('/families/F1/track-availability?'));
+      expect(availabilityCall).toContain('chrom=MT');
+    });
 
     const lastWorkspaceProps = workspaceSpy.mock.calls.at(-1)?.[0];
     expect(lastWorkspaceProps.chrom).toBe('MT');
