@@ -52,3 +52,26 @@ def test_audit_immutable_schema_file_parses_into_three_statements() -> None:
     kinds = [s.split()[0].upper() for s in stmts]
     assert kinds == ["CREATE", "DROP", "CREATE"]
     assert any("LANGUAGE plpgsql" in s for s in stmts)
+
+
+def test_project_scoped_tag_migration_has_no_destructive_backfill_update() -> None:
+    # P0-1: init_postgres_schema() replays every statement on every restart (no
+    # migration ledger), so a one-shot UPDATE normalizing rows back to
+    # scope='global'/project_id=NULL would silently clobber every legitimately created
+    # project-scoped tag on each boot. The migration must contain no such UPDATE; the
+    # additive ALTERs + column DEFAULT 'global' already cover fresh DBs.
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "db" / "schema" / "postgres" / "006_project_scoped_variant_tags.sql"
+    )
+    stmts = _split_sql_script(path.read_text())
+    kinds = [s.split()[0].upper() for s in stmts]
+    assert "UPDATE" not in kinds
+    joined = "\n".join(stmts)
+    # The additive/idempotent pieces must survive the fix.
+    assert "ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'global'" in joined
+    assert "small_variant_tag_definitions_scope_check" in joined
+    assert "small_variant_tag_definitions_scope_project_check" in joined
+    assert (
+        "CREATE TABLE IF NOT EXISTS small_variant_tag_definition_project_links" in joined
+    )

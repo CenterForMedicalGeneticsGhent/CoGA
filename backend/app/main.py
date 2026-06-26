@@ -148,7 +148,12 @@ def _docs_kwargs() -> dict[str, str | None]:
     return {"docs_url": None, "redoc_url": None, "openapi_url": None}
 
 
-app = FastAPI(lifespan=lifespan, **_docs_kwargs())
+app = FastAPI(
+    title="CoGA",
+    version=settings.app_version,
+    lifespan=lifespan,
+    **_docs_kwargs(),
+)
 configure_json_logging()
 
 app.add_middleware(

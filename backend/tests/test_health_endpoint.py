@@ -54,6 +54,29 @@ def test_hsts_absent_by_default_present_when_enabled(monkeypatch) -> None:
         app.state.skip_startup_tasks = False
 
 
+def test_version_endpoint_reports_build_identity() -> None:
+    app.state.skip_startup_tasks = True
+    try:
+        with TestClient(app) as client:
+            # /health stays EXACTLY {"status": "ok"} — /version is a separate endpoint,
+            # so the liveness/healthcheck contract is untouched.
+            assert client.get("/api/health").json() == {"status": "ok"}
+
+            resp = client.get("/api/version")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert set(body) == {"version", "git_sha"}
+            assert body["version"] == settings.app_version
+            assert body["git_sha"] == settings.git_sha
+    finally:
+        app.state.skip_startup_tasks = False
+
+
+def test_fastapi_app_version_is_wired_from_settings() -> None:
+    # version= is threaded into FastAPI(...), so OpenAPI/docs report the build identity.
+    assert app.version == settings.app_version
+
+
 def test_openapi_route_available_in_development_env() -> None:
     # APP_ENV=test is a development env, so the interactive docs / OpenAPI HTTP routes
     # are exposed (the enabled branch of _docs_kwargs, end to end).

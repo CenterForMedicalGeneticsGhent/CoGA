@@ -23,6 +23,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from .annotation_manifest_service import get_family_annotation_manifest
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
@@ -90,10 +91,23 @@ async def build_report_snapshot(
         "family_id": context.family_id,
         "assembly": manifest.get("assembly"),
         "modules": manifest.get("modules", []),
+        # Build identity of the software that produced this snapshot, frozen into the
+        # content hash so a signed report is bound to the exact code that made it.
+        # These are build-time constants (no per-call/runtime-varying value), so the
+        # hash stays deterministic for identical clinical content.
+        "software": {"version": settings.app_version, "git_sha": settings.git_sha},
         "drift": {
             "checked": drift["checked"],
             "drifted_count": drift["drifted_count"],
-            "drifted": drift["drifted"],
+            # The live drift endpoint orders drifted rows by updated_at (non-unique),
+            # so the list order is non-deterministic on ties. Sort by the unique,
+            # stable variant_id here so the hashed snapshot (content_hash) is
+            # reproducible for identical content; json.dumps(sort_keys=True) canonicalizes
+            # dict keys but never list-element order. Scoped to the sign-out/hash path
+            # only — the endpoint keeps its most-recent-first display order.
+            "drifted": sorted(
+                drift["drifted"], key=lambda item: item.get("variant_id") or ""
+            ),
         },
         "reported_variants": reported,
     }
@@ -116,6 +130,8 @@ def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
         "signed_out_by": row["signed_out_by"],
         "signed_out_at": row["signed_out_at"],
         "content_hash": row["content_hash"],
+        "software_version": row.get("software_version"),
+        "git_sha": row.get("git_sha"),
         "snapshot": row.get("snapshot"),
     }
 
@@ -196,6 +212,8 @@ async def sign_out_report(
         after={
             "version": version,
             "content_hash": content_hash,
+            "software_version": snapshot_body["software"]["version"],
+            "git_sha": snapshot_body["software"]["git_sha"],
             "reported_count": len(snapshot_body["reported_variants"]),
             "drifted_count": drifted_count,
         },
@@ -206,6 +224,10 @@ async def sign_out_report(
         "signed_out_by": actor,
         "signed_out_at": now,
         "content_hash": content_hash,
+        # Surface the frozen identity at top level so the POST response matches the
+        # GET list/detail contract (which extracts it from the JSONB snapshot).
+        "software_version": snapshot_body["software"]["version"],
+        "git_sha": snapshot_body["software"]["git_sha"],
         "snapshot": snapshot,
     }
 
@@ -224,7 +246,9 @@ async def list_report_signouts(
         await session.execute(
             text(
                 """
-                SELECT version, signed_out_by, signed_out_at, content_hash
+                SELECT version, signed_out_by, signed_out_at, content_hash,
+                       snapshot->'software'->>'version' AS software_version,
+                       snapshot->'software'->>'git_sha'  AS git_sha
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid)
                 ORDER BY version DESC
@@ -256,7 +280,9 @@ async def get_report_signout(
         await session.execute(
             text(
                 """
-                SELECT version, signed_out_by, signed_out_at, content_hash, snapshot
+                SELECT version, signed_out_by, signed_out_at, content_hash, snapshot,
+                       snapshot->'software'->>'version' AS software_version,
+                       snapshot->'software'->>'git_sha'  AS git_sha
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid) AND version = :version
                 """

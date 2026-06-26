@@ -21,12 +21,14 @@ CHECK (
     OR (scope = 'project' AND project_id IS NOT NULL)
 );
 
-UPDATE small_variant_tag_definitions
-SET scope = 'global',
-    project_id = NULL
-WHERE scope IS DISTINCT FROM 'global'
-   OR project_id IS NOT NULL;
-
+-- NOTE (P0-1): a one-shot backfill `UPDATE small_variant_tag_definitions SET
+-- scope='global', project_id=NULL WHERE ...` was removed here. init_postgres_schema()
+-- replays every statement of every *.sql on every startup (no migration ledger), so
+-- that unconditional UPDATE reset every legitimately-created scope='project' tag back
+-- to global on each restart — recurring silent data loss. Fresh DBs need no backfill:
+-- the `scope` column is added WITH DEFAULT 'global' and project_id defaults to NULL, so
+-- any pre-existing rows are already global. Do not reintroduce a destructive data
+-- mutation in this idempotent-on-every-boot schema file.
 CREATE TABLE IF NOT EXISTS small_variant_tag_definition_project_links (
     tag_id UUID NOT NULL REFERENCES small_variant_tag_definitions(id) ON DELETE CASCADE,
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

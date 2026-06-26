@@ -18,6 +18,7 @@ from fastapi import APIRouter, Response, status
 from sqlalchemy import text
 
 from ..core.clickhouse import execute_clickhouse
+from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 
 router = APIRouter(tags=["health"])
@@ -27,6 +28,16 @@ router = APIRouter(tags=["health"])
 async def health() -> dict[str, str]:
     """Liveness: 200 once the app has started. Touches no dependencies."""
     return {"status": "ok"}
+
+
+@router.get("/version")
+async def version() -> dict[str, str]:
+    """Build identity of the running backend (public, no PHI).
+
+    The same ``app_version``/``git_sha`` settings are frozen into every signed
+    report's content hash, so this is the device identity, not a secret.
+    """
+    return {"version": settings.app_version, "git_sha": settings.git_sha}
 
 
 async def _postgres_ok() -> bool:
