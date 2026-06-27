@@ -10,13 +10,39 @@ This is the clinical *action* log; ``audit_log_pg`` remains the HTTP *access* lo
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .family_metadata_context import build_family_metadata_context
+from .hash_chain import ChainVerification, chain_row_hash, verify_chain
 from .metadata_service import CurrentUser
+
+
+def _clinical_chain_payload(row: dict[str, Any]) -> dict[str, Any]:
+    """The immutable content of a clinical_audit_event that the hash chain binds.
+
+    EXCLUDES the FK columns the append-only trigger lets the SET-NULL cascade mutate
+    (``actor_id`` / ``family_id``) and binds the denormalised identity (``actor`` /
+    ``family_identifier``) instead, so a legitimate account/family deletion does not
+    break the chain. ``created_at`` is rendered identically at write and verify time.
+    """
+    created_at = row["created_at"]
+    return {
+        "id": str(row["id"]),
+        "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
+        "family_identifier": row.get("family_identifier"),
+        "variant_id": row.get("variant_id"),
+        "actor": row.get("actor"),
+        "action": row.get("action"),
+        "summary": row.get("summary"),
+        "before": row.get("before"),
+        "after": row.get("after"),
+        "metadata": row.get("metadata"),
+    }
 
 _ACMG_CLASS_LABELS: dict[str, str] = {
     "acmg_class_5": "Pathogenic (class 5)",
@@ -121,20 +147,75 @@ async def record_clinical_event(
     after: Any = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
-    """Append one immutable clinical audit event (no commit — the caller owns the tx)."""
+    """Append one immutable clinical audit event (no commit — the caller owns the tx).
+
+    Hash-chained per family: under a per-family advisory lock we read the chain head,
+    compute this row's ``row_hash = H(prev_row_hash ‖ canonical(content))`` and store
+    it, so later deletion / reordering / editing of any event becomes detectable.
+    """
+    # Partition the chain on the IMMUTABLE family_identifier, not the mutable family_id
+    # (an ON DELETE SET NULL cascade nulls family_id, which would otherwise fold a
+    # deleted family's chain into the orphan partition and break verification).
+    family_key = family_identifier or "orphan"
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"cae:{family_key}"}
+    )
+    head = (
+        await session.execute(
+            text(
+                "SELECT created_at, row_hash FROM clinical_audit_events "
+                "WHERE family_identifier IS NOT DISTINCT FROM :family_identifier "
+                "ORDER BY created_at DESC, id DESC LIMIT 1"
+            ),
+            {"family_identifier": family_identifier},
+        )
+    ).mappings().first()
+
+    now = datetime.now(timezone.utc)
+    # Strictly-monotonic per family so the chain order is unambiguous even for events
+    # written in the same microsecond (the advisory lock serialises writers per family).
+    if head is not None and head["created_at"] is not None and now <= head["created_at"]:
+        created_at = head["created_at"] + timedelta(microseconds=1)
+    else:
+        created_at = now
+    prev_hash = head["row_hash"] if head is not None else None
+
+    event_id = uuid4()
+    meta = metadata or {}
+    row_hash = chain_row_hash(
+        prev_hash,
+        _clinical_chain_payload(
+            {
+                "id": event_id,
+                "created_at": created_at,
+                "family_identifier": family_identifier,
+                "variant_id": variant_id,
+                "actor": actor,
+                "action": action,
+                "summary": summary,
+                "before": before,
+                "after": after,
+                "metadata": meta,
+            }
+        ),
+    )
+
     await session.execute(
         text(
             """
             INSERT INTO clinical_audit_events
-                (family_id, family_identifier, variant_id, actor_id, actor,
-                 action, summary, before, after, metadata)
+                (id, created_at, family_id, family_identifier, variant_id, actor_id,
+                 actor, action, summary, before, after, metadata, row_hash, prev_hash)
             VALUES
-                (CAST(:family_id AS uuid), :family_identifier, :variant_id,
-                 CAST(:actor_id AS uuid), :actor, :action, :summary,
-                 CAST(:before AS jsonb), CAST(:after AS jsonb), CAST(:metadata AS jsonb))
+                (CAST(:id AS uuid), :created_at, CAST(:family_id AS uuid),
+                 :family_identifier, :variant_id, CAST(:actor_id AS uuid), :actor,
+                 :action, :summary, CAST(:before AS jsonb), CAST(:after AS jsonb),
+                 CAST(:metadata AS jsonb), :row_hash, :prev_hash)
             """
         ),
         {
+            "id": str(event_id),
+            "created_at": created_at,
             "family_id": family_uuid,
             "family_identifier": family_identifier,
             "variant_id": variant_id,
@@ -144,9 +225,36 @@ async def record_clinical_event(
             "summary": summary,
             "before": json.dumps(before) if before is not None else None,
             "after": json.dumps(after) if after is not None else None,
-            "metadata": json.dumps(metadata or {}),
+            "metadata": json.dumps(meta),
+            "row_hash": row_hash,
+            "prev_hash": prev_hash,
         },
     )
+
+
+async def verify_clinical_audit_chain(
+    session: AsyncSession, family_identifier: str | None
+) -> ChainVerification:
+    """Re-walk a family's clinical-audit hash chain and report whether it is intact.
+
+    Partitioned on the immutable ``family_identifier`` (not the mutable ``family_id``,
+    which an ``ON DELETE SET NULL`` cascade nulls), so a family's chain stays walkable
+    and intact after the family row itself is deleted.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id::text AS id, created_at, family_identifier, variant_id, "
+                "actor, action, summary, before, after, metadata, row_hash, prev_hash "
+                "FROM clinical_audit_events "
+                "WHERE family_identifier IS NOT DISTINCT FROM :family_identifier "
+                "AND row_hash IS NOT NULL "
+                "ORDER BY created_at ASC, id ASC"
+            ),
+            {"family_identifier": family_identifier},
+        )
+    ).mappings().all()
+    return verify_chain([dict(row) for row in rows], _clinical_chain_payload)
 
 
 async def record_review_changes(

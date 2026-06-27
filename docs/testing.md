@@ -105,6 +105,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/test_classification_drift.py](../backend/tests/test_classification_drift.py) | Evidence-snapshot build and drift detection across annotation versions. |
 | [backend/tests/test_clinical_audit.py](../backend/tests/test_clinical_audit.py) | Clinical-audit diff generation (classification/tags/notes), one event per change. |
 | [backend/tests/test_report_signout.py](../backend/tests/test_report_signout.py) | Sign-out canonical content-hash (order-independent), drift gate, versioning. |
+| [backend/tests/test_hash_chain.py](../backend/tests/test_hash_chain.py) | Tamper-evidence hash-chain primitives (P1-4): canonical determinism, genesis anchoring, and `verify_chain` flagging content tampering / deletion / reordering. |
 | [backend/tests/test_audit_log_pg.py](../backend/tests/test_audit_log_pg.py) | HTTP audit-log event JSONB serialization/storage. |
 | [tests/test_small_variant_review_pg.py](../tests/test_small_variant_review_pg.py) | Small-variant review persistence and payload serialization. |
 
@@ -190,6 +191,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/integration/test_app_startup.py](../backend/tests/integration/test_app_startup.py) | Boots the app against real Postgres + ClickHouse (schema init, admin seed) and asserts it serves. |
 | [backend/tests/integration/test_clickhouse_integrity.py](../backend/tests/integration/test_clickhouse_integrity.py) | Validates integrity-check SQL against a real ClickHouse server. |
 | [backend/tests/integration/test_append_only_triggers.py](../backend/tests/integration/test_append_only_triggers.py) | Fires the append-only triggers on `audit_log_events`/`clinical_audit_events`/`report_signouts`: UPDATE/DELETE rejected; the FK→NULL unlink carve-out allowed (and nothing else); signed report frozen. |
+| [backend/tests/integration/test_hash_chain_integration.py](../backend/tests/integration/test_hash_chain_integration.py) | End-to-end per-family hash chains (P1-4): real writers produce a chain `verify_*_chain` accepts; a privileged trigger-bypass UPDATE/DELETE is detected & localised; the FK→NULL carve-out does not break the chain. |
 
 ### API / config / infra / other
 | Test file | Purpose |

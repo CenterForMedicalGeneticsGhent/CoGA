@@ -11,6 +11,7 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user
 from ..schemas import (
     AuditLogPageOut,
+    IntegrityVerifyOut,
     ClickHouseVariantAssemblyListOut,
     ClickHouseVariantAssemblyStatusOut,
     ClickHouseVariantIntegrityOut,
@@ -45,6 +46,9 @@ from ..schemas import (
     UiEventPageOut,
 )
 from ..services.audit_log_pg import list_audit_log_events
+from ..services.clinical_audit_service import verify_clinical_audit_chain
+from ..services.family_metadata_context import build_family_metadata_context
+from ..services.report_signout_service import verify_report_signout_chain
 from ..services.ui_event_pg import list_ui_events
 from ..services.admin_service import (
     delete_family_data_by_type,
@@ -111,6 +115,54 @@ from ..services.small_variant_review_pg import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# Per-table verifiers for the append-only tamper-evidence hash chains (P1-4).
+_INTEGRITY_VERIFIERS = {
+    "report_signouts": verify_report_signout_chain,
+    "clinical_audit_events": verify_clinical_audit_chain,
+}
+
+
+@router.get("/integrity/verify", response_model=IntegrityVerifyOut)
+async def verify_integrity_chain(
+    table: str = Query(..., description="report_signouts | clinical_audit_events"),
+    family_id: str = Query(..., description="Family identifier whose chain to verify"),
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> IntegrityVerifyOut:
+    """Re-walk a family's per-family tamper-evidence hash chain and report integrity.
+
+    The operator/auditor tool behind the append-only chains: it recomputes each row's
+    hash and the prev-links, localising the first divergent row if any link is broken
+    (a deleted, reordered or edited row). ``verified: false`` is a finding, not an error.
+    """
+    verifier = _INTEGRITY_VERIFIERS.get(table)
+    if verifier is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown table '{table}' (expected one of {sorted(_INTEGRITY_VERIFIERS)})",
+        )
+    # The verifiers partition on the immutable family_identifier (it survives the family
+    # row's deletion). Resolve the live family for scope; if the family row is gone (e.g.
+    # deleted) its retained append-only chain is still verifiable by the passed identifier.
+    try:
+        context = await build_family_metadata_context(
+            session, family_identifier=family_id, user=user, project_id=None
+        )
+        family_identifier = context.family_id
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        family_identifier = family_id
+    result = await verifier(session, family_identifier)
+    return IntegrityVerifyOut(
+        table=table,
+        family_id=family_identifier,
+        verified=result.verified,
+        rows_checked=result.rows_checked,
+        first_bad_row=result.first_bad_row,
+        reason=result.reason,
+    )
 
 
 @router.get("/nipt/artifacts", response_model=List[NiptArtifactOut])
