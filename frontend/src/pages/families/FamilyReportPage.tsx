@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -262,11 +262,25 @@ const FamilyReportPage: React.FC = () => {
       (await api.get(`/families/${familyId}/report/sign-outs`)).data as ApiReportSignoutList,
   });
 
+  // Sample-QC gate dialog state (acknowledge-with-reason override of a failing QC).
+  const [qcGate, setQcGate] = useState<{
+    message: string;
+    acknowledgeDrift: boolean;
+    summary?: { overall_status?: string; messages?: string[] };
+  } | null>(null);
+  const [qcReason, setQcReason] = useState('');
+
   const signOut = useMutation({
-    mutationFn: async (acknowledgeDrift: boolean) =>
+    mutationFn: async (vars: {
+      acknowledgeDrift: boolean;
+      acknowledgeQc?: boolean;
+      qcReason?: string;
+    }) =>
       (
         await api.post(`/families/${familyId}/report/sign-out`, {
-          acknowledge_drift: acknowledgeDrift,
+          acknowledge_drift: vars.acknowledgeDrift,
+          acknowledge_qc: vars.acknowledgeQc ?? false,
+          qc_acknowledgement_reason: vars.qcReason,
         })
       ).data,
     onSuccess: () => {
@@ -275,22 +289,64 @@ const FamilyReportPage: React.FC = () => {
     },
   });
 
-  const handleSignOut = async () => {
+  const attemptSignOut = async (vars: {
+    acknowledgeDrift: boolean;
+    acknowledgeQc?: boolean;
+    qcReason?: string;
+  }) => {
     try {
-      await signOut.mutateAsync(false);
+      await signOut.mutateAsync(vars);
+      setQcGate(null);
+      setQcReason('');
     } catch (error) {
-      const response = (error as { response?: { status?: number; data?: { detail?: string } } })
-        .response;
-      if (response?.status === 409) {
-        const detail =
-          response.data?.detail || 'Evidence has changed since some classifications were made.';
-        if (window.confirm(`${detail}\n\nSign out anyway?`)) {
-          await signOut.mutateAsync(true);
-        }
-      } else {
+      const response = (
+        error as { response?: { status?: number; data?: { detail?: unknown } } }
+      ).response;
+      if (response?.status !== 409) {
         throw error;
       }
+      const detail = response.data?.detail;
+      // A failing Sample QC returns a structured detail (gate discriminator + a failure
+      // summary); it needs an acknowledge-WITH-REASON override, so open the dialog.
+      if (
+        detail &&
+        typeof detail === 'object' &&
+        (detail as { gate?: string }).gate === 'sample_qc'
+      ) {
+        const qc = detail as {
+          message?: string;
+          qc_summary?: { overall_status?: string; messages?: string[] };
+        };
+        setQcGate({
+          message: qc.message || 'Sample-integrity QC failed.',
+          summary: qc.qc_summary,
+          acknowledgeDrift: vars.acknowledgeDrift,
+        });
+        return;
+      }
+      // Evidence-drift gate (plain string detail) — acknowledge-only confirm (unchanged).
+      const message =
+        typeof detail === 'string'
+          ? detail
+          : 'Evidence has changed since some classifications were made.';
+      if (window.confirm(`${message}\n\nSign out anyway?`)) {
+        await attemptSignOut({ ...vars, acknowledgeDrift: true });
+      }
     }
+  };
+
+  const handleSignOut = () => attemptSignOut({ acknowledgeDrift: false, acknowledgeQc: false });
+
+  const submitQcAcknowledgement = async () => {
+    const reason = qcReason.trim();
+    if (!reason || !qcGate) {
+      return;
+    }
+    await attemptSignOut({
+      acknowledgeDrift: qcGate.acknowledgeDrift,
+      acknowledgeQc: true,
+      qcReason: reason,
+    });
   };
 
   const presentHpoTerms = useMemo(() => {
@@ -360,6 +416,64 @@ const FamilyReportPage: React.FC = () => {
         </div>
       </header>
 
+      {qcGate ? (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sample QC failed"
+        >
+          <div className="modal-surface surface-card report-qc-ack-modal">
+            <h2 className="report-paragraph">
+              <strong>Sample QC failed — possible sample / pedigree swap</strong>
+            </h2>
+            <p className="report-paragraph">
+              Sample-integrity QC status is{' '}
+              <strong>{qcGate.summary?.overall_status ?? 'fail'}</strong> (TF-06 H4). To sign out
+              anyway you must record a reason for overriding the failure — it is frozen into the
+              signed record.
+            </p>
+            {qcGate.summary?.messages?.length ? (
+              <ul>
+                {qcGate.summary.messages.map((message, index) => (
+                  <li key={index}>{message}</li>
+                ))}
+              </ul>
+            ) : null}
+            <label className="report-footer-label" htmlFor="qc-ack-reason">
+              Reason for overriding the QC failure (required)
+            </label>
+            <textarea
+              id="qc-ack-reason"
+              className="variant-review-textarea"
+              rows={3}
+              value={qcReason}
+              onChange={(event) => setQcReason(event.target.value)}
+            />
+            <div className="inline-actions modal-actions">
+              <button
+                type="button"
+                className="form-button"
+                onClick={() => {
+                  setQcGate(null);
+                  setQcReason('');
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="form-button"
+                disabled={!qcReason.trim() || signOut.isPending}
+                onClick={submitQcAcknowledgement}
+              >
+                Sign out anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {signouts?.latest ? (
         <section className="surface-card report-signout">
           <p className="report-signout-line">
@@ -378,6 +492,15 @@ const FamilyReportPage: React.FC = () => {
                   ? ` (${signouts.latest.git_sha.slice(0, 7)})`
                   : ''
               }`}
+            </p>
+          ) : null}
+          {signouts.latest.qc_status ? (
+            <p className="report-signout-qc">
+              <span className="report-footer-label">Sample QC</span>{' '}
+              {signouts.latest.qc_status}
+              {signouts.latest.qc_acknowledged ? (
+                <> — override acknowledged: {signouts.latest.qc_acknowledgement_reason}</>
+              ) : null}
             </p>
           ) : null}
         </section>

@@ -1180,6 +1180,10 @@ async def sign_out_family_report_endpoint(
             family_id=family_id,
             user=user,
             acknowledge_drift=bool(payload and payload.acknowledge_drift),
+            acknowledge_qc=bool(payload and payload.acknowledge_qc),
+            qc_acknowledgement_reason=(
+                payload.qc_acknowledgement_reason if payload else None
+            ),
             project_id=project_id,
         )
     )

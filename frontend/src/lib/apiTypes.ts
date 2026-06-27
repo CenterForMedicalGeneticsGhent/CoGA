@@ -395,6 +395,11 @@ export interface ApiReportSignout {
   // before version-binding shipped). Extracted from the frozen JSONB snapshot.
   software_version?: string | null;
   git_sha?: string | null;
+  // Frozen Sample-integrity QC verdict + override (null for sign-outs before the QC
+  // gate), surfaced as scalar fields from the JSONB snapshot for the report card.
+  qc_status?: string | null;
+  qc_acknowledged?: boolean | null;
+  qc_acknowledgement_reason?: string | null;
   snapshot?: Record<string, unknown> | null;
 }
 
