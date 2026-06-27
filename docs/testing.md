@@ -192,6 +192,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/integration/test_clickhouse_integrity.py](../backend/tests/integration/test_clickhouse_integrity.py) | Validates integrity-check SQL against a real ClickHouse server. |
 | [backend/tests/integration/test_append_only_triggers.py](../backend/tests/integration/test_append_only_triggers.py) | Fires the append-only triggers on `audit_log_events`/`clinical_audit_events`/`report_signouts`: UPDATE/DELETE rejected; the FK→NULL unlink carve-out allowed (and nothing else); signed report frozen. |
 | [backend/tests/integration/test_hash_chain_integration.py](../backend/tests/integration/test_hash_chain_integration.py) | End-to-end per-family hash chains (P1-4): real writers produce a chain `verify_*_chain` accepts; a privileged trigger-bypass UPDATE/DELETE is detected & localised; the FK→NULL carve-out does not break the chain. |
+| [backend/tests/integration/test_app_role_privileges.py](../backend/tests/integration/test_app_role_privileges.py) | P1-3 privilege separation: the restricted `coga_app` role may INSERT/SELECT the append-only tables (and delete users — the FK cascade still nulls the audit FK) but is denied UPDATE/DELETE and DISABLE TRIGGER on them. |
 
 ### API / config / infra / other
 | Test file | Purpose |
