@@ -89,7 +89,7 @@ verification or clinical validation pending (TF-10) · ⚠ verification gap (no 
 | REQ-TRACE-005 | `services/report_signout_service.py::sign_out_report`, `build_report_snapshot` | `test_report_signout.py::test_canonical_hash_is_stable_and_order_independent` | H9 | ✅ |
 | REQ-TRACE-006 | `services/report_signout_service.py` (drift gate) | `test_report_signout.py::test_sign_out_blocks_unacknowledged_drift`; `FamilyReportPage.test.tsx` | H8 | ✅ |
 | REQ-TRACE-007 | `services/report_signout_service.py::build_report_snapshot` | `FamilyReportPage.test.tsx` (render-from-snapshot) | H9 | ◐ |
-| REQ-TRACE-008 | Postgres append-only triggers (`029/032/033_*.sql`) | `integration/test_app_startup.py`; `test_audit_log_pg.py` | H9 | ✅ |
+| REQ-TRACE-008 | Postgres append-only triggers (`029/032/033_*.sql`) | `integration/test_append_only_triggers.py` (fires the triggers: UPDATE/DELETE rejected, FK→NULL carve-out allowed). Verified for the app's INSERT-only access path; owner-bypass hardening (non-owner runtime role) tracked under P1-3. | H9 | ✅ |
 
 ### Access control & security
 | Req | Implementation | Verifying test | Risk | Status |
