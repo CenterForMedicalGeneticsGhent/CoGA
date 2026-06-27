@@ -37,15 +37,16 @@ _UPDATE_SQL = {
 }
 
 
-async def _denied(sm, sql: str) -> None:
-    """A statement coga_app must NOT be allowed to run (permission / ownership error)."""
+async def _denied(sm, sql: str, expect: str) -> None:
+    """A statement coga_app must NOT be allowed to run; pin the exact refusal reason
+    (``permission denied`` from the REVOKE vs ``must be owner`` from DISABLE TRIGGER) so a
+    dropped REVOKE can't be masked by the ownership check still failing."""
     with pytest.raises(DBAPIError) as exc_info:
         async with sm() as session:
             await session.execute(text("SET LOCAL ROLE coga_app"))
             await session.execute(text(sql))
             await session.commit()
-    message = str(exc_info.value).lower()
-    assert "permission denied" in message or "must be owner" in message, message
+    assert expect in str(exc_info.value).lower(), str(exc_info.value)
 
 
 def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
@@ -60,29 +61,40 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
 
-            # Positive: coga_app may INSERT + SELECT an append-only table (no commit — the
-            # INSERT executing without a permission error is the assertion).
+            # Positive: coga_app may INSERT then read its own durable write back.
+            marker = f"p1-3-grant-{uuid4()}"
             async with sm() as s:
                 await s.execute(text("SET LOCAL ROLE coga_app"))
                 await s.execute(
                     text(
                         "INSERT INTO clinical_audit_events (actor, action, summary) "
-                        "VALUES ('p1-3', 'test', 'grant-check')"
-                    )
+                        "VALUES ('p1-3', 'test', :m)"
+                    ),
+                    {"m": marker},
                 )
-                await s.execute(text("SELECT 1 FROM clinical_audit_events LIMIT 1"))
+                await s.commit()
+            async with sm() as s:
+                await s.execute(text("SET LOCAL ROLE coga_app"))
+                found = (
+                    await s.execute(
+                        text("SELECT 1 FROM clinical_audit_events WHERE summary = :m"),
+                        {"m": marker},
+                    )
+                ).first()
+                assert found is not None  # coga_app's committed INSERT is readable by coga_app
 
-            # Negative: no UPDATE / DELETE / DISABLE TRIGGER on any append-only table.
+            # Negative: no UPDATE / DELETE (REVOKE → "permission denied") and no DISABLE
+            # TRIGGER (non-owner → "must be owner") on any append-only table.
             for table in _APPEND_ONLY:
-                await _denied(sm, _UPDATE_SQL[table])
-                await _denied(sm, f"DELETE FROM {table}")
-                await _denied(sm, f"ALTER TABLE {table} DISABLE TRIGGER USER")
+                await _denied(sm, _UPDATE_SQL[table], "permission denied")
+                await _denied(sm, f"DELETE FROM {table}", "permission denied")
+                await _denied(sm, f"ALTER TABLE {table} DISABLE TRIGGER USER", "must be owner")
 
-            # The ON DELETE SET NULL carve-out still works for coga_app: deleting a user
-            # nulls the audit FK without coga_app holding UPDATE on the append-only table,
-            # so account/family deletion keeps functioning under the restricted role.
+            # The ON DELETE SET NULL carve-out still works for coga_app on ALL THREE
+            # append-only tables: deleting a user nulls each table's user FK without
+            # coga_app holding UPDATE on them, so account/family deletion keeps functioning.
             label = f"p1-3-{uuid4()}"
-            async with sm() as s:  # set up as the owner
+            async with sm() as s:  # set up as the owner: one row per append-only table
                 fam = (
                     await s.execute(
                         text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"),
@@ -106,24 +118,50 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                     ),
                     {"f": fam, "u": uid},
                 )
+                await s.execute(
+                    text(
+                        "INSERT INTO audit_log_events (method, path, status_code, user_id) "
+                        "VALUES ('GET', :p, 200, CAST(:u AS uuid))"
+                    ),
+                    {"p": f"/p1-3-cascade-{label}", "u": uid},
+                )
+                await s.execute(
+                    text(
+                        "INSERT INTO report_signouts (family_id, family_identifier, version, "
+                        "signed_out_by, signed_out_by_id, content_hash, snapshot) VALUES "
+                        "(CAST(:f AS uuid), :fl, 1, 'x', CAST(:u AS uuid), 'deadbeef', '{}'::jsonb)"
+                    ),
+                    {"f": fam, "fl": label, "u": uid},
+                )
                 await s.commit()
-            async with sm() as s:  # as coga_app: the delete + cascade must succeed
+            async with sm() as s:  # as coga_app: the delete + 3-way cascade must succeed
                 await s.execute(text("SET LOCAL ROLE coga_app"))
                 await s.execute(
                     text("DELETE FROM users WHERE id = CAST(:u AS uuid)"), {"u": uid}
                 )
                 await s.commit()
-            async with sm() as s:  # the audit row survived, with actor_id nulled
-                row = (
+            async with sm() as s:  # every audit row survived, with its user FK nulled
+                cae = (
                     await s.execute(
-                        text(
-                            "SELECT actor_id FROM clinical_audit_events "
-                            "WHERE family_id = CAST(:f AS uuid)"
-                        ),
+                        text("SELECT actor_id FROM clinical_audit_events WHERE family_id = CAST(:f AS uuid)"),
                         {"f": fam},
                     )
                 ).first()
-                assert row is not None and row[0] is None, row
+                ale = (
+                    await s.execute(
+                        text("SELECT user_id FROM audit_log_events WHERE path = :p"),
+                        {"p": f"/p1-3-cascade-{label}"},
+                    )
+                ).first()
+                rso = (
+                    await s.execute(
+                        text("SELECT signed_out_by_id FROM report_signouts WHERE family_identifier = :fl"),
+                        {"fl": label},
+                    )
+                ).first()
+                assert cae is not None and cae[0] is None, cae
+                assert ale is not None and ale[0] is None, ale
+                assert rso is not None and rso[0] is None, rso
         finally:
             await close_postgres_engine()
 

@@ -31,7 +31,8 @@ tables or manage triggers.
 
 1. **Pick a secret.** Generate a strong password for `coga_app` and store it in the secret
    manager the deployment already uses (do **not** commit it). 
-2. **Enable login** (run once, as owner/superuser):
+2. **Enable login** (run once, as a role with the rights to do so — a superuser, or a role
+   with `CREATEROLE` and `ADMIN OPTION` on `coga_app`):
    ```sql
    ALTER ROLE coga_app WITH LOGIN PASSWORD '<from-secret-manager>';
    ```
@@ -55,13 +56,15 @@ tables or manage triggers.
 - The app boots, reads, and writes normally (sign-out, classification, audit all work),
   and **account/family deletion still works** (the `ON DELETE SET NULL` cascades do not need
   the runtime role to hold `UPDATE` on the append-only tables).
-- As `coga_app`, the forbidden operations are refused. Spot-check:
+- As `coga_app`, the forbidden operations are refused. The most faithful check is to
+  connect **directly as the `coga_app` login** (after step 2) and run them. (`SET ROLE
+  coga_app` from another session only works if that session is a superuser or a member of
+  `coga_app` — a non-superuser owner cannot `SET ROLE` into it.)
   ```sql
-  SET ROLE coga_app;
+  -- connected as coga_app:
   UPDATE clinical_audit_events SET summary = summary;          -- ERROR: permission denied
   DELETE FROM report_signouts;                                  -- ERROR: permission denied
   ALTER TABLE audit_log_events DISABLE TRIGGER USER;            -- ERROR: must be owner
-  RESET ROLE;
   ```
 - The automated proof is `backend/tests/integration/test_app_role_privileges.py`
   (CI `smoke` job), which asserts exactly these allow/deny outcomes plus the cascade.
