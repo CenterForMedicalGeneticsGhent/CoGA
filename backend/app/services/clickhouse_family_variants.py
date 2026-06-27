@@ -3941,7 +3941,12 @@ async def fetch_imputed_phased_genotypes(
                e.calls.sampleId AS sample_ids, e.calls.gt AS sample_gts
         FROM {entries_table} AS e
         WHERE {' AND '.join(where_clauses)}
-        ORDER BY e.pos
+        -- e.key is a unique per-variant tiebreaker so the LIMIT cutoff selects a fixed
+        -- set of sites even when several variants share a position. Without it, ties at
+        -- the truncation boundary resolve arbitrarily across executions, which would
+        -- make the sample-integrity QC metrics (and the frozen sign-out content hash
+        -- that includes them) non-reproducible for identical data.
+        ORDER BY e.pos, e.key
         LIMIT %(phased_limit)s
     """
     params["phased_limit"] = int(limit)

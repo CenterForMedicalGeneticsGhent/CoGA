@@ -419,9 +419,15 @@ class ClinicalAuditOut(BaseModel):
 
 
 class ReportSignoutRequest(BaseModel):
-    """Sign out the current report. Drift must be explicitly acknowledged."""
+    """Sign out the current report.
+
+    Evidence drift and a failing sample-integrity QC must each be explicitly
+    acknowledged; acknowledging a failing QC additionally requires a reason.
+    """
 
     acknowledge_drift: bool = False
+    acknowledge_qc: bool = False
+    qc_acknowledgement_reason: Optional[str] = None
 
 
 class ReportSignoutSummary(BaseModel):
@@ -433,6 +439,11 @@ class ReportSignoutSummary(BaseModel):
     # created before version-binding shipped). Extracted from the JSONB snapshot.
     software_version: Optional[str] = None
     git_sha: Optional[str] = None
+    # Frozen Sample-integrity QC verdict + override (NULL for sign-outs created before
+    # the QC gate). Extracted from the JSONB snapshot like the software identity.
+    qc_status: Optional[str] = None
+    qc_acknowledged: Optional[bool] = None
+    qc_acknowledgement_reason: Optional[str] = None
 
 
 class ReportSignoutDetail(ReportSignoutSummary):

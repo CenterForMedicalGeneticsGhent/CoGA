@@ -14,6 +14,7 @@ changed since it was made, the caller must explicitly acknowledge the drift.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -29,14 +30,49 @@ from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import build_family_metadata_context
 from .metadata_service import CurrentUser
+from .sample_integrity_qc import SampleIntegrityReport
+from .sample_integrity_service import get_family_sample_integrity_qc
 
 _REPORT_TAG = "report"
+
+# Sample-integrity QC statuses that BLOCK sign-out unless acknowledged with a reason.
+# Per clinical policy, only a hard "fail" (a detected sample/pedigree swap — TF-06 H4,
+# rated S5 catastrophic) blocks; "warn"/"skip" are frozen + surfaced but do not gate.
+_QC_BLOCKING_STATUSES = {"fail"}
 
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
     """SHA-256 over a canonical (sorted-key) JSON encoding — stable + tamper-evident."""
     encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _canonical_sample_qc(report: SampleIntegrityReport) -> dict[str, Any]:
+    """Deterministic dict of the Sample-integrity QC, for freezing into the snapshot.
+
+    The report is a pure function of the deterministically-ordered input genotypes
+    (counts/rates/inferred labels — no timestamps, no RNG), so ``dataclasses.asdict``
+    yields a structure that content-hashes reproducibly for identical clinical content.
+    """
+    return dataclasses.asdict(report)
+
+
+def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
+    """Compact summary of the concerning QC checks, for the 409 acknowledge prompt."""
+    messages: list[str] = []
+    for key in ("sex_checks", "relatedness_checks", "mendelian_checks"):
+        for check in qc.get(key) or []:
+            if check.get("status") in ("warn", "fail"):
+                messages.append(check.get("message") or "")
+    for key in ("paternity_check", "fetal_sex_check", "category_qc_check"):
+        check = qc.get(key)
+        if check and check.get("status") in ("warn", "fail"):
+            messages.append(check.get("message") or "")
+    return {
+        "overall_status": qc.get("overall_status"),
+        "application_label": qc.get("application_label"),
+        "messages": [m for m in messages if m],
+    }
 
 
 async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
@@ -86,6 +122,9 @@ async def build_report_snapshot(
     drift = await evaluate_classification_drift(
         session, family_id=family_id, user=user, project_id=project_id
     )
+    qc_report = await get_family_sample_integrity_qc(
+        session, family_id=family_id, user=user, project_id=project_id
+    )
     reported = await _reported_reviews(session, context.family_uuid)
     return {
         "family_id": context.family_id,
@@ -109,6 +148,10 @@ async def build_report_snapshot(
                 drift["drifted"], key=lambda item: item.get("variant_id") or ""
             ),
         },
+        # Sample-integrity QC (sample/pedigree-swap detection) frozen into the content
+        # hash so the signed record proves QC was run and exactly what it found. A pure
+        # function of the deterministically-ordered input genotypes, so it hashes stably.
+        "sample_qc": _canonical_sample_qc(qc_report),
         "reported_variants": reported,
     }
 
@@ -132,6 +175,9 @@ def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
         "content_hash": row["content_hash"],
         "software_version": row.get("software_version"),
         "git_sha": row.get("git_sha"),
+        "qc_status": row.get("qc_status"),
+        "qc_acknowledged": row.get("qc_acknowledged"),
+        "qc_acknowledgement_reason": row.get("qc_acknowledgement_reason"),
         "snapshot": row.get("snapshot"),
     }
 
@@ -142,6 +188,8 @@ async def sign_out_report(
     family_id: str,
     user: CurrentUser,
     acknowledge_drift: bool = False,
+    acknowledge_qc: bool = False,
+    qc_acknowledgement_reason: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
     context = await build_family_metadata_context(
@@ -161,6 +209,32 @@ async def sign_out_report(
             ),
         )
 
+    # Sample-QC gate (after the drift gate; each gate guards an independent concern and
+    # is acknowledged independently). Only a hard "fail" blocks (TF-06 H4 sample/pedigree
+    # swap, S5 catastrophic); acknowledging requires a non-empty reason, which — like the
+    # QC verdict itself — is frozen into the content hash below.
+    qc_status = snapshot_body["sample_qc"]["overall_status"]
+    qc_blocks = qc_status in _QC_BLOCKING_STATUSES
+    if qc_blocks and not acknowledge_qc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "gate": "sample_qc",
+                "message": (
+                    f"Sample-integrity QC status is '{qc_status}' (possible sample or "
+                    "pedigree swap — TF-06 H4). Resolve it, or acknowledge with a reason "
+                    "to sign out anyway."
+                ),
+                "qc_summary": _qc_failure_summary(snapshot_body["sample_qc"]),
+            },
+        )
+    qc_reason = (qc_acknowledgement_reason or "").strip()
+    if qc_blocks and acknowledge_qc and not qc_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="A reason is required to acknowledge a failing sample-integrity QC.",
+        )
+
     now = datetime.now(timezone.utc)
     version = await _next_version(session, context.family_uuid)
     actor = getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
@@ -171,6 +245,8 @@ async def sign_out_report(
         "generated_at": now.isoformat(),
         "signed_out_by": actor,
         "acknowledged_drift": bool(drifted_count) and acknowledge_drift,
+        "acknowledged_qc": qc_blocks and acknowledge_qc,
+        "qc_acknowledgement_reason": qc_reason if (qc_blocks and acknowledge_qc) else None,
     }
     content_hash = _canonical_hash(snapshot)
 
@@ -208,6 +284,7 @@ async def sign_out_report(
         summary=(
             f"Report signed out (v{version}) — {len(snapshot_body['reported_variants'])} "
             f"reported variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
+            f"{', QC override acknowledged' if snapshot['acknowledged_qc'] else ''}"
         ),
         after={
             "version": version,
@@ -216,6 +293,9 @@ async def sign_out_report(
             "git_sha": snapshot_body["software"]["git_sha"],
             "reported_count": len(snapshot_body["reported_variants"]),
             "drifted_count": drifted_count,
+            "qc_status": qc_status,
+            "acknowledged_qc": snapshot["acknowledged_qc"],
+            "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
         },
     )
     await session.commit()
@@ -248,7 +328,10 @@ async def list_report_signouts(
                 """
                 SELECT version, signed_out_by, signed_out_at, content_hash,
                        snapshot->'software'->>'version' AS software_version,
-                       snapshot->'software'->>'git_sha'  AS git_sha
+                       snapshot->'software'->>'git_sha'  AS git_sha,
+                       snapshot->'sample_qc'->>'overall_status' AS qc_status,
+                       (snapshot->>'acknowledged_qc')::boolean   AS qc_acknowledged,
+                       snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid)
                 ORDER BY version DESC
@@ -282,7 +365,10 @@ async def get_report_signout(
                 """
                 SELECT version, signed_out_by, signed_out_at, content_hash, snapshot,
                        snapshot->'software'->>'version' AS software_version,
-                       snapshot->'software'->>'git_sha'  AS git_sha
+                       snapshot->'software'->>'git_sha'  AS git_sha,
+                       snapshot->'sample_qc'->>'overall_status' AS qc_status,
+                       (snapshot->>'acknowledged_qc')::boolean   AS qc_acknowledged,
+                       snapshot->>'qc_acknowledgement_reason'    AS qc_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid) AND version = :version
                 """

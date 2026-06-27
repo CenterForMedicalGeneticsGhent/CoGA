@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -359,5 +359,127 @@ describe('FamilyReportPage', () => {
     // An unstamped build shows the version but suppresses the "(unknown)" parens.
     expect(await screen.findByText('CoGA 0.0.0+unknown')).toBeInTheDocument();
     expect(screen.queryByText(/unknown\)/)).not.toBeInTheDocument();
+  });
+
+  function mockUnsignedFamily() {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+  }
+
+  const QC_409 = {
+    response: {
+      status: 409,
+      data: {
+        detail: {
+          gate: 'sample_qc',
+          message: "Sample-integrity QC status is 'fail' (possible swap)",
+          qc_summary: {
+            overall_status: 'fail',
+            messages: ['Relatedness: FATHER-CHILD looks unrelated (kinship 0.01)'],
+          },
+        },
+      },
+    },
+  };
+
+  it('blocks sign-out on a failing Sample QC and requires a reason to override', async () => {
+    mockUnsignedFamily();
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      return posts.length === 1
+        ? Promise.reject(QC_409)
+        : Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+
+    // The failing QC opens the acknowledge-with-reason dialog with the failing summary.
+    expect(await screen.findByRole('dialog', { name: /Sample QC failed/ })).toBeInTheDocument();
+    expect(screen.getByText(/FATHER-CHILD looks unrelated/)).toBeInTheDocument();
+
+    // "Sign out anyway" is disabled until a non-empty reason is typed.
+    expect(screen.getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Reason for overriding/), {
+      target: { value: 'Repeat genotyping confirms identity' },
+    });
+    const overrideBtn = screen.getByRole('button', { name: /Sign out anyway/ });
+    expect(overrideBtn).toBeEnabled();
+    fireEvent.click(overrideBtn);
+
+    // The override re-posts with acknowledge_qc + the reason.
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1]).toMatchObject({
+      acknowledge_qc: true,
+      qc_acknowledgement_reason: 'Repeat genotyping confirms identity',
+    });
+  });
+
+  it('cancelling the QC override does not sign out', async () => {
+    mockUnsignedFamily();
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      return Promise.reject(QC_409);
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    await screen.findByRole('dialog', { name: /Sample QC failed/ });
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/ }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /Sample QC failed/ })).not.toBeInTheDocument(),
+    );
+    expect(posts).toHaveLength(1); // only the initial attempt; no override post
+  });
+
+  it('renders the frozen Sample QC status + override reason in the signed-out record', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            latest: {
+              version: 2,
+              signed_out_by: 'bjorn',
+              signed_out_at: '2026-06-25T10:00:00Z',
+              content_hash: 'abc123',
+              // Scalar fields the list endpoint actually returns (extracted from the
+              // frozen JSONB snapshot), not a nested `snapshot` object.
+              qc_status: 'fail',
+              qc_acknowledged: true,
+              qc_acknowledgement_reason: 'Repeat genotyping confirms identity',
+            },
+            signouts: [],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText(/Signed out — version 2/)).toBeInTheDocument();
+    expect(screen.getByText('Sample QC')).toBeInTheDocument();
+    expect(
+      screen.getByText(/override acknowledged: Repeat genotyping confirms identity/),
+    ).toBeInTheDocument();
   });
 });
