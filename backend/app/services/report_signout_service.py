@@ -15,8 +15,8 @@ changed since it was made, the caller must explicitly acknowledge the drift.
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,9 +29,12 @@ from .annotation_manifest_service import get_family_annotation_manifest
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import build_family_metadata_context
+from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .metadata_service import CurrentUser
 from .sample_integrity_qc import SampleIntegrityReport
 from .sample_integrity_service import get_family_sample_integrity_qc
+
+logger = logging.getLogger(__name__)
 
 _REPORT_TAG = "report"
 
@@ -43,8 +46,34 @@ _QC_BLOCKING_STATUSES = {"fail"}
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
     """SHA-256 over a canonical (sorted-key) JSON encoding — stable + tamper-evident."""
-    encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return canonical_hash(snapshot)
+
+
+def _as_snapshot(snapshot: Any) -> Any:
+    """The JSONB snapshot decodes to a dict via the asyncpg codec; guard against a
+    driver/serialisation change handing back the raw JSON string — which would make
+    every on-read content re-verification a false 'tampered' alarm on a signed report."""
+    if isinstance(snapshot, str):
+        return json.loads(snapshot)
+    return snapshot
+
+
+def _signout_chain_payload(row: dict[str, Any]) -> dict[str, Any]:
+    """Immutable identity a report_signouts row's hash chain binds. Excludes the FK
+    columns the SET-NULL carve-out may null (family_id/signed_out_by_id); content_hash
+    already binds the snapshot, so the snapshot itself is not re-serialised here."""
+    signed_out_at = row["signed_out_at"]
+    return {
+        "version": row["version"],
+        "content_hash": row["content_hash"],
+        "signed_out_at": (
+            signed_out_at.isoformat()
+            if hasattr(signed_out_at, "isoformat")
+            else str(signed_out_at)
+        ),
+        "signed_out_by": row["signed_out_by"],
+        "family_identifier": row.get("family_identifier"),
+    }
 
 
 def _canonical_sample_qc(report: SampleIntegrityReport) -> dict[str, Any]:
@@ -178,6 +207,7 @@ def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
         "qc_status": row.get("qc_status"),
         "qc_acknowledged": row.get("qc_acknowledged"),
         "qc_acknowledgement_reason": row.get("qc_acknowledgement_reason"),
+        "verified": row.get("verified"),
         "snapshot": row.get("snapshot"),
     }
 
@@ -235,6 +265,27 @@ async def sign_out_report(
             detail="A reason is required to acknowledge a failing sample-integrity QC.",
         )
 
+    # Per-family advisory lock: makes version selection + chain-head read + insert
+    # atomic for this family (also closes a latent version race). Transaction-scoped;
+    # released on the commit/rollback below.
+    # Partition the chain on the IMMUTABLE family_identifier (not the mutable family_id,
+    # which an ON DELETE SET NULL cascade nulls), so a deleted family's signed history
+    # stays verifiable. family_id↔family_identifier are 1:1 so version ordering is intact.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"rs:{context.family_id}"},
+    )
+    prev_hash = (
+        await session.execute(
+            text(
+                "SELECT row_hash FROM report_signouts "
+                "WHERE family_identifier IS NOT DISTINCT FROM :fident "
+                "ORDER BY version DESC LIMIT 1"
+            ),
+            {"fident": context.family_id},
+        )
+    ).scalar_one_or_none()
+
     now = datetime.now(timezone.utc)
     version = await _next_version(session, context.family_uuid)
     actor = getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
@@ -249,17 +300,29 @@ async def sign_out_report(
         "qc_acknowledgement_reason": qc_reason if (qc_blocks and acknowledge_qc) else None,
     }
     content_hash = _canonical_hash(snapshot)
+    row_hash = chain_row_hash(
+        prev_hash,
+        _signout_chain_payload(
+            {
+                "version": version,
+                "content_hash": content_hash,
+                "signed_out_at": now,
+                "signed_out_by": actor,
+                "family_identifier": context.family_id,
+            }
+        ),
+    )
 
     await session.execute(
         text(
             """
             INSERT INTO report_signouts
                 (family_id, family_identifier, version, signed_out_by, signed_out_by_id,
-                 signed_out_at, content_hash, snapshot)
+                 signed_out_at, content_hash, snapshot, row_hash, prev_hash)
             VALUES
                 (CAST(:family_id AS uuid), :family_identifier, :version, :signed_out_by,
                  CAST(:signed_out_by_id AS uuid), :signed_out_at, :content_hash,
-                 CAST(:snapshot AS jsonb))
+                 CAST(:snapshot AS jsonb), :row_hash, :prev_hash)
             """
         ),
         {
@@ -271,6 +334,8 @@ async def sign_out_report(
             "signed_out_at": now,
             "content_hash": content_hash,
             "snapshot": json.dumps(snapshot, default=str),
+            "row_hash": row_hash,
+            "prev_hash": prev_hash,
         },
     )
     await record_clinical_event(
@@ -378,4 +443,61 @@ async def get_report_signout(
     ).mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail="Sign-out version not found")
-    return _serialize_signout(dict(row))
+    record = dict(row)
+    # Re-verify the stored content hash against the snapshot on read (tamper-evidence).
+    # A mismatch means the immutable snapshot was altered out-of-band; surface it as a
+    # non-fatal flag — the record must still be returned so an auditor can inspect it.
+    recomputed = _canonical_hash(_as_snapshot(record["snapshot"]))
+    record["verified"] = recomputed == record["content_hash"]
+    if not record["verified"]:
+        logger.error(
+            "report_signout content hash mismatch on read (possible tampering)",
+            extra={
+                "family_id": context.family_id,
+                "signout_version": version,
+                "stored_content_hash": record["content_hash"],
+                "recomputed_content_hash": recomputed,
+            },
+        )
+    return _serialize_signout(record)
+
+
+async def verify_report_signout_chain(
+    session: AsyncSession, family_identifier: str
+) -> ChainVerification:
+    """Re-walk a family's report-signout hash chain AND re-verify each row's content
+    hash against its snapshot; report whether the signed-report history is intact.
+
+    Partitioned on the immutable ``family_identifier`` so a family's signed history
+    stays verifiable after the family row is deleted (the cascade nulls ``family_id``).
+    """
+    rows = [
+        dict(row)
+        for row in (
+            await session.execute(
+                text(
+                    "SELECT version, version::text AS id, content_hash, signed_out_at, "
+                    "signed_out_by, family_identifier, snapshot, row_hash, prev_hash "
+                    "FROM report_signouts "
+                    "WHERE family_identifier IS NOT DISTINCT FROM :fident "
+                    "AND row_hash IS NOT NULL "
+                    "ORDER BY version ASC"
+                ),
+                {"fident": family_identifier},
+            )
+        )
+        .mappings()
+        .all()
+    ]
+    result = verify_chain(rows, _signout_chain_payload)
+    if not result.verified:
+        return result
+    for position, row in enumerate(rows, start=1):
+        if _canonical_hash(_as_snapshot(row["snapshot"])) != row["content_hash"]:
+            return ChainVerification(
+                False,
+                position,
+                str(row["version"]),
+                "content_hash does not match snapshot (snapshot tampered)",
+            )
+    return result

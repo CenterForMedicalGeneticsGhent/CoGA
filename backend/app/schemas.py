@@ -444,6 +444,9 @@ class ReportSignoutSummary(BaseModel):
     qc_status: Optional[str] = None
     qc_acknowledged: Optional[bool] = None
     qc_acknowledgement_reason: Optional[str] = None
+    # Re-verification of the stored content hash against the snapshot, done on detail
+    # reads (None when not checked, e.g. in list views). False ⇒ snapshot was tampered.
+    verified: Optional[bool] = None
 
 
 class ReportSignoutDetail(ReportSignoutSummary):
@@ -456,6 +459,17 @@ class ReportSignoutListOut(BaseModel):
     family_id: str
     latest: Optional[ReportSignoutSummary] = None
     signouts: List[ReportSignoutSummary] = Field(default_factory=list)
+
+
+class IntegrityVerifyOut(BaseModel):
+    """Result of re-walking an append-only table's per-family tamper-evidence chain."""
+
+    table: str
+    family_id: str
+    verified: bool
+    rows_checked: int
+    first_bad_row: Optional[str] = None
+    reason: Optional[str] = None
 
 
 class SampleIntegrityQcOut(BaseModel):

@@ -77,9 +77,17 @@ def test_diff_new_review_records_every_aspect() -> None:
 def test_record_review_changes_writes_one_insert_per_change() -> None:
     calls: list[dict] = []
 
+    class _Result:
+        def mappings(self):
+            return self
+
+        def first(self):
+            return None  # no chain head -> this is the first chained row for the family
+
     class _Session:
         async def execute(self, _stmt, params=None):
             calls.append(params)
+            return _Result()
 
     user = types.SimpleNamespace(
         username="alice", email="a@x.org", id="00000000-0000-0000-0000-000000000001"
@@ -107,7 +115,12 @@ def test_record_review_changes_writes_one_insert_per_change() -> None:
             new_state=new,
         )
     )
-    assert len(calls) == 3  # classification, tags, note
-    assert {c["action"] for c in calls} == {"classification", "tags", "note"}
-    assert all(c["actor"] == "alice" and c["variant_id"] == "1-1-A-G" for c in calls)
-    assert all(c["family_identifier"] == "FAM1" for c in calls)
+    # Each record_clinical_event now also runs an advisory-lock + chain-head read, so
+    # filter to the INSERT calls (the ones carrying the event content).
+    inserts = [c for c in calls if c and "action" in c]
+    assert len(inserts) == 3  # classification, tags, note
+    assert {c["action"] for c in inserts} == {"classification", "tags", "note"}
+    assert all(c["actor"] == "alice" and c["variant_id"] == "1-1-A-G" for c in inserts)
+    assert all(c["family_identifier"] == "FAM1" for c in inserts)
+    # The chain stamped a row_hash on every event.
+    assert all(c.get("row_hash") for c in inserts)

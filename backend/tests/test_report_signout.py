@@ -26,6 +26,9 @@ class _Result:
     def scalar_one(self):
         return 0  # no prior sign-out -> next version 1
 
+    def scalar_one_or_none(self):
+        return None  # no prior sign-out -> chain genesis (prev_hash is None)
+
 
 class _Session:
     def __init__(self) -> None:
