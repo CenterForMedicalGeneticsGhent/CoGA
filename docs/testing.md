@@ -189,6 +189,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | --- | --- |
 | [backend/tests/integration/test_app_startup.py](../backend/tests/integration/test_app_startup.py) | Boots the app against real Postgres + ClickHouse (schema init, admin seed) and asserts it serves. |
 | [backend/tests/integration/test_clickhouse_integrity.py](../backend/tests/integration/test_clickhouse_integrity.py) | Validates integrity-check SQL against a real ClickHouse server. |
+| [backend/tests/integration/test_append_only_triggers.py](../backend/tests/integration/test_append_only_triggers.py) | Fires the append-only triggers on `audit_log_events`/`clinical_audit_events`/`report_signouts`: UPDATE/DELETE rejected; the FK→NULL unlink carve-out allowed (and nothing else); signed report frozen. |
 
 ### API / config / infra / other
 | Test file | Purpose |
