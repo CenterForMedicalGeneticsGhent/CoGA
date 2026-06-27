@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 
-import asyncpg
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -33,12 +32,17 @@ pytestmark = pytest.mark.integration
 
 
 async def _assert_blocked(sessionmaker, sql: str, params: dict, expect_substr: str) -> None:
-    """A mutation that must be rejected by an append-only trigger (P0001 RAISE)."""
+    """A mutation that must be rejected by an append-only trigger.
+
+    The trigger's ``RAISE EXCEPTION`` (P0001) surfaces as a SQLAlchemy ``DBAPIError``
+    whose message carries the exact trigger text; asserting that message is both
+    sufficient and a deliberate pin on the trigger's behaviour. (We do not assert the
+    concrete ``.orig`` type because the asyncpg dialect wraps it in its own ``Error``.)
+    """
     with pytest.raises(DBAPIError) as exc_info:
         async with sessionmaker() as session:
             await session.execute(text(sql), params)
             await session.commit()
-    assert isinstance(exc_info.value.orig, asyncpg.exceptions.RaiseError)
     assert expect_substr in str(exc_info.value)
 
 
