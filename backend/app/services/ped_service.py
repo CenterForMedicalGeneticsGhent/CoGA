@@ -832,7 +832,12 @@ async def _create_family(
             ),
             {"family_uuid": family_row["family_uuid"], "project_id": project_id},
         )
-        for sample_row in sample_rows:
+        sample_project_rows = [
+            {"sample_uuid": sample_row["sample_uuid"], "project_id": project_id}
+            for sample_row in sample_rows
+        ]
+        if sample_project_rows:
+            # One batched (executemany) statement instead of a per-sample await loop.
             await session.execute(
                 text(
                     """
@@ -841,7 +846,7 @@ async def _create_family(
                     ON CONFLICT DO NOTHING
                     """
                 ),
-                {"sample_uuid": sample_row["sample_uuid"], "project_id": project_id},
+                sample_project_rows,
             )
     await _record_family_structure_version(
         session,

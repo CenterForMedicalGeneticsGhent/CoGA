@@ -1347,18 +1347,23 @@ async def update_family_project_assignments(
             ),
             {"sample_ids": uuid_values(sample_ids)},
         )
-        for sample_id in sample_ids:
-            for project_id in validated_project_ids:
-                await session.execute(
-                    text(
-                        """
-                        INSERT INTO sample_projects (sample_id, project_id)
-                        VALUES (CAST(:sample_id AS uuid), CAST(:project_id AS uuid))
-                        ON CONFLICT DO NOTHING
-                        """
-                    ),
-                    {"sample_id": sample_id, "project_id": project_id},
-                )
+        sample_project_rows = [
+            {"sample_id": sample_id, "project_id": project_id}
+            for sample_id in sample_ids
+            for project_id in validated_project_ids
+        ]
+        if sample_project_rows:
+            # One batched (executemany) statement instead of a per-pair await loop.
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO sample_projects (sample_id, project_id)
+                    VALUES (CAST(:sample_id AS uuid), CAST(:project_id AS uuid))
+                    ON CONFLICT DO NOTHING
+                    """
+                ),
+                sample_project_rows,
+            )
 
     await session.commit()
     return {
