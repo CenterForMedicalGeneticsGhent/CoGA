@@ -21,6 +21,11 @@ HONEST TRUST BOUNDARY (do not overclaim — this is tamper-EVIDENT, not tamper-p
   retained copy of the latest anchor (the deferred export seam ``export_anchor``) makes that
   evident. Until the P1-3 DSN flip the app connects as owner, so this residual is live.
 - Data written before a chain's first anchor is "unanchored" — no external assurance.
+- KEY ROTATION: verify trusts the single CONFIGURED key; an anchor signed by a retired key
+  returns ``unknown_key`` (runtime monitoring keeps working once a fresh anchor is cut, but
+  audit-time re-verification of pre-rotation anchors needs the prior public key). A
+  configured keyring (verify by matching key_id) is the deferred fix; retain prior public
+  keys until then.
 Regulator-safe phrasing: "tamper-EVIDENT against a database-only adversary, between retained
 anchors". Never "tamper-proof" / "immutable" / "non-repudiation of the database".
 """
@@ -28,6 +33,7 @@ anchors". Never "tamper-proof" / "immutable" / "non-repudiation of the database"
 from __future__ import annotations
 
 import base64
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -78,7 +84,9 @@ def _load_signing_key() -> _SigningKey | None:
     return _SigningKey(
         private=private,
         public_b64=base64.b64encode(public).decode(),
-        key_id="ed25519:" + public[:4].hex(),
+        # 64-bit digest of the public key — wide enough that distinct keys get distinct
+        # ids (so the unknown_key vs signature_invalid distinction stays accurate).
+        key_id="ed25519:" + hashlib.sha256(public).hexdigest()[:16],
     )
 
 
@@ -97,7 +105,13 @@ def _signed_core(
     identically at create and verify time."""
     return {
         "anchor_seq": anchor_seq,
-        "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
+        # Normalise to UTC so the signed/hashed bytes are identical at create and verify
+        # regardless of the DB session timezone (asyncpg returns tz-aware timestamptz).
+        "created_at": (
+            created_at.astimezone(timezone.utc).isoformat()
+            if hasattr(created_at, "astimezone")
+            else str(created_at)
+        ),
         "prev_anchor_hash": prev_anchor_hash,
         "anchor_root": anchor_root,
         "chain_count": chain_count,
