@@ -78,7 +78,14 @@ def _client():
         "s3",
         region_name=settings.s3_region or None,
         endpoint_url=settings.s3_endpoint_url or None,
-        config=Config(signature_version="s3v4"),
+        config=Config(
+            signature_version="s3v4",
+            connect_timeout=settings.s3_connect_timeout_seconds,
+            read_timeout=settings.s3_read_timeout_seconds,
+            # Adaptive mode adds client-side throttling-aware backoff on top of retries,
+            # so a slow/throttling object store fails fast and bounded instead of hanging.
+            retries={"mode": "adaptive", "max_attempts": settings.s3_max_attempts},
+        ),
     )
 
 

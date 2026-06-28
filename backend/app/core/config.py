@@ -87,6 +87,23 @@ class Settings(BaseSettings):
         ge=1,
         alias="LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS",
     )
+    # Outbound resilience for external reference APIs (HGNC/Ensembl/NCBI/ClinGen/...):
+    # per-phase timeouts + capped exponential-backoff retry (idempotent requests only).
+    external_http_connect_timeout_seconds: float = Field(
+        default=5.0, gt=0, alias="EXTERNAL_HTTP_CONNECT_TIMEOUT_SECONDS"
+    )
+    external_http_read_timeout_seconds: float = Field(
+        default=25.0, gt=0, alias="EXTERNAL_HTTP_READ_TIMEOUT_SECONDS"
+    )
+    external_http_max_attempts: int = Field(
+        default=3, ge=1, le=10, alias="EXTERNAL_HTTP_MAX_ATTEMPTS"
+    )
+    external_http_backoff_base_seconds: float = Field(
+        default=0.5, ge=0, alias="EXTERNAL_HTTP_BACKOFF_BASE_SECONDS"
+    )
+    external_http_backoff_max_seconds: float = Field(
+        default=8.0, ge=0, alias="EXTERNAL_HTTP_BACKOFF_MAX_SECONDS"
+    )
     audit_log_mode: str = Field(default="async", alias="AUDIT_LOG_MODE")
     audit_log_batch_size: int = Field(default=50, ge=1, le=500, alias="AUDIT_LOG_BATCH_SIZE")
     audit_log_flush_interval_seconds: float = Field(
@@ -189,6 +206,15 @@ class Settings(BaseSettings):
         le=604_800,
         alias="S3_PRESIGN_EXPIRY_SECONDS",
     )
+    # S3 client resilience (botocore Config): bounded connect/read timeouts + adaptive
+    # retries, so a slow/throttling object store cannot hang or fail a request unbounded.
+    s3_connect_timeout_seconds: float = Field(
+        default=5.0, gt=0, alias="S3_CONNECT_TIMEOUT_SECONDS"
+    )
+    s3_read_timeout_seconds: float = Field(
+        default=60.0, gt=0, alias="S3_READ_TIMEOUT_SECONDS"
+    )
+    s3_max_attempts: int = Field(default=5, ge=1, le=10, alias="S3_MAX_ATTEMPTS")
     # Roots that Package Import may read family folders from. Defaults to the
     # local /data/families; cloud deployments (Terraform, etc.) override this
     # with an s3:// bucket prefix via FAMILY_IMPORT_ROOTS.

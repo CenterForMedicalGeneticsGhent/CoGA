@@ -6,8 +6,7 @@ import re
 from typing import Any, Dict, List
 from urllib.parse import quote
 
-import httpx
-
+from ..core.http_resilience import resilient_request
 from .gene_info_bulk_sources import HumanGeneBulkContext, build_bulk_gene_bundle, merge_gene_extra
 
 def as_list(value: Any) -> List[str]:
@@ -199,9 +198,8 @@ def parse_clingen_gene_page(raw_html: str) -> Dict[str, Any]:
 
 async def fetch_hgnc_gene(symbol: str) -> Dict[str, Any]:
     url = f"https://rest.genenames.org/fetch/symbol/{quote(symbol)}"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.get(url, headers={"Accept": "application/json"})
-        response.raise_for_status()
+    response = await resilient_request("GET", url, headers={"Accept": "application/json"})
+    response.raise_for_status()
     data = response.json()
     docs = data.get("response", {}).get("docs", [])
     return docs[0] if docs else {}
@@ -210,60 +208,54 @@ async def fetch_hgnc_gene(symbol: str) -> Dict[str, Any]:
 async def fetch_ensembl_gene(symbol: str, species_name: str) -> Dict[str, Any]:
     species_key = ensembl_species_name({"name": species_name})
     url = f"https://rest.ensembl.org/lookup/symbol/{quote(species_key)}/{quote(symbol)}"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.get(
-            url,
-            params={"expand": 1},
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()
+    response = await resilient_request(
+        "GET", url, params={"expand": 1}, headers={"Content-Type": "application/json"}
+    )
+    response.raise_for_status()
     return response.json()
 
 
 async def fetch_ensembl_homologies(ensembl_gene_id: str) -> Dict[str, Any]:
     url = f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id)}"
-    async with httpx.AsyncClient(timeout=25.0) as client:
-        response = await client.get(
-            url,
-            params={"type": "orthologues", "format": "condensed"},
-            headers={"Content-Type": "application/json"},
-        )
-        response.raise_for_status()
+    response = await resilient_request(
+        "GET",
+        url,
+        params={"type": "orthologues", "format": "condensed"},
+        headers={"Content-Type": "application/json"},
+    )
+    response.raise_for_status()
     return response.json()
 
 
 async def fetch_ncbi_gene(symbol: str, species_name: str) -> Dict[str, Any]:
     search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        search_response = await client.get(
-            search_url,
-            params={
-                "db": "gene",
-                "term": f"{symbol}[sym] AND {species_name}[orgn]",
-                "retmode": "json",
-            },
-        )
-        search_response.raise_for_status()
-        search_data = search_response.json()
-        ids = search_data.get("esearchresult", {}).get("idlist", [])
-        if not ids:
-            return {}
-        summary_response = await client.get(
-            summary_url,
-            params={"db": "gene", "id": ids[0], "retmode": "json"},
-        )
-        summary_response.raise_for_status()
-        summary_data = summary_response.json().get("result", {})
+    search_response = await resilient_request(
+        "GET",
+        search_url,
+        params={
+            "db": "gene",
+            "term": f"{symbol}[sym] AND {species_name}[orgn]",
+            "retmode": "json",
+        },
+    )
+    search_response.raise_for_status()
+    ids = search_response.json().get("esearchresult", {}).get("idlist", [])
+    if not ids:
+        return {}
+    summary_response = await resilient_request(
+        "GET", summary_url, params={"db": "gene", "id": ids[0], "retmode": "json"}
+    )
+    summary_response.raise_for_status()
+    summary_data = summary_response.json().get("result", {})
     return summary_data.get(ids[0], {})
 
 
 async def fetch_clingen_gene(symbol: str, hgnc_id: str | None) -> Dict[str, Any]:
     identifier = hgnc_id or symbol
     url = f"https://search.clinicalgenome.org/kb/genes/{quote(identifier)}"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.get(url)
-        response.raise_for_status()
+    response = await resilient_request("GET", url)
+    response.raise_for_status()
     return parse_clingen_gene_page(response.text)
 
 
