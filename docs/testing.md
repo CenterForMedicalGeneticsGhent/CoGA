@@ -106,6 +106,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/test_clinical_audit.py](../backend/tests/test_clinical_audit.py) | Clinical-audit diff generation (classification/tags/notes), one event per change. |
 | [backend/tests/test_report_signout.py](../backend/tests/test_report_signout.py) | Sign-out canonical content-hash (order-independent), drift gate, versioning. |
 | [backend/tests/test_hash_chain.py](../backend/tests/test_hash_chain.py) | Tamper-evidence hash-chain primitives (P1-4): canonical determinism, genesis anchoring, and `verify_chain` flagging content tampering / deletion / reordering. |
+| [backend/tests/test_integrity_anchor.py](../backend/tests/test_integrity_anchor.py) | Signed chain-head anchor (P1-4 follow-up): Ed25519 sign/verify round-trip, unsigned fallback, deterministic head sort + order-independent anchor_root, `signed_core` isoformat. |
 | [backend/tests/test_audit_log_pg.py](../backend/tests/test_audit_log_pg.py) | HTTP audit-log event JSONB serialization/storage. |
 | [tests/test_small_variant_review_pg.py](../tests/test_small_variant_review_pg.py) | Small-variant review persistence and payload serialization. |
 
@@ -193,6 +194,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/integration/test_append_only_triggers.py](../backend/tests/integration/test_append_only_triggers.py) | Fires the append-only triggers on `audit_log_events`/`clinical_audit_events`/`report_signouts`: UPDATE/DELETE rejected; the FK→NULL unlink carve-out allowed (and nothing else); signed report frozen. |
 | [backend/tests/integration/test_hash_chain_integration.py](../backend/tests/integration/test_hash_chain_integration.py) | End-to-end per-family hash chains (P1-4): real writers produce a chain `verify_*_chain` accepts; a privileged trigger-bypass UPDATE/DELETE is detected & localised; the FK→NULL carve-out does not break the chain. |
 | [backend/tests/integration/test_app_role_privileges.py](../backend/tests/integration/test_app_role_privileges.py) | P1-3 privilege separation: the restricted `coga_app` role may INSERT/SELECT the append-only tables (and delete users — the FK cascade still nulls the audit FK) but is denied UPDATE/DELETE and DISABLE TRIGGER on them. |
+| [backend/tests/integration/test_integrity_anchor_integration.py](../backend/tests/integration/test_integrity_anchor_integration.py) | Signed chain-head anchor end-to-end: a real signed anchor verifies; an owner-bypass re-chain (recomputed head row_hash) or truncation (deleted head) diverges from it; a tampered anchor signature is caught; anchors chain (prev_anchor_hash). |
 
 ### API / config / infra / other
 | Test file | Purpose |

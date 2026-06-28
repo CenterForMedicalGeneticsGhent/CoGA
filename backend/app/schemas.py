@@ -472,6 +472,31 @@ class IntegrityVerifyOut(BaseModel):
     reason: Optional[str] = None
 
 
+class IntegrityAnchorOut(BaseModel):
+    """A signed chain-head anchor (the verbatim signed blob is self-verifying)."""
+
+    anchor_seq: int
+    created_at: datetime
+    prev_anchor_hash: Optional[str] = None
+    anchor_root: str
+    anchor_hash: str
+    chain_count: int
+    key_id: str
+    algo: str
+    public_key: Optional[str] = None
+    signature: Optional[str] = None
+
+
+class IntegrityAnchorVerifyOut(BaseModel):
+    """Result of verifying the live chains against the latest signed anchor."""
+
+    status: str  # ok | diverged | signature_invalid | unknown_key | unverifiable_unsigned | no_anchor
+    anchor_seq: Optional[int] = None
+    chain_count: int = 0
+    diverged: List[Dict[str, Any]] = Field(default_factory=list)
+    reason: Optional[str] = None
+
+
 class SampleIntegrityQcOut(BaseModel):
     """Per-family sample-integrity QC, adapted to the application.
 
