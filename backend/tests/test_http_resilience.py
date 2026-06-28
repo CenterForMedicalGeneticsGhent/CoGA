@@ -125,5 +125,7 @@ def test_s3_client_has_bounded_timeouts_and_retries():
     config = object_storage._client().meta.config
     assert config.connect_timeout == settings.s3_connect_timeout_seconds
     assert config.read_timeout == settings.s3_read_timeout_seconds
-    assert config.retries["max_attempts"] == settings.s3_max_attempts
-    assert config.retries["mode"] == "adaptive"
+    # botocore normalises max_attempts -> total_max_attempts on the resolved config.
+    retries = config.retries
+    assert retries["mode"] == "adaptive"
+    assert retries.get("total_max_attempts", retries.get("max_attempts")) == settings.s3_max_attempts
