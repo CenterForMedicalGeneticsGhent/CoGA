@@ -54,6 +54,30 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: './src/setupTests.ts'
+    setupFiles: './src/setupTests.ts',
+    coverage: {
+      // P2-7b: measure frontend coverage (mirrors the backend coverage floor). The global
+      // threshold ratchets against regression; `npm run test:coverage` fails below it.
+      provider: 'v8',
+      reporter: ['text-summary', 'json-summary', 'json'],
+      reportsDirectory: './coverage',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/**/__tests__/**',
+        'src/**/*.d.ts',
+        'src/main.tsx',
+        'src/setupTests.ts',
+        'src/vite-env.d.ts'
+      ],
+      // Ratchet floors set just below the measured baseline (2026-06-28:
+      // lines 69.3 / statements 67.7 / functions 65.1 / branches 57.2).
+      thresholds: {
+        lines: 65,
+        functions: 59,
+        branches: 51,
+        statements: 63
+      }
+    }
   }
 });

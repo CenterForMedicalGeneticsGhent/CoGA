@@ -67,5 +67,6 @@ build/
 /data/ref-data/dbNSFP*
 
 # coverage (P2-7)
+frontend/coverage/
 coverage.json
 .coverage
