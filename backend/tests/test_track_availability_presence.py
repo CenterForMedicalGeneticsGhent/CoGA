@@ -65,20 +65,37 @@ def test_presence_maps_ids_to_names_and_filters_to_family(monkeypatch):
 def test_no_explicit_sample_filters_uses_nonref_only(monkeypatch):
     cap = _patch_execute(monkeypatch, [])
     asyncio.run(_small_variant_present_sample_names(_context(), _filters(sample_filters=[])))
-    # Sentinel (no explicit-filter samples) so presence reduces to the non-ref gt test.
-    assert cap["params"]["track_explicit_ids"] == ("\x00none",)
+    # No explicit-filter samples: presence reduces to the non-ref gt test (one query).
+    assert "gt IN %(track_nonref_gts)s" in cap["query"]
     assert "PROBAND" in cap["params"]["track_visible_ids"]
 
 
-def test_explicit_sample_filter_makes_that_sample_present_on_any_match(monkeypatch):
-    cap = _patch_execute(monkeypatch, [])
-    asyncio.run(
+def test_explicit_reference_parent_present_iff_base_matches(monkeypatch):
+    # MOTHER:0/0 (reference-parent / include_absent): present iff the base query matches at
+    # all — even if MOTHER never surfaces in a matching variant's calls (ARRAY JOIN empty).
+    queries: list[str] = []
+
+    async def fake(query, params=None, data=None):
+        queries.append(query)
+        return [(1,)] if "LIMIT 1" in query else []  # ARRAY JOIN empty; base-match has a row
+
+    monkeypatch.setattr(cfv, "_execute_clickhouse", fake)
+    present = asyncio.run(
         _small_variant_present_sample_names(_context(), _filters(sample_filters=["MOTHER:0/0"]))
     )
-    # MOTHER's clickhouse ids are in the explicit set (their constraint is already in the
-    # WHERE, so any matching variant means present — even a ref genotype).
-    explicit = cap["params"]["track_explicit_ids"]
-    assert "MOTHER" in explicit and "u-mother" in explicit
+    assert present == {"MOTHER"}  # via the base-match probe, not the ARRAY JOIN
+    assert any("LIMIT 1" in q for q in queries)  # the base-match probe ran
+
+
+def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
+    async def fake(query, params=None, data=None):
+        return []  # both the ARRAY JOIN and the base-match probe are empty
+
+    monkeypatch.setattr(cfv, "_execute_clickhouse", fake)
+    present = asyncio.run(
+        _small_variant_present_sample_names(_context(), _filters(sample_filters=["MOTHER:0/0"]))
+    )
+    assert present == set()
 
 
 def test_empty_context_short_circuits(monkeypatch):

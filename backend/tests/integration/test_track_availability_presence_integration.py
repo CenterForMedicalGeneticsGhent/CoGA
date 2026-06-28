@@ -86,15 +86,25 @@ def test_small_variant_presence_aggregate_against_clickhouse() -> None:
             [
                 _record("1-100-A-G", "1", 100, [_call("S1", "0/1"), _call("S2", "0/0")]),
                 _record("2-200-A-G", "2", 200, [_call("S2", "1/1")]),
+                # chr3 variant where S2 is ABSENT from the calls entirely (only S1 called).
+                _record("3-300-A-G", "3", 300, [_call("S1", "0/1")]),
             ],
         )
 
-        # Genome view (no chromosome): S1 (non-ref on chr1) + S2 (non-ref on chr2) present.
+        # Genome view (no chromosome): S1 (non-ref on chr1/3) + S2 (non-ref on chr2) present.
         present_all = await _small_variant_present_sample_names(ctx, _filters())
         assert present_all == {"S1", "S2"}, present_all
 
         # chr1 only: S1 is non-ref there; S2 is ref-only on chr1 -> not present.
         present_chr1 = await _small_variant_present_sample_names(ctx, _filters(chromosome="1"))
         assert present_chr1 == {"S1"}, present_chr1
+
+        # Reference-parent case (de-novo style): on chr3 S2 is ABSENT from the variant's
+        # calls, but an explicit S2:0/0 (include_absent) filter must still mark S2 present
+        # (the base query matches), matching the old per-sample probe. S1 is non-ref there.
+        present_ref_parent = await _small_variant_present_sample_names(
+            ctx, _filters(chromosome="3", sample_filters=["S2:0/0"])
+        )
+        assert present_ref_parent == {"S1", "S2"}, present_ref_parent
 
     asyncio.run(_run())
