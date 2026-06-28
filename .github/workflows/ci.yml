@@ -25,11 +25,24 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - name: Install dependencies
         run: pip install -r backend/requirements-dev.txt
-      - name: Run tests
+      - name: Run tests with coverage
         # The suite is self-contained (Postgres/ClickHouse access is mocked), so
         # no service containers are required. Honours pytest.ini testpaths
-        # (tests + backend/tests).
-        run: python -m pytest -q
+        # (tests + backend/tests). --cov-fail-under is the global floor (P2-7).
+        run: >
+          python -m pytest -q
+          --cov=backend/app
+          --cov-report=term-missing:skip-covered
+          --cov-report=json:coverage.json
+          --cov-fail-under=58
+      - name: Enforce clinical-critical coverage floors
+        run: python scripts/check-coverage-floor.py coverage.json
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage.json
 
   smoke:
     name: smoke (real startup against Postgres + ClickHouse)

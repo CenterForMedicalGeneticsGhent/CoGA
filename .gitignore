@@ -65,3 +65,7 @@ build/
 /data/**/*.tsv
 /data/**/*.tsv.gz
 /data/ref-data/dbNSFP*
+
+# coverage (P2-7)
+coverage.json
+.coverage
