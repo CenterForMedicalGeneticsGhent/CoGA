@@ -55,6 +55,17 @@ class Settings(BaseSettings):
         ge=1,
         alias="CLICKHOUSE_SEND_RECEIVE_TIMEOUT",
     )
+    # P2-6: scheduled ClickHouse variant-integrity monitor (CHECK TABLE sweep). Detects
+    # corruption proactively (logs ERROR on 'corrupt'/'missing') before it surfaces as 500s.
+    clickhouse_integrity_monitor_enabled: bool = Field(
+        default=True, alias="CLICKHOUSE_INTEGRITY_MONITOR_ENABLED"
+    )
+    clickhouse_integrity_interval_seconds: int = Field(
+        default=21_600, ge=60, alias="CLICKHOUSE_INTEGRITY_INTERVAL_SECONDS"  # 6h
+    )
+    clickhouse_integrity_startup_delay_seconds: int = Field(
+        default=60, ge=0, alias="CLICKHOUSE_INTEGRITY_STARTUP_DELAY_SECONDS"
+    )
     clickhouse_max_memory_usage: int = Field(
         default=0,
         ge=0,
