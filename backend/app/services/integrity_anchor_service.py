@@ -44,13 +44,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from . import hash_chain
 
-# The two append-only tables that carry per-family hash chains, with the canonical chain
-# order the verifiers use. (Fixed set — never interpolate untrusted table names.)
-_CHAINED_TABLES = {
-    "report_signouts": "version ASC",
-    "clinical_audit_events": "created_at ASC, id ASC",
+# The two append-only tables that carry per-family hash chains, mapped to the canonical
+# chain-order COLUMNS (ascending). The head is the LAST row in this order; the prefix check
+# reads the height-th row ascending. (Fixed set — never interpolate untrusted table names.)
+_CHAIN_ORDER_COLS = {
+    "report_signouts": ["version"],
+    "clinical_audit_events": ["created_at", "id"],
 }
 _ANCHOR_LOCK_KEY = "integrity_anchor"
+
+
+def _order_by(table: str, direction: str) -> str:
+    """Build the chain ORDER BY for a table in the given direction ('ASC' | 'DESC')."""
+    return ", ".join(f"{col} {direction}" for col in _CHAIN_ORDER_COLS[table])
 
 
 @dataclass(slots=True)
@@ -109,12 +115,12 @@ def _sort_heads(heads: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def _capture_heads(session: AsyncSession) -> list[dict[str, Any]]:
     """Snapshot every non-empty chain's head: (family_identifier, table, height, head_row_hash)."""
     heads: list[dict[str, Any]] = []
-    for table, order in _CHAINED_TABLES.items():
+    for table in _CHAIN_ORDER_COLS:
         rows = (
             await session.execute(
                 text(
                     f"SELECT family_identifier AS fid, count(*) AS height, "
-                    f"(array_agg(row_hash ORDER BY {order} DESC))[1] AS head_row_hash "
+                    f"(array_agg(row_hash ORDER BY {_order_by(table, 'DESC')}))[1] AS head_row_hash "
                     f"FROM {table} WHERE row_hash IS NOT NULL GROUP BY family_identifier"
                 )
             )
@@ -234,7 +240,6 @@ async def _head_row_hash_at_height(
 ) -> str | None:
     """The row_hash of the ``height``-th chained row in canonical order, or None if the
     live chain has fewer than ``height`` chained rows (truncated/shrunk)."""
-    order = _CHAINED_TABLES[table]
     fid_clause = "family_identifier IS NULL" if family_identifier is None else "family_identifier = :fid"
     params: dict[str, Any] = {"off": max(height - 1, 0)}
     if family_identifier is not None:
@@ -243,7 +248,7 @@ async def _head_row_hash_at_height(
         await session.execute(
             text(
                 f"SELECT row_hash FROM {table} WHERE {fid_clause} AND row_hash IS NOT NULL "
-                f"ORDER BY {order} OFFSET :off LIMIT 1"
+                f"ORDER BY {_order_by(table, 'ASC')} OFFSET :off LIMIT 1"
             ),
             params,
         )
@@ -310,7 +315,7 @@ async def verify_against_latest_anchor(session: AsyncSession) -> AnchorVerificat
     diverged: list[dict[str, Any]] = []
     for head in heads:
         table = head["table"]
-        if table not in _CHAINED_TABLES:
+        if table not in _CHAIN_ORDER_COLS:
             diverged.append({**head, "issue": "unknown_table"})
             continue
         live = await _head_row_hash_at_height(session, table, head["family_identifier"], head["height"])
