@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # so it is safe to leave off for the no-TLS local/compose stack.
     enable_hsts: bool = Field(default=False, alias="ENABLE_HSTS")
     secret_key: str = Field(default="change-me", alias="SECRET_KEY")
+    # Ed25519 private signing key (base64 of the 32-byte seed) for integrity anchors —
+    # MUST be distinct from SECRET_KEY and stored outside the DB. Unset ⇒ anchors are
+    # written 'unsigned' (a non-owner-only checkpoint; see integrity_anchor_service.py).
+    integrity_anchor_signing_key: str = Field(default="", alias="INTEGRITY_ANCHOR_SIGNING_KEY")
     algorithm: str = "HS256"
     # Token lifetime set to 6 hours for user sessions
     access_token_expire_minutes: int = 360

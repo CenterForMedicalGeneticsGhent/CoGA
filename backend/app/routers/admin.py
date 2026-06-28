@@ -11,6 +11,8 @@ from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user
 from ..schemas import (
     AuditLogPageOut,
+    IntegrityAnchorOut,
+    IntegrityAnchorVerifyOut,
     IntegrityVerifyOut,
     ClickHouseVariantAssemblyListOut,
     ClickHouseVariantAssemblyStatusOut,
@@ -48,6 +50,10 @@ from ..schemas import (
 from ..services.audit_log_pg import list_audit_log_events
 from ..services.clinical_audit_service import verify_clinical_audit_chain
 from ..services.family_metadata_context import build_family_metadata_context
+from ..services.integrity_anchor_service import (
+    create_integrity_anchor,
+    verify_against_latest_anchor,
+)
 from ..services.report_signout_service import verify_report_signout_chain
 from ..services.ui_event_pg import list_ui_events
 from ..services.admin_service import (
@@ -161,6 +167,39 @@ async def verify_integrity_chain(
         verified=result.verified,
         rows_checked=result.rows_checked,
         first_bad_row=result.first_bad_row,
+        reason=result.reason,
+    )
+
+
+@router.post("/integrity/anchor", response_model=IntegrityAnchorOut)
+async def create_integrity_anchor_endpoint(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> IntegrityAnchorOut:
+    """Capture every per-family chain head and append one Ed25519-signed anchor.
+
+    Sealing the heads with a key the DB role does not hold makes a later owner-bypass
+    re-chain or truncation detectable (the live head will diverge from the signed one and
+    a replacement anchor cannot be forged). This is the cron/scheduler target.
+    """
+    record = await create_integrity_anchor(session)
+    return IntegrityAnchorOut(**{k: record[k] for k in IntegrityAnchorOut.model_fields})
+
+
+@router.get("/integrity/anchor/verify", response_model=IntegrityAnchorVerifyOut)
+async def verify_integrity_anchor_endpoint(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> IntegrityAnchorVerifyOut:
+    """Verify the live chains against the latest signed anchor (signature + per-family
+    prefix check). ``diverged`` localises any re-chained / truncated family since the
+    anchor; ``status`` is a finding, not an error."""
+    result = await verify_against_latest_anchor(session)
+    return IntegrityAnchorVerifyOut(
+        status=result.status,
+        anchor_seq=result.anchor_seq,
+        chain_count=result.chain_count,
+        diverged=result.diverged,
         reason=result.reason,
     )
 
