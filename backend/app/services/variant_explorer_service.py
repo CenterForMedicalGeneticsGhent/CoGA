@@ -66,6 +66,18 @@ _SORT_EXPR = {
     "position": "xpos",
 }
 _DEFAULT_SORT = "total_samples"
+# P2-4: cap the cohort-wide distinct-key count so the explorer never pays an unbounded
+# uniqExact over millions of keys per page. Past the cap the total is reported as the cap
+# with total_is_estimated=True (the UI renders "N+").
+_EXPLORER_COUNT_CAP = 10_000
+
+
+def _bounded_total(raw_count: int) -> tuple[int, bool]:
+    """Map the (cap+1)-capped distinct-key count to (total, is_estimated): past the cap the
+    true total is unknown, so report the cap with the estimate flag set (UI shows "N+")."""
+    if raw_count > _EXPLORER_COUNT_CAP:
+        return _EXPLORER_COUNT_CAP, True
+    return raw_count, False
 
 # Keys are lowercased to match _most_severe's case-insensitive lookup (and the
 # casefolded impacts stored in annotation_index).
@@ -674,17 +686,25 @@ async def search_global_small_variants(
     where_clauses = _entries_where(scope, filters, params, tag_variant_ids=tag_variant_ids)
     where_sql = " AND ".join(where_clauses)
 
-    # Total distinct variant keys that have at least one carrier.
+    # Distinct variant keys with at least one carrier, counted only up to the cap (one
+    # extra row distinguishes "exactly cap" from "more than cap"). The inner GROUP BY key
+    # + LIMIT bounds the work to O(cap) instead of an unbounded uniqExact over the cohort.
     count_rows = await execute_clickhouse(
         f"""
-        SELECT uniqExact(key)
-        FROM {entries_table}
-        WHERE {where_sql}
-          AND arrayExists(g -> g NOT IN %(gt_ref_missing)s, `calls.gt`)
+        SELECT count()
+        FROM (
+            SELECT key
+            FROM {entries_table}
+            WHERE {where_sql}
+              AND arrayExists(g -> g NOT IN %(gt_ref_missing)s, `calls.gt`)
+            GROUP BY key
+            LIMIT {_EXPLORER_COUNT_CAP + 1}
+        )
         """,
         params,
     )
-    total = int(count_rows[0][0]) if count_rows and count_rows[0] else 0
+    raw_count = int(count_rows[0][0]) if count_rows and count_rows[0] else 0
+    total, total_is_estimated = _bounded_total(raw_count)
     if total == 0:
         return GlobalVariantPageOut(
             total=0,
@@ -708,7 +728,7 @@ async def search_global_small_variants(
 
     return GlobalVariantPageOut(
         total=total,
-        total_is_estimated=False,
+        total_is_estimated=total_is_estimated,
         page=page,
         page_size=page_size,
         assembly_id=scope.assembly_id,
