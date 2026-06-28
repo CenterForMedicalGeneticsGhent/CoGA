@@ -476,6 +476,10 @@ async def get_family_track_availability_for_user(
     # of materialising + JSON-decoding the entire family SV set. Any active Python-side
     # filter (type/source/length/remote/panel-regions/sample) falls back to the exact
     # row-fetch + per-sample matching — those queries return far less data anyway.
+    # Must cover EVERY filter _structural_record_matches applies Python-side. This endpoint
+    # never sets gene / panel-gene-terms / annotation filters (they stay at dataclass
+    # defaults), but gene is guarded defensively so a future param can't silently bypass the
+    # aggregate; if SV annotation filters are ever threaded in, add them here too.
     sv_needs_python = (
         bool(structural_filters.variant_type)
         or bool(structural_filters.source)
@@ -484,6 +488,7 @@ async def get_family_track_availability_for_user(
         or bool(structural_filters.remote_chr)
         or structural_filters.remote_start is not None
         or bool(structural_filters.sample_filters)
+        or bool(getattr(structural_filters, "gene", None))
         or bool(include_regions)
     )
     sv_task = (

@@ -117,6 +117,8 @@ def test_structural_presence_maps_ids_to_names(monkeypatch):
     present = asyncio.run(_structural_present_sample_names(_context(), _sv_filters()))
     assert present == {"PROBAND", "FATHER"}  # ghost is not a family sample
     assert "ARRAY JOIN sample_ids AS sid" in cap["query"] and "GROUP BY sid" in cap["query"]
+    # The per-variant collapse (CollapsingMergeTree sign) must be preserved.
+    assert "GROUP BY e.key, e.variantId" in cap["query"] and "any(e.calls.sampleId)" in cap["query"]
     assert "PROBAND" in cap["params"]["track_visible_ids"]
 
 
