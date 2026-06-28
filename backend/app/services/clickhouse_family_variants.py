@@ -3976,6 +3976,68 @@ async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[s
     return [str(row[0]) for row in rows if row[0]]
 
 
+# Non-ref small-variant genotypes for track-availability presence (the explicit set the
+# old per-sample probe injected via family_service._small_variant_presence_filters; an
+# EXPLICIT list, not the complement of ref/missing — so multiallelic GTs like '1/2' are
+# excluded, preserving the prior behaviour exactly).
+_NON_REF_SMALL_GT_VALUES = ("0/1", "1/0", "0|1", "1|0", "1/1", "1|1")
+
+
+async def _small_variant_present_sample_names(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    include_regions: Sequence[Region] = (),
+) -> set[str]:
+    """Per-sample small-variant presence for track availability, in ONE aggregate query.
+
+    Equivalent to the old N per-sample ``_fetch_small_variant_rows(limit=1)`` probes (which
+    injected ``_small_variant_presence_filters``): a sample is "present" iff a variant
+    matching the base filters has, for that sample, EITHER its own explicit sample-filter
+    (already enforced in the shared WHERE, so any matching variant means present) OR a
+    non-ref genotype. The base sample-filters are evaluated on the full call arrays in the
+    inner query (before the ARRAY JOIN), so cross-sample constraints are not corrupted.
+    """
+    if not context.assembly_name:
+        return set()
+    visible_ids = _visible_clickhouse_sample_ids(context)
+    if not visible_ids:
+        return set()
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses, params, _use_detail_join = _small_query_filter_parts(
+        context, filters, include_regions=include_regions
+    )
+    # CH ids of samples carrying an explicit sample-filter; their constraint is already in
+    # the WHERE, so a matching variant means they are present (others require non-ref).
+    explicit_ids: list[str] = []
+    for entry in filters.sample_filters or []:
+        for cid in _clickhouse_ids_for_sample(context, entry.split(":", 1)[0]):
+            _append_unique(explicit_ids, cid)
+    params["track_visible_ids"] = tuple(visible_ids)
+    # A non-empty sentinel keeps the IN list valid when there are no explicit-filter samples.
+    params["track_explicit_ids"] = tuple(explicit_ids) if explicit_ids else ("\x00none",)
+    params["track_nonref_gts"] = _NON_REF_SMALL_GT_VALUES
+    query = f"""
+        SELECT sid
+        FROM (
+            SELECT e.calls.sampleId AS sids, e.calls.gt AS gts
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+        )
+        ARRAY JOIN sids AS sid, gts AS gt
+        WHERE sid IN %(track_visible_ids)s
+          AND (sid IN %(track_explicit_ids)s OR gt IN %(track_nonref_gts)s)
+        GROUP BY sid
+    """
+    rows = await _execute_clickhouse(query, params)
+    present: set[str] = set()
+    for (sid,) in rows:
+        name = _display_sample_name(context, sid)
+        if name and name in context.sample_name_to_uuid:
+            present.add(name)
+    return present
+
+
 async def _fetch_structural_variant_rows(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,

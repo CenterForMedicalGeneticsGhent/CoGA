@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from backend.app.services.family_service import (
-    _build_family_roi_payload,
-    _small_variant_presence_filters,
-)
+from backend.app.services.family_service import _build_family_roi_payload
 
 
 class _FakeMappingsResult:
@@ -69,16 +66,3 @@ async def test_build_family_roi_payload_orders_gene_query_by_span_desc() -> None
     assert "CASE WHEN" in normalized_sql
     assert '("end" - start) DESC, hgnc_symbol' in normalized_sql
     assert session.params == {"assembly_id": "assembly-uuid", "query": "BRCA1"}
-
-
-def test_small_variant_presence_filters_default_to_non_reference_genotypes() -> None:
-    assert _small_variant_presence_filters("son", None) == [
-        "son:0/1|1/0|0|1|1|0|1/1|1|1",
-    ]
-
-
-def test_small_variant_presence_filters_preserve_explicit_sample_filter() -> None:
-    assert _small_variant_presence_filters("son", ["mother:0/1", "son:1/1"]) == [
-        "mother:0/1",
-        "son:1/1",
-    ]

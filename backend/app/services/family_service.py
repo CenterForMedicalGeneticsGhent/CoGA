@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
 import re
 from typing import Any
 
@@ -27,8 +26,8 @@ from .bed_service import (
 from .clickhouse_family_variants import (
     _fetch_gene_regions,
     _fetch_panel_regions,
-    _fetch_small_variant_rows,
     _fetch_structural_variant_rows,
+    _small_variant_present_sample_names,
     _structural_record_matches,
 )
 from .data_scope import normalize_chromosome
@@ -47,7 +46,6 @@ GENOMIC_REGION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _REF_GT_VALUES = {"0/0", "0|0", "./.", ".|.", "", "."}
-_NON_REF_SMALL_GT_VALUES = ("0/1", "1/0", "0|1", "1|0", "1/1", "1|1")
 
 
 def _parse_region_of_interest(query: str) -> tuple[str, int, int] | None:
@@ -72,14 +70,6 @@ def _sample_specific_filters(sample_name: str, filters: list[str] | None) -> lis
         for entry in (filters or [])
         if entry == sample_name or entry.startswith(prefix)
     ]
-
-
-def _small_variant_presence_filters(sample_name: str, filters: list[str] | None) -> list[str]:
-    base_filters = list(filters or [])
-    specific_filters = _sample_specific_filters(sample_name, filters)
-    if specific_filters:
-        return base_filters
-    return [*base_filters, f"{sample_name}:{'|'.join(_NON_REF_SMALL_GT_VALUES)}"]
 
 
 async def _resolve_family_assembly(
@@ -472,38 +462,18 @@ async def get_family_track_availability_for_user(
         else []
     )
 
-    async def small_variant_presence_for_sample(sample_name: str) -> str | None:
-        sample_small_filters = replace(
-            small_filters,
-            sample_filters=_small_variant_presence_filters(sample_name, sample_filters),
-        )
-        records = await _fetch_small_variant_rows(
-            context,
-            sample_small_filters,
-            limit=1,
-            include_regions=include_regions,
-        )
-        return sample_name if records else None
-
+    # Per-sample small-variant presence in ONE aggregate query (replaces the former N
+    # per-sample limit=1 probes), filter-equivalent to them. Runs concurrently with the
+    # structural fetch.
     small_presence_task = (
-        asyncio.gather(
-            *[
-                small_variant_presence_for_sample(sample_name)
-                for sample_name in availability
-            ]
-        )
+        _small_variant_present_sample_names(context, small_filters, include_regions=include_regions)
         if include_small_variants
-        else asyncio.sleep(0, result=[])
+        else asyncio.sleep(0, result=set())
     )
-    structural_records, small_presence_results = await asyncio.gather(
+    structural_records, small_presence = await asyncio.gather(
         _fetch_structural_variant_rows(context, structural_filters),
         small_presence_task,
     )
-    small_presence = {
-        sample_name
-        for sample_name in small_presence_results
-        if sample_name
-    }
 
     for sample_name, sample_availability in availability.items():
         sample_availability.coverage = sample_name in coverage_ids
