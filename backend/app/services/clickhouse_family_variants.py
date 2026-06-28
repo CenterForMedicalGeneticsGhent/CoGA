@@ -3976,6 +3976,72 @@ async def fetch_family_variant_sources(context: FamilyMetadataContext) -> list[s
     return [str(row[0]) for row in rows if row[0]]
 
 
+# Non-ref small-variant genotypes for track-availability presence (the explicit set the
+# old per-sample probe injected via family_service._small_variant_presence_filters; an
+# EXPLICIT list, not the complement of ref/missing — so multiallelic GTs like '1/2' are
+# excluded, preserving the prior behaviour exactly).
+_NON_REF_SMALL_GT_VALUES = ("0/1", "1/0", "0|1", "1|0", "1/1", "1|1")
+
+
+async def _small_variant_present_sample_names(
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    *,
+    include_regions: Sequence[Region] = (),
+) -> set[str]:
+    """Per-sample small-variant presence for track availability, in one aggregate query
+    (plus a cheap base-match probe only when explicit sample-filters are present).
+
+    Equivalent to the old N per-sample ``_fetch_small_variant_rows(limit=1)`` probes (which
+    injected ``_small_variant_presence_filters``). A family sample carrying an explicit
+    sample-filter has its constraint already in the shared WHERE, so it is present iff the
+    base query matches ANY variant — even when it is absent from that variant's calls (the
+    ``include_absent`` / reference-parent case, e.g. a de-novo MOTHER:0/0). Every other
+    sample is present iff a matching variant carries a non-ref genotype for it. The base
+    sample-filters are evaluated on the full call arrays in the inner query (before the
+    ARRAY JOIN), so cross-sample constraints are not corrupted.
+    """
+    if not context.assembly_name:
+        return set()
+    visible_ids = _visible_clickhouse_sample_ids(context)
+    if not visible_ids:
+        return set()
+    entries_table = _small_table_name(context.assembly_name, "entries")
+    where_clauses, params, _use_detail_join = _small_query_filter_parts(
+        context, filters, include_regions=include_regions
+    )
+    inner = (
+        f"SELECT e.calls.sampleId AS sids, e.calls.gt AS gts "
+        f"FROM {entries_table} AS e WHERE {' AND '.join(where_clauses)}"
+    )
+    explicit_names = {
+        entry.split(":", 1)[0]
+        for entry in (filters.sample_filters or [])
+        if entry.split(":", 1)[0] in context.sample_name_to_uuid
+    }
+    params["track_visible_ids"] = tuple(visible_ids)
+    params["track_nonref_gts"] = _NON_REF_SMALL_GT_VALUES
+    nonref_query = f"""
+        SELECT sid
+        FROM ({inner})
+        ARRAY JOIN sids AS sid, gts AS gt
+        WHERE sid IN %(track_visible_ids)s AND gt IN %(track_nonref_gts)s
+        GROUP BY sid
+    """
+    present: set[str] = set()
+    for (sid,) in await _execute_clickhouse(nonref_query, params):
+        name = _display_sample_name(context, sid)
+        if name and name in context.sample_name_to_uuid:
+            present.add(name)
+    # Explicit-filter samples: present iff the base query matches at all (handles the
+    # reference-parent / include_absent case the non-ref ARRAY JOIN cannot).
+    if explicit_names:
+        base_match = await _execute_clickhouse(f"SELECT 1 FROM ({inner}) LIMIT 1", params)
+        if base_match:
+            present |= explicit_names
+    return present
+
+
 async def _fetch_structural_variant_rows(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
