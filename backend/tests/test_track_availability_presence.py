@@ -98,6 +98,42 @@ def test_explicit_sample_absent_when_base_does_not_match(monkeypatch):
     assert present == set()
 
 
+# --------------------------------------------------------------------------- #
+# Structural-variant presence aggregate (P2-1b). Present iff the sample has a call
+# in a matching variant — any genotype (no non-ref requirement, unlike small variants).
+# --------------------------------------------------------------------------- #
+from backend.app.services.clickhouse_family_variants import _structural_present_sample_names
+from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
+
+
+def _sv_filters(**kwargs) -> StructuralVariantQueryFilters:
+    base = dict(page=1, page_size=1, chromosome="1")
+    base.update(kwargs)
+    return StructuralVariantQueryFilters(**base)
+
+
+def test_structural_presence_maps_ids_to_names(monkeypatch):
+    cap = _patch_execute(monkeypatch, [("PROBAND",), ("u-father",), ("ghost",)])
+    present = asyncio.run(_structural_present_sample_names(_context(), _sv_filters()))
+    assert present == {"PROBAND", "FATHER"}  # ghost is not a family sample
+    assert "ARRAY JOIN sample_ids AS sid" in cap["query"] and "GROUP BY sid" in cap["query"]
+    assert "PROBAND" in cap["params"]["track_visible_ids"]
+
+
+def test_structural_presence_empty_context_short_circuits(monkeypatch):
+    called = {"n": 0}
+
+    async def fake(*a, **k):
+        called["n"] += 1
+        return []
+
+    monkeypatch.setattr(cfv, "_execute_clickhouse", fake)
+    no_assembly = _context()
+    no_assembly.assembly_name = None
+    assert asyncio.run(_structural_present_sample_names(no_assembly, _sv_filters())) == set()
+    assert called["n"] == 0
+
+
 def test_empty_context_short_circuits(monkeypatch):
     called = {"n": 0}
 

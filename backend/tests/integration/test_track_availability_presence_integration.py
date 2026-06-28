@@ -108,3 +108,60 @@ def test_small_variant_presence_aggregate_against_clickhouse() -> None:
         assert present_ref_parent == {"S1", "S2"}, present_ref_parent
 
     asyncio.run(_run())
+
+
+def _sv_call(sample: str, gt: str):
+    from backend.app.services.clickhouse_family_variants import StructuralVariantCall
+
+    return StructuralVariantCall(sample=sample, gt=gt, qual=100.0, read_support=10, filter="PASS")
+
+
+def _sv_record(variant_id: str, chrom: str, start: int, end: int, calls):
+    from backend.app.services.clickhouse_family_variants import StructuralVariantRecord
+
+    return StructuralVariantRecord(
+        variant_key=None, variant_id=variant_id, chr=chrom, start=start, end=end,
+        sv_type="DEL", source="test", remote_chr=None, remote_start=None, remote_end=None,
+        sv_len=end - start, filters=["PASS"], gene_symbols=[], annotations=[], calls=calls,
+    )
+
+
+def test_structural_variant_presence_aggregate_against_clickhouse() -> None:
+    from backend.app.services.clickhouse_family_variants import _structural_present_sample_names
+    from backend.app.services.clickhouse_variant_storage import (
+        ensure_clickhouse_variant_tables,
+        insert_structural_variant_records,
+    )
+    from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
+
+    def _svf(**kwargs) -> StructuralVariantQueryFilters:
+        base = dict(page=1, page_size=1, chromosome=None)
+        base.update(kwargs)
+        return StructuralVariantQueryFilters(**base)
+
+    async def _run() -> None:
+        await ensure_clickhouse_variant_tables(_ASSEMBLY)
+        family_uuid = str(uuid4())
+        project = str(uuid4())
+        ctx = FamilyMetadataContext(
+            family_uuid=family_uuid, family_id="FAM-SV", project_ids=[project],
+            sample_rows=[{"sample_id": "S1"}, {"sample_id": "S2"}],
+            sample_uuid_to_name={"S1": "S1", "S2": "S2"},
+            sample_name_to_uuid={"S1": "S1", "S2": "S2"},
+            affected_sample_names=[], assembly_id=str(uuid4()), assembly_name=_ASSEMBLY,
+        )
+        await insert_structural_variant_records(
+            _ASSEMBLY, family_uuid, [project],
+            [
+                _sv_record("sv-1", "1", 100, 500, [_sv_call("S1", "0/1"), _sv_call("S2", "0/0")]),
+                _sv_record("sv-2", "2", 100, 500, [_sv_call("S2", "1/1")]),
+            ],
+        )
+        # SV presence = any call in a matching variant, including ref ("0/0"): on chr1 both
+        # S1 (0/1) and S2 (0/0) are called, so both present (unlike the small-variant path,
+        # where S2 ref-only would NOT be present).
+        assert await _structural_present_sample_names(ctx, _svf(chromosome="1")) == {"S1", "S2"}
+        # Genome view: S1 (chr1) + S2 (chr1, chr2).
+        assert await _structural_present_sample_names(ctx, _svf()) == {"S1", "S2"}
+
+    asyncio.run(_run())

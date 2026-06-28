@@ -28,6 +28,7 @@ from .clickhouse_family_variants import (
     _fetch_panel_regions,
     _fetch_structural_variant_rows,
     _small_variant_present_sample_names,
+    _structural_present_sample_names,
     _structural_record_matches,
 )
 from .data_scope import normalize_chromosome
@@ -470,10 +471,29 @@ async def get_family_track_availability_for_user(
         if include_small_variants
         else asyncio.sleep(0, result=set())
     )
-    structural_records, small_presence = await asyncio.gather(
-        _fetch_structural_variant_rows(context, structural_filters),
-        small_presence_task,
+    # Structural presence: when no Python-side SV filter is active (the common, and most
+    # expensive, unfiltered workspace-load case), use the cheap per-sample aggregate instead
+    # of materialising + JSON-decoding the entire family SV set. Any active Python-side
+    # filter (type/source/length/remote/panel-regions/sample) falls back to the exact
+    # row-fetch + per-sample matching — those queries return far less data anyway.
+    sv_needs_python = (
+        bool(structural_filters.variant_type)
+        or bool(structural_filters.source)
+        or structural_filters.length is not None
+        or structural_filters.min_length is not None
+        or bool(structural_filters.remote_chr)
+        or structural_filters.remote_start is not None
+        or bool(structural_filters.sample_filters)
+        or bool(include_regions)
     )
+    sv_task = (
+        _fetch_structural_variant_rows(context, structural_filters)
+        if sv_needs_python
+        else _structural_present_sample_names(context, structural_filters)
+    )
+    sv_result, small_presence = await asyncio.gather(sv_task, small_presence_task)
+    structural_records = sv_result if sv_needs_python else []
+    sv_present = None if sv_needs_python else sv_result
 
     for sample_name, sample_availability in availability.items():
         sample_availability.coverage = sample_name in coverage_ids
@@ -483,32 +503,35 @@ async def get_family_track_availability_for_user(
         sample_availability.haplotypes = sample_name in haplotype_ids
         sample_availability.repeat_expansions = sample_name in repeat_ids
 
-        sample_structural_filters = StructuralVariantQueryFilters(
-            page=1,
-            page_size=1,
-            chromosome=structural_filters.chromosome,
-            start=structural_filters.start,
-            end=structural_filters.end,
-            length=structural_filters.length,
-            min_length=structural_filters.min_length,
-            variant_type=structural_filters.variant_type,
-            source=structural_filters.source,
-            sample_filters=_sample_specific_filters(sample_name, sample_filters),
-            selected_samples=[sample_name],
-            remote_chr=structural_filters.remote_chr,
-            remote_start=structural_filters.remote_start,
-            panel_id=structural_filters.panel_id,
-            overlap=structural_filters.overlap,
-        )
-        sample_availability.variants = any(
-            _structural_record_matches(
-                record,
-                sample_structural_filters,
-                include_regions,
-                [sample_name],
+        if sv_present is not None:
+            sample_availability.variants = sample_name in sv_present
+        else:
+            sample_structural_filters = StructuralVariantQueryFilters(
+                page=1,
+                page_size=1,
+                chromosome=structural_filters.chromosome,
+                start=structural_filters.start,
+                end=structural_filters.end,
+                length=structural_filters.length,
+                min_length=structural_filters.min_length,
+                variant_type=structural_filters.variant_type,
+                source=structural_filters.source,
+                sample_filters=_sample_specific_filters(sample_name, sample_filters),
+                selected_samples=[sample_name],
+                remote_chr=structural_filters.remote_chr,
+                remote_start=structural_filters.remote_start,
+                panel_id=structural_filters.panel_id,
+                overlap=structural_filters.overlap,
             )
-            for record in structural_records
-        )
+            sample_availability.variants = any(
+                _structural_record_matches(
+                    record,
+                    sample_structural_filters,
+                    include_regions,
+                    [sample_name],
+                )
+                for record in structural_records
+            )
 
         if include_small_variants:
             sample_availability.small_variants = sample_name in small_presence
