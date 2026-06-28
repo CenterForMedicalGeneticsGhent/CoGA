@@ -89,16 +89,24 @@ def test_raises_after_max_transport_errors():
     assert state["count"] == 2  # bounded, not unbounded
 
 
-def test_creates_and_closes_own_client_and_body_is_readable(monkeypatch):
+def test_creates_and_closes_own_client_forwards_config_and_body_readable(monkeypatch):
     real = httpx.AsyncClient
-    monkeypatch.setattr(
-        http_resilience.httpx,
-        "AsyncClient",
-        lambda *a, **k: real(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"ok": 1}))),
-    )
-    # client=None → own client created + closed here; body must still be readable.
-    resp = asyncio.run(resilient_request("GET", "http://svc/x"))
-    assert resp.json() == {"ok": 1}
+    captured: dict = {}
+    created: list = []
+
+    def factory(*args, **kwargs):
+        captured.update(kwargs)
+        client = real(transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"ok": 1})))
+        created.append(client)
+        return client
+
+    monkeypatch.setattr(http_resilience.httpx, "AsyncClient", factory)
+    # client=None → own client created here, configured, used, and closed in finally.
+    resp = asyncio.run(resilient_request("GET", "http://svc/x", follow_redirects=True))
+    assert resp.json() == {"ok": 1}                       # body buffered → readable after close
+    assert isinstance(captured["timeout"], httpx.Timeout)  # standard timeout forwarded
+    assert captured["follow_redirects"] is True            # follow_redirects forwarded
+    assert created and created[0].is_closed                # own client was closed
 
 
 def test_backoff_is_capped_and_honours_retry_after(monkeypatch):

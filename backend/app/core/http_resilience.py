@@ -4,8 +4,11 @@ ClinGen / PanelApp / ...).
 Standardised connect/read timeouts plus capped exponential-backoff retry with jitter on
 TRANSIENT failures (connection/timeout errors and 429/5xx). Retries are limited to
 IDEMPOTENT methods — a non-idempotent request is never retried, since a retry could
-double-execute it. The worst case is bounded (``max_attempts`` × ``backoff_max``) so a
-slow or flapping upstream can neither stall a request indefinitely nor be hammered.
+double-execute it. The worst case is BOUNDED — roughly ``max_attempts × (connect + read)``
+(per-attempt request time dominates) plus the inter-attempt backoffs — so a slow or
+flapping upstream can neither stall a request indefinitely nor be hammered. The only
+current consumers are the background gene-info refresh job's reference lookups (not a
+user-blocking request handler), where that bound is comfortably acceptable.
 
 Callers still call ``response.raise_for_status()`` — this layer only retries; it does not
 decide what a non-transient HTTP error means.
@@ -86,7 +89,8 @@ async def resilient_request(
         for attempt in range(1, attempts + 1):
             try:
                 response = await client.request(method_upper, url, **kwargs)
-            except (httpx.TimeoutException, httpx.TransportError) as exc:
+            except (httpx.TimeoutException, httpx.TransportError):
+                # TimeoutException is itself a TransportError; both listed for clarity.
                 if not retryable or attempt >= attempts:
                     raise
                 await asyncio.sleep(_backoff_seconds(attempt, None))
@@ -95,7 +99,8 @@ async def resilient_request(
                 await asyncio.sleep(_backoff_seconds(attempt, _retry_after_seconds(response)))
                 continue
             return response
-        # Only reached if the final attempt was a retryable status (we never sleep on it).
+        # Unreachable safety net: every attempt either returns or raises above (the final
+        # attempt never `continue`s). Kept for the type checker / defensive completeness.
         assert response is not None
         return response
     finally:
