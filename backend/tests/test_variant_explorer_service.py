@@ -150,3 +150,15 @@ def test_sample_genotype_filters_build_per_sample_subqueries() -> None:
 
     rendered_query, _ = bind_query(f"SELECT key FROM db.`t` WHERE {where_sql}", params)
     assert "%(sample_gt_0)s" not in rendered_query
+
+
+def test_bounded_total_caps_count_and_flags_estimate() -> None:
+    from backend.app.services.variant_explorer_service import _EXPLORER_COUNT_CAP, _bounded_total
+
+    assert _bounded_total(0) == (0, False)
+    assert _bounded_total(42) == (42, False)
+    # Exactly the cap is still exact (the count query fetches cap+1 to disambiguate).
+    assert _bounded_total(_EXPLORER_COUNT_CAP) == (_EXPLORER_COUNT_CAP, False)
+    # Past the cap the true total is unknown -> report the cap, flagged as an estimate.
+    assert _bounded_total(_EXPLORER_COUNT_CAP + 1) == (_EXPLORER_COUNT_CAP, True)
+    assert _bounded_total(9_999_999) == (_EXPLORER_COUNT_CAP, True)
