@@ -63,7 +63,7 @@ async def _seed(session) -> str:
             "INSERT INTO genes (assembly_id, gene_id, hgnc_symbol, chr, start, \"end\", "
             "strand, biotype, description, source, extra) VALUES "
             "(CAST(:a AS uuid), :gid, :sym, '1', 1, 2, 1, 'protein_coding', 't', 't', "
-            "jsonb_build_object('transcript_id', :tx))"
+            "jsonb_build_object('transcript_id', CAST(:tx AS text)))"
         ),
         {"a": assembly, "gid": _MARK_GENE_ID, "sym": _MARK_SYMBOL, "tx": _MARK_TX},
     )
