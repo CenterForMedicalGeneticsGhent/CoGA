@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import SmallVariantFilterForm from '../families/SmallVariantFilterForm';
@@ -161,6 +161,9 @@ const GlobalSmallVariantExplorerPage = () => {
       const res = await api.get(`/variant-explorer/small-variants?${requestQueryString}`);
       return res.data as GlobalVariantPage;
     },
+    // Keep the current page on screen while the next page/filter loads (the `isFetching`
+    // indicator signals the refresh) instead of flashing the empty loading state.
+    placeholderData: keepPreviousData,
   });
 
   const tags = tagDefinitions ?? [];

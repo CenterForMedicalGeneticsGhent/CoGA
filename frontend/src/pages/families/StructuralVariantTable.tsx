@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { formatGt } from '../../lib/genotypes';
 import {
@@ -102,8 +103,13 @@ export default function StructuralVariantTable({
   onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantTableProps) {
-  const tagMap = getTagDefinitionMap(tags);
-  const memberMap = new Map(members.map((member) => [member.sample_id, member]));
+  // Pure derivations of props — memoize so they aren't rebuilt on every unrelated re-render
+  // (this table re-renders on review/sort state changes that don't touch tags/members).
+  const tagMap = useMemo(() => getTagDefinitionMap(tags), [tags]);
+  const memberMap = useMemo(
+    () => new Map(members.map((member) => [member.sample_id, member])),
+    [members],
+  );
   return (
     <div className="analysis-results-card sv-results-table-card overflow-x-auto">
       <table className="analysis-table table-sticky sv-results-table">
