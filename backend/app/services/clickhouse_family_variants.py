@@ -4152,6 +4152,49 @@ async def _fetch_structural_variant_rows(
     return records
 
 
+async def _structural_present_sample_names(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+) -> set[str]:
+    """Per-sample structural-variant presence (any call) for track availability, in ONE
+    aggregate query.
+
+    Valid ONLY when no Python-side SV filter is active (the caller falls back to the full
+    row fetch + per-sample matching otherwise — those queries return far less data anyway).
+    A sample is present iff it has a call in a variant matching the base WHERE
+    (``_structural_variant_where_clauses``: family/sign/project/visibility/chromosome/
+    window), regardless of genotype — mirroring the old ``selected_samples=[sample]``
+    membership test (SVs have no non-ref requirement). Avoids materialising + JSON-decoding
+    the entire family SV set on an unfiltered genome/chromosome workspace load.
+    """
+    if not context.assembly_name:
+        return set()
+    visible_ids = _visible_clickhouse_sample_ids(context)
+    if not visible_ids:
+        return set()
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    where_clauses, params = _structural_variant_where_clauses(context, filters)
+    params["track_visible_ids"] = tuple(visible_ids)
+    query = f"""
+        SELECT sid
+        FROM (
+            SELECT any(e.calls.sampleId) AS sample_ids
+            FROM {entries_table} AS e
+            WHERE {' AND '.join(where_clauses)}
+            GROUP BY e.key, e.variantId
+        )
+        ARRAY JOIN sample_ids AS sid
+        WHERE sid IN %(track_visible_ids)s
+        GROUP BY sid
+    """
+    present: set[str] = set()
+    for (sid,) in await _execute_clickhouse(query, params):
+        name = _display_sample_name(context, sid)
+        if name and name in context.sample_name_to_uuid:
+            present.add(name)
+    return present
+
+
 def _selected_structural_samples(
     context: FamilyMetadataContext,
     sample_names: Sequence[str],
