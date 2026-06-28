@@ -129,8 +129,16 @@ jobs:
         run: npm run tsc
       - name: Lint
         run: npm run lint
-      - name: Test
-        run: npm run test
+      - name: Test with coverage
+        # vitest enforces the coverage thresholds in vite.config.mts (P2-7b); the run
+        # fails if any metric drops below its ratchet floor.
+        run: npm run test:coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/coverage-summary.json
 
   sbom:
     name: sbom (CycloneDX)
