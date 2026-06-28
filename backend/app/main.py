@@ -38,6 +38,10 @@ from .services.reference_metadata_service import seed_builtin_reference_tracks
 from .services.reference_source_service import ensure_human_grch38_reference_on_startup
 from .services.hpo_service import ensure_hpo_ontology_on_startup
 from .services.audit_log_pg import start_audit_log_worker, stop_audit_log_worker
+from .services.clickhouse_integrity_monitor import (
+    start_clickhouse_integrity_monitor,
+    stop_clickhouse_integrity_monitor,
+)
 from .services.ui_event_pg import start_ui_event_worker, stop_ui_event_worker
 
 
@@ -114,6 +118,7 @@ async def lifespan(app: FastAPI):
 
     await wait_for_clickhouse()
     await init_clickhouse_schema()
+    await start_clickhouse_integrity_monitor()
     worker_task = asyncio.create_task(gene_reference_refresh_worker(worker_stop))
     family_import_worker_tasks = [
         asyncio.create_task(family_package_import_worker(family_import_worker_stop))
@@ -129,6 +134,7 @@ async def lifespan(app: FastAPI):
                 family_import_worker_task,
                 family_import_worker_stop,
             )
+        await stop_clickhouse_integrity_monitor()
         await stop_audit_log_worker()
         await stop_ui_event_worker()
         await close_clickhouse_client()

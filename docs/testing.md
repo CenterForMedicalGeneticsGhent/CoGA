@@ -129,6 +129,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/test_clickhouse_integrity.py](../backend/tests/test_clickhouse_integrity.py) | ClickHouse table-integrity / detached-parts checks. |
 | [backend/tests/test_clickhouse_interval_tracks.py](../backend/tests/test_clickhouse_interval_tracks.py) | Interval-track presence detection and region filtering. |
 | [backend/tests/test_clickhouse_variant_storage_ops.py](../backend/tests/test_clickhouse_variant_storage_ops.py) | Variant-assembly listing, table dedup, mutation status. |
+| [backend/tests/test_clickhouse_integrity_monitor.py](../backend/tests/test_clickhouse_integrity_monitor.py) | P2-6 scheduled integrity monitor: sweep caches + escalates by status (ERROR on corrupt, WARN on degraded), survives list/check exceptions, disabled is no-op, worker sweeps then stops cleanly. |
 | [backend/tests/test_track_availability_presence.py](../backend/tests/test_track_availability_presence.py) | P2-1a: the aggregated small-variant presence query (track availability) — real query construction + per-sample explicit/non-ref logic + id→name mapping + empty short-circuit (CH execute mocked). |
 | [backend/tests/test_object_storage.py](../backend/tests/test_object_storage.py) | S3 URI parsing and object-storage helpers. |
 | [backend/tests/test_s3_import_and_cram.py](../backend/tests/test_s3_import_and_cram.py) | S3 source authorization; CRAM/BAM **access-before-serve** and sample resolution. |
