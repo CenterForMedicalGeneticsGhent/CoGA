@@ -216,7 +216,9 @@ async def record_uploaded_file(
     Best-effort: provenance must never fail an otherwise-successful import.
     """
     try:
-        sha256, file_size = _hash_and_size_bytes(content)
+        # SHA-256 over a whole uploaded payload blocks the event loop; offload it
+        # (store_managed_file already does its write off-loop).
+        sha256, file_size = await asyncio.to_thread(_hash_and_size_bytes, content)
         stored = await store_managed_file(family_id, file_name, content)
         await record_raw_import_file(
             session,

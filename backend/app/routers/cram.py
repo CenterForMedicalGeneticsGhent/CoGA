@@ -140,7 +140,9 @@ async def get_cram(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _serve_alignment(family_id, sample_id, "cram", "", "CRAM file not found")
+    return await asyncio.to_thread(
+        _serve_alignment, family_id, sample_id, "cram", "", "CRAM file not found"
+    )
 
 
 @router.head("/{family_id}/{sample_id}.cram")
@@ -151,7 +153,9 @@ async def head_cram(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _head_alignment(family_id, sample_id, "cram", "", "CRAM file not found")
+    return await asyncio.to_thread(
+        _head_alignment, family_id, sample_id, "cram", "", "CRAM file not found"
+    )
 
 
 @router.get("/{family_id}/{sample_id}.cram.crai")
@@ -162,7 +166,9 @@ async def get_crai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _serve_alignment(family_id, sample_id, "cram", ".crai", "CRAI file not found")
+    return await asyncio.to_thread(
+        _serve_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found"
+    )
 
 
 @router.head("/{family_id}/{sample_id}.cram.crai")
@@ -173,7 +179,9 @@ async def head_crai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _head_alignment(family_id, sample_id, "cram", ".crai", "CRAI file not found")
+    return await asyncio.to_thread(
+        _head_alignment, family_id, sample_id, "cram", ".crai", "CRAI file not found"
+    )
 
 
 @router.get("/{family_id}/{sample_id}.bam")
@@ -184,7 +192,9 @@ async def get_bam(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _serve_alignment(family_id, sample_id, "bam", "", "BAM file not found")
+    return await asyncio.to_thread(
+        _serve_alignment, family_id, sample_id, "bam", "", "BAM file not found"
+    )
 
 
 @router.head("/{family_id}/{sample_id}.bam")
@@ -195,7 +205,9 @@ async def head_bam(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _head_alignment(family_id, sample_id, "bam", "", "BAM file not found")
+    return await asyncio.to_thread(
+        _head_alignment, family_id, sample_id, "bam", "", "BAM file not found"
+    )
 
 
 @router.get("/{family_id}/{sample_id}.bam.bai")
@@ -206,7 +218,9 @@ async def get_bai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _serve_alignment(family_id, sample_id, "bam", ".bai", "BAI file not found")
+    return await asyncio.to_thread(
+        _serve_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found"
+    )
 
 
 @router.head("/{family_id}/{sample_id}.bam.bai")
@@ -217,7 +231,9 @@ async def head_bai(
     user: CurrentUser = Depends(get_current_user),
 ):
     await _ensure_accessible_alignment_sample(session, family_id, sample_id, user)
-    return _head_alignment(family_id, sample_id, "bam", ".bai", "BAI file not found")
+    return await asyncio.to_thread(
+        _head_alignment, family_id, sample_id, "bam", ".bai", "BAI file not found"
+    )
 
 
 def _read_alignment_header(family_id: str, sample_id: str) -> dict:
