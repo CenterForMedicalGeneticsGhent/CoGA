@@ -12,7 +12,7 @@ const ViewerMemberSection: React.FC<ViewerMemberSectionProps> = ({ member, child
       <h3 className="text-lg font-semibold">
         {member.sample_id}
         {member.affected && (
-          <span className="ml-1 text-[var(--color-signature-red)]" title="Affected">
+          <span className="ml-1 text-(--color-signature-red)" title="Affected">
             ★
           </span>
         )}

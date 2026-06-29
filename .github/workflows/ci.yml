@@ -310,8 +310,14 @@ jobs:
             --output-format json > sbom/backend.cdx.json
       - name: Generate frontend SBOM (from package-lock.json)
         run: |
+          # --ignore-npm-errors: Tailwind v4 pulls in the optional package
+          # @tailwindcss/oxide-wasm32-wasi, whose transitive deps npm omits from
+          # the lockfile on platforms that don't use the wasm binary. `npm ls`
+          # (run internally by cyclonedx-npm) then exits non-zero on those
+          # "missing" optional sub-deps; the flag tolerates that while still
+          # emitting a complete SBOM for everything that is installed.
           npx --yes @cyclonedx/cyclonedx-npm@5.0.0 \
-            --package-lock-only --output-format json --output-reproducible \
+            --package-lock-only --output-format json --output-reproducible --ignore-npm-errors \
             --output-file sbom/frontend.cdx.json frontend/package.json
       - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4

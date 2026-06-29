@@ -38,11 +38,11 @@ const SignupPage: React.FC = () => {
 
   return (
     <div className="auth-shell">
-      <div className="auth-card !max-w-[760px]">
+      <div className="auth-card max-w-[760px]!">
         <div className="auth-gallery">
           <div className="auth-gallery-inner">
             <div>
-              <p className="page-kicker !text-[rgba(255,255,255,0.62)]">Account Access</p>
+              <p className="page-kicker text-[rgba(255,255,255,0.62)]!">Account Access</p>
               <h2 className="auth-gallery-title">Create a measured, shared review space.</h2>
               <p className="auth-gallery-copy">
                 New accounts can be used to review families, manage projects, and collaborate on
@@ -108,9 +108,9 @@ const SignupPage: React.FC = () => {
               </p>
             )}
           </form>
-          <p className="mt-6 text-center text-sm text-[var(--color-text-muted)]">
+          <p className="mt-6 text-center text-sm text-(--color-text-muted)">
             Already registered?{' '}
-            <Link to="/login" className="subtle-link !inline-flex">
+            <Link to="/login" className="subtle-link inline-flex!">
               Return to login
             </Link>
           </p>

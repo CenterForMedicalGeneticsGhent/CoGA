@@ -521,7 +521,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             <div className="page-top-card-visual">
               <div className="page-top-card-pedigree family-workspace-pedigree">
                 <p className="stat-label">Pedigree</p>
-                <div className="mono-panel overflow-x-auto !bg-[rgba(255,255,255,0.92)]">
+                <div className="mono-panel overflow-x-auto bg-[rgba(255,255,255,0.92)]!">
                   <Pedigree
                     rows={pedRows}
                     members={family.members}

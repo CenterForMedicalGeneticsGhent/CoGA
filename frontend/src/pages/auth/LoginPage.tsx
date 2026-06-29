@@ -70,7 +70,7 @@ const LoginPage: React.FC = () => {
           <div className="auth-gallery-inner">
             <div className="space-y-8">
               <div>
-                <p className="page-kicker !text-[rgba(255,255,255,0.62)]">CoGA</p>
+                <p className="page-kicker text-[rgba(255,255,255,0.62)]!">CoGA</p>
                 <h2 className="auth-gallery-title">Comprehensive Genomic Analysis</h2>
               </div>
 
@@ -168,9 +168,9 @@ const LoginPage: React.FC = () => {
             </form>
 
             <p className="auth-form-note">Secure access via JWT session</p>
-            <p className="mt-6 text-sm text-[var(--color-text-muted)]">
+            <p className="mt-6 text-sm text-(--color-text-muted)">
               Don&apos;t have an account?{' '}
-              <Link to="/signup" className="subtle-link !inline-flex">
+              <Link to="/signup" className="subtle-link inline-flex!">
                 Sign up
               </Link>
             </p>

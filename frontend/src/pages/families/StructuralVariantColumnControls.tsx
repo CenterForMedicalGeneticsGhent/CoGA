@@ -21,11 +21,11 @@ export default function StructuralVariantColumnControls({
   return (
     <div className="surface-card-flat flex flex-wrap items-center justify-end gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-[var(--color-text-muted)]">Columns</span>
+        <span className="text-xs text-(--color-text-muted)">Columns</span>
         {Object.keys(visible).map((key) => (
           <label
             key={key}
-            className="inline-flex items-center gap-1 text-xs text-[var(--color-text-muted)]"
+            className="inline-flex items-center gap-1 text-xs text-(--color-text-muted)"
           >
             <input
               type="checkbox"
