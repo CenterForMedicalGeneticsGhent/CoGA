@@ -162,3 +162,46 @@ def test_bounded_total_caps_count_and_flags_estimate() -> None:
     # Past the cap the true total is unknown -> report the cap, flagged as an estimate.
     assert _bounded_total(_EXPLORER_COUNT_CAP + 1) == (_EXPLORER_COUNT_CAP, True)
     assert _bounded_total(9_999_999) == (_EXPLORER_COUNT_CAP, True)
+
+
+def test_cursor_roundtrips_and_rejects_stale_or_garbage() -> None:
+    from backend.app.services.variant_explorer_service import _decode_cursor, _encode_cursor
+
+    cursor = _encode_cursor("total_samples", "desc", "fp1", 5, 123456, 99)
+    assert _decode_cursor(cursor, "total_samples", "desc", "fp1") == (5, 123456, 99)
+    # Stale: the sort / order / filter-set it was issued for no longer matches -> None.
+    assert _decode_cursor(cursor, "position", "desc", "fp1") is None
+    assert _decode_cursor(cursor, "total_samples", "asc", "fp1") is None
+    assert _decode_cursor(cursor, "total_samples", "desc", "fp2") is None  # filters changed
+    # Garbage in -> None, never an exception.
+    assert _decode_cursor("not-valid-base64!!", "total_samples", "desc", "fp1") is None
+    assert _decode_cursor("", "total_samples", "desc", "fp1") is None
+
+
+def test_filters_fingerprint_is_stable_and_sensitive() -> None:
+    from backend.app.services.variant_explorer_service import (
+        GlobalVariantFilters,
+        _filters_fingerprint,
+    )
+
+    base = _filters_fingerprint(GlobalVariantFilters(), "asm1")
+    assert base == _filters_fingerprint(GlobalVariantFilters(), "asm1")  # stable
+    assert base != _filters_fingerprint(GlobalVariantFilters(gene="BRCA1"), "asm1")  # filter
+    assert base != _filters_fingerprint(GlobalVariantFilters(include_imputed=True), "asm1")
+    assert base != _filters_fingerprint(GlobalVariantFilters(), "asm2")  # assembly
+
+
+def test_seek_having_is_direction_aware_and_degenerate_safe() -> None:
+    from backend.app.services.variant_explorer_service import _seek_having
+
+    desc = _seek_having("total_samples", "DESC")
+    assert "total_samples < %(cur_sort)s" in desc  # DESC seeks strictly-less
+    assert "xpos > %(cur_xpos)s" in desc
+    assert "key > %(cur_key)s" in desc
+
+    asc = _seek_having("total_samples", "ASC")
+    assert "total_samples > %(cur_sort)s" in asc  # ASC seeks strictly-greater
+
+    # When the sort column IS xpos the predicate still has a unique key tiebreaker.
+    pos = _seek_having("xpos", "ASC")
+    assert "xpos > %(cur_sort)s" in pos and "key > %(cur_key)s" in pos

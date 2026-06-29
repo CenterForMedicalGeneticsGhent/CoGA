@@ -199,6 +199,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/integration/test_integrity_anchor_integration.py](../backend/tests/integration/test_integrity_anchor_integration.py) | Signed chain-head anchor end-to-end: a real signed anchor verifies; an owner-bypass re-chain (recomputed head row_hash) or truncation (deleted head) diverges from it; a tampered anchor signature is caught; anchors chain (prev_anchor_hash). |
 | [backend/tests/integration/test_gene_search_indexes.py](../backend/tests/integration/test_gene_search_indexes.py) | P2-3: the gene-search expression indexes serve their real queries — seeds ~600 genes/gene_info + ANALYZE, then EXPLAINs the actual autocomplete / panel / region-OR / candidate-OR / gene_info-constraint shapes asserting no Seq Scan on genes/gene_info (and the autocomplete is pinned to its prefix index). |
 | [backend/tests/integration/test_track_availability_presence_integration.py](../backend/tests/integration/test_track_availability_presence_integration.py) | P2-1a end-to-end (real ClickHouse): ingests a tiny small-variant fixture and asserts the aggregated per-sample presence — non-ref counts, ref does not, chromosome filter scopes correctly. |
+| [backend/tests/integration/test_variant_explorer_keyset_integration.py](../backend/tests/integration/test_variant_explorer_keyset_integration.py) | P2-4b end-to-end (real ClickHouse): pages five variants (incl. a carrier-count tie) at page_size 2 via next_cursor — every variant once, non-increasing sort across page boundaries, correct page count — validating the HAVING seek + cursor round-trip. |
 
 ### API / config / infra / other
 | Test file | Purpose |
@@ -352,6 +353,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [frontend/src/pages/projects/__tests__/ProjectsPage.test.tsx](../frontend/src/pages/projects/__tests__/ProjectsPage.test.tsx) | Projects list (creation/filter). |
 | [frontend/src/pages/reference/__tests__/ReferenceCatalogPage.test.tsx](../frontend/src/pages/reference/__tests__/ReferenceCatalogPage.test.tsx) | Reference-genome catalogue browsing. |
 | [frontend/src/pages/settings/__tests__/SettingsPage.test.tsx](../frontend/src/pages/settings/__tests__/SettingsPage.test.tsx) | User settings/preferences. |
+| [frontend/src/pages/variant-explorer/__tests__/globalSmallVariantSearch.test.ts](../frontend/src/pages/variant-explorer/__tests__/globalSmallVariantSearch.test.ts) | P2-4b explorer keyset pagination state: forward/back cursor walk, no page-0, reset-on-sort-change, no legacy `page` param leaking into requests. |
 | [frontend/src/pages/docs/__tests__/ReferenceDocPage.test.tsx](../frontend/src/pages/docs/__tests__/ReferenceDocPage.test.tsx) | In-app reference doc page (anchored nav). |
 | [frontend/src/pages/docs/__tests__/UserGuidePage.test.tsx](../frontend/src/pages/docs/__tests__/UserGuidePage.test.tsx) | In-app user-guide page (contents/workspace links). |
 

@@ -2147,8 +2147,10 @@ class GlobalVariantRowOut(BaseModel):
 class GlobalVariantPageOut(BaseModel):
     total: int
     total_is_estimated: bool = False
-    page: int = 1
+    page: int = 1  # vestigial (keyset pagination); kept for response back-compat
     page_size: int = 50
+    # P2-4b: opaque keyset cursor for the NEXT page; null when this is the last page.
+    next_cursor: Optional[str] = None
     assembly_id: Optional[str] = None
     assembly_name: Optional[str] = None
     variants: List[GlobalVariantRowOut] = Field(default_factory=list)

@@ -30,8 +30,11 @@ Design notes
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Sequence
 
 from sqlalchemy import bindparam, text
@@ -78,6 +81,72 @@ def _bounded_total(raw_count: int) -> tuple[int, bool]:
     if raw_count > _EXPLORER_COUNT_CAP:
         return _EXPLORER_COUNT_CAP, True
     return raw_count, False
+
+
+# P2-4b: keyset (seek) pagination. The ORDER BY is `{sort_expr} {dir}, xpos ASC, key ASC`,
+# so a page boundary is fully described by the last row's (sort_value, xpos, key) — all
+# integers (carrier counts or xpos; key is the UInt64 variant key). The cursor encodes that
+# triple plus the sort/order it was issued for, so a stale cursor (after the user changes
+# sort) is detected and ignored rather than silently mis-paging.
+_CURSOR_VERSION = "v1"
+# Column index of each sort_expr in the raw `_fetch_variant_rows` SELECT (see that query).
+_SORT_RAW_COL = {
+    "families": 8,
+    "hom_samples": 9,
+    "het_samples": 10,
+    "total_samples": 11,
+    "xpos": 7,
+}
+_RAW_XPOS_COL = 7
+_RAW_KEY_COL = 0
+
+
+def _filters_fingerprint(filters: GlobalVariantFilters, assembly_id: str | None) -> str:
+    """A short stable hash of everything that changes the result set (filter surface +
+    assembly). Bound into the cursor so a cursor leaked across a filter change (e.g. clicked
+    during an in-flight refetch) is rejected rather than silently mis-paging."""
+    payload = json.dumps({"f": asdict(filters), "a": assembly_id}, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _encode_cursor(
+    sort: str, order: str, fingerprint: str, sort_value: int, xpos: int, key: int
+) -> str:
+    raw = f"{_CURSOR_VERSION}:{sort}:{order}:{fingerprint}:{sort_value}:{xpos}:{key}"
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+def _decode_cursor(
+    cursor: str, sort: str, order: str, fingerprint: str
+) -> tuple[int, int, int] | None:
+    """Decode a cursor to (sort_value, xpos, key), or None if it is malformed or was issued
+    for a different sort/order/filter set (treated as "start from the first page")."""
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        parts = raw.split(":")
+    except (ValueError, UnicodeDecodeError, base64.binascii.Error):
+        return None
+    if len(parts) != 7:
+        return None
+    version, c_sort, c_order, c_fingerprint, sort_value, xpos, key = parts
+    if (version, c_sort, c_order, c_fingerprint) != (_CURSOR_VERSION, sort, order, fingerprint):
+        return None
+    try:
+        return int(sort_value), int(xpos), int(key)
+    except ValueError:
+        return None
+
+
+def _seek_having(sort_expr: str, direction: str) -> str:
+    """The HAVING predicate selecting rows strictly after the cursor under the ORDER BY
+    `{sort_expr} {direction}, xpos ASC, key ASC`. Bound params: cur_sort/cur_xpos/cur_key.
+    Correct even when sort_expr is `xpos` (the redundant middle term collapses cleanly)."""
+    cmp = "<" if direction == "DESC" else ">"
+    return (
+        f"( {sort_expr} {cmp} %(cur_sort)s "
+        f"OR ({sort_expr} = %(cur_sort)s AND xpos > %(cur_xpos)s) "
+        f"OR ({sort_expr} = %(cur_sort)s AND xpos = %(cur_xpos)s AND key > %(cur_key)s) )"
+    )
 
 # Keys are lowercased to match _most_severe's case-insensitive lookup (and the
 # casefolded impacts stored in annotation_index).
@@ -642,21 +711,23 @@ async def search_global_small_variants(
     user: CurrentUser,
     filters: GlobalVariantFilters,
     assembly_id: str | None = None,
-    page: int = 1,
+    cursor: str | None = None,
     page_size: int = 50,
     sort: str = _DEFAULT_SORT,
     order: str = "desc",
 ) -> GlobalVariantPageOut:
-    page = max(1, page)
     page_size = max(1, min(page_size, 200))
-    sort_expr = _SORT_EXPR.get(sort, _SORT_EXPR[_DEFAULT_SORT])
-    direction = "ASC" if str(order).lower() == "asc" else "DESC"
+    # Normalize to the canonical sort/order actually used so the cursor records exactly that
+    # (an unknown sort would otherwise be queried as the default but stored verbatim, making
+    # every subsequent cursor self-reject).
+    sort = sort if sort in _SORT_EXPR else _DEFAULT_SORT
+    order = "asc" if str(order).lower() == "asc" else "desc"
+    sort_expr = _SORT_EXPR[sort]
+    direction = "ASC" if order == "asc" else "DESC"
 
     scope = await resolve_scope(session, user, assembly_id)
     if scope is None:
-        return GlobalVariantPageOut(
-            total=0, page=page, page_size=page_size, assembly_id=assembly_id
-        )
+        return GlobalVariantPageOut(total=0, page_size=page_size, assembly_id=assembly_id)
 
     # Resolve review (tag/classification) filter to a variant_id allow-list.
     tag_variant_ids: list[str] | None = None
@@ -670,7 +741,6 @@ async def search_global_small_variants(
         if not matched:
             return GlobalVariantPageOut(
                 total=0,
-                page=page,
                 page_size=page_size,
                 assembly_id=scope.assembly_id,
                 assembly_name=scope.assembly_name,
@@ -708,13 +778,25 @@ async def search_global_small_variants(
     if total == 0:
         return GlobalVariantPageOut(
             total=0,
-            page=page,
             page_size=page_size,
             assembly_id=scope.assembly_id,
             assembly_name=scope.assembly_name,
         )
 
-    variants = await _fetch_variant_rows(
+    # Keyset (seek) page: the cursor carries the previous page's last (sort_value, xpos,
+    # key); a stale cursor (sort/order/filters changed) decodes to None and we start at top.
+    fingerprint = _filters_fingerprint(filters, assembly_id)
+    seek_having: str | None = None
+    seek_params: dict[str, Any] | None = None
+    decoded = _decode_cursor(cursor, sort, order, fingerprint) if cursor else None
+    if decoded is not None:
+        cur_sort, cur_xpos, cur_key = decoded
+        seek_having = _seek_having(sort_expr, direction)
+        seek_params = {"cur_sort": cur_sort, "cur_xpos": cur_xpos, "cur_key": cur_key}
+
+    # Fetch one extra row as a "has next page" probe so the last page never advertises a
+    # cursor that would land on an empty page (which a bare len==page_size check would).
+    variants, row_cursors = await _fetch_variant_rows(
         session,
         scope=scope,
         entries_table=entries_table,
@@ -722,15 +804,21 @@ async def search_global_small_variants(
         params=params,
         sort_expr=sort_expr,
         direction=direction,
-        limit=page_size,
-        offset=(page - 1) * page_size,
+        limit=page_size + 1,
+        seek_having=seek_having,
+        seek_params=seek_params,
     )
+
+    next_cursor: str | None = None
+    if len(variants) > page_size:
+        next_cursor = _encode_cursor(sort, order, fingerprint, *row_cursors[page_size - 1])
+        variants = variants[:page_size]
 
     return GlobalVariantPageOut(
         total=total,
         total_is_estimated=total_is_estimated,
-        page=page,
         page_size=page_size,
+        next_cursor=next_cursor,
         assembly_id=scope.assembly_id,
         assembly_name=scope.assembly_name,
         variants=variants,
@@ -747,17 +835,23 @@ async def _fetch_variant_rows(
     sort_expr: str,
     direction: str,
     limit: int,
-    offset: int,
-) -> list[GlobalVariantRowOut]:
+    seek_having: str | None = None,
+    seek_params: dict[str, Any] | None = None,
+) -> tuple[list[GlobalVariantRowOut], list[tuple[int, int, int]]]:
     """Run the aggregated variant query and hydrate it into row models.
 
     Shared by the paginated search and the CSV export so both return identical
-    columns; only ``limit``/``offset`` differ.
+    columns. ``seek_having`` (with ``seek_params``) keyset-pages forward from a cursor;
+    omit it for the first page / full export. Returns ``(rows, row_cursors)`` where
+    ``row_cursors[i]`` is the ``(sort_value, xpos, key)`` of ``rows[i]`` for building the
+    next cursor.
     """
 
     page_params = dict(params)
     page_params["limit"] = limit
-    page_params["offset"] = offset
+    if seek_params:
+        page_params.update(seek_params)
+    having_sql = f"HAVING {seek_having}" if seek_having else ""
 
     rows = await execute_clickhouse(
         f"""
@@ -795,11 +889,19 @@ async def _fetch_variant_rows(
               AND gt NOT IN %(gt_ref_missing)s
         )
         GROUP BY key
+        {having_sql}
         ORDER BY {sort_expr} {direction}, xpos ASC, key ASC
-        LIMIT %(limit)s OFFSET %(offset)s
+        LIMIT %(limit)s
         """,
         page_params,
     )
+
+    # Per-row keyset cursor (sort_value, xpos, key), parallel to `variants`, so the caller
+    # can take the boundary row's cursor after an N+1 probe trim.
+    row_cursors = [
+        (int(row[_SORT_RAW_COL[sort_expr]]), int(row[_RAW_XPOS_COL]), int(row[_RAW_KEY_COL]))
+        for row in rows
+    ]
 
     keys = [int(row[0]) for row in rows]
     variant_ids = [str(row[1]) for row in rows]
@@ -861,7 +963,7 @@ async def _fetch_variant_rows(
             )
         )
 
-    return variants
+    return variants, row_cursors
 
 
 # Hard cap on rows pulled into a single CSV export. Generous enough for any
@@ -914,7 +1016,7 @@ async def export_global_small_variants(
     where_clauses = _entries_where(scope, filters, params, tag_variant_ids=tag_variant_ids)
     where_sql = " AND ".join(where_clauses)
 
-    variants = await _fetch_variant_rows(
+    variants, _row_cursors = await _fetch_variant_rows(
         session,
         scope=scope,
         entries_table=entries_table,
@@ -923,7 +1025,6 @@ async def export_global_small_variants(
         sort_expr=sort_expr,
         direction=direction,
         limit=limit,
-        offset=0,
     )
     return scope.assembly_name, variants
 
