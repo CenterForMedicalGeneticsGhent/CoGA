@@ -183,6 +183,21 @@ async def _ensure_project(session, *, species_id: str, assembly_id: str, admin_u
     return project_id
 
 
+async def login_admin_token(ac) -> str:
+    """Log in as the seeded admin over an httpx client and return the bearer
+    token. Used with an in-loop ASGITransport client so the global DB engine /
+    ClickHouse client stay bound to a single event loop."""
+    from backend.app.core.config import settings
+
+    resp = await ac.post(
+        "/api/auth/login",
+        json={"email": settings.admin_email, "password": settings.admin_password},
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"admin login failed: {resp.status_code} {resp.text}")
+    return resp.json()["access_token"]
+
+
 async def import_golden_trio(root: Path) -> dict[str, Any]:
     """Set up a project, run the real package import, and read back per-stage
     facts. Returns a plain dict so the test asserts synchronously."""
@@ -225,6 +240,8 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
         )
 
     facts: dict[str, Any] = {
+        "project_id": project_id,
+        "assembly_id": assembly_id,
         "completed": result.completed,
         "error": result.error,
         "family_id": result.family_id,
@@ -355,3 +372,8 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
         ASSEMBLY, family_uuid, project_ids=[project_id]
     )
     return facts
+
+
+def import_golden_trio_sync(root: Path) -> dict[str, Any]:
+    """Synchronous wrapper for tests: runs the import under a managed loop."""
+    return run_async(lambda: import_golden_trio(root))

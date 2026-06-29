@@ -14,9 +14,11 @@ dataset_status:
   coverage: imported
   paraphase: imported
 snv:
-  count: 6
+  count: 8
   compound_het_gene: GENE_CH
   de_novo_gene: GENE_DENOVO
+  indel_gene: GENE_INDEL
+  mnv_gene: GENE_MNV
 structural_variants:
   count: 2
   del_gene: BRCA2

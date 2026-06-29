@@ -64,6 +64,10 @@ SNVS = [
      {"FATHER": "0/1", "MOTHER": "0/0", "PROBAND": "0/1"}, "compound-het B (paternal)"),
     (6000, "C", "G", ("missense_variant", "MODERATE", "BRCA2", "0.0003", "23", ""),
      {"FATHER": "0/0", "MOTHER": "0/1", "PROBAND": "0/1"}, "SNV half of SNV+SV comp-het (maternal)"),
+    (7000, "AG", "A", ("frameshift_variant", "HIGH", "GENE_INDEL", "0.0001", "30", ""),
+     {"FATHER": "0/0", "MOTHER": "0/1", "PROBAND": "0/1"}, "INDEL (type contract: INDEL in both endpoints)"),
+    (8000, "AC", "GT", ("missense_variant", "MODERATE", "GENE_MNV", "0.0002", "21", ""),
+     {"FATHER": "0/0", "MOTHER": "0/0", "PROBAND": "0/1"}, "MNV (type contract: INDEL in family endpoint, MNV in explorer)"),
 ]
 
 
@@ -221,6 +225,8 @@ def _write_expected(root: Path) -> None:
             "count": len(SNVS),
             "compound_het_gene": "GENE_CH",
             "de_novo_gene": "GENE_DENOVO",
+            "indel_gene": "GENE_INDEL",
+            "mnv_gene": "GENE_MNV",
         },
         "structural_variants": {"count": 2, "del_gene": "BRCA2"},
         "sv_second_hit": {
