@@ -169,6 +169,7 @@ def _module_list(
             or module.get("release")
             or module.get("release_date")
         )
+        by_modality = module.get("by_modality")
         result.append(
             {
                 "key": key,
@@ -176,6 +177,13 @@ def _module_list(
                 "version": str(version) if version not in (None, "") else None,
                 "detail": str(detail) if detail else None,
                 "layer": layer,
+                # Per-modality versions (issue #294): which modality's pipeline
+                # cited which release — so SNV vs SV divergence is preserved.
+                "by_modality": (
+                    {str(k): str(v) for k, v in by_modality.items() if v not in (None, "")}
+                    if isinstance(by_modality, dict) and by_modality
+                    else None
+                ),
             }
         )
     return result
@@ -218,20 +226,32 @@ async def get_family_annotation_manifest(
 
 
 def _refresh_modules(
-    current: Mapping[str, Any], incoming: Mapping[str, Any]
+    current: Mapping[str, Any], incoming: Mapping[str, Any], modality: str | None = None
 ) -> dict[str, dict[str, Any]]:
     """Merge freshly parsed modules into the stored ones. Newly parsed versions
     win per-key (a re-import reflects the latest annotation), while modules the new
     input does not mention are preserved (so re-importing one modality does not
-    wipe another's provenance)."""
+    wipe another's provenance).
+
+    When ``modality`` is given, each module's version is also recorded under
+    ``by_modality[modality]`` (issue #294) — so the same database cited at different
+    releases by different modalities (e.g. GENCODE 49 for SNV, 45 for SV) keeps the
+    full per-modality truth alongside the flat representative ``version``."""
     out: dict[str, dict[str, Any]] = {
         key: dict(_as_module(value)) for key, value in (current or {}).items()
     }
     for key, value in (incoming or {}).items():
         entry = out.setdefault(key, {})
-        for field_name, field_value in _as_module(value).items():
-            if field_value not in (None, ""):
-                entry[field_name] = field_value
+        incoming_entry = _as_module(value)
+        for field_name, field_value in incoming_entry.items():
+            if field_name == "by_modality" or field_value in (None, ""):
+                continue
+            entry[field_name] = field_value
+        if modality and incoming_entry.get("version") not in (None, ""):
+            existing_by = entry.get("by_modality")
+            by_modality = dict(existing_by) if isinstance(existing_by, dict) else {}
+            by_modality[str(modality)] = incoming_entry["version"]
+            entry["by_modality"] = by_modality
     return {k: v for k, v in out.items() if v}
 
 
@@ -241,6 +261,7 @@ async def merge_vcf_header_provenance(
     family_uuid: str,
     assembly_id: str | None,
     modules: Mapping[str, Any],
+    modality: str | None = None,
     recorded_by: str = "import (vcf_header)",
 ) -> None:
     """Best-effort: fold VCF-header-harvested module versions into the family's
@@ -262,7 +283,7 @@ async def merge_vcf_header_provenance(
             if existing and existing.get("source") == "manual":
                 return  # respect admin-curated provenance
             current = _as_dict(existing.get("modules")) if existing else {}
-            merged = _refresh_modules(current, modules)
+            merged = _refresh_modules(current, modules, modality=modality)
             await session.execute(
                 text(
                     """

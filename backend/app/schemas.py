@@ -355,6 +355,9 @@ class AnnotationModuleOut(BaseModel):
     version: Optional[str] = None
     detail: Optional[str] = None
     layer: str  # "pipeline" (per-family upstream) | "reference" (platform-loaded)
+    # Per-modality versions (issue #294): {modality: version} when the same database
+    # was cited at different releases by different pipelines (e.g. SNV vs SV GENCODE).
+    by_modality: Optional[Dict[str, str]] = None
 
 
 class AnnotationManifestOut(BaseModel):

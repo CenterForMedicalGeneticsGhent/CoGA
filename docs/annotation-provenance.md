@@ -49,7 +49,7 @@ Provenance is stored once per family in **`family_annotation_manifest`**
 
 | Column | Meaning |
 | --- | --- |
-| `modules` (JSONB) | `{ moduleKey: { version, detail, … } }` — one canonical entry per tool/database. Free-form so new sources need no schema change. |
+| `modules` (JSONB) | `{ moduleKey: { version, detail, by_modality?, … } }` — one canonical entry per tool/database. `version` is the flat representative; `by_modality` (e.g. `{ "snv": "49", "sv": "45" }`, issue #294) keeps the per-modality truth. Free-form so new sources need no schema change. |
 | `source` | `'vcf_header'` (parsed from headers) · `'manifest'` (declared by the import package) · `'manual'` (admin-entered) |
 | `recorded_by` / `recorded_at` | provenance of the provenance — who/what wrote it, when |
 | `assembly_id` | the family's assembly (for the platform reference layer) |
@@ -123,12 +123,14 @@ Together: the hash proves change; the manifest names the versions.
 
 ## 6. Where it is surfaced
 
-- **Filter page** — [`AnnotationProvenanceSummary.tsx`](../frontend/src/pages/families/AnnotationProvenanceSummary.tsx)
-  renders a compact "Annotation versions" row under the family title, so a
-  reviewer always sees which versions they are filtering against, with the
-  `source` (e.g. *from VCF headers*).
+- **Filter pages** — [`AnnotationProvenanceSummary.tsx`](../frontend/src/pages/families/AnnotationProvenanceSummary.tsx)
+  renders an "Annotation versions" footer at the bottom of the **SNV** and **SV**
+  filter pages. Each passes its `modality`, so it shows *that* modality's versions
+  (plus shared platform/reference modules) — e.g. the SV page shows GENCODE 45 while
+  the SNV page shows 49 (§8) — with the `source` (e.g. *from VCF headers*).
 - **Report** — [`FamilyReportPage.tsx`](../frontend/src/pages/families/FamilyReportPage.tsx)
-  renders the full provenance footer (`Modules & versions: …`), frozen at sign-out.
+  renders the full provenance footer (`Modules & versions: …`), showing any
+  per-modality divergence inline, frozen at sign-out.
 - **API** — `GET /families/{id}/annotation-manifest`.
 - **Admin override** — `PUT /families/{id}/annotation-manifest` (`source='manual'`).
 
@@ -144,16 +146,15 @@ Together: the hash proves change; the manifest names the versions.
   (`extract_info_description_provenance`: GENCODE/OMIM/GenCC/gnomAD/GIAB/ClinVar/
   dbSNP/COSMIC, each anchored to a version-shaped token). Free-text mining is more
   fragile than a clean `##VEP=` line, hence the allowlist.
-- **One version per database per family (current).** The manifest is flat, so if
-  two modalities annotated against *different* releases of the same database (e.g.
-  SNV vs SV using different GENCODE versions), only one is shown — the
-  structured-header source wins over an INFO-mined one. **This is the motivation for
-  the planned per-modality refinement (§8).**
+- **Per-database divergence across modalities** (e.g. SNV vs SV citing different
+  GENCODE releases) is now preserved via `by_modality` and surfaced per page — see
+  §8. The flat representative `version` remains for back-compat and is the latest
+  write.
 - **Unknown tools** are still captured under their lower-cased token (they render
   with a title-cased label), so a new caller/annotator shows up without a code
   change.
 
-## 8. Planned follow-up — per-modality provenance
+## 8. Per-modality provenance (#294)
 
 **Problem.** SNV, SV and TRGT inputs are annotated by *different* pipelines and can
 cite **different releases of the same database** — observed on `f_18.16172`: the SNV
@@ -194,8 +195,13 @@ The JSONB-extension above is lighter and keeps the single-row-per-family model.)
   what drift compares against; this is the clinical-grade form
   ([clinical-traceability.md](clinical-traceability.md) §A).
 
-**Status.** Designed, not implemented — tracked in **[issue #294](https://github.com/bmenten/CoGA/issues/294)**.
-Until then, the footer shows the flat single-version-per-database view described in §7.
+**Status. ✅ Implemented** ([issue #294](https://github.com/bmenten/CoGA/issues/294)).
+`merge_vcf_header_provenance` takes a `modality`; each module records
+`by_modality[modality]` alongside the flat representative `version`. The SNV and SV
+filter-page footers pass their modality and show only their own versions (shared
+platform/reference modules always show); the report footer renders the per-modality
+breakdown for any database that diverged (e.g. `GENCODE 49 (snv), 45 (sv)`), and that
+full set is what sign-out freezes.
 
 ## 9. Tests
 

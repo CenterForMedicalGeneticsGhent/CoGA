@@ -934,6 +934,7 @@ async def ingest_family_trgt_text(
             family_uuid=provenance_ctx.family_uuid,
             assembly_id=getattr(provenance_ctx, "assembly_id", None),
             modules=extract_header_provenance(lines, modality="repeats").as_modules(),
+            modality="repeats",
         )
     await session.commit()
     return {
