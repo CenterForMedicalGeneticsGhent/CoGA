@@ -144,7 +144,7 @@ const AdminDashboardPage: React.FC = () => (
           <div className="hpo-term-grid">
             {group.modules.map((module) => (
               <Link key={module.to} to={module.to} className="hpo-term-card">
-                <span className="font-semibold text-[var(--color-heading)]">
+                <span className="font-semibold text-(--color-heading)">
                   {module.label}
                 </span>
                 <span className="table-subtle">{module.description}</span>

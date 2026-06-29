@@ -690,11 +690,11 @@ const FamilyIntakePanel: React.FC = () => {
 
   return (
     <section className="surface-card intake-panel">
-      <div className="grid gap-4 border-b border-[var(--color-border)] pb-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      <div className="grid gap-4 border-b border-(--color-border) pb-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <div className="space-y-3">
           <p className="page-kicker">Pedigree Intake</p>
           <h2 className="section-title">Family Builder</h2>
-          <p className="page-subtitle max-w-3xl !text-[0.96rem]">
+          <p className="page-subtitle max-w-3xl text-[0.96rem]!">
             Build a pedigree manually. The workspace keeps parent assignments consistent, shows the
             PED rows that will be saved, and draws the family structure as you edit.
           </p>
@@ -703,17 +703,17 @@ const FamilyIntakePanel: React.FC = () => {
           <div className="intake-summary-grid">
             <div className="stat-card">
               <span className="stat-label">Mode</span>
-              <span className="stat-value !text-[1.5rem]">
+              <span className="stat-value text-[1.5rem]!">
                 {mode === 'manual' ? 'Manual' : 'PED upload'}
               </span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Members</span>
-              <span className="stat-value !text-[1.5rem]">{namedMembersCount}</span>
+              <span className="stat-value text-[1.5rem]!">{namedMembersCount}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Affected</span>
-              <span className="stat-value !text-[1.5rem]">{affectedCount}</span>
+              <span className="stat-value text-[1.5rem]!">{affectedCount}</span>
             </div>
           </div>
           <div className="mt-5 flex flex-wrap gap-3">
@@ -773,7 +773,7 @@ const FamilyIntakePanel: React.FC = () => {
           <div className="space-y-2">
             <p className="page-kicker">Existing File</p>
             <h3 className="section-title">Import pedigree</h3>
-            <p className="text-sm leading-7 text-[var(--color-text-muted)]">
+            <p className="text-sm leading-7 text-(--color-text-muted)">
               Use this when the pedigree structure already exists in PED format.
             </p>
           </div>
@@ -866,10 +866,10 @@ const FamilyIntakePanel: React.FC = () => {
                   </span>
                 </div>
               </div>
-              <p className="text-sm leading-7 text-[var(--color-text-muted)]">
+              <p className="text-sm leading-7 text-(--color-text-muted)">
                 Start with a proband, then add parents, siblings, children, or relatives.
               </p>
-              <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+              <label className="inline-flex items-center gap-2 text-sm text-(--color-text-muted)">
                 <input
                   type="checkbox"
                   checked={monogenicNipt}
@@ -878,7 +878,7 @@ const FamilyIntakePanel: React.FC = () => {
                 Monogenic NIPT (cfDNA from maternal plasma)
               </label>
               {monogenicNipt && (
-                <p className="text-sm leading-7 text-[var(--color-text-muted)]">
+                <p className="text-sm leading-7 text-(--color-text-muted)">
                   Mark the maternal-plasma cfDNA sample below. Add the father, the cfDNA
                   sample as the mother, and the fetus as the proband.
                 </p>
@@ -946,8 +946,8 @@ const FamilyIntakePanel: React.FC = () => {
                   <article key={member.localId} className="surface-card-flat member-card">
                     <div className="member-card-header">
                       <div className="space-y-1">
-                        <h3 className="section-title !text-[1.35rem]">{memberTitle}</h3>
-                        <p className="text-sm text-[var(--color-text-muted)]">
+                        <h3 className="section-title text-[1.35rem]!">{memberTitle}</h3>
+                        <p className="text-sm text-(--color-text-muted)">
                           Role preview: {rolePreviewFor(member, members)}
                         </p>
                         <div className="member-card-tags">
@@ -961,7 +961,7 @@ const FamilyIntakePanel: React.FC = () => {
                           )}
                         </div>
                         {children.length > 0 && (
-                          <p className="text-xs uppercase tracking-[0.12em] text-[var(--color-text-muted)]">
+                          <p className="text-xs uppercase tracking-[0.12em] text-(--color-text-muted)">
                             Children: {children.map((child) => child.sampleId || 'Unnamed').join(', ')}
                           </p>
                         )}
@@ -1033,7 +1033,7 @@ const FamilyIntakePanel: React.FC = () => {
                       </label>
                     </div>
 
-                    <div className="flex flex-wrap gap-5 text-sm text-[var(--color-text-muted)]">
+                    <div className="flex flex-wrap gap-5 text-sm text-(--color-text-muted)">
                       <label className="inline-flex items-center gap-2">
                         <input
                           type="checkbox"
@@ -1100,8 +1100,8 @@ const FamilyIntakePanel: React.FC = () => {
             <div className="surface-card-muted space-y-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-1">
-                  <h3 className="section-title !text-[1.25rem]">Couple relationships</h3>
-                  <p className="text-sm leading-7 text-[var(--color-text-muted)]">
+                  <h3 className="section-title text-[1.25rem]!">Couple relationships</h3>
+                  <p className="text-sm leading-7 text-(--color-text-muted)">
                     Link two partners directly, also when they do not have children in this family.
                   </p>
                 </div>
@@ -1125,7 +1125,7 @@ const FamilyIntakePanel: React.FC = () => {
                       <div className="member-card-header">
                         <div className="space-y-1">
                           <h4 className="eyebrow-label">Couple {index + 1}</h4>
-                          <p className="text-sm text-[var(--color-text-muted)]">
+                          <p className="text-sm text-(--color-text-muted)">
                             {couple.partnerAId || 'Partner 1'} + {couple.partnerBId || 'Partner 2'}
                           </p>
                         </div>
@@ -1217,7 +1217,7 @@ const FamilyIntakePanel: React.FC = () => {
                   Form is consistent and ready to submit.
                 </p>
               ) : (
-                <ul className="mt-4 space-y-2 text-sm text-[var(--color-variant-del)]">
+                <ul className="mt-4 space-y-2 text-sm text-(--color-variant-del)">
                   {validationErrors.map((error) => (
                     <li key={error}>{error}</li>
                   ))}
@@ -1228,13 +1228,13 @@ const FamilyIntakePanel: React.FC = () => {
             <div className="surface-card-muted">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="eyebrow-label">Pedigree Sketch</h3>
-                <span className="text-xs uppercase tracking-[0.12em] text-[var(--color-text-muted)]">
+                <span className="text-xs uppercase tracking-[0.12em] text-(--color-text-muted)">
                   Black fill = affected
                 </span>
               </div>
               {pedigreeRows.length > 0 ? (
                 <div
-                  className="mono-panel mt-4 overflow-x-auto !bg-[rgba(255,255,255,0.92)]"
+                  className="mono-panel mt-4 overflow-x-auto bg-[rgba(255,255,255,0.92)]!"
                   data-testid="pedigree-sketch"
                 >
                   <Pedigree
@@ -1244,7 +1244,7 @@ const FamilyIntakePanel: React.FC = () => {
                   />
                 </div>
               ) : (
-                <p className="mt-4 text-sm text-[var(--color-text-muted)]">
+                <p className="mt-4 text-sm text-(--color-text-muted)">
                   Add sample IDs to render the pedigree sketch.
                 </p>
               )}

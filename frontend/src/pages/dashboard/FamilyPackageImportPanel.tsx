@@ -374,7 +374,7 @@ const FamilyPackageImportPanel: React.FC = () => {
               placeholder="…or type a folder path (e.g. /data/families/FAM001)"
             />
           </label>
-          <p className="text-xs text-[var(--color-text-muted)]">
+          <p className="text-xs text-(--color-text-muted)">
             The pedigree (<code>.ped</code>) is auto-discovered in the folder — no need to
             enter it below.
           </p>
@@ -548,7 +548,7 @@ const FamilyPackageImportPanel: React.FC = () => {
           >
             {discoverManifestMutation.isPending ? 'Scanning...' : 'Discover manifest'}
           </button>
-          <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+          <label className="inline-flex items-center gap-2 text-sm text-(--color-text-muted)">
             <input
               type="checkbox"
               checked={manifestOverwrite}
@@ -599,7 +599,7 @@ const FamilyPackageImportPanel: React.FC = () => {
         ) : null}
 
         {manifestResult?.errors.length ? (
-          <ul className="space-y-2 text-sm text-[var(--color-variant-del)]">
+          <ul className="space-y-2 text-sm text-(--color-variant-del)">
             {manifestResult.errors.map((issue, index) => (
               <li key={`${issue.code}-${index}`}>
                 {issue.message}
@@ -623,7 +623,7 @@ const FamilyPackageImportPanel: React.FC = () => {
       </div>
 
       <div className="action-row">
-        <label className="inline-flex items-center gap-2 text-sm text-[var(--color-text-muted)]">
+        <label className="inline-flex items-center gap-2 text-sm text-(--color-text-muted)">
           <input
             type="checkbox"
             checked={dryRun}
@@ -737,23 +737,23 @@ const FamilyPackageImportPanel: React.FC = () => {
           <div className="grid gap-3 md:grid-cols-4">
             <div className="stat-card">
               <span className="stat-label">Status</span>
-              <span className="stat-value !text-[1.35rem]">{currentJob.status}</span>
+              <span className="stat-value text-[1.35rem]!">{currentJob.status}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Family</span>
-              <span className="stat-value !text-[1.35rem]">{currentJob.family_id || '—'}</span>
+              <span className="stat-value text-[1.35rem]!">{currentJob.family_id || '—'}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Imported</span>
-              <span className="stat-value !text-[1.35rem]">{datasetCounts.imported}</span>
+              <span className="stat-value text-[1.35rem]!">{datasetCounts.imported}</span>
             </div>
             <div className="stat-card">
               <span className="stat-label">Registered</span>
-              <span className="stat-value !text-[1.35rem]">{datasetCounts.registered}</span>
+              <span className="stat-value text-[1.35rem]!">{datasetCounts.registered}</span>
             </div>
           </div>
 
-          <div className="text-sm leading-7 text-[var(--color-text-muted)]">
+          <div className="text-sm leading-7 text-(--color-text-muted)">
             Requested {formatTimestamp(currentJob.requested_at)} · Last update{' '}
             {formatTimestamp(currentJob.heartbeat_at)}
           </div>
@@ -765,7 +765,7 @@ const FamilyPackageImportPanel: React.FC = () => {
           {currentJob.validation_errors.length > 0 ? (
             <div>
               <h3 className="eyebrow-label">Validation Errors</h3>
-              <ul className="mt-3 space-y-2 text-sm text-[var(--color-variant-del)]">
+              <ul className="mt-3 space-y-2 text-sm text-(--color-variant-del)">
                 {currentJob.validation_errors.map((issue, index) => (
                   <li key={`${issue.code}-${index}`}>
                     {issue.message}
@@ -779,7 +779,7 @@ const FamilyPackageImportPanel: React.FC = () => {
           {currentJob.validation_warnings.length > 0 ? (
             <div>
               <h3 className="eyebrow-label">Warnings</h3>
-              <ul className="mt-3 space-y-2 text-sm text-[var(--color-text-muted)]">
+              <ul className="mt-3 space-y-2 text-sm text-(--color-text-muted)">
                 {currentJob.validation_warnings.map((issue, index) => (
                   <li key={`${issue.code}-${index}`}>
                     {issue.message}
