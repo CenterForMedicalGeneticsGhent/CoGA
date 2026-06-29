@@ -50,7 +50,13 @@ export const useGlobalSmallVariantSearchState = () => {
   const emptyFilters = useMemo(() => createEmptySmallFilters(), []);
   const [draftFilters, setDraftFilters] = useState<SmallFilterState>(emptyFilters);
   const [filters, setFilters] = useState<SmallFilterState>(emptyFilters);
-  const [page, setPage] = useState(1);
+  // Keyset pagination: `cursor` is the current page's cursor (undefined = first page);
+  // `history` stacks the cursors of the pages behind it so Previous can walk back.
+  const [pagination, setPagination] = useState<{
+    cursor?: string;
+    history: (string | undefined)[];
+  }>({ history: [] });
+  const pageNumber = pagination.history.length + 1;
   const [assemblyId, setAssemblyIdState] = useState<string | undefined>(undefined);
   const [sort, setSortState] = useState<GlobalVariantSort>('total_samples');
   const [order, setOrder] = useState<GlobalVariantOrder>('desc');
@@ -93,7 +99,7 @@ export const useGlobalSmallVariantSearchState = () => {
     (event: FormEvent) => {
       event.preventDefault();
       setFilters(draftFilters);
-      setPage(1);
+      setPagination({ history: [] });
     },
     [draftFilters],
   );
@@ -101,7 +107,7 @@ export const useGlobalSmallVariantSearchState = () => {
   const handleReset = useCallback(() => {
     setDraftFilters(emptyFilters);
     setFilters(emptyFilters);
-    setPage(1);
+    setPagination({ history: [] });
   }, [emptyFilters]);
 
   const activeFilterChips = useMemo(
@@ -140,22 +146,22 @@ export const useGlobalSmallVariantSearchState = () => {
       }
       return next;
     });
-    setPage(1);
+    setPagination({ history: [] });
   }, []);
 
   const setAssemblyId = useCallback((nextAssemblyId: string | undefined) => {
     setAssemblyIdState(nextAssemblyId);
-    setPage(1);
+    setPagination({ history: [] });
   }, []);
 
   const setIncludeImputed = useCallback((next: boolean) => {
     setIncludeImputedState(next);
-    setPage(1);
+    setPagination({ history: [] });
   }, []);
 
   const applyGenotypeFilters = useCallback((next: SampleGenotypeFilter[]) => {
     setGenotypeFilters(next);
-    setPage(1);
+    setPagination({ history: [] });
   }, []);
 
   const setSort = useCallback(
@@ -166,16 +172,37 @@ export const useGlobalSmallVariantSearchState = () => {
         setSortState(nextSort);
         setOrder('desc');
       }
-      setPage(1);
+      setPagination({ history: [] });
     },
     [sort],
   );
 
+  // Advance to the page the server's `next_cursor` points at, remembering the current
+  // cursor so Previous can return here.
+  const goToNextPage = useCallback((nextCursor: string) => {
+    setPagination((prev) => ({ cursor: nextCursor, history: [...prev.history, prev.cursor] }));
+  }, []);
+
+  const goToPreviousPage = useCallback(() => {
+    setPagination((prev) => {
+      if (prev.history.length === 0) return prev;
+      return {
+        cursor: prev.history[prev.history.length - 1],
+        history: prev.history.slice(0, -1),
+      };
+    });
+  }, []);
+
   const requestQueryString = useMemo(() => {
-    const params = buildSmallVariantQueryParams(filters, EMPTY_SAMPLE_FILTERS, page);
+    // Reuse the shared builder, then swap its page param for the keyset cursor.
+    const params = buildSmallVariantQueryParams(filters, EMPTY_SAMPLE_FILTERS, 1);
+    params.delete('page');
     params.set('page_size', String(PAGE_SIZE));
     params.set('sort', sort);
     params.set('order', order);
+    if (pagination.cursor) {
+      params.set('cursor', pagination.cursor);
+    }
     if (assemblyId) {
       params.set('assembly_id', assemblyId);
     }
@@ -188,7 +215,7 @@ export const useGlobalSmallVariantSearchState = () => {
       }
     });
     return params.toString();
-  }, [filters, page, sort, order, assemblyId, includeImputed, genotypeFilters]);
+  }, [filters, pagination.cursor, sort, order, assemblyId, includeImputed, genotypeFilters]);
 
   // No-op family/sample handlers (the form hides these controls when
   // familyAware={false}, but the prop contract still requires them).
@@ -218,8 +245,9 @@ export const useGlobalSmallVariantSearchState = () => {
     setDraftFilterValue,
     toggleDraftFilterListValue,
     // Global-explorer specific state.
-    page,
-    setPage,
+    pageNumber,
+    goToNextPage,
+    goToPreviousPage,
     assemblyId,
     setAssemblyId,
     sort,

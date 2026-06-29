@@ -40,6 +40,8 @@ export interface GlobalVariantPage {
   total_is_estimated: boolean;
   page: number;
   page_size: number;
+  // Keyset cursor for the next page; null on the last page.
+  next_cursor?: string | null;
   assembly_id?: string | null;
   assembly_name?: string | null;
   variants: GlobalVariantRow[];

@@ -179,7 +179,7 @@ async def _build_global_variant_filters(
 @router.get("/small-variants", response_model=GlobalVariantPageOut)
 async def list_global_small_variants(
     assembly_id: str | None = None,
-    page: int = Query(default=1, ge=1),
+    cursor: str | None = Query(default=None),
     page_size: int = Query(default=50, ge=1, le=200),
     sort: str = "total_samples",
     order: str = "desc",
@@ -192,7 +192,7 @@ async def list_global_small_variants(
         user=user,
         filters=filters,
         assembly_id=assembly_id,
-        page=page,
+        cursor=cursor,
         page_size=page_size,
         sort=sort,
         order=order,

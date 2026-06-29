@@ -39,8 +39,9 @@ const GlobalSmallVariantExplorerPage = () => {
     assemblyId,
     setAssemblyId,
     requestQueryString,
-    page,
-    setPage,
+    pageNumber,
+    goToNextPage,
+    goToPreviousPage,
     sort,
     order,
     setSort,
@@ -169,8 +170,7 @@ const GlobalSmallVariantExplorerPage = () => {
   const tags = tagDefinitions ?? [];
   const variants = variantPage?.variants ?? [];
   const total = variantPage?.total ?? 0;
-  const pageSize = variantPage?.page_size ?? 50;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const nextCursor = variantPage?.next_cursor ?? null;
 
   return (
     <div className="page-shell analysis-shell">
@@ -376,19 +376,20 @@ const GlobalSmallVariantExplorerPage = () => {
               <button
                 type="button"
                 className="button-secondary"
-                disabled={page <= 1}
-                onClick={() => setPage(Math.max(1, page - 1))}
+                disabled={pageNumber <= 1}
+                onClick={goToPreviousPage}
               >
                 Previous
               </button>
-              <span className="table-subtle">
-                Page {page} of {totalPages}
-              </span>
+              <span className="table-subtle">Page {pageNumber}</span>
               <button
                 type="button"
                 className="button-secondary"
-                disabled={page >= totalPages}
-                onClick={() => setPage(page + 1)}
+                // Also disabled while refetching: the visible next_cursor belongs to the
+                // previous result, so advancing mid-fetch (e.g. after a filter change) could
+                // page from a stale boundary.
+                disabled={!nextCursor || isFetching}
+                onClick={() => nextCursor && goToNextPage(nextCursor)}
               >
                 Next
               </button>
