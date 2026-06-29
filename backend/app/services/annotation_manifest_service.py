@@ -64,6 +64,8 @@ _MODULE_LABELS: dict[str, str] = {
     "mane": "MANE",
     "hgmd": "HGMD",
     "gerp": "GERP++",
+    "omim": "OMIM",
+    "giab": "GIAB",
     # platform reference layer
     "gencc": "GenCC",
     "panelapp": "PanelApp",

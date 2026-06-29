@@ -34,7 +34,7 @@ All modalities except Paraphase ingest VCFs; their `##` headers are parsed by
 | Modality | Ingestion hook | Header sources parsed |
 | --- | --- | --- |
 | **Small variants** (SNV/INDEL) | [`variant_upload_service.upload_family_small_variant_file`](../backend/app/services/variant_upload_service.py) | **(a)** the VCF header — caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine` Version=…), annotation engine (`##VEP=…` with its embedded gnomAD/ClinVar/dbNSFP/SpliceAI/dbSNP/COSMIC/SIFT/PolyPhen/assembly/GENCODE releases, `##SnpEffVersion`/`##SnpEffCmd`, `##bcftools_*Version`); **(b)** when annotations are supplied as a **separate VEP tab (TSV) file**, its `## … version …` header — the database releases live there for TSV-annotated families, parsed by `extract_vep_tab_provenance` and merged in |
-| **Structural variants** | [`family_package_import._import_sv_needlr_dataset`](../backend/app/services/family_package_import.py) | SV caller (`##source=Sniffles2_2.2`, `##source=Spectre`, `##spectreVersion`, NeedlR), `##reference`, `##fileDate` |
+| **Structural variants** | [`family_package_import._import_sv_needlr_dataset`](../backend/app/services/family_package_import.py) | SV caller (`##source=Sniffles2_2.2`, `##source=Spectre`, `##spectreVersion`, NeedlR), `##reference`, `##fileDate`; **plus** annotation-database releases mined from the `##INFO` descriptions (`extract_info_description_provenance` — GENCODE/OMIM/GenCC/gnomAD/GIAB), since the NeedlR SV annotator states them there rather than in header lines |
 | **Repeat expansions (TRGT)** | [`repeat_expansion_pg.ingest_family_trgt_text`](../backend/app/services/repeat_expansion_pg.py) | `##trgtVersion`, `##trgtCommand`, `##source=TRGT`, `##reference` |
 | **Paraphase** | (JSON, not a VCF) | No VCF header — Paraphase provenance is taken from the **import-package manifest** declaration (`source='manifest'`) when present. Harvesting a version from the Paraphase JSON is a noted extension point (§7). |
 
@@ -137,11 +137,18 @@ Together: the hash proves change; the manifest names the versions.
 - **Paraphase** has no VCF header; its version comes from the import-package
   manifest if declared. Harvesting a version from the Paraphase JSON is a clean
   follow-up (the merge/render path already supports a `paraphase` module key).
-- **Two VEP header forms are parsed:** the in-VCF `##VEP="…"` line *and* a separate
-  VEP tab (TSV) file's `## … version …` header (`extract_vep_tab_provenance`), since
-  the database releases live in whichever VEP emitted. **INFO-description mining**
-  (a version buried in an `##INFO=<…Description="…">`) is still not attempted —
-  only the structured version lines are read.
+- **Three header shapes are parsed:** the in-VCF `##VEP="…"` line, a separate VEP
+  tab (TSV) file's `## … version …` header (`extract_vep_tab_provenance`), and —
+  for annotators that bury releases in `##INFO=<…Description="…">` free text (the
+  NeedlR SV pipeline) — a **conservative, allowlisted** INFO-description miner
+  (`extract_info_description_provenance`: GENCODE/OMIM/GenCC/gnomAD/GIAB/ClinVar/
+  dbSNP/COSMIC, each anchored to a version-shaped token). Free-text mining is more
+  fragile than a clean `##VEP=` line, hence the allowlist.
+- **One version per database per family.** The manifest is flat, so if two
+  modalities annotated against *different* releases of the same database (e.g. SNV
+  vs SV using different GENCODE versions), only one is shown — the
+  structured-header source wins over an INFO-mined one. Per-modality database
+  provenance is a possible future refinement.
 - **Unknown tools** are still captured under their lower-cased token (they render
   with a title-cased label), so a new caller/annotator shows up without a code
   change.

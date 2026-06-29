@@ -378,6 +378,51 @@ def extract_vep_tab_provenance(lines: Iterable[str]) -> dict[str, dict[str, Any]
     return modules
 
 
+# --- INFO-description mining ------------------------------------------------- #
+# Some annotation pipelines (notably the NeedlR SV annotator) state their database
+# releases *inside* ``##INFO=<…Description="…">`` free text rather than in dedicated
+# header lines — e.g. ``(gencode v45)``, ``(OMIM 20260129)``, ``(GenCC 20250510)``,
+# ``gnomAD v4.1``, ``(GIAB v3.3)``. Mining free text is inherently more fragile than
+# reading a clean ``##VEP=`` line, so this is a CONSERVATIVE, allowlisted fallback:
+# only these named databases, each anchored to a version-shaped token.
+_INFO_DESCRIPTION = re.compile(r'Description="((?:[^"\\]|\\.)*)"')
+_INFO_DB_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?i)\bgencode\s+(v?\d[\w.]*)"), "gencode"),
+    (re.compile(r"(?i)\bgnomad\w*\s+(v?\d[\w.]*)"), "gnomad"),
+    (re.compile(r"(?i)\bomim\s+(\d{6,8})\b"), "omim"),
+    (re.compile(r"(?i)\bgencc\s+(\d{6,8})\b"), "gencc"),
+    (re.compile(r"(?i)\bgiab\s+([\w.\-]*\d[\w.\-]*)"), "giab"),
+    (re.compile(r"(?i)\bclinvar\s+(\d{6,8})\b"), "clinvar"),
+    (re.compile(r"(?i)\bdbsnp\s+(v?\d[\w.]*)"), "dbsnp"),
+    (re.compile(r"(?i)\bcosmic\s+(v?\d[\w.]*)"), "cosmic"),
+]
+
+
+def extract_info_description_provenance(lines: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Mine versioned database references out of ``##INFO`` descriptions.
+
+    Allowlisted fallback for pipelines that put their database releases in INFO
+    free text instead of header lines. First occurrence of each database wins
+    (descriptions repeat the same version). Best-effort: never raises.
+    """
+    modules: dict[str, dict[str, Any]] = {}
+    for raw_line in lines:
+        line = (raw_line or "").rstrip("\n")
+        if line.startswith("#CHROM") or (line and not line.startswith("#")):
+            break
+        if not line.startswith("##INFO"):
+            continue
+        described = _INFO_DESCRIPTION.search(line)
+        if not described:
+            continue
+        text = described.group(1)
+        for pattern, key in _INFO_DB_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                _set_module(modules, key, version=match.group(1).rstrip(".,);"), overwrite=False)
+    return modules
+
+
 def merge_module_maps(
     base: Mapping[str, Any] | None, new: Mapping[str, Any] | None
 ) -> dict[str, dict[str, Any]]:
