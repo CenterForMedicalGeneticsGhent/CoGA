@@ -12026,14 +12026,17 @@ a.button-danger:hover {
   }
 }
 
-/* Annotation provenance summary (filter page): a compact, wrapping row of the
-   tool/database versions a family's data was built from. */
-.annotation-provenance {
+/* Annotation provenance footer (filter page): a wrapping row of the tool/database
+   versions a family's data was built from — a surface-card at the bottom of the
+   page, mirroring the report's provenance footer. */
+.annotation-provenance-footer {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.34rem;
-  margin-top: 0.4rem;
+  gap: 0.34rem 0.5rem;
+  margin-top: 1rem;
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
 }
 
 .annotation-provenance-label {

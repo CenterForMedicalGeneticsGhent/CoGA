@@ -322,6 +322,62 @@ def extract_header_provenance(
     return prov
 
 
+# --- VEP tab-output (TSV) headers ------------------------------------------- #
+# VEP's ``--tab`` output states its versions as ``## <name> version <value>``
+# lines (plus a ``## ENSEMBL VARIANT EFFECT PREDICTOR vX`` banner and a
+# ``## Using cache in …`` line) — NOT the VCF ``##KEY=value`` form. For VCFs whose
+# annotations were supplied as a separate VEP TSV, this is where the VEP / gnomAD /
+# ClinVar / dbNSFP / dbSNP / … database releases live, so they need their own parser.
+_VEP_TAB_TITLE = re.compile(r"(?i)^##\s*ENSEMBL VARIANT EFFECT PREDICTOR\s+v?([\w.]+)")
+_VEP_TAB_VERSION = re.compile(r"^##\s+(?P<name>.+?)\s+version\s+(?P<value>.+?)\s*$")
+_VEP_TAB_CACHE = re.compile(r"(?i)^##\s*Using cache in\s+(.+?)\s*$")
+# Canonical keys we keep from the VEP tab header — drop ensembl-internal/build noise
+# (ensembl-funcgen, genebuild, regbuild, "Using API", 1000genomes, …).
+_VEP_TAB_ALLOW = {
+    "vep", "clinvar", "gnomad", "dbsnp", "cosmic", "sift", "polyphen",
+    "assembly", "gencode", "hgmd", "dbnsfp", "spliceai", "revel", "cadd", "mane",
+}
+
+
+def extract_vep_tab_provenance(lines: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """Parse a VEP tab-output (``--tab``) header into the ``modules`` shape.
+
+    Complements :func:`extract_header_provenance` (VCF ``##KEY=value`` headers).
+    Best-effort: unrecognised lines are skipped, never raised.
+    """
+    modules: dict[str, dict[str, Any]] = {}
+    for raw_line in lines:
+        line = (raw_line or "").rstrip("\n")
+        if not line.startswith("##"):
+            # The column header (single '#') or first data row ends the meta-header.
+            if line and not line.startswith("#"):
+                break
+            continue
+        try:
+            title = _VEP_TAB_TITLE.match(line)
+            if title:
+                _set_module(modules, "vep", version=title.group(1), overwrite=False)
+                continue
+            cache = _VEP_TAB_CACHE.match(line)
+            if cache:
+                _set_module(modules, "vep", detail=cache.group(1).rsplit("/", 1)[-1], overwrite=False)
+                continue
+            match = _VEP_TAB_VERSION.match(line)
+            if not match:
+                continue
+            name, value = match.group("name").strip(), match.group("value").strip()
+            if not value or "?" in value:
+                continue
+            key = _canonical_key(name)
+            if key == "hgmdpublic":
+                key = "hgmd"
+            if key in _VEP_TAB_ALLOW:
+                _set_module(modules, key, version=value, overwrite=False)
+        except Exception:  # noqa: BLE001 — provenance must never break ingestion
+            continue
+    return modules
+
+
 def merge_module_maps(
     base: Mapping[str, Any] | None, new: Mapping[str, Any] | None
 ) -> dict[str, dict[str, Any]]:

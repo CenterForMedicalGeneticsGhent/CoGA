@@ -53,7 +53,11 @@ from .variant_annotation_parser import (
     normalize_small_variant_annotation_entry,
     update_annotation_header_state,
 )
-from .vcf_header_provenance import extract_header_provenance
+from .vcf_header_provenance import (
+    extract_header_provenance,
+    extract_vep_tab_provenance,
+    merge_module_maps,
+)
 
 # Meta-header lines that occur in bulk (one per contig/field) and carry no
 # provenance — skipped from the capture buffer so only version-bearing lines are
@@ -82,6 +86,9 @@ class VepAnnotationLookup:
     row_count: int
     conn: sqlite3.Connection | None = None
     temp_path: str | None = None
+    # Annotation/DB versions parsed from the VEP TSV's ``## … version …`` header
+    # (where VEP/gnomAD/ClinVar/… releases live for TSV-annotated families).
+    provenance_modules: dict[str, Any] | None = None
 
     def get(
         self, variant_id: str, chrom: str, start: int, ref: str, alt: str
@@ -275,12 +282,17 @@ def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
     header: list[str] | None = None
     lookup = _sqlite_annotation_lookup()
     row_count = 0
+    # VEP states its tool/database versions in the leading ``## … version …`` block
+    # (before "## Column descriptions:"); buffer it for provenance capture.
+    provenance_header: list[str] = []
 
     for raw_line in lines:
         line = raw_line.rstrip("\n\r")
         if not line:
             continue
         if line.startswith("##"):
+            if len(provenance_header) < 80:
+                provenance_header.append(line)
             continue
         if line.startswith("#"):
             header = line.lstrip("#").split("\t")
@@ -337,6 +349,7 @@ def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
         lookup.close()
         raise HTTPException(status_code=400, detail="VEP TSV annotation file is missing a header row")
     lookup.row_count = row_count
+    lookup.provenance_modules = extract_vep_tab_provenance(provenance_header) or None
     if lookup.conn is not None:
         lookup.conn.commit()
     return lookup
@@ -1357,6 +1370,12 @@ async def upload_family_small_variant_file(
         annotation_provenance = extract_header_provenance(
             provenance_header_lines, modality="snv"
         ).as_modules()
+        if vep_annotations is not None and vep_annotations.provenance_modules:
+            # The VCF header carries the caller; a separate VEP TSV carries the
+            # annotation-database releases (VEP/gnomAD/ClinVar/…). Combine both.
+            annotation_provenance = merge_module_maps(
+                vep_annotations.provenance_modules, annotation_provenance
+            )
         await merge_vcf_header_provenance(
             session,
             family_uuid=context.family_uuid,
