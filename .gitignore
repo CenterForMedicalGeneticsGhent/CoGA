@@ -35,6 +35,11 @@ pnpm-debug.log*
 dist/
 build/
 
+# Playwright (browser e2e) — per-run reports/artifacts, not committed
+frontend/playwright-report/
+frontend/test-results/
+frontend/playwright/.cache/
+
 # Editor directories
 .vscode/
 .idea/

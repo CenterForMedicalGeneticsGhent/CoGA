@@ -55,6 +55,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/setupTests.ts',
+    // Unit tests live under src/. The Playwright browser e2e (frontend/e2e/*.spec.ts)
+    // is a separate runner (npm run test:e2e) — keep vitest from collecting it.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
     coverage: {
       // P2-7b: measure frontend coverage (mirrors the backend coverage floor). The global
       // threshold ratchets against regression; `npm run test:coverage` fails below it.

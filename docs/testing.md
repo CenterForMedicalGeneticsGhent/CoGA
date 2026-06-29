@@ -46,10 +46,27 @@ cd frontend && npm run tsc && npm run lint && npm run test
 | **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Real lifespan: schema init, migrations, admin seed, health probe. |
 | **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Runs outside coverage, like `smoke`. |
 | **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test` | Type-check + ESLint + vitest. |
+| **e2e-playwright** | seed golden trio → Playwright drives Chromium against a uvicorn backend + Vite frontend | Browser journeys: login → family workspace → genome overview. Advisory (not yet a required check — browser e2e is the flakiest gate). |
 | **sbom** | CycloneDX SBOM for backend + frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). |
 
 The `backend`, `smoke`, `e2e` and `frontend` jobs are **required status checks** on `main`
-(branch protection), so a change cannot merge unless they pass.
+(branch protection), so a change cannot merge unless they pass. `e2e-playwright` runs on every
+PR but is advisory for now.
+
+### Browser end-to-end (Playwright)
+
+`frontend/e2e/*.spec.ts` drive a real Chromium against a running stack (uvicorn backend + Vite
+dev server) — the only suite that exercises the actual UI. Run locally with the datastores up:
+
+```bash
+RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py   # golden trio + a known e2e user
+cd frontend && E2E_PYTHON=/path/to/python npx playwright test
+```
+
+| Spec | Journey |
+| --- | --- |
+| [frontend/e2e/auth.spec.ts](../frontend/e2e/auth.spec.ts) | Login form: bad credentials stay on /login; the seeded e2e user logs in and lands authenticated. |
+| [frontend/e2e/family.spec.ts](../frontend/e2e/family.spec.ts) | Open the golden family workspace; render the genome overview (SVG/canvas tracks) — frontend↔backend wiring + viz render. |
 
 ---
 
