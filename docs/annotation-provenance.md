@@ -33,7 +33,7 @@ All modalities except Paraphase ingest VCFs; their `##` headers are parsed by
 
 | Modality | Ingestion hook | Header sources parsed |
 | --- | --- | --- |
-| **Small variants** (SNV/INDEL) | [`variant_upload_service.upload_family_small_variant_file`](../backend/app/services/variant_upload_service.py) | caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine` Version=…), annotation engine (`##VEP=…`, `##SnpEffVersion`/`##SnpEffCmd`, `##bcftools_*Version`), and **every database release embedded in the VEP line** (gnomADe/gnomADg, ClinVar, dbNSFP, SpliceAI, dbSNP, COSMIC, SIFT, PolyPhen, assembly, GENCODE) |
+| **Small variants** (SNV/INDEL) | [`variant_upload_service.upload_family_small_variant_file`](../backend/app/services/variant_upload_service.py) | **(a)** the VCF header — caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine` Version=…), annotation engine (`##VEP=…` with its embedded gnomAD/ClinVar/dbNSFP/SpliceAI/dbSNP/COSMIC/SIFT/PolyPhen/assembly/GENCODE releases, `##SnpEffVersion`/`##SnpEffCmd`, `##bcftools_*Version`); **(b)** when annotations are supplied as a **separate VEP tab (TSV) file**, its `## … version …` header — the database releases live there for TSV-annotated families, parsed by `extract_vep_tab_provenance` and merged in |
 | **Structural variants** | [`family_package_import._import_sv_needlr_dataset`](../backend/app/services/family_package_import.py) | SV caller (`##source=Sniffles2_2.2`, `##source=Spectre`, `##spectreVersion`, NeedlR), `##reference`, `##fileDate` |
 | **Repeat expansions (TRGT)** | [`repeat_expansion_pg.ingest_family_trgt_text`](../backend/app/services/repeat_expansion_pg.py) | `##trgtVersion`, `##trgtCommand`, `##source=TRGT`, `##reference` |
 | **Paraphase** | (JSON, not a VCF) | No VCF header — Paraphase provenance is taken from the **import-package manifest** declaration (`source='manifest'`) when present. Harvesting a version from the Paraphase JSON is a noted extension point (§7). |
@@ -137,10 +137,11 @@ Together: the hash proves change; the manifest names the versions.
 - **Paraphase** has no VCF header; its version comes from the import-package
   manifest if declared. Harvesting a version from the Paraphase JSON is a clean
   follow-up (the merge/render path already supports a `paraphase` module key).
-- **INFO-description mining** (e.g. a gnomAD/ClinVar version buried in an
-  `##INFO=<…Description="…">`) is not attempted — only the structured
-  `##VEP=`/`##source`/`##<tool>Version` lines are parsed. The VEP line already
-  carries the database releases for VEP-annotated VCFs, which is the common case.
+- **Two VEP header forms are parsed:** the in-VCF `##VEP="…"` line *and* a separate
+  VEP tab (TSV) file's `## … version …` header (`extract_vep_tab_provenance`), since
+  the database releases live in whichever VEP emitted. **INFO-description mining**
+  (a version buried in an `##INFO=<…Description="…">`) is still not attempted —
+  only the structured version lines are read.
 - **Unknown tools** are still captured under their lower-cased token (they render
   with a title-cased label), so a new caller/annotator shows up without a code
   change.

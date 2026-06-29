@@ -9,9 +9,36 @@ from __future__ import annotations
 
 from app.services.vcf_header_provenance import (
     extract_header_provenance,
+    extract_vep_tab_provenance,
     merge_module_maps,
     provenance_to_modules,
 )
+
+# Real-shape VEP --tab output header: versions are stated as "## <name> version
+# <value>" (plus the banner + cache line), not the VCF ##KEY=value form.
+VEP_TAB_HEADER = """\
+## ENSEMBL VARIANT EFFECT PREDICTOR v115.1
+## Output produced at 2026-05-07 15:32:28
+## Using cache in /data/ref/cache/homo_sapiens/115_GRCh38
+## Using API version 115, DB version ?
+## ensembl version 115.266b84d
+## ensembl-variation version 115.b7c2637
+## 1000genomes version phase3
+## COSMIC version 101
+## ClinVar version 202502
+## HGMD-PUBLIC version 20204
+## assembly version GRCh38.p14
+## dbSNP version 156
+## gencode version GENCODE 49
+## gnomADe version v4.1
+## gnomADg version v4.1
+## polyphen version 2.2.3
+## sift version 6.2.1
+## Column descriptions:
+## Uploaded_variation : Identifier of uploaded variant
+#Uploaded_variation\tLocation\tAllele\tGene
+chr1\t100\tA\tBRCA1
+"""
 
 SNV_VEP_HEADER = """\
 ##fileformat=VCFv4.2
@@ -144,6 +171,35 @@ def test_merge_prefers_existing_then_fills_gaps():
     assert merged["vep"]["version"] == "110"  # base wins
     assert merged["clinvar"]["version"] == "202301"  # base-only kept
     assert merged["gnomad"]["version"] == "v4.1"  # gap filled from new
+
+
+def test_vep_tab_header_extracts_database_versions():
+    mods = extract_vep_tab_provenance(VEP_TAB_HEADER.splitlines())
+    assert mods["vep"]["version"] == "115.1"
+    assert "115_GRCh38" in mods["vep"]["detail"]  # cache dir
+    assert mods["clinvar"]["version"] == "202502"
+    assert mods["gnomad"]["version"] == "v4.1"  # gnomADe/gnomADg → gnomad
+    assert mods["dbsnp"]["version"] == "156"
+    assert mods["cosmic"]["version"] == "101"
+    assert mods["sift"]["version"] == "6.2.1"
+    assert mods["polyphen"]["version"] == "2.2.3"
+    assert mods["assembly"]["version"] == "GRCh38.p14"
+    assert mods["gencode"]["version"] == "GENCODE 49"
+    assert mods["hgmd"]["version"] == "20204"  # from HGMD-PUBLIC
+
+
+def test_vep_tab_header_excludes_noise_and_column_descriptions():
+    mods = extract_vep_tab_provenance(VEP_TAB_HEADER.splitlines())
+    # ensembl-internal/build lines, the "DB version ?" line, 1000genomes, and the
+    # per-column "## X : description" lines must not become modules.
+    for noise in ("ensembl", "ensemblvariation", "1000genomes", "usingapi", "uploaded_variation"):
+        assert noise not in mods
+    assert "?" not in str(mods)
+
+
+def test_vep_tab_header_empty_is_safe():
+    assert extract_vep_tab_provenance([]) == {}
+    assert extract_vep_tab_provenance(["#CHROM\tPOS", "chr1\t1"]) == {}
 
 
 def test_provenance_to_modules_combines_modalities():
