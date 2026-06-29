@@ -33,6 +33,7 @@
 | Static analysis | TypeScript `tsc`, ESLint | frontend | CI `frontend` job |
 | Integration | Real-startup smoke against Postgres 16 + ClickHouse 25.3 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
 | End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
+| Browser / GUI end-to-end | Real Chromium driving the deployed UI (login → family workspace → genome render → in-browser sign-out) against a live backend + datastores; incl. a manual reproduction procedure for reviewers — see **[TF-09d](TF-09d-browser-e2e-verification.md)** | `frontend/e2e` | CI `e2e-playwright` job (advisory) |
 | System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
 | Regression | Full suite re-run on every PR & push to main | CI | Required checks |
 

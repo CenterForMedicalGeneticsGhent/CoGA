@@ -114,11 +114,11 @@ This document feeds the **EFFECTIVE UITVOERING** axis of the bio-IT ingangsvalid
 - **Synthetic data only** — analytical/clinical accuracy on real material is the concordance study
   in [TF-10](TF-10-performance-evaluation-plan.md)/[TF-11](TF-11-performance-evaluation-report.md),
   not this document.
-- **Browser/UI coverage is shallow** — a Playwright suite (`frontend/e2e/`, CI job
-  `e2e-playwright`) drives Chromium through login → family workspace → genome-overview render,
-  but it asserts wiring + that the viz draws (SVG/canvas), not chart correctness or deep review
-  flows; it is **advisory** (not yet a required check). Summative usability remains
-  [TF-12](TF-12-usability.md).
+- **Browser/UI coverage is shallow** — the browser verification ([TF-09d](TF-09d-browser-e2e-verification.md):
+  Playwright `frontend/e2e/`, CI job `e2e-playwright`) drives Chromium through login → family
+  workspace → genome-overview render → in-browser sign-out, but it asserts wiring + that the viz
+  draws (SVG/canvas), not chart correctness or deep review flows; it is **advisory** (not yet a
+  required check). Summative usability remains [TF-12](TF-12-usability.md).
 - **Tamper-evident, not tamper-proof** — the in-DB chain detects edits/reordering by a privileged
   bypass but not a determined owner who re-chains; that residual is the external signed integrity
   anchor (see [clinical-traceability.md](../clinical-traceability.md)).
