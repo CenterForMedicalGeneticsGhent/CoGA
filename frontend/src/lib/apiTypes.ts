@@ -340,6 +340,9 @@ export interface ApiAnnotationModule {
   version: string | null;
   detail: string | null;
   layer: string; // 'pipeline' | 'reference'
+  // Per-modality versions (issue #294): { modality: version } when a database was
+  // cited at different releases by different pipelines (e.g. SNV vs SV GENCODE).
+  by_modality: Record<string, string> | null;
 }
 
 export interface ApiAnnotationManifest {

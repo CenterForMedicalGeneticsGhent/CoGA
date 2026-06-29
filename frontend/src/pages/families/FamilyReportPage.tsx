@@ -847,10 +847,22 @@ const FamilyReportPage: React.FC = () => {
           {manifest?.modules?.some((module) => module.version)
             ? manifest.modules
                 .filter((module) => module.version)
-                .map(
-                  (module) =>
-                    `${module.label} ${module.version}${module.detail ? ` (${module.detail})` : ''}`,
-                )
+                .map((module) => {
+                  // Per-modality divergence (issue #294): when a database was cited
+                  // at different releases by different pipelines, show each — e.g.
+                  // "GENCODE 49 (snv), 45 (sv)" — so the report is fully traceable.
+                  const byModality = module.by_modality;
+                  const distinct = byModality
+                    ? Array.from(new Set(Object.values(byModality)))
+                    : [];
+                  if (byModality && distinct.length > 1) {
+                    const perModality = Object.entries(byModality)
+                      .map(([mod, version]) => `${version} (${mod})`)
+                      .join(', ');
+                    return `${module.label} ${perModality}`;
+                  }
+                  return `${module.label} ${module.version}${module.detail ? ` (${module.detail})` : ''}`;
+                })
                 .join(' · ')
             : 'not recorded for this family'}
         </p>

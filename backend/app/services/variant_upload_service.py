@@ -1381,6 +1381,7 @@ async def upload_family_small_variant_file(
             family_uuid=context.family_uuid,
             assembly_id=getattr(context, "assembly_id", None),
             modules=annotation_provenance,
+            modality="snv",
         )
         await session.commit()
         result = {

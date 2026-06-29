@@ -474,7 +474,7 @@ const FamilySmallVariantsPage: React.FC = () => {
       />
         </div>
       </div>
-      {familyId ? <AnnotationProvenanceSummary familyId={familyId} /> : null}
+      {familyId ? <AnnotationProvenanceSummary familyId={familyId} modality="snv" /> : null}
     </div>
   );
 };

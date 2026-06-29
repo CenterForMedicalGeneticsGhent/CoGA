@@ -6186,6 +6186,7 @@ async def _import_sv_needlr_dataset(
         family_uuid=family_context.family_uuid,
         assembly_id=getattr(family_context, "assembly_id", None),
         modules=sv_modules,
+        modality="sv",
     )
     return summary.model_copy(
         update={

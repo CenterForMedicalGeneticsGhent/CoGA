@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import api from '../../lib/api';
-import type { ApiAnnotationManifest } from '../../lib/apiTypes';
+import type { ApiAnnotationManifest, ApiAnnotationModule } from '../../lib/apiTypes';
 
 /** Where the provenance came from — surfaced so a reviewer can judge its weight. */
 const SOURCE_LABELS: Record<string, string> = {
@@ -13,14 +13,36 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const COLLAPSED_COUNT = 6;
 
+/** The version to show for a module, given the page's modality (issue #294). */
+function modalityVersion(module: ApiAnnotationModule, modality?: string): string | null {
+  if (modality && module.by_modality?.[modality]) return module.by_modality[modality];
+  return module.version;
+}
+
 /**
- * Compact annotation-provenance summary: the tool/database versions a family's
- * data was built from (VEP, gnomAD, ClinVar, the variant callers, …), captured
- * from the VCF headers at import. Shown on the filter page so a reviewer always
- * sees which annotation versions they are filtering against. The full, frozen
- * record lives on the report ([[clinical-traceability]]).
+ * Whether a module belongs on a modality-scoped footer. Platform/reference modules
+ * (assembly, Monarch, …) and flat/legacy modules with no per-modality detail are
+ * shared across pages; pipeline modules show only on the modality that cited them.
  */
-export default function AnnotationProvenanceSummary({ familyId }: { familyId: string }) {
+function showsOnModality(module: ApiAnnotationModule, modality?: string): boolean {
+  if (!modality) return true;
+  if (module.layer === 'reference' || module.key === 'assembly' || !module.by_modality) return true;
+  return module.by_modality[modality] != null;
+}
+
+/**
+ * Annotation-provenance footer: the tool/database versions a family's data was built
+ * from. With `modality` set, it shows that modality's versions (issue #294) — so the
+ * SNV and SV filter pages show their own annotation versions even when they diverge.
+ * The full, frozen record lives on the report ([[clinical-traceability]]).
+ */
+export default function AnnotationProvenanceSummary({
+  familyId,
+  modality,
+}: {
+  familyId: string;
+  modality?: string;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { data } = useQuery<ApiAnnotationManifest>({
     queryKey: ['family', familyId, 'annotation-manifest'],
@@ -29,7 +51,12 @@ export default function AnnotationProvenanceSummary({ familyId }: { familyId: st
       (await api.get(`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
   });
 
-  const modules = (data?.modules ?? []).filter((module) => module.version);
+  const modules = (data?.modules ?? [])
+    .filter((module) => showsOnModality(module, modality))
+    .map((module) => ({ module, version: modalityVersion(module, modality) }))
+    .filter((entry): entry is { module: ApiAnnotationModule; version: string } =>
+      Boolean(entry.version),
+    );
   if (!modules.length) {
     return null;
   }
@@ -42,13 +69,13 @@ export default function AnnotationProvenanceSummary({ familyId }: { familyId: st
       data-testid="annotation-provenance"
     >
       <span className="annotation-provenance-label">Annotation versions</span>
-      {shown.map((module) => (
+      {shown.map(({ module, version }) => (
         <span
           key={module.key}
           className="badge-chip annotation-provenance-chip"
           title={module.detail ? `${module.label} — ${module.detail}` : module.label}
         >
-          {module.label} <strong>{module.version}</strong>
+          {module.label} <strong>{version}</strong>
         </span>
       ))}
       {hidden > 0 && (

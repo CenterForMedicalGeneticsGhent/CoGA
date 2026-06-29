@@ -41,6 +41,27 @@ def test_module_list_includes_unknown_keys_with_titled_label() -> None:
     assert module["label"] == "Custom Tool" and module["version"] == "9" and module["layer"] == "pipeline"
 
 
+def test_refresh_modules_records_and_accumulates_per_modality() -> None:
+    # Issue #294: each import records its version under by_modality[modality], and a
+    # later modality citing a *different* release of the same database accumulates
+    # rather than clobbering — the divergence is preserved.
+    snv = ams._refresh_modules({}, {"gencode": {"version": "49"}}, modality="snv")
+    assert snv["gencode"]["by_modality"] == {"snv": "49"}
+    both = ams._refresh_modules(snv, {"gencode": {"version": "45"}}, modality="sv")
+    assert both["gencode"]["by_modality"] == {"snv": "49", "sv": "45"}
+    assert both["gencode"]["version"] == "45"  # flat representative = latest write
+
+
+def test_module_list_exposes_by_modality() -> None:
+    out = ams._module_list(
+        {"gencode": {"version": "45", "by_modality": {"snv": "49", "sv": "45"}}}, {}
+    )
+    assert next(m for m in out if m["key"] == "gencode")["by_modality"] == {"snv": "49", "sv": "45"}
+    # Platform/reference modules carry no per-modality breakdown.
+    platform = ams._module_list({}, {"assembly": {"version": "GRCh38"}})
+    assert next(m for m in platform if m["key"] == "assembly")["by_modality"] is None
+
+
 def test_refresh_modules_new_version_wins_and_preserves_untouched() -> None:
     # Re-import: freshly parsed versions overwrite stale ones, while modules the
     # new input does not mention (and untouched fields) are preserved.

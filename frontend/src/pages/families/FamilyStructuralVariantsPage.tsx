@@ -448,7 +448,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       />
         </div>
       </div>
-      {familyId ? <AnnotationProvenanceSummary familyId={familyId} /> : null}
+      {familyId ? <AnnotationProvenanceSummary familyId={familyId} modality="sv" /> : null}
     </div>
   );
 };
