@@ -3096,12 +3096,26 @@ tbody tr:hover {
 
 .analysis-main {
   display: grid;
+  /* Explicit shrinkable single column: without minmax(0, 1fr) the implicit grid
+     column sizes to its content, so a wide track row would blow the column out
+     past the viewer cell instead of letting the inner horizontal scroll engage. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 1rem;
 }
 
 .analysis-main--viewer {
   min-width: 0;
   align-content: start;
+}
+
+/* The genome viewer nests fixed-width track rows (DEFAULT_TRACK_WIDTH) inside an
+   overflow-x-auto scroller. Every grid/flex ancestor between the viewer main and
+   that scroller must be allowed to shrink below its content, or the page itself
+   scrolls horizontally on < ~1480px screens (and the tracks spill past the cell). */
+.genome-visualization-panel,
+.viz-shell,
+.viz-shell > .viz-panel {
+  min-width: 0;
 }
 
 .analysis-toolbar {
@@ -8930,6 +8944,17 @@ button.table-link:hover {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  /* Fully shed the global <button> chrome so a `<button className="subtle-link">`
+     renders as plain small text, not a filled pill. (Tailwind v4 moved Preflight
+     into @layer base, so it no longer resets buttons over this unlayered sheet —
+     the reset has to be explicit here.) */
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  cursor: pointer;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.18em;
