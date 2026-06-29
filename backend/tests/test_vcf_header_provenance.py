@@ -9,10 +9,26 @@ from __future__ import annotations
 
 from app.services.vcf_header_provenance import (
     extract_header_provenance,
+    extract_info_description_provenance,
     extract_vep_tab_provenance,
     merge_module_maps,
     provenance_to_modules,
 )
+
+# Real-shape NeedlR SV header: no structured version lines — the annotation
+# database releases live inside the ##INFO descriptions.
+SV_INFO_HEADER = """\
+##fileformat=VCFv4.2
+##INFO=<ID=Genes,Number=.,Type=String,Description="Genes overlapped by the SV (gencode v45, +/-5kb)">
+##INFO=<ID=OMIM_phenotype,Number=.,Type=String,Description="OMIM phenotypes associated with any gene the SV overlaps (OMIM 20260129)">
+##INFO=<ID=GENCC_phenotype,Number=.,Type=String,Description="GenCC phenotypes for overlapping genes (GenCC 20250510)">
+##INFO=<ID=pLI,Number=.,Type=String,Description="pLI scores from gnomAD v4.1">
+##INFO=<ID=Segdup,Number=1,Type=String,Description="SV overlaps a segmental duplication (GIAB v3.3)">
+##INFO=<ID=HiConf,Number=1,Type=String,Description="SV fully contained in a high-confidence region (GIAB T2TQ100-V1.0)">
+##INFO=<ID=Alt_Reads,Number=1,Type=Integer,Description="Number of reads supporting the SV">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr1\t100\t.\tA\t<DEL>\t.\tPASS\tSVTYPE=DEL
+"""
 
 # Real-shape VEP --tab output header: versions are stated as "## <name> version
 # <value>" (plus the banner + cache line), not the VCF ##KEY=value form.
@@ -200,6 +216,28 @@ def test_vep_tab_header_excludes_noise_and_column_descriptions():
 def test_vep_tab_header_empty_is_safe():
     assert extract_vep_tab_provenance([]) == {}
     assert extract_vep_tab_provenance(["#CHROM\tPOS", "chr1\t1"]) == {}
+
+
+def test_info_description_mining_extracts_sv_database_versions():
+    mods = extract_info_description_provenance(SV_INFO_HEADER.splitlines())
+    assert mods["gencode"]["version"] == "v45"
+    assert mods["omim"]["version"] == "20260129"
+    assert mods["gencc"]["version"] == "20250510"
+    assert mods["gnomad"]["version"] == "v4.1"
+    assert mods["giab"]["version"] == "v3.3"  # first occurrence (Segdup) wins
+
+
+def test_info_description_mining_ignores_unversioned_and_data():
+    mods = extract_info_description_provenance(SV_INFO_HEADER.splitlines())
+    # The Alt_Reads description has no database/version → no spurious module; and
+    # only the allowlisted databases appear.
+    assert set(mods) <= {"gencode", "omim", "gencc", "gnomad", "giab", "clinvar", "dbsnp", "cosmic"}
+    assert "alt_reads" not in mods and "del" not in mods
+
+
+def test_info_description_mining_empty_safe():
+    assert extract_info_description_provenance([]) == {}
+    assert extract_info_description_provenance(["#CHROM\tPOS", "chr1\t1\t.\tA\tG"]) == {}
 
 
 def test_provenance_to_modules_combines_modalities():

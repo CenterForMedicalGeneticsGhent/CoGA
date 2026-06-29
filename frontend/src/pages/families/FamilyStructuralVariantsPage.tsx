@@ -7,6 +7,7 @@ import Pedigree from '../../components/visualizations/Pedigree';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import LoadingBar from '../../components/LoadingBar';
+import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import StructuralVariantFilterForm from './StructuralVariantFilterForm';
 import StructuralVariantResults from './StructuralVariantResults';
 import {
@@ -447,6 +448,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       />
         </div>
       </div>
+      {familyId ? <AnnotationProvenanceSummary familyId={familyId} /> : null}
     </div>
   );
 };

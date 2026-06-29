@@ -6165,16 +6165,27 @@ async def _import_sv_needlr_dataset(
         source="needlr",
         filename=vcf_path.name,
     )
-    # Capture the SV caller/tool versions from the VCF header into the family's
-    # annotation manifest (best-effort; joins the import transaction).
+    # Capture SV provenance into the family's annotation manifest (best-effort;
+    # joins the import transaction). The NeedlR SV VCF carries no structured version
+    # header lines — its annotation-database releases (GENCODE/OMIM/GenCC/gnomAD/
+    # GIAB) live in the ``##INFO`` descriptions — so mine those too.
     from .annotation_manifest_service import merge_vcf_header_provenance
-    from .vcf_header_provenance import extract_header_provenance
+    from .vcf_header_provenance import (
+        extract_header_provenance,
+        extract_info_description_provenance,
+        merge_module_maps,
+    )
 
+    sv_lines = text_value.splitlines()
+    sv_modules = merge_module_maps(
+        extract_header_provenance(sv_lines, modality="sv").as_modules(),
+        extract_info_description_provenance(sv_lines),
+    )
     await merge_vcf_header_provenance(
         session,
         family_uuid=family_context.family_uuid,
         assembly_id=getattr(family_context, "assembly_id", None),
-        modules=extract_header_provenance(text_value.splitlines(), modality="sv").as_modules(),
+        modules=sv_modules,
     )
     return summary.model_copy(
         update={
