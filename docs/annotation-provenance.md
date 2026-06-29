@@ -144,16 +144,60 @@ Together: the hash proves change; the manifest names the versions.
   (`extract_info_description_provenance`: GENCODE/OMIM/GenCC/gnomAD/GIAB/ClinVar/
   dbSNP/COSMIC, each anchored to a version-shaped token). Free-text mining is more
   fragile than a clean `##VEP=` line, hence the allowlist.
-- **One version per database per family.** The manifest is flat, so if two
-  modalities annotated against *different* releases of the same database (e.g. SNV
-  vs SV using different GENCODE versions), only one is shown — the
-  structured-header source wins over an INFO-mined one. Per-modality database
-  provenance is a possible future refinement.
+- **One version per database per family (current).** The manifest is flat, so if
+  two modalities annotated against *different* releases of the same database (e.g.
+  SNV vs SV using different GENCODE versions), only one is shown — the
+  structured-header source wins over an INFO-mined one. **This is the motivation for
+  the planned per-modality refinement (§8).**
 - **Unknown tools** are still captured under their lower-cased token (they render
   with a title-cased label), so a new caller/annotator shows up without a code
   change.
 
-## 8. Tests
+## 8. Planned follow-up — per-modality provenance
+
+**Problem.** SNV, SV and TRGT inputs are annotated by *different* pipelines and can
+cite **different releases of the same database** — observed on `f_18.16172`: the SNV
+VEP TSV states **GENCODE 49** while the SV annotator states **GENCODE 45**. The flat
+manifest (one entry per database per family) can hold only one, so the divergence is
+silently collapsed. That is acceptable for an at-a-glance footer but **not for a
+clinical-grade, fully-traceable record**.
+
+**Goal.** Capture and display annotation provenance **per modality**, so the SNV
+filter page shows the SNV annotation versions, the SV page shows the SV ones, and the
+report/sign-out freezes the complete per-modality set — every result re-linkable to
+exactly the versions that produced *it*.
+
+**Proposed schema.** Extend `modules` to carry per-modality detail rather than a
+single value (no breaking change to the read API if the flat view is derived):
+
+```json
+{
+  "gencode": {
+    "version": "49",                                   // representative (back-compat)
+    "by_modality": { "snv": "49", "sv": "45" }         // new: the full per-modality truth
+  }
+}
+```
+
+(Alternative: a `family_modality_annotation` table keyed by `(family_id, modality)`.
+The JSONB-extension above is lighter and keeps the single-row-per-family model.)
+
+**Touch points.**
+
+- *Capture* — `merge_vcf_header_provenance` gains a `modality` argument; each ingestion
+  hook (SNV/SV/TRGT) records its versions under that modality. Refresh-on-re-import and
+  manual-override-wins semantics carry over per modality.
+- *Read/UI* — `get_family_annotation_manifest` can return both the flat view and the
+  per-modality breakdown; `AnnotationProvenanceSummary` takes an optional `modality`
+  prop so each filter page footer shows *its* modality (plus shared platform layer).
+- *Traceability* — the per-modality manifest is what the sign-out snapshot freezes, and
+  what drift compares against; this is the clinical-grade form
+  ([clinical-traceability.md](clinical-traceability.md) §A).
+
+**Status.** Designed, not implemented — tracked in **[issue #294](https://github.com/bmenten/CoGA/issues/294)**.
+Until then, the footer shows the flat single-version-per-database view described in §7.
+
+## 9. Tests
 
 - [test_vcf_header_provenance.py](../backend/tests/test_vcf_header_provenance.py) —
   parser unit tests with realistic headers for every modality + merge semantics.
@@ -162,7 +206,7 @@ Together: the hash proves change; the manifest names the versions.
 - [AnnotationProvenanceSummary.test.tsx](../frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx) —
   the filter-page surface.
 
-## 9. References
+## 10. References
 
 - [clinical-traceability.md](clinical-traceability.md) — the broader traceability design (manifest §A, drift §B, sign-out §D).
 - [TF-09 §7](regulatory/TF-09-verification-validation.md) / [TF-08 SOUP register](regulatory/TF-08-soup-register.md) — regulatory placement (Traceerbaarheid; reference/SOUP versioning).
