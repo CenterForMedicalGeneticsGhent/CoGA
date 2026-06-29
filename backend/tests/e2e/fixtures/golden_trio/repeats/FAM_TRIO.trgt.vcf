@@ -1,0 +1,9 @@
+##fileformat=VCFv4.2
+##INFO=<ID=TRID,Number=1,Type=String,Description="Tandem repeat id">
+##INFO=<ID=END,Number=1,Type=Integer,Description="End position">
+##INFO=<ID=MOTIFS,Number=.,Type=String,Description="Repeat motifs">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=MC,Number=.,Type=String,Description="Motif counts per allele">
+##FORMAT=<ID=MS,Number=.,Type=String,Description="Motif spans per allele">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	FATHER	MOTHER	PROBAND
+chr4	3074876	.	A	<STR>	.	PASS	END=3074933;TRID=HD_HTT;MOTIFS=CAG,CAA	GT:MC:MS	0/0:18_0,18_0:0(0-54),0(0-54)	0/0:18_0,18_0:0(0-54),0(0-54)	0/1:18_0,40_2:0(0-54),0(0-120)_1(120-126)
