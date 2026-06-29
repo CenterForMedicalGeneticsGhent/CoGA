@@ -235,6 +235,18 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
     async with sessionmaker() as session:
         admin, project_id, assembly_id = await ensure_e2e_project(session)
         await seed_builtin_repeat_catalog(session)
+        # The phenotype import drops HPO terms not present in hpo_term. CI does not
+        # bootstrap the ontology (HPO_BOOTSTRAP_ON_STARTUP=false), so seed the golden
+        # fixture's term deterministically — otherwise the HPO assertion is
+        # environment-dependent (passes locally where the ontology is loaded, fails
+        # on a fresh CI database).
+        await session.execute(
+            text(
+                "INSERT INTO hpo_term (hpo_id, label) VALUES ('HP:0001250', 'Seizure') "
+                "ON CONFLICT (hpo_id) DO NOTHING"
+            )
+        )
+        await session.commit()
 
     async with sessionmaker() as session:
         result = await package_import.execute_family_package_import(
