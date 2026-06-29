@@ -6165,6 +6165,17 @@ async def _import_sv_needlr_dataset(
         source="needlr",
         filename=vcf_path.name,
     )
+    # Capture the SV caller/tool versions from the VCF header into the family's
+    # annotation manifest (best-effort; joins the import transaction).
+    from .annotation_manifest_service import merge_vcf_header_provenance
+    from .vcf_header_provenance import extract_header_provenance
+
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=family_context.family_uuid,
+        assembly_id=getattr(family_context, "assembly_id", None),
+        modules=extract_header_provenance(text_value.splitlines(), modality="sv").as_modules(),
+    )
     return summary.model_copy(
         update={
             "status": "imported",

@@ -41,6 +41,18 @@ def test_module_list_includes_unknown_keys_with_titled_label() -> None:
     assert module["label"] == "Custom Tool" and module["version"] == "9" and module["layer"] == "pipeline"
 
 
+def test_refresh_modules_new_version_wins_and_preserves_untouched() -> None:
+    # Re-import: freshly parsed versions overwrite stale ones, while modules the
+    # new input does not mention (and untouched fields) are preserved.
+    current = {"vep": {"version": "110", "cache": "110_GRCh38"}, "clinvar": {"version": "202301"}}
+    incoming = {"vep": {"version": "112"}, "sniffles": {"version": "2.2"}}
+    out = ams._refresh_modules(current, incoming)
+    assert out["vep"]["version"] == "112"  # newly parsed wins
+    assert out["vep"]["cache"] == "110_GRCh38"  # untouched field preserved
+    assert out["clinvar"]["version"] == "202301"  # untouched module preserved
+    assert out["sniffles"]["version"] == "2.2"  # new module added
+
+
 def test_get_family_manifest_falls_back_to_family_metadata(monkeypatch) -> None:
     # No explicit family_annotation_manifest row -> read the import-captured manifest
     # from family.metadata.annotation_manifest.

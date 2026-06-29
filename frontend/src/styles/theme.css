@@ -12000,3 +12000,45 @@ a.button-danger:hover {
     break-inside: avoid;
   }
 }
+
+/* Annotation provenance summary (filter page): a compact, wrapping row of the
+   tool/database versions a family's data was built from. */
+.annotation-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.34rem;
+  margin-top: 0.4rem;
+}
+
+.annotation-provenance-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-right: 0.12rem;
+}
+
+.annotation-provenance-chip {
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.annotation-provenance-chip strong {
+  color: inherit;
+  font-weight: 800;
+}
+
+.annotation-provenance-toggle {
+  font-size: 0.7rem;
+}
+
+.annotation-provenance-source {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}

@@ -49,6 +49,7 @@ grounded in the current code (file references inline).
 | --- | --- | --- |
 | Append-only HTTP audit log | ✅ | `audit_log_events` (`004_audit_logs.sql`); immutability trigger (`029_audit_log_immutable.sql`); writer `services/audit_log_pg.py`; middleware `middleware/request_logging.py`; admin UI `AdminAuditLogsPage.tsx` |
 | Per-variant annotation version + set hash | ✅ (label only) | ClickHouse `annotation_version` (default `"current"`) + `annotationSetHash` — `clickhouse_variant_storage.py` |
+| Per-family annotation/tool provenance from VCF headers | ✅ | `family_annotation_manifest` (`source='vcf_header'`); parser `vcf_header_provenance.py`; captured at import for SNV/SV/TRGT, refreshed on re-import, frozen at sign-out; shown on the filter page + report — see [annotation-provenance.md](annotation-provenance.md) |
 | Reference import bookkeeping | ◑ partial | `reference_dataset_imports` (dataset, `performed_at/by`, `source`); `assemblies` (`version`, `release_date`); `monarch_gene_disease.release_version` (the **only** explicit source version); `raw_import_files` (input file name/path/sha256/source/metadata); `gene_info_refresh_jobs` (sync history, no source version) |
 | Review state | ✅ (decision only) | `small_variant_reviews` / `structural_variant_reviews`: `acmg` JSONB {criteria, point_total, classification, vus_tier}, `acmg_class`, `tags`, `tag_metadata` {per-tag who/when}, `note`, `updated_by/at`, `created_at`. Score recomputed server-side (`acmg_points.py`, `small_variant_review_pg.py`) |
 | Family workflow status | ✅ (mutable) | `family_statuses` + `families.status_id/assigned_to_id/reviewed_by_id` (`024_family_metadata.sql`) |
@@ -59,9 +60,10 @@ grounded in the current code (file references inline).
 
 ## 3. The gaps
 
-1. **Upstream annotation versions are lost at import.** VEP / ClinVar / gnomAD / dbNSFP /
-   SpliceAI versions live in the source VCF header but are never extracted or stored. There is
-   no per-family annotation manifest.
+1. ~~**Upstream annotation versions are lost at import.**~~ ✅ **Addressed** — the VCF `##`
+   headers (VEP + embedded ClinVar/gnomAD/dbNSFP/SpliceAI, plus the SNV/SV/TRGT callers) are now
+   parsed at import and stored per family (`source='vcf_header'`). See
+   [annotation-provenance.md](annotation-provenance.md).
 2. **Reference versions are partially tracked.** Only Monarch records a release; gnomAD/ClinVar
    (as loaded into the platform), GenCC, PanelApp, HPO, dbNSFP-gene, ClinGen have no consistent
    version/release column.
@@ -133,9 +135,12 @@ ALTER TABLE reference_dataset_imports
     ADD COLUMN source_url          TEXT;
 ```
 
-- **Capture at import:** extend `PackageManifest` (`family_package_import.py`) with an
-  `annotation_manifest` field that the preprocessing pipeline populates; best-effort parse the
-  VCF `##VEP=` / `##source` / INFO descriptions as a fallback; allow admin override.
+- **Capture at import:** ✅ implemented — the VCF `##` headers are parsed at import
+  ([`vcf_header_provenance.py`](../backend/app/services/vcf_header_provenance.py)) for SNV/SV/TRGT
+  and merged into the manifest (`source='vcf_header'`, refreshed on re-import, manual never
+  clobbered); the preprocessing pipeline may additionally declare versions in the package manifest
+  (`source='manifest'`); admin override is `source='manual'`. Full design:
+  [annotation-provenance.md](annotation-provenance.md).
 - **Service:** `get_annotation_version_manifest(family) -> ManifestOut` merges the per-family
   manifest with the current platform reference versions (read from `reference_dataset_imports`,
   `monarch_gene_disease`, `assemblies`, HPO/gene/panel sync records). Used by the footer and

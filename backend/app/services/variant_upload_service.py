@@ -53,6 +53,21 @@ from .variant_annotation_parser import (
     normalize_small_variant_annotation_entry,
     update_annotation_header_state,
 )
+from .vcf_header_provenance import extract_header_provenance
+
+# Meta-header lines that occur in bulk (one per contig/field) and carry no
+# provenance — skipped from the capture buffer so only version-bearing lines are
+# kept (the parser also ignores them, this just bounds memory).
+_PROVENANCE_SKIP_PREFIXES = (
+    "##FORMAT",
+    "##FILTER",
+    "##contig",
+    "##ALT",
+    "##SAMPLE",
+    "##PEDIGREE",
+    "##GVCFBlock",
+)
+_PROVENANCE_HEADER_CAP = 200
 
 SmallVariantFormat = Literal["auto", "clair3", "glimpse2"]
 StructuralVariantFormat = Literal["auto", "manual", "sniffles", "spectre"]
@@ -1017,6 +1032,7 @@ async def upload_family_small_variant_file(
 
         sample_names: list[str] = []
         annotation_state = AnnotationHeaderState()
+        provenance_header_lines: list[str] = []
         inserted = 0
         last_reported = 0
         haplotype_rows: list[dict[str, Any]] = []
@@ -1066,6 +1082,12 @@ async def upload_family_small_variant_file(
         for line in _iter_upload_text_lines(file, kind="VCF"):
             if line.startswith("##INFO"):
                 update_annotation_header_state(annotation_state, line.strip())
+            elif (
+                line.startswith("##")
+                and not line.startswith(_PROVENANCE_SKIP_PREFIXES)
+                and len(provenance_header_lines) < _PROVENANCE_HEADER_CAP
+            ):
+                provenance_header_lines.append(line.rstrip())
             if line.startswith("#CHROM"):
                 header = line.strip().split("\t")
                 sample_names = header[9:]
@@ -1327,6 +1349,20 @@ async def upload_family_small_variant_file(
             filename=file.filename or "",
             metadata_json=metadata_json,
         )
+        # Capture annotation/tool provenance from the VCF header into the family's
+        # annotation manifest (best-effort; never fails the upload). Joins this
+        # transaction so provenance commits iff the variants do.
+        from .annotation_manifest_service import merge_vcf_header_provenance
+
+        annotation_provenance = extract_header_provenance(
+            provenance_header_lines, modality="snv"
+        ).as_modules()
+        await merge_vcf_header_provenance(
+            session,
+            family_uuid=context.family_uuid,
+            assembly_id=getattr(context, "assembly_id", None),
+            modules=annotation_provenance,
+        )
         await session.commit()
         result = {
             "inserted": inserted,
@@ -1335,6 +1371,7 @@ async def upload_family_small_variant_file(
             "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
             "annotation_source": "vep_tsv" if vep_annotations else None,
             "annotation_version": annotation_version,
+            "annotation_provenance": annotation_provenance,
             "insert_batch_size": SMALL_VARIANT_UPLOAD_BATCH_SIZE,
         }
         if progress is not None:
