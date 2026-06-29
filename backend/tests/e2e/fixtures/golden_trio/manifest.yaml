@@ -1,0 +1,28 @@
+schema_version: 1
+family_id: FAM_TRIO
+ped: family.ped
+metadata:
+  hpo:
+  - HP:0001250
+datasets:
+  snv:
+    family_vcf: snv/family.vcf
+  sv_needlr:
+    family_vcf: sv_needlr/family.needlr.vcf
+  repeats_trgt:
+    family_vcf: repeats/FAM_TRIO.trgt.vcf
+  coverage:
+    per_sample:
+      FATHER:
+        bed: coverage/FATHER.coverage.bed
+      MOTHER:
+        bed: coverage/MOTHER.coverage.bed
+      PROBAND:
+        bed: coverage/PROBAND.coverage.bed
+  paraphase:
+    per_sample:
+      PROBAND:
+        json: paraphase/PROBAND.paraphase.json
+phenotypes:
+  file: phenotypes.tsv
+  format: hpo_tsv

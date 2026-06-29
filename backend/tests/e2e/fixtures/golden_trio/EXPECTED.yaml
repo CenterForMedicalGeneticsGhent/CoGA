@@ -1,0 +1,40 @@
+family_id: FAM_TRIO
+sample_ids:
+- FATHER
+- MOTHER
+- PROBAND
+member_roles:
+  FATHER: father
+  MOTHER: mother
+  PROBAND: proband
+dataset_status:
+  snv: imported
+  sv_needlr: imported
+  repeats_trgt: imported
+  coverage: imported
+  paraphase: imported
+snv:
+  count: 6
+  compound_het_gene: GENE_CH
+  de_novo_gene: GENE_DENOVO
+structural_variants:
+  count: 2
+  del_gene: BRCA2
+sv_second_hit:
+  gene: BRCA2
+  phase: trans
+  phase_evidence: segregation
+  has_deletion: true
+  deletion_unmasked: true
+repeat_expansion:
+  locus_id: HD_HTT
+  gene: HTT
+  proband_status: pathogenic
+  pathogenic_min: 36
+coverage:
+  sources: 3
+  total_rows: 15
+paraphase_genes:
+- GBA
+hpo_terms:
+- HP:0001250

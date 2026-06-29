@@ -1,0 +1,4 @@
+##fileformat=VCFv4.2
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+1	7000	SVDEL1	N	<DEL>	60	PASS	SVTYPE=DEL;SVLEN=-5000;END=12000;Genes=BRCA2;Query_ID=PROBAND;Genotype=0/1;Alt_Reads=18;Maternal_GT=0/0;Maternal_Alt_Reads=0;Paternal_GT=0/1;Paternal_Alt_Reads=15
+1	20000	SVBND1	N	N]chr5:3000000]	30	PASS	SVTYPE=BND;Query_ID=PROBAND;Genotype=0/1;Alt_Reads=7;Maternal_GT=0/0;Paternal_GT=0/0

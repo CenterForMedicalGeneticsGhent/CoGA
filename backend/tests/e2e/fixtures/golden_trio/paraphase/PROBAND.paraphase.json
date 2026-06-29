@@ -1,0 +1,17 @@
+{
+  "GBA": {
+    "final_haplotypes": {
+      "h1": "GBA_hap1"
+    },
+    "gene_cn": null,
+    "genome_depth": 33.5,
+    "highest_total_cn": 2,
+    "phase_region": "38:chr1:10-20",
+    "region_depth": {
+      "median": 42
+    },
+    "sample_sex": "male",
+    "total_cn": 2
+  },
+  "unknown_region": null
+}
