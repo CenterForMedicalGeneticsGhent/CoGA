@@ -56,6 +56,7 @@ from .clickhouse_variant_storage import (
     count_family_small_variants,
     count_family_structural_variants,
     delete_family_small_variants,
+    delete_family_structural_variants,
     replace_family_structural_variants,
 )
 from .data_scope import normalize_chromosome
@@ -4013,6 +4014,7 @@ async def _ensure_family_from_ped(
     resolved_project_id = await ped_service._resolve_accessible_project_id(session, user, project_id)
     family_id = validation.family_id or bundle.ped.family_ids[0]
     existing = await _fetch_existing_family(session, family_id=family_id)
+    created = existing is None
     if existing is None:
         await ped_service._ensure_sample_ids_are_available(session, bundle.ped.sample_ids)
         members = _ped_members_for_import(
@@ -4102,7 +4104,35 @@ async def _ensure_family_from_ped(
         family_uuid=context.family_uuid,
     )
     await _apply_manifest_roi(session, bundle=bundle, context=context)
-    return context
+    return context, created
+
+
+async def _delete_family_shell(
+    session: AsyncSession, family_context: FamilyMetadataContext
+) -> None:
+    """Compensating cleanup for a failed import that created a fresh family.
+
+    Removes the family's ClickHouse variant rows and the Postgres family shell
+    (samples / members / other family-scoped rows cascade via ``ON DELETE
+    CASCADE``) so a failed import leaves no orphan partial state. Mirrors the
+    deletion recipe in ``ped_service``.
+    """
+    assembly_name = family_context.assembly_name
+    family_uuid = family_context.family_uuid
+    if assembly_name:
+        try:
+            await delete_family_small_variants(assembly_name, family_uuid)
+            await delete_family_structural_variants(assembly_name, family_uuid)
+        except Exception:  # noqa: BLE001 - best-effort store cleanup
+            logger.warning(
+                "Failed to clear ClickHouse rows during import compensation for %s",
+                family_context.family_id,
+                exc_info=True,
+            )
+    await session.execute(
+        text("DELETE FROM families WHERE id = CAST(:family_uuid AS uuid)"),
+        {"family_uuid": family_uuid},
+    )
 
 
 def _enabled_dataset_summaries(validation: FamilyPackageValidationOut) -> list[FamilyImportDatasetSummary]:
@@ -6806,7 +6836,7 @@ async def _execute_family_package_import_local(
         raise RuntimeError("A database session and user are required for non-dry-run imports")
 
     logs.append("Registering family metadata and package provenance.")
-    family_context = await _ensure_family_from_ped(
+    family_context, family_created = await _ensure_family_from_ped(
         session,
         bundle=bundle,
         project_id=project_id,
@@ -6863,18 +6893,37 @@ async def _execute_family_package_import_local(
             await progress(validation, datasets, logs, family_context.family_id)
 
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
-    if failed_datasets:
+    imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
+
+    # Fail-clean. A failed import must not leave a partial family behind:
+    #   * if this import CREATED the family and NO dataset imported, compensate by
+    #     deleting the freshly-created shell (+ its ClickHouse rows) so nothing
+    #     partial survives;
+    #   * if ANY enabled dataset failed, the import is reported as FAILED (error set
+    #     -> the job row ends status='failed') rather than a silent "completed".
+    compensated = False
+    if failed_datasets and not imported_datasets and family_created:
+        await session.rollback()
+        await _delete_family_shell(session, family_context)
+        await session.commit()
+        compensated = True
         logs.append(
-            "Family package import completed with failed dataset(s): "
-            + ", ".join(failed_datasets)
-            + "."
+            "No dataset imported successfully; rolled back the newly-created family shell."
         )
+
+    if failed_datasets:
+        error = "Family package import failed for dataset(s): " + ", ".join(
+            sorted(set(failed_datasets))
+        )
+        logs.append(error)
     else:
+        error = None
         logs.append("Family package import completed.")
 
     # (Re)importing variant data changes the prioritised ranking, but the cache's input
     # hash doesn't cover variant content — drop any cached ranking so it recomputes.
-    if not dry_run and session is not None:
+    # Skip when the family shell was just compensated away (nothing to recache).
+    if not compensated and not dry_run and session is not None:
         from .variant_ranking_cache import clear_family_ranking_cache
         from .sv_gene_index_service import clear_family_sv_gene_index
 
@@ -6895,7 +6944,8 @@ async def _execute_family_package_import_local(
         datasets=datasets,
         logs=logs,
         family_id=family_context.family_id,
-        completed=True,
+        completed=error is None,
+        error=error,
     )
 
 

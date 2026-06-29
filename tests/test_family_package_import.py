@@ -904,31 +904,34 @@ async def test_successful_minimal_import_registers_family(monkeypatch: pytest.Mo
 
     async def fake_ensure_family_from_ped(session, *, bundle, project_id, user, validation, conflict_mode="cancel"):
         calls.append((validation.family_id or "", project_id))
-        return FamilyMetadataContext(
-            family_uuid="family-uuid",
-            family_id=validation.family_id or "",
-            project_ids=[project_id or "project-uuid"],
-            sample_rows=[
-                {
-                    "sample_uuid": "sample-1",
-                    "sample_id": "S1",
-                    "sex": "male",
-                    "role": "proband",
-                    "affected": True,
-                },
-                {
-                    "sample_uuid": "sample-2",
-                    "sample_id": "S2",
-                    "sex": "female",
-                    "role": "sibling",
-                    "affected": False,
-                },
-            ],
-            sample_uuid_to_name={"sample-1": "S1", "sample-2": "S2"},
-            sample_name_to_uuid={"S1": "sample-1", "S2": "sample-2"},
-            affected_sample_names=["S1"],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
+        return (
+            FamilyMetadataContext(
+                family_uuid="family-uuid",
+                family_id=validation.family_id or "",
+                project_ids=[project_id or "project-uuid"],
+                sample_rows=[
+                    {
+                        "sample_uuid": "sample-1",
+                        "sample_id": "S1",
+                        "sex": "male",
+                        "role": "proband",
+                        "affected": True,
+                    },
+                    {
+                        "sample_uuid": "sample-2",
+                        "sample_id": "S2",
+                        "sex": "female",
+                        "role": "sibling",
+                        "affected": False,
+                    },
+                ],
+                sample_uuid_to_name={"sample-1": "S1", "sample-2": "S2"},
+                sample_name_to_uuid={"S1": "sample-1", "S2": "sample-2"},
+                affected_sample_names=["S1"],
+                assembly_id="assembly-uuid",
+                assembly_name="GRCh38",
+            ),
+            True,
         )
 
     monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
@@ -955,24 +958,27 @@ async def test_package_import_continues_after_dataset_failure(
     _write_minimal_package(package_root)
 
     async def fake_ensure_family_from_ped(session, *, bundle, project_id, user, validation, conflict_mode="cancel"):
-        return FamilyMetadataContext(
-            family_uuid="family-uuid",
-            family_id=validation.family_id or "",
-            project_ids=[project_id or "project-uuid"],
-            sample_rows=[
-                {
-                    "sample_uuid": "sample-1",
-                    "sample_id": "S1",
-                    "sex": "male",
-                    "role": "proband",
-                    "affected": True,
-                }
-            ],
-            sample_uuid_to_name={"sample-1": "S1"},
-            sample_name_to_uuid={"S1": "sample-1"},
-            affected_sample_names=["S1"],
-            assembly_id="assembly-uuid",
-            assembly_name="GRCh38",
+        return (
+            FamilyMetadataContext(
+                family_uuid="family-uuid",
+                family_id=validation.family_id or "",
+                project_ids=[project_id or "project-uuid"],
+                sample_rows=[
+                    {
+                        "sample_uuid": "sample-1",
+                        "sample_id": "S1",
+                        "sex": "male",
+                        "role": "proband",
+                        "affected": True,
+                    }
+                ],
+                sample_uuid_to_name={"sample-1": "S1"},
+                sample_name_to_uuid={"S1": "sample-1"},
+                affected_sample_names=["S1"],
+                assembly_id="assembly-uuid",
+                assembly_name="GRCh38",
+            ),
+            True,
         )
 
     snv_summary = FamilyImportDatasetSummary(dataset_type="snv", status="valid")
@@ -1007,9 +1013,106 @@ async def test_package_import_continues_after_dataset_failure(
     )
 
     statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
-    assert result.completed is True
-    assert result.error is None
+    # Fail-clean hardening: any failed enabled dataset now marks the whole import as
+    # failed (error set -> job status 'failed'), but a partial success keeps the
+    # datasets that did import (no family-shell rollback when something succeeded).
+    assert result.completed is False
+    assert result.error is not None and "snv" in result.error
     assert imported == ["snv", "repeats_trgt"]
     assert statuses["snv"] == "failed"
     assert statuses["repeats_trgt"] == "imported"
-    assert "completed with failed dataset(s): snv" in result.logs[-1]
+    assert any("failed for dataset(s): snv" in line for line in result.logs)
+
+
+def _single_sample_context(*, family_id: str = "FAM001") -> FamilyMetadataContext:
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id=family_id,
+        project_ids=["project-uuid"],
+        sample_rows=[
+            {"sample_uuid": "sample-1", "sample_id": "S1", "sex": "male", "role": "proband", "affected": True}
+        ],
+        sample_uuid_to_name={"sample-1": "S1"},
+        sample_name_to_uuid={"S1": "sample-1"},
+        affected_sample_names=["S1"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+
+class _CommitRollbackSession:
+    async def rollback(self) -> None:  # pragma: no cover - trivial
+        ...
+
+    async def commit(self) -> None:  # pragma: no cover - trivial
+        ...
+
+
+def _wire_total_failure(monkeypatch: pytest.MonkeyPatch, *, created: bool, deleted: list[str]):
+    context = _single_sample_context()
+
+    async def fake_ensure_family_from_ped(session, **_kwargs):
+        return context, created
+
+    def fake_enabled_dataset_summaries(_validation):
+        return [FamilyImportDatasetSummary(dataset_type="snv", status="valid")]
+
+    async def fake_import_dataset(session, *, summary, **_kwargs):
+        raise RuntimeError("ClickHouse insert failed")
+
+    async def fake_delete_family_shell(session, family_context):
+        deleted.append(family_context.family_uuid)
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
+    monkeypatch.setattr(package_import, "_enabled_dataset_summaries", fake_enabled_dataset_summaries)
+    monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
+    monkeypatch.setattr(package_import, "_delete_family_shell", fake_delete_family_shell)
+
+
+@pytest.mark.asyncio
+async def test_total_failure_on_new_family_rolls_back_shell(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A newly-created family whose only dataset fails is reported failed AND its
+    partial shell is compensated away (fail-clean)."""
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    deleted: list[str] = []
+    _wire_total_failure(monkeypatch, created=True, deleted=deleted)
+
+    result = await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=_current_admin(),
+    )
+
+    assert result.completed is False
+    assert result.error is not None and "snv" in result.error
+    assert deleted == ["family-uuid"], "the new family shell should be compensated away"
+    assert any("rolled back the newly-created family shell" in line for line in result.logs)
+
+
+@pytest.mark.asyncio
+async def test_total_failure_on_existing_family_is_not_rolled_back(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A total failure on a PRE-EXISTING family is reported failed but the family is
+    NOT deleted (compensation only removes shells this import created)."""
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    deleted: list[str] = []
+    _wire_total_failure(monkeypatch, created=False, deleted=deleted)
+
+    result = await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=_current_admin(),
+    )
+
+    assert result.completed is False
+    assert result.error is not None and "snv" in result.error
+    assert deleted == [], "a pre-existing family must never be deleted by compensation"

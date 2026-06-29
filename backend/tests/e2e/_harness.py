@@ -183,6 +183,18 @@ async def _ensure_project(session, *, species_id: str, assembly_id: str, admin_u
     return project_id
 
 
+async def ensure_e2e_project(session) -> tuple[Any, str, str]:
+    """Set up admin -> species -> assembly -> project bound to GRCh38 and return
+    ``(admin_current_user, project_id, assembly_id)``. Idempotent."""
+    admin = await _ensure_admin(session)
+    species_id = await _ensure_species(session)
+    assembly_id = await _ensure_assembly(session, species_id)
+    project_id = await _ensure_project(
+        session, species_id=species_id, assembly_id=assembly_id, admin_user_id=admin.id
+    )
+    return admin, project_id, assembly_id
+
+
 async def login_admin_token(ac) -> str:
     """Log in as the seeded admin over an httpx client and return the bearer
     token. Used with an in-loop ASGITransport client so the global DB engine /
@@ -221,12 +233,7 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
     sessionmaker = get_postgres_sessionmaker()
 
     async with sessionmaker() as session:
-        admin = await _ensure_admin(session)
-        species_id = await _ensure_species(session)
-        assembly_id = await _ensure_assembly(session, species_id)
-        project_id = await _ensure_project(
-            session, species_id=species_id, assembly_id=assembly_id, admin_user_id=admin.id
-        )
+        admin, project_id, assembly_id = await ensure_e2e_project(session)
         await seed_builtin_repeat_catalog(session)
 
     async with sessionmaker() as session:
