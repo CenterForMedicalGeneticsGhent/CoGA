@@ -120,7 +120,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 ### Clinical traceability & audit
 | Test file | Purpose |
 | --- | --- |
-| [backend/tests/test_annotation_manifest.py](../backend/tests/test_annotation_manifest.py) | Annotation/version-manifest layer merge and canonical ordering. |
+| [backend/tests/test_annotation_manifest.py](../backend/tests/test_annotation_manifest.py) | Annotation/version-manifest layer merge and canonical ordering; VCF-header refresh-merge semantics. |
+| [backend/tests/test_vcf_header_provenance.py](../backend/tests/test_vcf_header_provenance.py) | VCF/TRGT header provenance parsing — caller/engine/DB versions (VEP/snpEff/bcftools/GATK/DeepVariant/Sniffles/Spectre/TRGT) and cross-modality merge. |
 | [backend/tests/test_classification_drift.py](../backend/tests/test_classification_drift.py) | Evidence-snapshot build and drift detection across annotation versions. |
 | [backend/tests/test_clinical_audit.py](../backend/tests/test_clinical_audit.py) | Clinical-audit diff generation (classification/tags/notes), one event per change. |
 | [backend/tests/test_report_signout.py](../backend/tests/test_report_signout.py) | Sign-out canonical content-hash (order-independent), drift gate, versioning. |
@@ -315,6 +316,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [frontend/src/pages/families/__tests__/AcmgClassificationModal.test.tsx](../frontend/src/pages/families/__tests__/AcmgClassificationModal.test.tsx) | ACMG modal: criterion selection, server-recompute, payload emission. |
 | [frontend/src/pages/families/__tests__/AcmgScaleBar.test.tsx](../frontend/src/pages/families/__tests__/AcmgScaleBar.test.tsx) | ACMG scale readout: class, signed points, VUS tier, BA1 override. |
+| [frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx](../frontend/src/pages/families/__tests__/AnnotationProvenanceSummary.test.tsx) | Filter-page annotation-provenance summary: module versions, source label, show-more toggle. |
 | [frontend/src/pages/families/__tests__/CnvAcmgClassificationModal.test.tsx](../frontend/src/pages/families/__tests__/CnvAcmgClassificationModal.test.tsx) | CNV ACMG modal: kind toggle, overridable criteria, recompute→save. |
 | [frontend/src/pages/families/__tests__/CnvScaleBar.test.tsx](../frontend/src/pages/families/__tests__/CnvScaleBar.test.tsx) | ClinGen CNV scale readout. |
 | [frontend/src/pages/families/__tests__/FamiliesPage.test.tsx](../frontend/src/pages/families/__tests__/FamiliesPage.test.tsx) | Legacy families route → dashboard redirect. |

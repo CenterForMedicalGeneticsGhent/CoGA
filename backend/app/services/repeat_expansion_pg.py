@@ -22,6 +22,7 @@ from ..schemas import (
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
+from .vcf_header_provenance import extract_header_provenance
 
 
 REPO_STRCHIVE_LOCI_PATH = Path(__file__).resolve().parents[3] / "data" / "ref-data" / "STRchive-loci.json"
@@ -921,6 +922,18 @@ async def ingest_family_trgt_text(
             session,
             sample_uuid=sample_context.sample_uuid,
             filename=filename,
+        )
+    # Capture the TRGT caller version (and any tool versions in the header) into
+    # the family's annotation manifest (best-effort; joins this transaction).
+    provenance_ctx = next(iter(matched_samples.values()), None)
+    if provenance_ctx is not None:
+        from .annotation_manifest_service import merge_vcf_header_provenance
+
+        await merge_vcf_header_provenance(
+            session,
+            family_uuid=provenance_ctx.family_uuid,
+            assembly_id=getattr(provenance_ctx, "assembly_id", None),
+            modules=extract_header_provenance(lines, modality="repeats").as_modules(),
         )
     await session.commit()
     return {

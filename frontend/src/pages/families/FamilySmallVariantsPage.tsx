@@ -7,6 +7,7 @@ import Pedigree from '../../components/visualizations/Pedigree';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import LoadingBar from '../../components/LoadingBar';
+import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import {
@@ -291,6 +292,7 @@ const FamilySmallVariantsPage: React.FC = () => {
               <div className="space-y-2">
                 <p className="page-kicker">Small Variants</p>
                 <h1 className="catalog-card-title">Family {familyId}</h1>
+                {familyId ? <AnnotationProvenanceSummary familyId={familyId} /> : null}
                 {data ? (
                   <div className="variant-sample-summary">
                     {smallVariantSummary?.sample_counts?.length ? (

@@ -14,7 +14,8 @@ can state its provenance (see docs/clinical-traceability.md). It merges two laye
 from __future__ import annotations
 
 import json
-from typing import Any
+import logging
+from typing import Any, Mapping
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,14 +23,48 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .family_metadata_context import build_family_metadata_context
 from .metadata_service import CurrentUser, get_family_record
 
+logger = logging.getLogger(__name__)
+
 # Canonical display order + labels; unknown keys fall through with a title-cased label.
 _MODULE_LABELS: dict[str, str] = {
     "assembly": "Reference assembly",
+    # variant callers (per modality)
+    "deepvariant": "DeepVariant",
+    "gatk": "GATK",
+    "dragen": "DRAGEN",
+    "clair3": "Clair3",
+    "glimpse": "GLIMPSE",
+    "sniffles": "Sniffles",
+    "spectre": "Spectre",
+    "needlr": "NeedlR",
+    "cutesv": "cuteSV",
+    "delly": "Delly",
+    "manta": "Manta",
+    "trgt": "TRGT",
+    "paraphase": "Paraphase",
+    # annotation engines
     "vep": "VEP",
+    "snpeff": "SnpEff",
+    "bcftools": "bcftools",
+    "vcfanno": "vcfanno",
+    "slivar": "slivar",
+    # reference databases
     "clinvar": "ClinVar",
     "gnomad": "gnomAD",
     "dbnsfp": "dbNSFP",
     "spliceai": "SpliceAI",
+    "alphamissense": "AlphaMissense",
+    "revel": "REVEL",
+    "cadd": "CADD",
+    "dbsnp": "dbSNP",
+    "cosmic": "COSMIC",
+    "sift": "SIFT",
+    "polyphen": "PolyPhen",
+    "gencode": "GENCODE",
+    "mane": "MANE",
+    "hgmd": "HGMD",
+    "gerp": "GERP++",
+    # platform reference layer
     "gencc": "GenCC",
     "panelapp": "PanelApp",
     "monarch": "Monarch",
@@ -178,6 +213,80 @@ async def get_family_annotation_manifest(
         "recorded_by": recorded_by,
         "modules": _module_list(pipeline_modules, platform_modules),
     }
+
+
+def _refresh_modules(
+    current: Mapping[str, Any], incoming: Mapping[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """Merge freshly parsed modules into the stored ones. Newly parsed versions
+    win per-key (a re-import reflects the latest annotation), while modules the new
+    input does not mention are preserved (so re-importing one modality does not
+    wipe another's provenance)."""
+    out: dict[str, dict[str, Any]] = {
+        key: dict(_as_module(value)) for key, value in (current or {}).items()
+    }
+    for key, value in (incoming or {}).items():
+        entry = out.setdefault(key, {})
+        for field_name, field_value in _as_module(value).items():
+            if field_value not in (None, ""):
+                entry[field_name] = field_value
+    return {k: v for k, v in out.items() if v}
+
+
+async def merge_vcf_header_provenance(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    assembly_id: str | None,
+    modules: Mapping[str, Any],
+    recorded_by: str = "import (vcf_header)",
+) -> None:
+    """Best-effort: fold VCF-header-harvested module versions into the family's
+    annotation manifest under ``source='vcf_header'``.
+
+    * **Never overwrites a ``manual`` manifest** — an admin's curated provenance
+      wins over anything parsed from a header.
+    * **Refreshes on re-import** — newly parsed versions overwrite stale ones,
+      while untouched modules are preserved.
+    * **Never raises and never poisons the caller's transaction** — the write runs
+      in a SAVEPOINT and joins the caller's commit, so provenance persists iff the
+      ingestion that produced it does.
+    """
+    if not modules:
+        return
+    try:
+        async with session.begin_nested():
+            existing = await _family_manifest_row(session, family_uuid)
+            if existing and existing.get("source") == "manual":
+                return  # respect admin-curated provenance
+            current = _as_dict(existing.get("modules")) if existing else {}
+            merged = _refresh_modules(current, modules)
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO family_annotation_manifest
+                        (family_id, assembly_id, modules, source, recorded_by, recorded_at)
+                    VALUES
+                        (CAST(:family_uuid AS uuid),
+                         CASE WHEN :assembly_id IS NULL THEN NULL ELSE CAST(:assembly_id AS uuid) END,
+                         CAST(:modules AS jsonb), 'vcf_header', :recorded_by, now())
+                    ON CONFLICT (family_id) DO UPDATE SET
+                        modules = EXCLUDED.modules,
+                        source = 'vcf_header',
+                        recorded_by = EXCLUDED.recorded_by,
+                        recorded_at = now(),
+                        assembly_id = COALESCE(EXCLUDED.assembly_id, family_annotation_manifest.assembly_id)
+                    """
+                ),
+                {
+                    "family_uuid": family_uuid,
+                    "assembly_id": assembly_id,
+                    "modules": json.dumps(merged),
+                    "recorded_by": recorded_by,
+                },
+            )
+    except Exception:  # noqa: BLE001 — provenance capture must never break ingestion
+        logger.warning("vcf_header provenance capture failed for family %s", family_uuid, exc_info=True)
 
 
 async def set_family_annotation_manifest(
