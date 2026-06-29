@@ -32,11 +32,12 @@
 | Unit | pytest (backend), vitest (frontend) | `backend/tests`, `frontend/src/**/*.test.tsx` | CI `backend`, `frontend` jobs |
 | Static analysis | TypeScript `tsc`, ESLint | frontend | CI `frontend` job |
 | Integration | Real-startup smoke against Postgres 16 + ClickHouse 25.3 (schema init, admin seed, health probe) | `backend/tests/integration` | CI `smoke` job |
+| End-to-end (system) | Golden-dataset pipeline run (ingest → query/API → review/audit/sign-out) + realistic demo bundles, checked vs documented expected results — see **[TF-09c](TF-09c-e2e-pipeline-verification.md)** | `backend/tests/e2e` | CI `e2e` job |
 | System / clinical | Concordance vs validated assays | [TF-10](TF-10-performance-evaluation-plan.md) | Performance report TF-11 |
 | Regression | Full suite re-run on every PR & push to main | CI | Required checks |
 
 **CI enforcement:** the gates in `.github/workflows/ci.yml` run on every PR and on push to
-`main`. **🔲 ACTION:** mark `backend`, `smoke`, and `frontend` as **required status checks**
+`main`. **🔲 ACTION:** mark `backend`, `smoke`, `e2e`, and `frontend` as **required status checks**
 in branch protection (a GitHub setting, not in the workflow file) so they must pass before
 merge — without this, the gates are advisory. (Noted as open in [security-posture.md §5](../security-posture.md).)
 
@@ -79,7 +80,7 @@ audit trail aids reconstruction of any affected case.
 
 ## 6. Release verification checklist (per clinical release)
 
-- [ ] All CI gates green (backend, smoke, frontend) on the release commit.
+- [ ] All CI gates green (backend, smoke, e2e, frontend) on the release commit.
 - [ ] RTM updated; no requirement without a passing verifying test.
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
 - [ ] SOUP register / SBOM (TF-08/TF-13) reconciled; no unaddressed high-severity vuln.

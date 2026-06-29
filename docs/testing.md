@@ -44,10 +44,11 @@ cd frontend && npm run tsc && npm run lint && npm run test
 | --- | --- | --- |
 | **backend** | `pip install -r backend/requirements-dev.txt` → `pytest -q` | Self-contained unit suite (no containers). |
 | **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Real lifespan: schema init, migrations, admin seed, health probe. |
+| **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Runs outside coverage, like `smoke`. |
 | **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test` | Type-check + ESLint + vitest. |
 | **sbom** | CycloneDX SBOM for backend + frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). |
 
-The `backend`, `smoke` and `frontend` jobs are **required status checks** on `main`
+The `backend`, `smoke`, `e2e` and `frontend` jobs are **required status checks** on `main`
 (branch protection), so a change cannot merge unless they pass.
 
 ---

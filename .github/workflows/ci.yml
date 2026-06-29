@@ -110,6 +110,73 @@ jobs:
         # cannot (e.g. a schema file that fails to apply).
         run: python -m pytest backend/tests/integration -q
 
+  e2e:
+    name: e2e (golden-trio pipeline against Postgres + ClickHouse)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: coga
+          POSTGRES_PASSWORD: coga
+          POSTGRES_DB: coga
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U coga -d coga"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3
+        env:
+          # 25.3 rejects the empty-password default user; provision a real one
+          # (matching the app env below) so authentication succeeds.
+          CLICKHOUSE_DB: coga
+          CLICKHOUSE_USER: coga
+          CLICKHOUSE_PASSWORD: coga
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      APP_ENV: test
+      SECRET_KEY: ci-e2e-not-a-real-secret
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: coga
+      POSTGRES_USER: coga
+      POSTGRES_PASSWORD: coga
+      CLICKHOUSE_HOST: localhost
+      CLICKHOUSE_HTTP_PORT: "8123"
+      CLICKHOUSE_DATABASE: coga
+      CLICKHOUSE_USER: coga
+      CLICKHOUSE_PASSWORD: coga
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: ci-admin-not-a-real-secret
+      # Keep startup light: no large reference / HPO / gene data files in CI.
+      REFERENCE_BOOTSTRAP_ENABLED: "false"
+      HPO_BOOTSTRAP_ON_STARTUP: "false"
+      GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: "false"
+      RUN_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r backend/requirements-dev.txt
+      - name: Run the end-to-end harness against real datastores
+        # Imports a golden-trio package + the demo bundles through the real
+        # pipeline and asserts every stage (ingestion -> ClickHouse/Postgres ->
+        # query/API -> review/audit/sign-out) against documented expected results.
+        # Runs in its own job (not under coverage) like `smoke`.
+        run: python -m pytest backend/tests/e2e -q
+
   frontend:
     name: frontend (tsc + eslint + vitest)
     runs-on: ubuntu-latest
