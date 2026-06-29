@@ -69,7 +69,46 @@ async def _seed() -> dict:
                 {"u": E2E_EMAIL, "p": get_password_hash(E2E_PASSWORD), "e": E2E_EMAIL},
             )
             await session.commit()
+
+    # Tag the P/LP variant for reporting so the report page has a reported variant
+    # (the browser sign-out journey needs a non-empty report).
+    await _seed_report_review()
     return facts
+
+
+async def _seed_report_review() -> None:
+    from backend.app.schemas import (
+        AcmgClassificationPayload,
+        AcmgCriterionSelection,
+        SmallVariantReviewUpdate,
+    )
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services.family_metadata_context import build_family_metadata_context
+    from backend.app.services.small_variant_review_pg import upsert_small_variant_review
+    from backend.tests.e2e import _harness
+
+    sm = get_postgres_sessionmaker()
+    async with sm() as session:
+        admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
+        context = await build_family_metadata_context(
+            session, family_identifier=_harness.FAMILY_ID, user=admin, project_id=project_id
+        )
+        await upsert_small_variant_review(
+            session,
+            context=context,
+            variant_id="1-2000-C-T",
+            payload=SmallVariantReviewUpdate(
+                tags=["report", "acmg_class_4"],
+                note="E2E: reported for the browser sign-out journey",
+                acmg=AcmgClassificationPayload(
+                    criteria=[
+                        AcmgCriterionSelection(code="PVS1", strength="very_strong", accepted=True),
+                        AcmgCriterionSelection(code="PM2", strength="supporting", accepted=True),
+                    ]
+                ),
+            ),
+            user=admin,
+        )
 
 
 def main() -> None:
