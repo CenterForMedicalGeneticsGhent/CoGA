@@ -44,10 +44,11 @@ cd frontend && npm run tsc && npm run lint && npm run test
 | --- | --- | --- |
 | **backend** | `pip install -r backend/requirements-dev.txt` → `pytest -q` | Self-contained unit suite (no containers). |
 | **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Real lifespan: schema init, migrations, admin seed, health probe. |
+| **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Runs outside coverage, like `smoke`. |
 | **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test` | Type-check + ESLint + vitest. |
 | **sbom** | CycloneDX SBOM for backend + frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). |
 
-The `backend`, `smoke` and `frontend` jobs are **required status checks** on `main`
+The `backend`, `smoke`, `e2e` and `frontend` jobs are **required status checks** on `main`
 (branch protection), so a change cannot merge unless they pass.
 
 ---
@@ -208,6 +209,7 @@ The `backend`, `smoke` and `frontend` jobs are **required status checks** on `ma
 | [backend/tests/e2e/test_e2e_api_contract.py](../backend/tests/e2e/test_e2e_api_contract.py) | M2 API-contract E2E (real stack, in-loop ASGI client): drives the viz-feeding HTTP endpoints over the golden-trio data and asserts their contracts — auth 401, small-variant page (`_id` alias, SNV/INDEL types, offset paging, compound-het groups), structural-variant page (summary, `length==svLen`, BND, track-mode null-omission), structural-variant-lengths, shared-SV counts symmetry, BED json/text + 400/404, haplotypes + batch, track-availability, and the variant explorer (carrier counts, MNV classification, keyset pagination + carriers). |
 | [backend/tests/e2e/test_e2e_review_audit.py](../backend/tests/e2e/test_e2e_review_audit.py) | M3 review/audit/sign-out E2E (real stack): PUTs a clinical review on the P/LP variant and asserts server-side ACMG recompute (bogus client totals ignored) + note/tags persisted; the review emits chained `clinical_audit_events` and `/admin/integrity/verify` re-walks them to `verified=true`; report sign-out versions (v→v+1) with a verified sign-out chain. Chain tamper-evidence (trigger-bypass edit flips `verified` to false) and append-only immutability are exercised on a throwaway family via the direct audit service so FAM_TRIO's chain is never corrupted. |
 | [backend/tests/e2e/test_e2e_failure_modes.py](../backend/tests/e2e/test_e2e_failure_modes.py) | M4 failure/degradation + job-lifecycle E2E (real stack): manifest→missing-file and PED family-mismatch fail validation with no family created; a malformed VCF body fails on import and is reported failed with the freshly-created family shell rolled back (the M4 fail-clean hardening, asserted end-to-end); overwrite re-import does not duplicate rows; and the queue→claim→run worker path reaches a terminal status (`completed` for a good package, `failed` + no partial family for a malformed one). Each scenario uses a fresh family/sample id so the shared dev DB stays clean. |
+| [backend/tests/e2e/test_e2e_demo_smoke.py](../backend/tests/e2e/test_e2e_demo_smoke.py) | M5 realistic demo-bundle smoke (Tier 2, real stack): imports a uniquely-suffixed copy of `demo/nipt_family` via the package importer and runs the family NIPT analysis over the imported data — recovers fetal fraction ≈12%, 40 paternal-transmitted sites, all 8 monogenic categories; and loads `demo/quartet_family` through the real `scripts/load_demo_quartet` loader (the direct-upload path) asserting small variants / SVs / repeats / coverage all ingest. Catches integration breakage the tiny golden trio can't surface. |
 
 ### API / config / infra / other
 | Test file | Purpose |
