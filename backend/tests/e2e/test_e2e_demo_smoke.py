@@ -77,6 +77,7 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
         ensure_clickhouse_variant_tables,
     )
     from backend.app.services.clickhouse_interval_tracks import count_interval_track_source_rows
+    from backend.app.services.nipt_artifact_pg import add_nipt_artifact
     from backend.app.services.nipt_service import run_family_nipt_analysis
     from backend.tests.e2e import _harness
 
@@ -86,7 +87,7 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
 
     sm = get_postgres_sessionmaker()
     async with sm() as s:
-        admin, project_id, _assembly_id = await _harness.ensure_e2e_project(s)
+        admin, project_id, assembly_id = await _harness.ensure_e2e_project(s)
 
     out: dict = {}
 
@@ -117,12 +118,24 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
         else 0
     )
 
+    # Seed the recurrent-artifact site (EXP_CAT=ARTIFACT in the demo) for this
+    # assembly+assay so the analysis filters it — making filter_counts exact.
+    async with sm() as s:
+        await add_nipt_artifact(
+            s,
+            assembly_id=assembly_id,
+            assay_key="nipt_cfdna",
+            variant_id="1-9501-A-G",
+            label="e2e recurrent artifact",
+        )
+
     async with sm() as s:
         nipt = await run_family_nipt_analysis(s, family_id=nipt_family_id, user=admin, project_id=project_id)
     out["nipt_analysis"] = {
         "ff_computed": nipt.fetal_fraction.ff_computed,
         "n_sites": nipt.fetal_fraction.n_sites,
         "category_counts": {int(k): int(v) for k, v in nipt.category_counts.items()},
+        "filter_counts": dict(nipt.filter_counts),
     }
 
     # ---- Quartet bundle: the real demo loader (direct-upload ingestion path) ----
@@ -209,12 +222,21 @@ def test_nipt_analysis_recovers_fetal_fraction(smoke):
 
 
 def test_nipt_analysis_recovers_categories(smoke):
+    # With the artifact seeded, the import -> analysis chain recovers the demo's
+    # documented ground truth exactly (matches the direct-parse unit test).
     counts = smoke["nipt_analysis"]["category_counts"]
-    # 40 paternal-transmitted sites drive the fetal fraction...
-    assert counts.get(7) == 40, counts
-    # ...and every monogenic category (1-8) is represented end-to-end.
-    for category in range(1, 9):
-        assert counts.get(category, 0) >= 1, (category, counts)
+    assert counts == {1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 40, 8: 1}, counts
+
+
+def test_nipt_analysis_filter_counts_exact(smoke):
+    # 49 sites in; QUAL_DROP fails quality; the seeded artifact fails the artifact
+    # filter; the remaining 47 pass.
+    assert smoke["nipt_analysis"]["filter_counts"] == {
+        "total_in": 49,
+        "passed": 47,
+        "failed_quality": 1,
+        "failed_artifact": 1,
+    }, smoke["nipt_analysis"]["filter_counts"]
 
 
 # ---------------------------------------------------------------------------- quartet
