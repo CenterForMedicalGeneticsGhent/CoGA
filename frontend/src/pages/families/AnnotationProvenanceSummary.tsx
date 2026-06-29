@@ -37,7 +37,10 @@ export default function AnnotationProvenanceSummary({ familyId }: { familyId: st
   const hidden = modules.length - shown.length;
 
   return (
-    <div className="annotation-provenance" data-testid="annotation-provenance">
+    <footer
+      className="surface-card annotation-provenance-footer"
+      data-testid="annotation-provenance"
+    >
       <span className="annotation-provenance-label">Annotation versions</span>
       {shown.map((module) => (
         <span
@@ -71,6 +74,6 @@ export default function AnnotationProvenanceSummary({ familyId }: { familyId: st
           {SOURCE_LABELS[data.source] ?? data.source}
         </span>
       )}
-    </div>
+    </footer>
   );
 }

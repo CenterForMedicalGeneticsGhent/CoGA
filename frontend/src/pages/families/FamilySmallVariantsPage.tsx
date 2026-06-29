@@ -292,7 +292,6 @@ const FamilySmallVariantsPage: React.FC = () => {
               <div className="space-y-2">
                 <p className="page-kicker">Small Variants</p>
                 <h1 className="catalog-card-title">Family {familyId}</h1>
-                {familyId ? <AnnotationProvenanceSummary familyId={familyId} /> : null}
                 {data ? (
                   <div className="variant-sample-summary">
                     {smallVariantSummary?.sample_counts?.length ? (
@@ -475,6 +474,7 @@ const FamilySmallVariantsPage: React.FC = () => {
       />
         </div>
       </div>
+      {familyId ? <AnnotationProvenanceSummary familyId={familyId} /> : null}
     </div>
   );
 };
