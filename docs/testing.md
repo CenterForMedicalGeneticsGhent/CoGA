@@ -67,6 +67,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [frontend/e2e/auth.spec.ts](../frontend/e2e/auth.spec.ts) | Login form: bad credentials stay on /login; the seeded e2e user logs in and lands authenticated. |
 | [frontend/e2e/family.spec.ts](../frontend/e2e/family.spec.ts) | Open the golden family workspace; render the genome overview (SVG/canvas tracks) — frontend↔backend wiring + viz render. |
+| [frontend/e2e/signout.spec.ts](../frontend/e2e/signout.spec.ts) | Clinical report sign-out from the browser: the seeded report-tagged variant renders, click sign-out, handle the drift confirm + sample-QC override dialog, and assert the signed-out version advances. |
 
 ---
 
