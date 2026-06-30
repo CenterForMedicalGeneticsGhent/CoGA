@@ -110,21 +110,35 @@ codified, keep PHI scoped with these guardrails:
 
 ## 5. CI enforcement of the gates
 
-The quality gates that were previously run by hand are now wired into
-`.github/workflows/ci.yml`:
+Two workflows enforce the gates on every PR and push to `main`:
 
-- **backend** — `pytest backend/tests` (self-contained; no service containers).
-- **frontend** — `npm run tsc`, `npm run lint`, `npm run test` (vitest).
+- **`ci.yml`** — `backend` (`pytest`), `frontend` (`tsc` + `eslint` + `vitest`),
+  `smoke` + `e2e` + `e2e-playwright` (real Postgres + ClickHouse), `sbom`
+  (CycloneDX), and `catalogue` (test-overview in sync).
+- **`security.yml`** — `deps` (blocking `pip-audit --require-hashes` + production
+  `npm audit`), `secret-scan` (the gitleaks **binary**, full-history — the licensed
+  `gitleaks-action` is not usable under the org), and `codeql` (Python + JS/TS SAST,
+  per-PR diff baseline).
 
-To make them *required*, mark the `backend` and `frontend` jobs as **required
-status checks** in the repository's branch-protection rules for `main` (a GitHub
-repo setting, not expressible in the workflow file).
+All ten checks are **required status checks** on `main` with **strict**
+(up-to-date-before-merge) enforcement, so a failing test, a known-vulnerable or
+unpinned dependency, a committed secret, or a newly-introduced code-scanning alert
+blocks merge (**closes S-6**). Every suppression is recorded in
+[SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md).
 
 ## Summary
 
-The application-layer posture is solid: consistent project-scoped RBAC, a
-comprehensive (now append-only) audit trail, and a refuse-to-start guard against
-default secrets. The open items are deployment-level — encryption at rest + TLS
-for the datastores, S3 bucket encryption/policy and least-privilege IAM, moving
-secrets into a manager, and CloudTrail/S3 access logging for byte-level download
-audit — and should be addressed in the (still to be written) infrastructure code.
+The application-layer posture is solid and was independently re-audited in 2026-06
+(multi-agent review of authz/IDOR, auth, injection, SSRF/upload): consistent
+project-scoped RBAC with **no exploitable cross-project IDOR**, a durable
+append-only audit trail, authenticated reference endpoints, per-IP signup
+throttling, input-size / decompression / path-traversal hardening, PyJWT-based
+tokens, and a refuse-to-start guard against default secrets. The supply-chain and
+code-scanning gates are required in CI — **S-5 (audit durability), S-6 (required
+checks) and S-7 (dependency pinning) are closed**.
+
+The remaining open items are deployment-level and live in the infrastructure
+layer, not the application: encryption at rest + TLS for the datastores
+(**S-1/S-2**), secrets management (**S-3**), CloudTrail/S3 access logging for
+byte-level download audit (**S-4**), and S3 bucket policy / least-privilege IAM /
+network posture (**S-8**). See §3–§4 here and [TF-13 §3](regulatory/TF-13-cybersecurity.md).
