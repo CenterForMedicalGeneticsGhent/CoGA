@@ -24,6 +24,15 @@ resource "google_compute_subnetwork" "subnet" {
   private_ip_google_access = true
 }
 
+# Stable internal IP for the ClickHouse VM so the TLS cert can pin it (IP SAN) and
+# the backend connects to a fixed address.
+resource "google_compute_address" "clickhouse" {
+  name         = "${local.name_prefix}-clickhouse-ip"
+  region       = var.region
+  subnetwork   = google_compute_subnetwork.subnet.id
+  address_type = "INTERNAL"
+}
+
 # ---- Private Service Access for Cloud SQL private IP -----------------------
 
 resource "google_compute_global_address" "private_ip_alloc" {
@@ -73,7 +82,8 @@ resource "google_compute_router_nat" "nat" {
 
 # ---- Firewall -------------------------------------------------------------
 
-# Backend (via the serverless connector range) -> ClickHouse on the VM.
+# Backend (via the serverless connector range) -> ClickHouse HTTPS on the VM.
+# Only the TLS port is reachable; the plain HTTP interface (8123) stays VM-local.
 resource "google_compute_firewall" "allow_clickhouse" {
   name      = "${local.name_prefix}-allow-clickhouse"
   network   = google_compute_network.vpc_network.name
@@ -81,7 +91,7 @@ resource "google_compute_firewall" "allow_clickhouse" {
 
   allow {
     protocol = "tcp"
-    ports    = ["8123", "9000"]
+    ports    = ["8443"]
   }
 
   # Connector range (Cloud Run egress) + the subnet itself.

@@ -7,6 +7,11 @@ terraform {
       # 5.30+ for Cloud Run v2 GCS volume mounts and Cloud SQL `ssl_mode`.
       version = ">= 5.30.0, < 6.0.0"
     }
+    # Generates the private CA + ClickHouse server cert locally (no external calls).
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 
   # Remote state in GCS. Bucket + prefix are supplied at `terraform init` time via

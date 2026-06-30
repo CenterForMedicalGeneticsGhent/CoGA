@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from backend.app.core import clickhouse
@@ -214,3 +216,66 @@ async def test_close_clickhouse_client_closes_singleton(monkeypatch: pytest.Monk
 
     assert client.closed is True
     assert clickhouse._async_client is None
+
+
+# --- TLS to ClickHouse (TF-13 S-2) ------------------------------------------
+
+def _capture_get_async_client(monkeypatch):
+    captured: dict = {}
+
+    async def fake_get_async_client(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(clickhouse.clickhouse_connect, "get_async_client", fake_get_async_client)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_create_client_writes_inline_ca_pem_and_verifies(monkeypatch):
+    captured = _capture_get_async_client(monkeypatch)
+    monkeypatch.setattr(clickhouse, "_ca_cert_path", None)
+    pem = "-----BEGIN CERTIFICATE-----\nMIIBdummybase64\n-----END CERTIFICATE-----"
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_secure", True)
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_verify", True)
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_ca_cert", pem)
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_server_host_name", "coga-clickhouse")
+
+    await clickhouse._create_clickhouse_client()
+
+    assert captured["interface"] == "https"
+    assert captured["secure"] is True
+    assert captured["verify"] is True
+    assert captured["server_host_name"] == "coga-clickhouse"
+    ca_path = captured["ca_cert"]
+    assert "MIIBdummybase64" in Path(ca_path).read_text()
+
+
+@pytest.mark.asyncio
+async def test_create_client_uses_ca_cert_path_as_is(monkeypatch, tmp_path):
+    captured = _capture_get_async_client(monkeypatch)
+    monkeypatch.setattr(clickhouse, "_ca_cert_path", None)
+    ca_file = tmp_path / "ca.crt"
+    ca_file.write_text("-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n")
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_secure", True)
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_ca_cert", str(ca_file))
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_server_host_name", None)
+
+    await clickhouse._create_clickhouse_client()
+
+    assert captured["ca_cert"] == str(ca_file)
+    assert "server_host_name" not in captured
+
+
+@pytest.mark.asyncio
+async def test_create_client_plain_http_has_no_tls_kwargs(monkeypatch):
+    captured = _capture_get_async_client(monkeypatch)
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_secure", False)
+    monkeypatch.setattr(clickhouse.settings, "clickhouse_ca_cert", "ignored-when-plain")
+
+    await clickhouse._create_clickhouse_client()
+
+    assert captured["interface"] == "http"
+    assert captured["secure"] is False
+    assert "ca_cert" not in captured
+    assert "server_host_name" not in captured

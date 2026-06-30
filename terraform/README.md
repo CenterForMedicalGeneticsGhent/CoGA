@@ -110,7 +110,7 @@ the Google-managed cert provisions once DNS resolves (can take ~15–60 min).
 | Item | Status in this config |
 |---|---|
 | S-1 encryption at rest | CMEK on Cloud SQL, both disks, and both buckets (`enable_cmek`) |
-| S-2 TLS to datastores | `POSTGRES_SSLMODE=require` + Cloud SQL `ssl_mode=ENCRYPTED_ONLY` |
+| S-2 TLS to datastores | Postgres: `POSTGRES_SSLMODE=require` + Cloud SQL `ssl_mode=ENCRYPTED_ONLY`. ClickHouse: HTTPS on 8443 with a private CA; backend verifies (`CLICKHOUSE_CA_CERT` + `SERVER_HOST_NAME`) |
 | S-3 secrets management | Secret Manager + `secret_key_ref`; VM reads its password at boot |
 | S-4 byte-level PHI audit | GCS Data Access audit logs enabled |
 | S-8 network posture | Private IPs, no public DB ingress, least-privilege SAs, NAT/PGA |
@@ -132,8 +132,8 @@ on itself, and the IAM Credentials API is enabled — all required for signed UR
 
 ## Known residuals / deferred (follow-ups)
 
-- **ClickHouse TLS (S-2).** Backend↔ClickHouse is plain HTTP inside the VPC
-  (`CLICKHOUSE_SECURE=false`). Front it with TLS for full S-2.
+- **ClickHouse cert rotation.** The server cert is long-lived (10y) and fetched at
+  boot; re-issuing it (or rotating the CA) requires restarting the VM to refetch.
 - **Postgres `verify-full`.** Using `require` (encrypt, no cert pinning); upgrade to
   `verify-full` with the server CA for the strongest posture.
 - **ClickHouse graceful shutdown.** Best-effort `docker stop -t 90` on VM shutdown +

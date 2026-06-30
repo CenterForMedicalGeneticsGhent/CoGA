@@ -125,14 +125,14 @@ resource "google_cloud_run_v2_service" "backend" {
         }
       }
 
-      # --- ClickHouse ---
+      # --- ClickHouse (TLS, TF-13 S-2) ---
       env {
         name  = "CLICKHOUSE_HOST"
-        value = google_compute_instance.clickhouse.network_interface[0].network_ip
+        value = google_compute_address.clickhouse.address
       }
       env {
         name  = "CLICKHOUSE_HTTP_PORT"
-        value = "8123"
+        value = "8443"
       }
       env {
         name  = "CLICKHOUSE_DATABASE"
@@ -144,7 +144,21 @@ resource "google_cloud_run_v2_service" "backend" {
       }
       env {
         name  = "CLICKHOUSE_SECURE"
-        value = "false"
+        value = "true"
+      }
+      env {
+        name  = "CLICKHOUSE_VERIFY"
+        value = "true"
+      }
+      # Connect by IP but verify against the cert's DNS SAN.
+      env {
+        name  = "CLICKHOUSE_SERVER_HOST_NAME"
+        value = local.clickhouse_tls_dns
+      }
+      # Private CA (public material) so verification of the server cert succeeds.
+      env {
+        name  = "CLICKHOUSE_CA_CERT"
+        value = tls_self_signed_cert.ca.cert_pem
       }
       env {
         name = "CLICKHOUSE_PASSWORD"

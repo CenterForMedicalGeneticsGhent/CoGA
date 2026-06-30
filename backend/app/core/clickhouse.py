@@ -7,6 +7,7 @@ from contextlib import suppress
 import logging
 from pathlib import Path
 import re
+import tempfile
 from typing import Any
 
 import clickhouse_connect
@@ -95,7 +96,41 @@ def _clickhouse_query_settings() -> dict[str, Any]:
     return query_settings
 
 
+# Resolved-once path to the CA cert written from inline PEM (clickhouse-connect /
+# urllib3 want a file path, not PEM content).
+_ca_cert_path: str | None = None
+
+
+def _resolve_clickhouse_ca_cert() -> str | None:
+    """Return a filesystem path to the CA cert for server verification, or None.
+
+    ``CLICKHOUSE_CA_CERT`` may be a path (used as-is) or inline PEM content (written
+    once to a temp file, cached for the process)."""
+    global _ca_cert_path
+    raw = settings.clickhouse_ca_cert
+    if not raw or not raw.strip():
+        return None
+    value = raw.strip()
+    if "BEGIN CERTIFICATE" not in value:
+        return value  # already a path
+    if _ca_cert_path is None:
+        handle = tempfile.NamedTemporaryFile(
+            prefix="coga-clickhouse-ca-", suffix=".crt", delete=False, mode="w"
+        )
+        handle.write(value + "\n")
+        handle.close()
+        _ca_cert_path = handle.name
+    return _ca_cert_path
+
+
 async def _create_clickhouse_client() -> Any:
+    tls_kwargs: dict[str, Any] = {}
+    if settings.clickhouse_secure:
+        ca_cert = _resolve_clickhouse_ca_cert()
+        if ca_cert:
+            tls_kwargs["ca_cert"] = ca_cert
+        if settings.clickhouse_server_host_name:
+            tls_kwargs["server_host_name"] = settings.clickhouse_server_host_name
     return await clickhouse_connect.get_async_client(
         host=settings.clickhouse_host,
         port=settings.clickhouse_http_port,
@@ -103,10 +138,12 @@ async def _create_clickhouse_client() -> Any:
         password=settings.clickhouse_password,
         database="default",
         # TLS (TF-13 S-2): https/secure when CLICKHOUSE_SECURE is set (use port 8443);
-        # plain http otherwise. verify checks the server cert when secure.
+        # plain http otherwise. verify checks the server cert when secure; ca_cert +
+        # server_host_name let it verify a private CA when connecting by IP.
         interface="https" if settings.clickhouse_secure else "http",
         secure=settings.clickhouse_secure,
         verify=settings.clickhouse_verify,
+        **tls_kwargs,
         # A single client is shared across all requests. Auto-generated session
         # ids make ClickHouse serialize the session and reject concurrent queries
         # with SESSION_IS_LOCKED, which surfaces as intermittent 500s under load

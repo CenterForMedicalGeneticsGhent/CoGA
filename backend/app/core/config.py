@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     postgres_sslmode: str = Field(default="disable", alias="POSTGRES_SSLMODE")
     clickhouse_secure: bool = Field(default=False, alias="CLICKHOUSE_SECURE")
     clickhouse_verify: bool = Field(default=True, alias="CLICKHOUSE_VERIFY")
+    # CA certificate used to verify the ClickHouse server cert when CLICKHOUSE_SECURE
+    # is set. Accepts inline PEM content or a file path. Required to verify a private
+    # CA (e.g. the self-managed ClickHouse VM); unset falls back to the system CA bundle.
+    clickhouse_ca_cert: str | None = Field(default=None, alias="CLICKHOUSE_CA_CERT")
+    # Hostname checked against the server cert (SNI + verification). Set to a DNS SAN
+    # present in the cert when connecting by IP, so verification succeeds over an IP host.
+    clickhouse_server_host_name: str | None = Field(
+        default=None, alias="CLICKHOUSE_SERVER_HOST_NAME"
+    )
     # Per-query ClickHouse guardrails. These let heavy variant-filter queries
     # spill to disk instead of being killed for memory, and bound their runtime
     # so a single broad query cannot hang the request indefinitely.

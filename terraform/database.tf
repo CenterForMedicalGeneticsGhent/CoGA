@@ -116,6 +116,7 @@ resource "google_compute_instance" "clickhouse" {
   network_interface {
     network    = google_compute_network.vpc_network.id
     subnetwork = google_compute_subnetwork.subnet.id
+    network_ip = google_compute_address.clickhouse.address
     # No external IP. Egress (Docker Hub pull) via Cloud NAT; Google APIs via PGA.
   }
 
@@ -134,7 +135,10 @@ resource "google_compute_instance" "clickhouse" {
   metadata = {
     startup-script = templatefile("${path.module}/scripts/clickhouse-startup.sh.tftpl", {
       project_id       = var.project_id
-      secret_name      = google_secret_manager_secret.app["clickhouse_password"].secret_id
+      password_secret  = google_secret_manager_secret.app["clickhouse_password"].secret_id
+      tls_key_secret   = google_secret_manager_secret.clickhouse_tls["key"].secret_id
+      tls_cert_secret  = google_secret_manager_secret.clickhouse_tls["cert"].secret_id
+      https_port       = 8443
       clickhouse_image = var.clickhouse_image
       ch_db            = "coga"
       ch_user          = "clickhouse_admin"
@@ -144,6 +148,9 @@ resource "google_compute_instance" "clickhouse" {
 
   depends_on = [
     google_secret_manager_secret_iam_member.clickhouse_vm,
+    google_secret_manager_secret_iam_member.clickhouse_vm_tls,
+    google_secret_manager_secret_version.clickhouse_tls_key,
+    google_secret_manager_secret_version.clickhouse_tls_cert,
     google_compute_router_nat.nat,
   ]
 }
