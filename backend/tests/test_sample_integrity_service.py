@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import random
 import types
+import zlib
 
 from backend.app.services import sample_integrity_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext
@@ -77,7 +78,11 @@ def _patch(monkeypatch, *, swap_child: bool, metadata: dict | None = None):
     async def _fake_fetch(context, *, chrom, start, end, limit, source=None):
         if chrom == sample_integrity_service.QC_X_CHROM:
             return _x_rows(600)
-        return _autosomal_rows(800, seed=hash(chrom) % 1000, swap_child=swap_child)
+        # Deterministic per-chrom seed: builtin hash() is randomized per process
+        # (PYTHONHASHSEED), which made the aggregate relatedness occasionally dip to
+        # "warn" and flake this test in CI. crc32 is stable across runs.
+        seed = zlib.crc32(str(chrom).encode()) % 1000
+        return _autosomal_rows(800, seed=seed, swap_child=swap_child)
 
     monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
     monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
