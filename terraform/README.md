@@ -6,6 +6,10 @@ deployment-level security items tracked in
 [TF-13 §3](../docs/regulatory/TF-13-cybersecurity.md) and
 [security-posture.md §3–4](../docs/security-posture.md).
 
+> **New here?** Start with the full step-by-step walkthrough and operations manual:
+> **[docs/deployment-gcp.md](../docs/deployment-gcp.md)**. This file is the terse
+> reference (architecture, variables, resource list, residuals).
+
 ## Architecture
 
 ```text

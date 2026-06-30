@@ -174,6 +174,7 @@ npm run build
 
 ## Docs
 
+- [docs/deployment-gcp.md](docs/deployment-gcp.md) — full step-by-step Google Cloud (Terraform) deployment & operations guide
 - [docs/storage-architecture.md](docs/storage-architecture.md)
 - [docs/database.md](docs/database.md)
 - [docs/development.md](docs/development.md)
