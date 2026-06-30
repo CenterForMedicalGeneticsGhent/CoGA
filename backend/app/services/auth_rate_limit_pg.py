@@ -38,6 +38,14 @@ def _scope_rows(email: str, remote_ip: str | None) -> list[tuple[str, str]]:
     return rows
 
 
+def _signup_scope_rows(remote_ip: str | None) -> list[tuple[str, str]]:
+    # Signup is throttled per source IP only (an independent bucket from login):
+    # email-scoping is useless against enumeration, where each request probes a
+    # different address, so the IP rate is the effective control.
+    normalized_ip = _normalize_remote_ip(remote_ip)
+    return [("signup_ip", normalized_ip)] if normalized_ip else []
+
+
 def _backoff_seconds(failure_count: int) -> int:
     threshold = settings.login_rate_limit_threshold
     if failure_count < threshold:
@@ -56,15 +64,13 @@ def _next_failure_count(last_failure_at: datetime | None, failure_count: int, no
     return max(int(failure_count), 0) + 1
 
 
-async def get_login_throttle_state(
+async def _throttle_state_for_scopes(
     session: AsyncSession,
     *,
-    email: str,
-    remote_ip: str | None,
+    scopes: list[tuple[str, str]],
     now: datetime | None = None,
 ) -> LoginThrottleState | None:
     current_time = now or _now()
-    scopes = _scope_rows(email, remote_ip)
     if not scopes:
         return None
 
@@ -96,15 +102,13 @@ async def get_login_throttle_state(
     )
 
 
-async def record_failed_login(
+async def _record_attempt_for_scopes(
     session: AsyncSession,
     *,
-    email: str,
-    remote_ip: str | None,
+    scopes: list[tuple[str, str]],
     now: datetime | None = None,
 ) -> LoginThrottleState | None:
     current_time = now or _now()
-    scopes = _scope_rows(email, remote_ip)
     blocked_until: datetime | None = None
 
     for scope_type, scope_value in scopes:
@@ -181,13 +185,11 @@ async def record_failed_login(
     )
 
 
-async def clear_login_failures(
+async def _clear_scopes(
     session: AsyncSession,
     *,
-    email: str,
-    remote_ip: str | None,
+    scopes: list[tuple[str, str]],
 ) -> None:
-    scopes = _scope_rows(email, remote_ip)
     for scope_type, scope_value in scopes:
         await session.execute(
             text(
@@ -199,3 +201,58 @@ async def clear_login_failures(
             ),
             {"scope_type": scope_type, "scope_value": scope_value},
         )
+
+
+async def get_login_throttle_state(
+    session: AsyncSession,
+    *,
+    email: str,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _throttle_state_for_scopes(
+        session, scopes=_scope_rows(email, remote_ip), now=now
+    )
+
+
+async def record_failed_login(
+    session: AsyncSession,
+    *,
+    email: str,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _record_attempt_for_scopes(
+        session, scopes=_scope_rows(email, remote_ip), now=now
+    )
+
+
+async def clear_login_failures(
+    session: AsyncSession,
+    *,
+    email: str,
+    remote_ip: str | None,
+) -> None:
+    await _clear_scopes(session, scopes=_scope_rows(email, remote_ip))
+
+
+async def get_signup_throttle_state(
+    session: AsyncSession,
+    *,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _throttle_state_for_scopes(
+        session, scopes=_signup_scope_rows(remote_ip), now=now
+    )
+
+
+async def record_signup_attempt(
+    session: AsyncSession,
+    *,
+    remote_ip: str | None,
+    now: datetime | None = None,
+) -> LoginThrottleState | None:
+    return await _record_attempt_for_scopes(
+        session, scopes=_signup_scope_rows(remote_ip), now=now
+    )

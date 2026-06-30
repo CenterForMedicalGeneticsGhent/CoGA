@@ -35,7 +35,9 @@ from ..services.metadata_service import (
 from ..services.auth_rate_limit_pg import (
     clear_login_failures,
     get_login_throttle_state,
+    get_signup_throttle_state,
     record_failed_login,
+    record_signup_attempt,
 )
 from ..services.small_variant_review_pg import (
     delete_small_variant_filter_preset_for_owner,
@@ -126,8 +128,24 @@ async def _authenticate_and_issue_token(
 async def signup(
     user_in: UserCreate,
     background_tasks: BackgroundTasks,
+    request: Request,
     session: AsyncSession = Depends(get_postgres_session),
 ):
+    # Signup is unauthenticated; throttle per source IP so it cannot be used to
+    # enumerate accounts, flood the admin-notification mailbox, or burn CPU on
+    # password hashing. Every attempt (success or duplicate-email) counts toward
+    # the IP's rate, and the bcrypt hash + create only run once past the gate.
+    remote_ip = _request_remote_ip(request)
+    throttle_state = await get_signup_throttle_state(session, remote_ip=remote_ip)
+    if throttle_state is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many signup attempts. Try again later.",
+            headers={"Retry-After": str(throttle_state.retry_after_seconds)},
+        )
+    await record_signup_attempt(session, remote_ip=remote_ip)
+    await session.commit()
+
     created = await create_user_account(
         session,
         email=user_in.email,
