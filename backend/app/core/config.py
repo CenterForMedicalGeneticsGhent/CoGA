@@ -138,6 +138,15 @@ class Settings(BaseSettings):
     audit_log_max_write_attempts: int = Field(
         default=3, ge=1, le=10, alias="AUDIT_LOG_MAX_WRITE_ATTEMPTS"
     )
+    # Upload caps: bound the bytes read from an upload and the size it may expand to
+    # once decompressed, so a small gzip "bomb" cannot exhaust memory. Generous by
+    # default (real genomic files sit well under these); tune down per deployment.
+    max_upload_bytes: int = Field(
+        default=1024 * 1024 * 1024, ge=1, alias="MAX_UPLOAD_BYTES"
+    )
+    max_decompressed_upload_bytes: int = Field(
+        default=2 * 1024 * 1024 * 1024, ge=1, alias="MAX_DECOMPRESSED_UPLOAD_BYTES"
+    )
     # "keys" records which query parameters a request used (e.g. the filters on a
     # variant search) without their values, so searches are logged structurally
     # while clinical identifiers stay out of the audit trail. Override with

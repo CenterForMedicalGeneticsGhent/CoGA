@@ -16,6 +16,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .bed_service import get_track_presence_by_sample
+from .upload_safety import decode_upload_text
 from .clickhouse_family_variants import (
     SmallVariantCall,
     SmallVariantRecord,
@@ -138,17 +139,7 @@ def _upload_metadata(source: str, file: UploadFile) -> str:
 
 
 async def _decode_upload_text(file: UploadFile, *, kind: str) -> str:
-    contents = await file.read()
-    try:
-        return contents.decode()
-    except UnicodeDecodeError:
-        try:
-            return gzip.decompress(contents).decode()
-        except OSError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{kind} file must be plain text or gzipped",
-            ) from exc
+    return await decode_upload_text(file, kind=kind)
 
 
 def _iter_upload_text_lines(file: UploadFile, *, kind: str):

@@ -157,6 +157,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_s3_import_and_cram.py](../backend/tests/test_s3_import_and_cram.py) | S3 source authorization; CRAM/BAM **access-before-serve** and sample resolution. |
 | [backend/tests/test_raw_import_file_verify.py](../backend/tests/test_raw_import_file_verify.py) | File SHA-256 verification: verified / mismatch / missing / unverifiable. |
 | [backend/tests/test_variant_upload_service.py](../backend/tests/test_variant_upload_service.py) | VCF/VEP parsing → ClickHouse ingestion; phased-block (PS) preservation. |
+| [backend/tests/test_upload_safety.py](../backend/tests/test_upload_safety.py) | Bounded upload decode: read/decompressed size caps reject oversized uploads and gzip bombs (413); corrupt gzip / non-UTF-8 → 400. |
 | [tests/test_variant_upload_service.py](../tests/test_variant_upload_service.py) | Variant-upload parsing/ingestion (top-level suite). |
 | [tests/test_clickhouse_variant_storage.py](../tests/test_clickhouse_variant_storage.py) | Family-scoped variant counting and query building. |
 | [tests/test_raw_import_files_pg.py](../tests/test_raw_import_files_pg.py) | Raw-import file-size limits and SHA-256 verification. |
