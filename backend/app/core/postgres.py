@@ -24,7 +24,11 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 def get_postgres_engine() -> AsyncEngine:
     global _engine, _sessionmaker
     if _engine is None:
-        _engine = create_async_engine(settings.postgres_dsn, future=True)
+        _engine = create_async_engine(
+            settings.postgres_dsn,
+            future=True,
+            connect_args=settings.postgres_connect_args,
+        )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 

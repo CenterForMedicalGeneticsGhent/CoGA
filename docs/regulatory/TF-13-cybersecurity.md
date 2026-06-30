@@ -46,7 +46,7 @@ Tracked in [security-posture.md](../security-posture.md) "Remaining"; restated a
 | # | Item | Action |
 | --- | --- | --- |
 | S-1 | Encryption at rest for Postgres/ClickHouse | Managed encrypted storage or LUKS/full-disk; document. |
-| S-2 | TLS between services & to datastores | `sslmode=require` (PG); ClickHouse over HTTPS/9440. |
+| S-2 | TLS between services & to datastores | 🟡 App support landed — `POSTGRES_SSLMODE` (asyncpg) and `CLICKHOUSE_SECURE`/`CLICKHOUSE_VERIFY` (HTTPS) configure encrypted links; default plain for dev. **Operational action:** provision TLS-terminated datastores and set these in production. See [security-posture.md](../security-posture.md) §3. |
 | S-3 | Secrets management | Move DB/ClickHouse creds out of compose into a secret store; rotate `SECRET_KEY`. |
 | S-4 | Byte-level PHI download audit | S3 server-access logging / CloudTrail data events. |
 | S-5 | Audit-queue durability | ✅ Done — a full async queue applies backpressure then writes the event synchronously; the worker retries batch writes and records (never silently drops) any unpersistable event at ERROR with its payload; default bound raised to `AUDIT_LOG_QUEUE_SIZE=10000`; silent drops refused in production (`AUDIT_LOG_DROP_ALLOWED=false`). See [security-posture.md](../security-posture.md) §2. |

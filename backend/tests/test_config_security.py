@@ -45,3 +45,25 @@ def test_settings_allow_audit_log_drop_allowed_in_development() -> None:
     )
 
     assert settings.audit_log_drop_allowed is True
+
+
+def test_postgres_connect_args_reflects_sslmode() -> None:
+    # Default (disable) -> plain connection, no ssl arg.
+    assert Settings(_env_file=None, APP_ENV="test").postgres_connect_args == {}
+    # An enabled mode is passed through to asyncpg as `ssl`.
+    secured = Settings(_env_file=None, APP_ENV="test", POSTGRES_SSLMODE="require")
+    assert secured.postgres_connect_args == {"ssl": "require"}
+
+
+def test_invalid_postgres_sslmode_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, APP_ENV="test", POSTGRES_SSLMODE="bogus")
+
+
+def test_clickhouse_tls_defaults_off() -> None:
+    default = Settings(_env_file=None, APP_ENV="test")
+    assert default.clickhouse_secure is False
+    assert default.clickhouse_verify is True
+
+    secure = Settings(_env_file=None, APP_ENV="test", CLICKHOUSE_SECURE=True)
+    assert secure.clickhouse_secure is True

@@ -79,11 +79,15 @@ an admin bypasses scoping. These lock in the access boundary against regression.
 - ✅ **In transit (app edge).** Presigned S3 URLs are HTTPS; production is
   expected to terminate TLS at the proxy/ingress.
 - ✅ **Secrets at rest in DB.** Passwords bcrypt-hashed.
+- 🟡 **In transit to datastores (TLS — S-2).** The app now supports TLS to both
+  stores: set `POSTGRES_SSLMODE` (e.g. `require`/`verify-full`, passed to asyncpg)
+  and `CLICKHOUSE_SECURE=true` (HTTPS; use `CLICKHOUSE_HTTP_PORT=8443`,
+  `CLICKHOUSE_VERIFY=true`). Defaults stay plain for local/dev. **Operational
+  action:** terminate TLS on the datastores and set these in production.
 - ⛔ **At rest (databases).** `docker-compose.yml` runs Postgres/ClickHouse on
-  plain Docker volumes with no encryption and no TLS between services. For
-  production PHI: use encrypted storage (cloud-managed Postgres/ClickHouse with
-  encryption at rest, or full-disk/LUKS-encrypted volumes) and require TLS
-  (`sslmode=require` for Postgres; ClickHouse over 9440/HTTPS).
+  plain Docker volumes with no encryption. For production PHI: use encrypted
+  storage (cloud-managed Postgres/ClickHouse with encryption at rest, or
+  full-disk/LUKS-encrypted volumes).
 - ⛔ **S3 at rest.** The app only *reads* from S3 (no application-side `PutObject`),
   so SSE is a bucket-level responsibility: set a **default bucket encryption**
   policy (SSE-KMS preferred) and a bucket policy that **denies unencrypted

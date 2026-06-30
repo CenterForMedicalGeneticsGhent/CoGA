@@ -102,7 +102,11 @@ async def _create_clickhouse_client() -> Any:
         username=settings.clickhouse_user,
         password=settings.clickhouse_password,
         database="default",
-        interface="http",
+        # TLS (TF-13 S-2): https/secure when CLICKHOUSE_SECURE is set (use port 8443);
+        # plain http otherwise. verify checks the server cert when secure.
+        interface="https" if settings.clickhouse_secure else "http",
+        secure=settings.clickhouse_secure,
+        verify=settings.clickhouse_verify,
         # A single client is shared across all requests. Auto-generated session
         # ids make ClickHouse serialize the session and reject concurrent queries
         # with SESSION_IS_LOCKED, which surfaces as intermittent 500s under load
