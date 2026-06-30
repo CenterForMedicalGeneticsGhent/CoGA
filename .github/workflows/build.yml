@@ -26,8 +26,8 @@ jobs:
   tf-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
       - name: terraform fmt -check
         working-directory: terraform
         run: terraform fmt -check -recursive
@@ -50,7 +50,7 @@ jobs:
       git_sha: ${{ steps.meta.outputs.git_sha }}
       gcp_configured: ${{ steps.gate.outputs.gcp_configured }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compute build metadata
         id: meta
         run: |
@@ -90,13 +90,13 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v2
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
           project_id: ${{ env.REGISTRY_PROJECT_ID }}
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
       - name: Build & push backend (root context, build identity baked)
         run: |
           gcloud builds submit \
@@ -116,13 +116,13 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v2
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
           project_id: ${{ env.REGISTRY_PROJECT_ID }}
-      - uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v3
       - name: Build & push frontend (VITE_API_BASE_URL=/api baked)
         run: |
           gcloud builds submit \
@@ -144,14 +144,14 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: google-github-actions/auth@v2
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: coga-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.COGA_PROJECT_ID }}.iam.gserviceaccount.com
           project_id: ${{ env.COGA_PROJECT_ID }}
-      - uses: google-github-actions/setup-gcloud@v2
-      - uses: hashicorp/setup-terraform@v3
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: hashicorp/setup-terraform@v4
       - name: Terraform Init
         working-directory: terraform
         run: |
