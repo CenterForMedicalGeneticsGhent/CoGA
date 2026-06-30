@@ -246,6 +246,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_async_blocking_io.py](../backend/tests/test_async_blocking_io.py) | Concurrent manifest resolution, reference-cache, and blocking-IO offload. |
 | [backend/tests/test_health_endpoint.py](../backend/tests/test_health_endpoint.py) | Health endpoint liveness without datastores. |
 | [backend/tests/test_postgres_schema_loader.py](../backend/tests/test_postgres_schema_loader.py) | SQL splitting and dollar-quoted PL/pgSQL handling (migration loader). |
+| [backend/tests/test_postgres_engine.py](../backend/tests/test_postgres_engine.py) | Postgres engine selection: Cloud SQL Python Connector (verify-full TLS) when enabled vs DSN when disabled. |
 | [backend/tests/test_github_releases_service.py](../backend/tests/test_github_releases_service.py) | GitHub release summary/changelog formatting. |
 | [backend/tests/test_ui_events.py](../backend/tests/test_ui_events.py) | UI-event path masking, label sanitization, batch insert. |
 | [backend/tests/test_apcad_band_targets.py](../backend/tests/test_apcad_band_targets.py) | APCAD downsample budget allocation across BAF bands. |
