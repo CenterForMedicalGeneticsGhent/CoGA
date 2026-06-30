@@ -136,6 +136,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_access_control.py](../backend/tests/test_access_control.py) | Project-scoped RBAC: viewer/admin access, cross-project visibility. |
 | [backend/tests/test_auth_rate_limit_pg.py](../backend/tests/test_auth_rate_limit_pg.py) | Failed-login throttling and reset. |
 | [backend/tests/test_auth_swagger_token.py](../backend/tests/test_auth_swagger_token.py) | Swagger/bearer token authentication. |
+| [backend/tests/test_reference_status_auth.py](../backend/tests/test_reference_status_auth.py) | `/assemblies/reference-status` requires auth (no unauthenticated provenance/operator-email leak). |
 | [backend/tests/test_config_security.py](../backend/tests/test_config_security.py) | Refuse-to-start on insecure default secrets outside dev. |
 | [backend/tests/test_request_logging.py](../backend/tests/test_request_logging.py) | Request-logging sanitization, path/secret masking, db-update derivation. |
 | [backend/tests/test_http_resilience.py](../backend/tests/test_http_resilience.py) | P2-9 outbound resilience: idempotent requests retry transient failures (transport errors + 429/5xx) with capped backoff; non-idempotent + 4xx never retry; bounded worst case; own-client body still readable; S3 Config has bounded timeouts + adaptive retries. |
