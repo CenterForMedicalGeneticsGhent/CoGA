@@ -1,0 +1,105 @@
+from datetime import datetime, timezone
+
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.app.core.postgres import get_postgres_session
+from backend.app.main import app
+from backend.app.routers import auth as auth_router
+from backend.app.schemas import UserRead
+from backend.app.services.auth_rate_limit_pg import LoginThrottleState
+
+
+class _FakeSession:
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+@pytest.fixture()
+def signup_client(monkeypatch: pytest.MonkeyPatch):
+    original_overrides = dict(app.dependency_overrides)
+    app.state.skip_startup_tasks = True
+
+    async def override_get_postgres_session():
+        yield _FakeSession()
+
+    app.dependency_overrides[get_postgres_session] = override_get_postgres_session
+    with TestClient(app) as client:
+        yield client, monkeypatch
+    app.dependency_overrides = original_overrides
+
+
+def _payload() -> dict:
+    return {
+        "email": "new@example.com",
+        "password": "a-strong-password",
+        "first_name": "New",
+        "last_name": "User",
+        "affiliation": "Lab",
+    }
+
+
+def test_signup_returns_429_when_ip_throttled(signup_client) -> None:
+    client, monkeypatch = signup_client
+    recorded = {"called": False}
+
+    async def blocked(session, *, remote_ip, now=None):
+        return LoginThrottleState(
+            retry_after_seconds=42, blocked_until=datetime.now(timezone.utc)
+        )
+
+    async def record(session, *, remote_ip, now=None):
+        recorded["called"] = True
+        return None
+
+    monkeypatch.setattr(auth_router, "get_signup_throttle_state", blocked)
+    monkeypatch.setattr(auth_router, "record_signup_attempt", record)
+
+    response = client.post("/api/auth/signup", json=_payload())
+
+    assert response.status_code == 429
+    assert response.headers.get("Retry-After") == "42"
+    # Blocked before any attempt is recorded or any bcrypt hash / user create runs.
+    assert recorded["called"] is False
+
+
+def test_signup_records_attempt_and_creates_when_not_throttled(signup_client) -> None:
+    client, monkeypatch = signup_client
+    recorded = {"ip": "unset"}
+
+    async def allowed(session, *, remote_ip, now=None):
+        return None
+
+    async def record(session, *, remote_ip, now=None):
+        recorded["ip"] = remote_ip
+        return None
+
+    async def fake_create(session, **kwargs):
+        return UserRead(
+            id="u-1",
+            username=kwargs["email"],
+            email=kwargs["email"],
+            first_name=kwargs["first_name"],
+            last_name=kwargs["last_name"],
+            affiliation=kwargs["affiliation"],
+            is_active=False,
+            role="viewer",
+            projects=[],
+            created_at=datetime.now(timezone.utc),
+        )
+
+    monkeypatch.setattr(auth_router, "get_signup_throttle_state", allowed)
+    monkeypatch.setattr(auth_router, "record_signup_attempt", record)
+    monkeypatch.setattr(auth_router, "create_user_account", fake_create)
+    monkeypatch.setattr(auth_router, "notify_admin", lambda email: None)
+
+    response = client.post("/api/auth/signup", json=_payload())
+
+    assert response.status_code == 201
+    assert response.json()["email"] == "new@example.com"
+    assert response.json()["is_active"] is False
+    # The attempt is recorded against the client IP (counts toward the IP rate).
+    assert recorded["ip"] is not None

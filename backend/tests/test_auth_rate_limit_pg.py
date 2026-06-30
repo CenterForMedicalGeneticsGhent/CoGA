@@ -6,7 +6,9 @@ from app.core.config import settings
 from app.services.auth_rate_limit_pg import (
     clear_login_failures,
     get_login_throttle_state,
+    get_signup_throttle_state,
     record_failed_login,
+    record_signup_attempt,
 )
 
 
@@ -115,4 +117,51 @@ async def test_clear_login_failures_removes_email_and_ip_scopes() -> None:
         remote_ip="127.0.0.1",
     )
 
+    assert session.rows == {}
+
+
+@pytest.mark.asyncio
+async def test_record_signup_attempt_throttles_per_ip_after_threshold(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _FakeSession()
+    now = datetime(2026, 5, 12, 8, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(settings, "login_rate_limit_threshold", 3)
+    monkeypatch.setattr(settings, "login_rate_limit_base_backoff_seconds", 10)
+    monkeypatch.setattr(settings, "login_rate_limit_max_backoff_seconds", 60)
+    monkeypatch.setattr(settings, "login_rate_limit_window_seconds", 900)
+
+    assert await record_signup_attempt(session, remote_ip="203.0.113.5", now=now) is None
+    assert await record_signup_attempt(session, remote_ip="203.0.113.5", now=now) is None
+
+    state = await record_signup_attempt(session, remote_ip="203.0.113.5", now=now)
+
+    assert state is not None
+    assert state.retry_after_seconds == 10
+    # Tracked under an independent signup_ip scope, not the login email/remote_ip bucket.
+    assert session.rows[("signup_ip", "203.0.113.5")]["failure_count"] == 3
+    assert ("remote_ip", "203.0.113.5") not in session.rows
+    assert ("email", "203.0.113.5") not in session.rows
+
+
+@pytest.mark.asyncio
+async def test_get_signup_throttle_state_returns_active_lockout() -> None:
+    session = _FakeSession()
+    now = datetime(2026, 5, 12, 8, 0, tzinfo=timezone.utc)
+    session.rows[("signup_ip", "203.0.113.5")] = {
+        "failure_count": 5,
+        "last_failure_at": now,
+        "locked_until": now + timedelta(seconds=30),
+    }
+
+    state = await get_signup_throttle_state(session, remote_ip="203.0.113.5", now=now)
+
+    assert state is not None
+    assert state.retry_after_seconds == 30
+
+
+@pytest.mark.asyncio
+async def test_signup_throttle_is_noop_without_remote_ip() -> None:
+    session = _FakeSession()
+
+    assert await record_signup_attempt(session, remote_ip=None) is None
+    assert await get_signup_throttle_state(session, remote_ip=None) is None
     assert session.rows == {}
