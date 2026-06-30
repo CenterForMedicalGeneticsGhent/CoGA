@@ -42,6 +42,30 @@ cross-user / multi-project scenarios — a viewer is denied a family in a projec
 they are not in, granted one that shares a project, denied with no projects, and
 an admin bypasses scoping. These lock in the access boundary against regression.
 
+**Session-token handling (XSS blast-radius).** Tokens are bearer JWTs held in
+`localStorage` and sent as `Authorization: Bearer`. Rather than migrate to
+HttpOnly cookies (a large change that adds CSRF surface and reworks the Azure +
+analytics-beacon paths), the blast radius of a hypothetical XSS is bounded by
+(a) the maximally strict CSP (`default-src 'none'`, §3/headers), and (b) a short
+**2-hour token lifetime** (`ACCESS_TOKEN_EXPIRE_MINUTES`, reduced from 6h).
+Immediate lockout already works — every request re-checks `is_active`, so
+deactivating a user revokes access at once. The only residual is a
+leaked-but-still-active token within the 2-hour window; for a single-lab internal
+deployment this is an **accepted residual** (no full token-revocation denylist).
+
+**Azure local-admin override (break-glass).** When Azure AD is configured,
+`AZURE_ADMIN_OVERRIDE` (default **off**) lets an admin fall back to a
+locally-signed token if Azure is unreachable. Enabling it widens the admin trust
+boundary to anyone holding `SECRET_KEY`, so **keep it off in production** unless a
+break-glass path is explicitly required (the prod refuse-to-start guard against a
+weak `SECRET_KEY` still applies).
+
+**Accepted residual — staff roster.** `GET /api/users` returns the user roster
+(names/emails) to any authenticated user; it powers the reviewer-assignment
+picker. This is **intentional and accepted**: CoGA is a **local installation in a
+single clinic/lab** where all users are colleagues (an internal directory), with
+no cross-tenant boundary to protect.
+
 ## 2. Access / audit logging
 
 - ✅ **Who-accessed-what-when trail.** Request/response middleware
