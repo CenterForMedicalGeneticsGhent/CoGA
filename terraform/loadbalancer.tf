@@ -33,6 +33,7 @@ resource "google_compute_backend_service" "backend" {
   name                  = "${local.name_prefix}-backend-svc"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   protocol              = "HTTPS"
+  security_policy       = var.enable_cloud_armor ? google_compute_security_policy.lb[0].id : null
   backend {
     group = google_compute_region_network_endpoint_group.backend.id
   }
@@ -46,6 +47,7 @@ resource "google_compute_backend_service" "frontend" {
   name                  = "${local.name_prefix}-frontend-svc"
   load_balancing_scheme = "EXTERNAL_MANAGED"
   protocol              = "HTTPS"
+  security_policy       = var.enable_cloud_armor ? google_compute_security_policy.lb[0].id : null
   backend {
     group = google_compute_region_network_endpoint_group.frontend.id
   }

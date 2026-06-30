@@ -144,6 +144,12 @@ resource "google_compute_instance" "clickhouse" {
       ch_user          = "clickhouse_admin"
     })
     shutdown-script = file("${path.module}/scripts/clickhouse-shutdown.sh")
+    # Installed by the startup script and run by a daily systemd timer for cert rotation.
+    cert-refresh-script = templatefile("${path.module}/scripts/clickhouse-cert-refresh.sh.tftpl", {
+      project_id      = var.project_id
+      tls_key_secret  = google_secret_manager_secret.clickhouse_tls["key"].secret_id
+      tls_cert_secret = google_secret_manager_secret.clickhouse_tls["cert"].secret_id
+    })
   }
 
   depends_on = [

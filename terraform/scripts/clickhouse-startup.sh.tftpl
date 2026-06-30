@@ -86,3 +86,34 @@ docker run -d \
   -e CLICKHOUSE_PASSWORD="$${CH_PASSWORD}" \
   -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 \
   "${clickhouse_image}"
+
+# TLS cert auto-rotation: install the refresh script (passed via instance metadata)
+# and a daily systemd timer that refetches the cert from Secret Manager and restarts
+# ClickHouse only if it changed — so rotation needs no manual VM rebuild.
+curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/attributes/cert-refresh-script" \
+  > /etc/coga-clickhouse/refresh-certs.sh
+chmod 700 /etc/coga-clickhouse/refresh-certs.sh
+
+cat > /etc/systemd/system/coga-cert-refresh.service <<'UNIT'
+[Unit]
+Description=Refresh ClickHouse TLS certs from Secret Manager
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/etc/coga-clickhouse/refresh-certs.sh
+UNIT
+
+cat > /etc/systemd/system/coga-cert-refresh.timer <<'UNIT'
+[Unit]
+Description=Daily ClickHouse TLS cert refresh
+[Timer]
+OnBootSec=1h
+OnUnitActiveSec=24h
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now coga-cert-refresh.timer

@@ -152,6 +152,28 @@ variable "azure_ad_client_id" {
 }
 
 # ---------------------------------------------------------------------------
+# Cloud Armor (WAF / edge protection)
+# ---------------------------------------------------------------------------
+
+variable "enable_cloud_armor" {
+  description = "Attach a Cloud Armor security policy (adaptive L7 DDoS, per-IP rate limiting, OWASP CRS WAF) to the load balancer's backend services."
+  type        = bool
+  default     = true
+}
+
+variable "cloud_armor_waf_enforce" {
+  description = "Enforce the OWASP CRS WAF rules. false = preview/log-only (recommended until tuned against the genomics API's traffic, to avoid false-positive blocks); true = block matches with 403."
+  type        = bool
+  default     = false
+}
+
+variable "cloud_armor_rate_limit_per_minute" {
+  description = "Per-client-IP request budget per minute before throttling (429). Tune to expected peak interactive use."
+  type        = number
+  default     = 600
+}
+
+# ---------------------------------------------------------------------------
 # Object storage backend
 # ---------------------------------------------------------------------------
 

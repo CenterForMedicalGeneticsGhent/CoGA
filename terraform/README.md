@@ -130,15 +130,30 @@ single change:
 The backend SA has `objectViewer` on the `phi` bucket + `serviceAccountTokenCreator`
 on itself, and the IAM Credentials API is enabled — all required for signed URLs.
 
+## Edge protection (Cloud Armor)
+
+A Cloud Armor policy is attached to both LB backend services (`enable_cloud_armor`):
+adaptive L7 DDoS defense, per-IP rate limiting (`cloud_armor_rate_limit_per_minute`,
+enforced), and the OWASP CRS WAF (SQLi/XSS/RCE/LFI). The WAF ships in **preview
+(log-only)** by default — review the Cloud Armor logs against real traffic, then set
+`cloud_armor_waf_enforce = true` to block. This avoids false-positive blocks on the
+genomics API's unusual query payloads.
+
+## ClickHouse cert rotation
+
+The server cert/key are re-fetched from Secret Manager by a daily systemd timer on
+the VM, which restarts ClickHouse only when they change — so a server-cert re-issue
+needs no manual VM rebuild. The CA is the verification anchor wired into the backend
+env, so it is long-lived (10y); rotating the **CA** still requires a backend redeploy
+to pick up the new `CLICKHOUSE_CA_CERT`.
+
 ## Known residuals / deferred (follow-ups)
 
-- **ClickHouse cert rotation.** The server cert is long-lived (10y) and fetched at
-  boot; re-issuing it (or rotating the CA) requires restarting the VM to refetch.
 - **ClickHouse graceful shutdown.** Best-effort `docker stop -t 90` on VM shutdown +
   `MIGRATE` on maintenance. For a guaranteed 5-min flush window, move ClickHouse to a
   GKE StatefulSet with `terminationGracePeriodSeconds = 300`.
 - **State holds the SQL user password.** The Cloud SQL user password is read from
   Secret Manager into state; keep the state bucket private + CMEK. App secrets are
   *not* in state (referenced by `secret_key_ref`).
-- **Cloud Armor / WAF** and **IVDR change control** (TF-18 + DPIA update adding
-  Google as sub-processor, TF-13/TF-15 IFU) are out of scope here.
+- **IVDR change control** (TF-18 + DPIA update adding Google as sub-processor,
+  TF-13/TF-15 IFU) is out of scope here.
