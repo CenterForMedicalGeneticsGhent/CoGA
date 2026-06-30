@@ -1670,7 +1670,7 @@ async def create_small_variant_tag(
     payload: SmallVariantTagDefinitionCreate,
     project_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> SmallVariantTagDefinitionOut:
     context = await build_family_metadata_context(
         session,
@@ -1697,7 +1697,7 @@ async def update_small_variant_tag(
     payload: SmallVariantTagDefinitionUpdate,
     project_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> SmallVariantTagDefinitionOut:
     context = await build_family_metadata_context(
         session,
@@ -1721,7 +1721,7 @@ async def delete_small_variant_tag(
     tag_key: str,
     project_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> Response:
     context = await build_family_metadata_context(
         session,

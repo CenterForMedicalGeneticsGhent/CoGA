@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import (
+    get_current_admin_user,
     get_current_user,
 )
 from ..schemas import (
@@ -59,7 +60,7 @@ async def search_panelapp(
 async def import_panelapp_panel(
     request: PanelAppImportRequest,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> PanelAppImportResponse:
     return await import_panelapp_panel_data(session, request, user)
 
@@ -68,7 +69,7 @@ async def import_panelapp_panel(
 async def regenerate_mendeliome_panel(
     force: bool = Query(False, description="Create a new version even if the gene set is unchanged."),
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> MendeliomeRegenerateResponse:
     return await regenerate_mendeliome(session, user, force=force)
 
@@ -105,7 +106,7 @@ async def get_panel(
 async def create_panel(
     panel: GenePanelCreate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> GenePanelCreateResponse:
     return await create_panel_data(session, panel, user)
 
@@ -115,7 +116,7 @@ async def update_panel(
     panel_id: str,
     payload: GenePanelUpdate,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> GenePanelCreateResponse:
     return await update_panel_data(session, panel_id, payload, user)
 
@@ -124,6 +125,6 @@ async def update_panel(
 async def delete_panel(
     panel_id: str,
     session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(get_current_admin_user),
 ) -> None:
     await delete_panel_data(session, panel_id, user)
