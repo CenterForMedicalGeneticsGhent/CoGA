@@ -13,6 +13,10 @@ regexes = [
   # (.github/workflows/ci.yml). They are not valid credentials for any environment.
   '''ci-smoke-not-a-real-secret''',
   '''ci-admin-not-a-real-secret''',
+  # False positive: the grch37_coordinates / grch38_coordinates dict-field
+  # selector in panelapp_service.py (PanelApp is a public, key-less API) that the
+  # default generic-api-key rule flags on its assignment shape. Not a credential.
+  '''grch3[78]_coordinates''',
 ]
 paths = [
   # .env.example ships placeholder values (e.g. change-me) by design; it is the
