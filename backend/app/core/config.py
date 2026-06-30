@@ -32,8 +32,12 @@ class Settings(BaseSettings):
     # written 'unsigned' (a non-owner-only checkpoint; see integrity_anchor_service.py).
     integrity_anchor_signing_key: str = Field(default="", alias="INTEGRITY_ANCHOR_SIGNING_KEY")
     algorithm: str = "HS256"
-    # Token lifetime set to 6 hours for user sessions
-    access_token_expire_minutes: int = 360
+    # Session token lifetime. Kept short (2h) to bound the blast radius of a leaked
+    # token, since tokens live in localStorage (no HttpOnly cookie); see
+    # security-posture.md §1. Tunable per deployment.
+    access_token_expire_minutes: int = Field(
+        default=120, ge=1, alias="ACCESS_TOKEN_EXPIRE_MINUTES"
+    )
     postgres_host: str = Field(default="localhost", alias="POSTGRES_HOST")
     postgres_port: int = Field(default=5432, alias="POSTGRES_PORT")
     postgres_db: str = Field(default="coga", alias="POSTGRES_DB")
