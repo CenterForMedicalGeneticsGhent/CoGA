@@ -152,6 +152,21 @@ variable "azure_ad_client_id" {
 }
 
 # ---------------------------------------------------------------------------
+# Object storage backend
+# ---------------------------------------------------------------------------
+
+variable "storage_backend" {
+  description = "Backend for raw family data: local, s3, or gcs. Flip to gcs once the PHI bucket is populated; the backend then serves IGV via IAM-signed URLs and stages imports from gs://."
+  type        = string
+  default     = "local"
+
+  validation {
+    condition     = contains(["local", "s3", "gcs"], var.storage_backend)
+    error_message = "storage_backend must be local, s3, or gcs."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Labels
 # ---------------------------------------------------------------------------
 

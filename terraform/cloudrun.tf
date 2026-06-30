@@ -80,6 +80,20 @@ resource "google_cloud_run_v2_service" "backend" {
         value = "true"
       }
 
+      # --- Object storage (PHI family data) ---
+      # Defaults to local; flip var.storage_backend to "gcs" once the PHI bucket is
+      # populated. GCS_BUCKET is always wired so activation is a single var change.
+      # Signed URLs use IAM SignBlob via the backend SA (serviceAccountTokenCreator
+      # on itself, granted in iam.tf).
+      env {
+        name  = "STORAGE_BACKEND"
+        value = var.storage_backend
+      }
+      env {
+        name  = "GCS_BUCKET"
+        value = google_storage_bucket.phi.name
+      }
+
       # --- Postgres ---
       env {
         name  = "POSTGRES_HOST"

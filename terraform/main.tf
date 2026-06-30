@@ -42,6 +42,8 @@ resource "google_project_service" "services" {
     "storage.googleapis.com",
     "artifactregistry.googleapis.com",
     "iam.googleapis.com",
+    # Keyless V4 signed URLs for the GCS storage backend (SignBlob).
+    "iamcredentials.googleapis.com",
     "logging.googleapis.com",
     "monitoring.googleapis.com",
     "certificatemanager.googleapis.com",

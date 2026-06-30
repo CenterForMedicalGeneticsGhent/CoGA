@@ -8,7 +8,7 @@ deployment-level security items tracked in
 
 ## Architecture
 
-```
+```text
                          Internet
                             │  HTTPS (managed cert, app_domain)
                   ┌─────────▼──────────┐
@@ -116,13 +116,22 @@ the Google-managed cert provisions once DNS resolves (can take ~15–60 min).
 | S-8 network posture | Private IPs, no public DB ingress, least-privilege SAs, NAT/PGA |
 | P1-13 backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots |
 
+## Object storage backend
+
+The app supports a native **GCS** backend (`backend/app/core/object_storage.py`):
+IGV alignments are served as IAM-signed (keyless `SignBlob`) URLs and family-package
+imports stage from `gs://`. It is wired but **off by default** (`var.storage_backend
+= "local"`); `GCS_BUCKET` is always pointed at the `phi` bucket, so activation is a
+single change:
+
+1. Upload family data to the `phi` bucket (`<family_id>/<file>` layout).
+2. Set `storage_backend = "gcs"` and apply.
+
+The backend SA has `objectViewer` on the `phi` bucket + `serviceAccountTokenCreator`
+on itself, and the IAM Credentials API is enabled — all required for signed URLs.
+
 ## Known residuals / deferred (follow-ups)
 
-- **Native GCS storage backend (code).** `backend/app/core/object_storage.py` is
-  still S3/boto3-only. The `phi` bucket + signer IAM
-  (`serviceAccountTokenCreator`) are provisioned, but cloud family-import and
-  IGV-from-bucket need a GCS backend in the app first. Until then `STORAGE_BACKEND`
-  stays `local` and only the `refdata` bucket (mounted at `/data/ref-data`) is used.
 - **ClickHouse TLS (S-2).** Backend↔ClickHouse is plain HTTP inside the VPC
   (`CLICKHOUSE_SECURE=false`). Front it with TLS for full S-2.
 - **Postgres `verify-full`.** Using `require` (encrypt, no cert pinning); upgrade to
@@ -135,4 +144,3 @@ the Google-managed cert provisions once DNS resolves (can take ~15–60 min).
   *not* in state (referenced by `secret_key_ref`).
 - **Cloud Armor / WAF** and **IVDR change control** (TF-18 + DPIA update adding
   Google as sub-processor, TF-13/TF-15 IFU) are out of scope here.
-```
