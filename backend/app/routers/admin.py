@@ -70,7 +70,6 @@ from ..services.admin_service import (
     check_clickhouse_variant_integrity_status,
     optimize_clickhouse_variant_status,
     rebuild_clickhouse_small_variant_gene_index_status,
-    update_sample_projects_data,
     verify_raw_import_file_by_id,
 )
 from ..services.family_status_service import (
@@ -278,16 +277,6 @@ async def update_family_projects(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> Dict:
     return await update_family_project_assignments(session, family_id, update.project_ids)
-
-
-@router.put("/samples/{sample_id}/projects")
-async def update_sample_projects(
-    sample_id: str,
-    update: ProjectsUpdate,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_admin_user),
-) -> Dict:
-    return await update_sample_projects_data(session, sample_id, update)
 
 
 @router.get("/data", response_model=FamilyInventoryPageOut)
