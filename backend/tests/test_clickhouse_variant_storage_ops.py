@@ -444,6 +444,11 @@ async def test_refresh_family_small_variant_summaries_rebuilds_family_and_sample
     assert "DELETE WHERE family_guid = %(family_guid)s" in executed[0][0]
     assert "family_sample_variant_summary" in executed[1][0]
     assert "countDistinctIf(key, length(ref) = 1 AND length(alt) = 1)" in executed[2][0]
+    # Per-project scoping: both summaries must group by project_guid so per-project
+    # counts never aggregate across the projects a family belongs to.
+    assert "GROUP BY family_guid, project_guid" in executed[2][0]
     assert "countDistinctIf(key, gt NOT IN ('', '.', './.', '.|.', '0/0', '0|0'))" in executed[3][0]
     assert "countDistinctIf(key, gt IN ('0/1', '1/0', '0|1', '1|0'))" in executed[3][0]
+    assert "GROUP BY family_guid, project_guid, sample_id" in executed[3][0]
+    assert "project_guid" in executed[3][0]
     assert all(params == {"family_guid": "family-1"} for _query, params in executed)
