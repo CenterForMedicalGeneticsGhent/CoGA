@@ -173,7 +173,7 @@ def test_download_prefix_downloads_all_objects(monkeypatch, tmp_path):
         {"Contents": [{"Key": "fam/F1/c.bam"}]},
     ]
     client = _FakeClient(pages)
-    monkeypatch.setattr(s, "_client", lambda: client)
+    monkeypatch.setattr(s, "_s3_client", lambda: client)
 
     count = s.download_prefix("s3://bucket/fam/F1", tmp_path)
 
@@ -190,7 +190,7 @@ def test_download_prefix_downloads_all_objects(monkeypatch, tmp_path):
 
 def test_download_prefix_empty_returns_zero(monkeypatch, tmp_path):
     client = _FakeClient([{"Contents": []}])
-    monkeypatch.setattr(s, "_client", lambda: client)
+    monkeypatch.setattr(s, "_s3_client", lambda: client)
 
     assert s.download_prefix("s3://bucket/fam/F1", tmp_path) == 0
     assert client.downloaded == []

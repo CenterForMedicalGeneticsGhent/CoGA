@@ -239,8 +239,9 @@ class Settings(BaseSettings):
     hpo_download_if_missing: bool = Field(default=True, alias="HPO_DOWNLOAD_IF_MISSING")
     reads_path: str | None = None
     # Storage backend for raw family data (IGV alignments + family-package sources).
-    # "local" reads from the local filesystem (dev); "s3" reads from an S3 bucket
-    # (production) via presigned URLs for IGV and temp staging for package import.
+    # "local" reads from the local filesystem (dev); "s3"/"gcs" read from a cloud
+    # object store (production) via presigned/signed URLs for IGV and temp staging
+    # for package import.
     storage_backend: str = Field(default="local", alias="STORAGE_BACKEND")
     s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
     s3_region: str | None = Field(default=None, alias="S3_REGION")
@@ -263,6 +264,12 @@ class Settings(BaseSettings):
         default=60.0, gt=0, alias="S3_READ_TIMEOUT_SECONDS"
     )
     s3_max_attempts: int = Field(default=5, ge=1, le=10, alias="S3_MAX_ATTEMPTS")
+    # Google Cloud Storage backend (STORAGE_BACKEND=gcs). Credentials come from
+    # Application Default Credentials (Workload Identity on Cloud Run); signed URLs
+    # use IAM SignBlob, so no key file is needed. The presign TTL reuses
+    # S3_PRESIGN_EXPIRY_SECONDS.
+    gcs_bucket: str | None = Field(default=None, alias="GCS_BUCKET")
+    gcs_prefix: str = Field(default="", alias="GCS_PREFIX")
     # Roots that Package Import may read family folders from. Defaults to the
     # local /data/families; cloud deployments (Terraform, etc.) override this
     # with an s3:// bucket prefix via FAMILY_IMPORT_ROOTS.
@@ -371,10 +378,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "POSTGRES_SSLMODE must be one of: " + ", ".join(sorted(_POSTGRES_SSLMODES))
             )
-        if self.storage_backend not in {"local", "s3"}:
-            raise ValueError("STORAGE_BACKEND must be one of: local, s3")
+        if self.storage_backend not in {"local", "s3", "gcs"}:
+            raise ValueError("STORAGE_BACKEND must be one of: local, s3, gcs")
         if self.storage_backend == "s3" and not self.s3_bucket:
             raise ValueError("STORAGE_BACKEND=s3 requires S3_BUCKET to be set")
+        if self.storage_backend == "gcs" and not self.gcs_bucket:
+            raise ValueError("STORAGE_BACKEND=gcs requires GCS_BUCKET to be set")
         if self.login_rate_limit_base_backoff_seconds > self.login_rate_limit_max_backoff_seconds:
             raise ValueError(
                 "LOGIN_RATE_LIMIT_BASE_BACKOFF_SECONDS must be less than or equal to LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS"

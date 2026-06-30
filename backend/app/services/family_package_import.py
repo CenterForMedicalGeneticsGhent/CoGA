@@ -26,9 +26,9 @@ import yaml
 from ..core.config import settings
 from ..core.object_storage import (
     download_prefix,
-    is_s3_uri,
-    join_s3_uri,
-    list_s3_package_candidates,
+    is_remote_uri,
+    join_remote_uri,
+    list_remote_package_candidates,
 )
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import (
@@ -501,12 +501,12 @@ def _authorized_local_roots() -> list[Path]:
     return [
         Path(root).expanduser().resolve()
         for root in settings.family_import_roots
-        if not is_s3_uri(root)
+        if not is_remote_uri(root)
     ]
 
 
 def _authorized_s3_roots() -> list[str]:
-    return [root.strip() for root in settings.family_import_roots if is_s3_uri(root)]
+    return [root.strip() for root in settings.family_import_roots if is_remote_uri(root)]
 
 
 def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
@@ -572,7 +572,7 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
         # S3 listing is best-effort: a misconfigured or unreachable bucket must
         # not break the local scan.
         try:
-            candidates = list_s3_package_candidates(root_uri)
+            candidates = list_remote_package_candidates(root_uri)
         except Exception:
             continue
         for candidate in candidates:
@@ -651,7 +651,7 @@ def staged_package_source(folder_path: str | Path):
     """Yield ``(local_root, source_uri)``. For an s3:// source the package is
     downloaded to a temp dir (cleaned up on exit) and ``source_uri`` is the s3 URI;
     for a local path it is yielded unchanged with ``source_uri = None``."""
-    if is_s3_uri(folder_path):
+    if is_remote_uri(folder_path):
         uri = str(folder_path).strip()
         dest = _stage_s3_package(uri)
         try:
@@ -666,7 +666,7 @@ def staged_package_source(folder_path: str | Path):
 async def staged_package_source_async(folder_path: str | Path):
     """Async variant: the S3 download (and cleanup) run in a worker thread so the
     event loop is not blocked during a large package transfer."""
-    if is_s3_uri(folder_path):
+    if is_remote_uri(folder_path):
         uri = str(folder_path).strip()
         dest = await asyncio.to_thread(_stage_s3_package, uri)
         try:
@@ -3687,7 +3687,7 @@ async def _record_package_raw_files(
                     relative = resolved.relative_to(bundle.root)
                 except ValueError:
                     return str(resolved)
-                return join_s3_uri(bundle.source_uri, str(relative))
+                return join_remote_uri(bundle.source_uri, str(relative))
             return str(resolved)
 
         for dataset_type, dataset in bundle.manifest.datasets.items():
