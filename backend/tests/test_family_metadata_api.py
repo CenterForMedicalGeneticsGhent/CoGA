@@ -208,3 +208,24 @@ def test_admin_family_status_crud(family_metadata_client) -> None:
     delete_response = client.delete("/api/admin/family-statuses/solved")
     assert delete_response.status_code == 204
     assert deleted["key"] == "solved"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/families/FAM1/small-variants",
+        "/api/families/FAM1/structural-variants",
+        "/api/families/FAM1/nipt/variants",
+        "/api/structural-variants/SAMPLE1",
+    ],
+)
+@pytest.mark.parametrize("bad_page_size", [10_000_001, -1])
+def test_variant_page_size_is_bounded(family_metadata_client, path, bad_page_size) -> None:
+    client, _monkeypatch = family_metadata_client
+
+    # An out-of-range page_size is rejected by request validation before the handler
+    # runs, so no ClickHouse read or hydration is triggered by an oversized page.
+    response = client.get(path, params={"page_size": bad_page_size})
+
+    assert response.status_code == 422
+    assert "page_size" in response.text
