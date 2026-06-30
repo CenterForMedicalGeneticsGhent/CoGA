@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
+from ..dependencies import get_current_user
 from ..schemas import ClinicalCnvOut
 from ..services.reference_metadata_service import (
     get_clinical_cnv_by_id_data,
@@ -11,7 +12,13 @@ from ..services.reference_metadata_service import (
     list_clinical_cnvs_catalog_data,
 )
 
-router = APIRouter(prefix="/cnvs", tags=["cnvs"])
+# Reference data requires authentication (a router-level dependency gates every
+# endpoint, including any added later).
+router = APIRouter(
+    prefix="/cnvs",
+    tags=["cnvs"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # Literal-prefix routes are declared before the generic "/{assembly}/{chrom}"

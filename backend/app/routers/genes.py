@@ -49,7 +49,9 @@ async def get_genes(
     start: int = Query(0, ge=0),
     end: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> List[GeneOut]:
+    _ = user
     return await get_gene_region_records(
         session,
         assembly=assembly,
