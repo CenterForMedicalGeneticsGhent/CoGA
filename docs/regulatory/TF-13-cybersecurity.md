@@ -32,11 +32,13 @@ of the bio-IT ingangsvalidatie dossier (H11.1-F12.2). IEC 81001-5-1 / MDCG 2019-
 the device-specific security detail.
 
 ## 2. Security capabilities already implemented (from security-posture.md)
-- **AuthN:** JWT bearer (HS256), optional Azure AD; local fallback restricted to admins.
-- **AuthZ:** project-scoped RBAC enforced at one checkpoint on every PHI endpoint; SQL-level filtering, not post-filtering; admin-gated mutations; IDOR review passed (no unscoped PHI endpoint).
-- **Accountability:** append-only (immutability-trigger-protected) HTTP audit log of who-accessed-what-when; failed-login tracking; PII minimization (query-key-only, secret masking).
+- **AuthN:** JWT bearer (HS256 local, RS256 Azure) via **PyJWT**, optional Azure AD; local fallback restricted to admins; algorithm allow-list enforced (no `alg=none`/confusion).
+- **AuthZ:** project-scoped RBAC enforced at one checkpoint on every PHI endpoint; SQL-level filtering, not post-filtering; admin-gated mutations. IDOR re-verified by a 2026-06 multi-agent audit — no exploitable cross-project PHI access; all reference/genomic-data endpoints now require authentication.
+- **Accountability:** append-only (immutability-trigger-protected) HTTP audit log of who-accessed-what-when; durable async pipeline (S-5); failed-login throttling **and per-IP signup throttling**; PII minimization (query-key-only, secret masking).
+- **Input hardening (DoS/traversal):** bounded upload read + decompression (anti gzip-bomb, HTTP 413 past a configurable cap); capped variant `page_size`; family-package manifest paths contained to the authorised package root (no arbitrary host-file read).
 - **Secrets/integrity:** refuse-to-start on default secrets in prod; bcrypt password hashing; content-hashed immutable clinical sign-out and audit (result integrity).
 - **PHI download scoping:** CRAM/BAM presigned URLs issued only after family+sample access checks.
+- **Supply chain:** hash-locked, audited dependencies (S-7); CodeQL SAST + gitleaks secret-scan + dependency-audit as **required** CI gates (S-6).
 
 ## 3. Open security items (deployment) — must close before clinical go-live
 Tracked in [security-posture.md](../security-posture.md) "Remaining"; restated as controlled actions:
@@ -48,9 +50,9 @@ Tracked in [security-posture.md](../security-posture.md) "Remaining"; restated a
 | S-3 | Secrets management | Move DB/ClickHouse creds out of compose into a secret store; rotate `SECRET_KEY`. |
 | S-4 | Byte-level PHI download audit | S3 server-access logging / CloudTrail data events. |
 | S-5 | Audit-queue durability | ✅ Done — a full async queue applies backpressure then writes the event synchronously; the worker retries batch writes and records (never silently drops) any unpersistable event at ERROR with its payload; default bound raised to `AUDIT_LOG_QUEUE_SIZE=10000`; silent drops refused in production (`AUDIT_LOG_DROP_ALLOWED=false`). See [security-posture.md](../security-posture.md) §2. |
-| S-6 | Branch-protection required checks | Enforce CI gates as required (also TF-09). |
-| S-7 | Dependency pinning | Pin all runtime deps for reproducible, vuln-tracked builds (TF-08). |
-| S-8 | Network posture | Private subnets for datastores; VPC endpoint for S3; minimal IAM (`s3:GetObject` on the PHI prefix only). |
+| S-6 | Branch-protection required checks | ✅ Done — `main` requires all ten CI gates (`backend`, `frontend`, `smoke`, `e2e`, `e2e-playwright`, `catalogue`, `deps`, `secret-scan`, `codeql` ×2) with **strict** (up-to-date-before-merge) enforcement. |
+| S-7 | Dependency pinning | ✅ Done — backend deps are hash-locked (`pip-compile --generate-hashes`, reproduced in Docker py3.10/amd64) and audited by a **blocking** `pip-audit --require-hashes` gate; the frontend is `package-lock.json` + a blocking `npm audit` (production tree). Dependabot is on; the JWT stack was migrated `python-jose` → PyJWT to drop the no-fix `ecdsa` advisory (see TF-08 / SECURITY-AUDIT-ALLOWLIST.md). |
+| S-8 | Network posture | Private subnets for datastores; VPC endpoint for S3; minimal IAM (`s3:GetObject` on the PHI prefix only). See [security-posture.md](../security-posture.md) §4. |
 
 ## 4. Secure development lifecycle (IEC 81001-5-1)
 - Security requirements captured in the SRS (TF-09 §3.5) and traced (RTM).
