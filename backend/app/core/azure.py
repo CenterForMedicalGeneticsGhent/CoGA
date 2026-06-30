@@ -2,7 +2,7 @@ import json
 from functools import lru_cache
 
 import httpx
-from jose import jwt
+import jwt
 
 
 @lru_cache(maxsize=1)

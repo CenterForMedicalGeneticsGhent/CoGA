@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,7 +60,7 @@ async def get_current_user(
                     )
                     email = payload.get("sub")
                     local_override = True
-                except JWTError as exc:
+                except jwt.PyJWTError as exc:
                     raise credentials_exception from exc
             else:
                 raise credentials_exception
@@ -68,7 +68,7 @@ async def get_current_user(
         try:
             payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
             email = payload.get("sub")
-        except JWTError as exc:
+        except jwt.PyJWTError as exc:
             raise credentials_exception from exc
     if email is None:
         raise credentials_exception
