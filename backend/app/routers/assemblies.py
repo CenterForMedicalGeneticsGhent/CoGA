@@ -42,7 +42,9 @@ router = APIRouter(prefix="/assemblies", tags=["assemblies"])
 @router.get("/", response_model=List[AssemblyOut])
 async def list_all_assemblies(
     session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> List[AssemblyOut]:
+    del user
     return await list_assembly_records(session)
 
 
@@ -114,7 +116,9 @@ async def list_recent_reference_activity(
 async def list_assemblies(
     species_id: str,
     session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> List[AssemblyOut]:
+    del user
     try:
         UUID(species_id)
     except ValueError as exc:

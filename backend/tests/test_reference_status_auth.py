@@ -68,3 +68,30 @@ def test_reference_status_returns_data_for_authenticated_user(reference_status_c
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/genes/GRCh38/chr1",
+        "/api/reference/sequence?chrom=chr1&start=1&end=2",
+        "/api/chromosomes/GRCh38",
+        "/api/chromosomes/GRCh38/details",
+        "/api/chromosomes/GRCh38/chr1",
+        "/api/cnvs/GRCh38/catalog",
+        "/api/cnvs/GRCh38/chr1",
+        "/api/dgv/GRCh38/chr1",
+        "/api/blacklist/GRCh38/chr1",
+        "/api/segmental-duplications/GRCh38/chr1",
+        "/api/assemblies/",
+        "/api/assemblies/3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    ],
+)
+def test_reference_data_endpoints_require_authentication(reference_status_client, path) -> None:
+    client, _monkeypatch = reference_status_client
+
+    # Reference/genomic-data endpoints must reject unauthenticated requests, so they
+    # cannot be scraped (or used to load the database) anonymously.
+    response = client.get(path)
+
+    assert response.status_code == 401, f"{path} returned {response.status_code}, expected 401"

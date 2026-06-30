@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
+from ..dependencies import get_current_user
 from ..schemas import ChromosomeOut, ChromosomeSizeOut
 from ..services.reference_metadata_service import (
     get_chromosome_data,
@@ -9,7 +10,13 @@ from ..services.reference_metadata_service import (
     list_chromosome_sizes_data,
 )
 
-router = APIRouter(prefix="/chromosomes", tags=["chromosomes"])
+# Reference data requires authentication (a router-level dependency gates every
+# endpoint, including any added later).
+router = APIRouter(
+    prefix="/chromosomes",
+    tags=["chromosomes"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 @router.get("/{assembly}", response_model=list[ChromosomeSizeOut])

@@ -22,7 +22,9 @@ async def get_reference_sequence(
     chrom: ChromQuery,
     start: StartQuery,
     end: EndQuery,
+    user: CurrentUser = Depends(get_current_user),
 ) -> ReferenceSequenceOut:
+    _ = user
     # pyfaidx access is blocking; offload so the SequenceTrack's rapid-fire
     # requests during navigation don't stall the event loop.
     return await asyncio.to_thread(
