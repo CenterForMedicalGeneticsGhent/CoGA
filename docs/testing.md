@@ -38,7 +38,8 @@ cd frontend && npm run tsc && npm run lint && npm run test
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs four jobs on every PR and push to `main`:
+`.github/workflows/ci.yml` runs the following jobs on every PR and push to `main`
+(the security gates — `deps`, `secret-scan`, `codeql` — live in `.github/workflows/security.yml`):
 
 | Job | What it runs | Notes |
 | --- | --- | --- |
@@ -46,12 +47,13 @@ cd frontend && npm run tsc && npm run lint && npm run test
 | **smoke** | `pytest backend/tests/integration` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Real lifespan: schema init, migrations, admin seed, health probe. |
 | **e2e** | `pytest backend/tests/e2e` against `postgres:16` + `clickhouse/clickhouse-server:25.3` services | Golden-trio pipeline + demo bundles vs documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Runs outside coverage, like `smoke`. |
 | **frontend** | `npm ci` → `npm run tsc` → `npm run lint` → `npm run test` | Type-check + ESLint + vitest. |
-| **e2e-playwright** | seed golden trio → Playwright drives Chromium against a uvicorn backend + Vite frontend | Browser journeys: login → family workspace → genome overview (see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), incl. a manual reproduction procedure for auditors). Advisory (not yet a required check — browser e2e is the flakiest gate). |
+| **e2e-playwright** | seed golden trio → Playwright drives Chromium against a uvicorn backend + Vite frontend | Browser journeys: login → family workspace → genome overview (see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), incl. a manual reproduction procedure for auditors). |
 | **sbom** | CycloneDX SBOM for backend + frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). |
 
-The `backend`, `smoke`, `e2e` and `frontend` jobs are **required status checks** on `main`
-(branch protection), so a change cannot merge unless they pass. `e2e-playwright` runs on every
-PR but is advisory for now.
+All ten checks — `backend`, `frontend`, `smoke`, `e2e`, `e2e-playwright`, `catalogue`
+(`ci.yml`) and `deps`, `secret-scan`, `codeql` ×2 (`security.yml`) — are **required
+status checks** on `main` with **strict** (up-to-date-before-merge) enforcement, so a
+change cannot merge unless they pass (TF-13 S-6).
 
 ### Browser end-to-end (Playwright)
 
