@@ -3581,9 +3581,13 @@ async def _fetch_small_variant_summary(
             SELECT sample_id, non_ref_count, het_count, hom_alt_count
             FROM {_small_summary_table_name(context.assembly_name, 'family_sample_variant_summary')}
             WHERE family_guid = %(family_guid)s
+              AND project_guid = %(project_guid)s
             ORDER BY sample_id
             """,
-            {"family_guid": context.family_uuid},
+            {
+                "family_guid": context.family_uuid,
+                "project_guid": context.project_ids[0],
+            },
         )
 
     if not sample_rows:
