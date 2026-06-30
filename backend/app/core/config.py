@@ -9,6 +9,8 @@ from sqlalchemy.engine import URL
 _DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
 _INSECURE_SECRET_VALUES = {"secret", "change-me"}
 _INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
+# libpq/asyncpg SSL modes for the Postgres connection (TF-13 S-2).
+_POSTGRES_SSLMODES = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
 
 class Settings(BaseSettings):
@@ -42,6 +44,14 @@ class Settings(BaseSettings):
     clickhouse_database: str = Field(default="coga", alias="CLICKHOUSE_DATABASE")
     clickhouse_user: str = Field(default="default", alias="CLICKHOUSE_USER")
     clickhouse_password: str = Field(default="", alias="CLICKHOUSE_PASSWORD")
+    # TLS to the datastores (TF-13 S-2). Defaults preserve the plain local/dev
+    # connection; production sets these to require encrypted links.
+    #   POSTGRES_SSLMODE: libpq mode — disable|allow|prefer|require|verify-ca|verify-full
+    #   CLICKHOUSE_SECURE: connect to ClickHouse over HTTPS (set CLICKHOUSE_HTTP_PORT=8443)
+    #   CLICKHOUSE_VERIFY: verify the ClickHouse server certificate when secure
+    postgres_sslmode: str = Field(default="disable", alias="POSTGRES_SSLMODE")
+    clickhouse_secure: bool = Field(default=False, alias="CLICKHOUSE_SECURE")
+    clickhouse_verify: bool = Field(default=True, alias="CLICKHOUSE_VERIFY")
     # Per-query ClickHouse guardrails. These let heavy variant-filter queries
     # spill to disk instead of being killed for memory, and bound their runtime
     # so a single broad query cannot hang the request indefinitely.
@@ -353,6 +363,10 @@ class Settings(BaseSettings):
             raise ValueError("AUDIT_LOG_MODE must be one of: async, sync, off")
         if self.audit_log_query_string_mode not in {"none", "keys", "sanitized"}:
             raise ValueError("AUDIT_LOG_QUERY_STRING_MODE must be one of: none, keys, sanitized")
+        if self.postgres_sslmode not in _POSTGRES_SSLMODES:
+            raise ValueError(
+                "POSTGRES_SSLMODE must be one of: " + ", ".join(sorted(_POSTGRES_SSLMODES))
+            )
         if self.storage_backend not in {"local", "s3"}:
             raise ValueError("STORAGE_BACKEND must be one of: local, s3")
         if self.storage_backend == "s3" and not self.s3_bucket:
@@ -402,6 +416,14 @@ class Settings(BaseSettings):
             port=self.postgres_port,
             database=self.postgres_db,
         )
+
+    @property
+    def postgres_connect_args(self) -> dict[str, str]:
+        """asyncpg connect args. Passes the libpq SSL mode through as `ssl` when
+        TLS is requested; empty (plain connection) when `POSTGRES_SSLMODE=disable`."""
+        if self.postgres_sslmode == "disable":
+            return {}
+        return {"ssl": self.postgres_sslmode}
 
 
 settings = Settings()
