@@ -48,6 +48,7 @@ jobs:
       repo_name: ${{ steps.meta.outputs.repo_name }}
       app_version: ${{ steps.meta.outputs.app_version }}
       git_sha: ${{ steps.meta.outputs.git_sha }}
+      gcp_configured: ${{ steps.gate.outputs.gcp_configured }}
     steps:
       - uses: actions/checkout@v4
       - name: Compute build metadata
@@ -65,9 +66,25 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "app_version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
           echo "git_sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Detect GCP deploy credentials
+        # The `secrets` context cannot be used in a job-level `if`, so resolve it
+        # here and gate the build/deploy jobs on this output. When GCP is not yet
+        # configured (no WIF provider secret) the image-build and deploy jobs skip
+        # cleanly instead of failing the run.
+        id: gate
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+        run: |
+          if [ -n "${WIF_PROVIDER}" ]; then
+            echo "gcp_configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "GCP_WIF_PROVIDER is not set — skipping image build and deploy." >> "$GITHUB_STEP_SUMMARY"
+            echo "gcp_configured=false" >> "$GITHUB_OUTPUT"
+          fi
 
   build-backend:
     needs: prepare
+    if: needs.prepare.outputs.gcp_configured == 'true'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -93,6 +110,7 @@ jobs:
 
   build-frontend:
     needs: prepare
+    if: needs.prepare.outputs.gcp_configured == 'true'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -118,9 +136,9 @@ jobs:
 
   deploy:
     needs: [prepare, build-backend, build-frontend]
-    # Apply only on push to main/master or a published release — never on a branch
-    # push or PR.
-    if: ${{ github.event_name == 'release' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) }}
+    # Apply only when GCP is configured, and only on push to main/master or a
+    # published release — never on a branch push or PR.
+    if: ${{ needs.prepare.outputs.gcp_configured == 'true' && (github.event_name == 'release' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'))) }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
