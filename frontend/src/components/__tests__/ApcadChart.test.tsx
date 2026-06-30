@@ -53,7 +53,7 @@ describe('ApcadChart', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const { rerender } = renderWithClient(
+    const { rerender, container } = renderWithClient(
       <ApcadChart
         apcadUrls={['https://example.test/apcad']}
         chroms={['1']}
@@ -63,6 +63,10 @@ describe('ApcadChart', () => {
     );
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // The chart opts into click telemetry via data-audit-id (the global click
+    // logger captures it); guard against a refactor silently dropping the hook.
+    expect(container.querySelector('[data-audit-id="apcad-chart"]')).not.toBeNull();
 
     rerender(
       <ApcadChart
