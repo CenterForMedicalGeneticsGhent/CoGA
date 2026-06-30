@@ -19,16 +19,48 @@ from .config import settings
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+# Cloud SQL connector instance (created lazily inside the async creator, bound to the
+# running loop). None unless POSTGRES_USE_CLOUD_SQL_CONNECTOR is set.
+_connector = None
+
+
+async def _cloud_sql_connect():
+    """asyncpg connection via the Cloud SQL Python Connector (mTLS + verify-full).
+
+    The connector is created lazily on first use so it binds to the running event
+    loop; it is reused across connections and closed in ``close_postgres_engine``."""
+    global _connector
+    if _connector is None:
+        from google.cloud.sql.connector import create_async_connector
+
+        _connector = await create_async_connector()
+    return await _connector.connect_async(
+        settings.postgres_instance_connection_name,
+        "asyncpg",
+        user=settings.postgres_user,
+        password=settings.postgres_password,
+        db=settings.postgres_db,
+        ip_type=settings.cloud_sql_ip_type,
+    )
 
 
 def get_postgres_engine() -> AsyncEngine:
     global _engine, _sessionmaker
     if _engine is None:
-        _engine = create_async_engine(
-            settings.postgres_dsn,
-            future=True,
-            connect_args=settings.postgres_connect_args,
-        )
+        if settings.postgres_use_cloud_sql_connector:
+            # The connector supplies the asyncpg connection (and the TLS identity),
+            # so the URL carries only the dialect/driver, no host or sslmode.
+            _engine = create_async_engine(
+                "postgresql+asyncpg://",
+                future=True,
+                async_creator=_cloud_sql_connect,
+            )
+        else:
+            _engine = create_async_engine(
+                settings.postgres_dsn,
+                future=True,
+                connect_args=settings.postgres_connect_args,
+            )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine
 
@@ -118,8 +150,11 @@ async def init_postgres_schema() -> None:
 
 
 async def close_postgres_engine() -> None:
-    global _engine, _sessionmaker
+    global _engine, _sessionmaker, _connector
     if _engine is not None:
         await _engine.dispose()
+    if _connector is not None:
+        await _connector.close_async()
     _engine = None
     _sessionmaker = None
+    _connector = None

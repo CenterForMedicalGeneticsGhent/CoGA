@@ -4,6 +4,10 @@
 #
 #    pip-compile --allow-unsafe --cert=None --client-cert=None --generate-hashes --index-url=None --output-file=requirements-dev.txt --pip-args=None --strip-extras requirements-dev.in
 #
+aiofiles==25.1.0 \
+    --hash=sha256:a8d728f0a29de45dc521f18f07297428d56992a742f0cd2701ba86e44d23d5b2 \
+    --hash=sha256:abe311e527c862958650f9438e859c1fa7568a141b22abcd015e120e86a85695
+    # via cloud-sql-python-connector
 aiohappyeyeballs==2.6.2 \
     --hash=sha256:4708045e2d7a6c6bdf8aafa8ed39649eaf926a4543b54560659129e3365953c4 \
     --hash=sha256:e202810ee718bd01fc6ef49e8ea53d023d5cb6b581076d7925aa499fa55dbe64
@@ -128,7 +132,9 @@ aiohttp==3.14.1 \
     --hash=sha256:f7a16ef45b081454ef844502d87a848876c490c4cb5c650c230f6ec79ed2c1e7 \
     --hash=sha256:faccab372e66bc76d5731525e7f1143c922271725b9d38c9f97edcc66266b451 \
     --hash=sha256:fc0cacab7ba4e56f0f81c82a98c09bed2f39c940107b03a34b168bdf7597edd3
-    # via clickhouse-connect
+    # via
+    #   clickhouse-connect
+    #   cloud-sql-python-connector
 aiosignal==1.4.0 \
     --hash=sha256:053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e \
     --hash=sha256:f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7
@@ -212,7 +218,9 @@ asyncpg==0.31.0 \
     --hash=sha256:eee690960e8ab85063ba93af2ce128c0f52fd655fdff9fdb1a28df01329f031d \
     --hash=sha256:f6b56b91bb0ffc328c4e3ed113136cddd9deefdf5f79ab448598b9772831df44 \
     --hash=sha256:f890de5e1e4f7e14023619399a471ce4b71f5418cd67a51853b9910fdfa73696
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   cloud-sql-python-connector
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309 \
     --hash=sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32
@@ -542,6 +550,10 @@ clickhouse-connect==1.3.0 \
     --hash=sha256:f9afc060d8f001f05097a16ce05baf52900ec575a07049d9a16966f412a273f8 \
     --hash=sha256:fbb19aba0d474576ae594b55aeb969f594d3718cae6f20a3f08da25daca6bebc
     # via -r requirements.in
+cloud-sql-python-connector==1.20.4 \
+    --hash=sha256:4c1cd8b573d5e9b93a6f390ccf772fa431afdcc32025b1577e2bafa89756a9f6 \
+    --hash=sha256:fe2dbee747543ad2c720760c53064f0ef42ed04218981e1f7231362a88b3cf44
+    # via -r requirements.in
 coverage==7.14.3 \
     --hash=sha256:0096fd7559178f0cc9cf088f2dbd2a02ef85bacaa69732c633517286b4494610 \
     --hash=sha256:02c41de2a88011b893050fc9830267d927a50a215f7ad5ec17349db7090ccf26 \
@@ -683,12 +695,15 @@ cryptography==49.0.0 \
     --hash=sha256:f89660a348f4f78a92366240a61404e337586ef7f5909a2fef59ca88ef505493 \
     --hash=sha256:fc1e275c2f1d97b1a6450b8b0ea3ebfa6e087a611c2b26cb2404d48588abab7b
     # via
+    #   cloud-sql-python-connector
     #   google-auth
     #   pyjwt
 dnspython==2.8.0 \
     --hash=sha256:01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af \
     --hash=sha256:181d3c6996452cb1189c4046c61599b84a5a86e099562ffde77d26984ff26d0f
-    # via email-validator
+    # via
+    #   cloud-sql-python-connector
+    #   email-validator
 email-validator==2.3.0 \
     --hash=sha256:80f13f623413e6b197ae73bb10bf4eb0908faf509ad8362c5edeb0be7fd450b4 \
     --hash=sha256:9fc05c37f2f6cf439ff414f8fc46d917929974a82244c20eb10231ba60c54426
@@ -847,6 +862,7 @@ google-auth==2.55.1 \
     --hash=sha256:eada68dfd52b3b81191827601e2a0c3fa12540c818534b630ddc5355769c3995 \
     --hash=sha256:fb2d9b730f2c9b8d326ec8d7222f21aef2ead15bf0513793d6442485d87af0a1
     # via
+    #   cloud-sql-python-connector
     #   google-api-core
     #   google-cloud-core
     #   google-cloud-storage
@@ -2012,6 +2028,7 @@ requests==2.34.2 \
     --hash=sha256:f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed
     # via
     #   -r requirements.in
+    #   cloud-sql-python-connector
     #   google-api-core
     #   google-cloud-storage
 s3transfer==0.19.0 \

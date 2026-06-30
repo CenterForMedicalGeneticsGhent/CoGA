@@ -54,6 +54,18 @@ class Settings(BaseSettings):
     #   CLICKHOUSE_SECURE: connect to ClickHouse over HTTPS (set CLICKHOUSE_HTTP_PORT=8443)
     #   CLICKHOUSE_VERIFY: verify the ClickHouse server certificate when secure
     postgres_sslmode: str = Field(default="disable", alias="POSTGRES_SSLMODE")
+    # Cloud SQL Python Connector. When enabled, connect through the connector (mTLS +
+    # full server-identity verification — verify-full grade — over private IP, with
+    # automatic ephemeral-cert rotation) instead of a direct DSN, which avoids the
+    # Cloud SQL hostname/CN mismatch that blocks plain sslmode=verify-full. Requires
+    # the instance connection name (project:region:instance).
+    postgres_use_cloud_sql_connector: bool = Field(
+        default=False, alias="POSTGRES_USE_CLOUD_SQL_CONNECTOR"
+    )
+    postgres_instance_connection_name: str | None = Field(
+        default=None, alias="POSTGRES_INSTANCE_CONNECTION_NAME"
+    )
+    cloud_sql_ip_type: str = Field(default="PRIVATE", alias="CLOUD_SQL_IP_TYPE")
     clickhouse_secure: bool = Field(default=False, alias="CLICKHOUSE_SECURE")
     clickhouse_verify: bool = Field(default=True, alias="CLICKHOUSE_VERIFY")
     # CA certificate used to verify the ClickHouse server cert when CLICKHOUSE_SECURE
@@ -386,6 +398,11 @@ class Settings(BaseSettings):
         if self.postgres_sslmode not in _POSTGRES_SSLMODES:
             raise ValueError(
                 "POSTGRES_SSLMODE must be one of: " + ", ".join(sorted(_POSTGRES_SSLMODES))
+            )
+        if self.postgres_use_cloud_sql_connector and not self.postgres_instance_connection_name:
+            raise ValueError(
+                "POSTGRES_USE_CLOUD_SQL_CONNECTOR=true requires "
+                "POSTGRES_INSTANCE_CONNECTION_NAME (project:region:instance)."
             )
         if self.storage_backend not in {"local", "s3", "gcs"}:
             raise ValueError("STORAGE_BACKEND must be one of: local, s3, gcs")

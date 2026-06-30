@@ -115,6 +115,22 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "POSTGRES_SSLMODE"
         value = "require"
       }
+      # Connect via the Cloud SQL Python Connector: mTLS + full server-identity
+      # verification (verify-full grade) over private IP, with automatic cert
+      # rotation. Supersedes POSTGRES_HOST/SSLMODE above when enabled. Uses the
+      # backend SA's roles/cloudsql.client + the Cloud SQL Admin API.
+      env {
+        name  = "POSTGRES_USE_CLOUD_SQL_CONNECTOR"
+        value = "true"
+      }
+      env {
+        name  = "POSTGRES_INSTANCE_CONNECTION_NAME"
+        value = google_sql_database_instance.postgres.connection_name
+      }
+      env {
+        name  = "CLOUD_SQL_IP_TYPE"
+        value = "PRIVATE"
+      }
       env {
         name = "POSTGRES_PASSWORD"
         value_source {
