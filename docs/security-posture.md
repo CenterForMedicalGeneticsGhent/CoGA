@@ -56,11 +56,17 @@ an admin bypasses scoping. These lock in the access boundary against regression.
   account removal still works while the denormalised `user_email`/`user_role`
   preserve the actor. Verified against live Postgres: insert ok, update/delete
   blocked, user-deletion cascade still nulls `user_id`.
+- ✅ **Durable pipeline (new — TF-13 S-5).** A full async queue no longer silently
+  drops (`services/event_pipeline.py`): it applies backpressure for up to
+  `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event synchronously,
+  the worker retries failed batch writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`), and any
+  event that still cannot be persisted is logged at ERROR with its full (already
+  sanitised) payload and counted (`dropped_event_count`) for alerting — never lost
+  without a trace. The default bound is raised to `AUDIT_LOG_QUEUE_SIZE=10000`;
+  `AUDIT_LOG_DROP_ALLOWED=true` restores the old drop-on-full behaviour for low
+  overhead and is **refused outside development**.
 
 **Remaining (deployment):**
-- 🟡 **Queue overflow drops events** under sustained load (bounded in-memory
-  queue). Monitor the drop-warning and raise `AUDIT_LOG_QUEUE_SIZE`, or move to a
-  persistent queue, for high-traffic production.
 - ⛔ **Byte-level S3 downloads are not backend-audited.** The backend logs
   *issuance* of a presigned URL but the browser fetches bytes from S3 directly.
   Enable **S3 server access logging / CloudTrail data events** to capture the

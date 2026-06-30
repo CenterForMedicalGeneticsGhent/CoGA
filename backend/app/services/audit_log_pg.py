@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 import json
@@ -13,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import AuditLogEventOut, AuditLogPageOut
+from .event_pipeline import enqueue_event, write_event_batch_with_retry
 
-logger = logging.getLogger(__name__)
+_AUDIT_PIPELINE_NAME = "audit_log"
 
 _INSERT_AUDIT_LOG_SQL = text(
     """
@@ -167,10 +167,9 @@ async def _audit_log_worker() -> None:
             batch = _drain_audit_log_queue(settings.audit_log_batch_size)
             if not batch:
                 return
-            try:
-                await _write_audit_log_batch(batch)
-            except Exception:
-                logger.exception("Failed to flush audit log events during shutdown")
+            await write_event_batch_with_retry(
+                _write_audit_log_batch, batch, name=_AUDIT_PIPELINE_NAME
+            )
             continue
 
         try:
@@ -182,10 +181,9 @@ async def _audit_log_worker() -> None:
             continue
 
         batch = [first_item, *_drain_audit_log_queue(settings.audit_log_batch_size - 1)]
-        try:
-            await _write_audit_log_batch(batch)
-        except Exception:
-            logger.exception("Failed to persist batched audit log events")
+        await write_event_batch_with_retry(
+            _write_audit_log_batch, batch, name=_AUDIT_PIPELINE_NAME
+        )
 
 
 async def start_audit_log_worker() -> None:
@@ -225,10 +223,12 @@ async def write_audit_log_event(payload: AuditLogEventPayload) -> None:
     if settings.audit_log_mode != "async" or _audit_log_queue is None:
         await _write_audit_log_batch([payload])
         return
-    try:
-        _audit_log_queue.put_nowait(payload)
-    except asyncio.QueueFull:
-        logger.warning("Dropping audit log event because the queue is full")
+    await enqueue_event(
+        _audit_log_queue,
+        payload,
+        name=_AUDIT_PIPELINE_NAME,
+        write_batch=_write_audit_log_batch,
+    )
 
 
 async def _insert_audit_log_event(session: AsyncSession, payload: AuditLogEventPayload) -> None:

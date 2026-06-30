@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from app.core.config import settings
+from app.services.event_pipeline import (
+    dropped_event_count,
+    enqueue_event,
+    reset_dropped_event_counts,
+    write_event_batch_with_retry,
+)
+
+NAME = "test_pipe"
+
+
+@pytest.fixture(autouse=True)
+def _reset_counts():
+    reset_dropped_event_counts()
+    yield
+    reset_dropped_event_counts()
+
+
+def _recorder():
+    calls: list[list] = []
+
+    async def write_batch(batch):
+        calls.append(list(batch))
+
+    return calls, write_batch
+
+
+@pytest.mark.asyncio
+async def test_enqueue_fast_path_enqueues_without_writing():
+    calls, write_batch = _recorder()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=4)
+
+    await enqueue_event(queue, "evt", name=NAME, write_batch=write_batch)
+
+    assert queue.get_nowait() == "evt"
+    assert calls == []
+    assert dropped_event_count(NAME) == 0
+
+
+@pytest.mark.asyncio
+async def test_full_queue_drops_only_when_drop_allowed(monkeypatch):
+    monkeypatch.setattr(settings, "audit_log_drop_allowed", True)
+    calls, write_batch = _recorder()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    queue.put_nowait("first")
+
+    await enqueue_event(queue, "second", name=NAME, write_batch=write_batch)
+
+    # Dropped: not written, not enqueued, but counted (never silent).
+    assert calls == []
+    assert queue.qsize() == 1 and queue.get_nowait() == "first"
+    assert dropped_event_count(NAME) == 1
+
+
+@pytest.mark.asyncio
+async def test_full_queue_falls_back_to_synchronous_write(monkeypatch):
+    monkeypatch.setattr(settings, "audit_log_drop_allowed", False)
+    monkeypatch.setattr(settings, "audit_log_backpressure_timeout_seconds", 0.05)
+    calls, write_batch = _recorder()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    queue.put_nowait("first")  # full, with no consumer
+
+    await enqueue_event(queue, "second", name=NAME, write_batch=write_batch)
+
+    # Backpressure times out -> the event is written synchronously, never lost.
+    assert calls == [["second"]]
+    assert dropped_event_count(NAME) == 0
+
+
+@pytest.mark.asyncio
+async def test_backpressure_enqueues_when_space_frees(monkeypatch):
+    monkeypatch.setattr(settings, "audit_log_drop_allowed", False)
+    monkeypatch.setattr(settings, "audit_log_backpressure_timeout_seconds", 5.0)
+    calls, write_batch = _recorder()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    queue.put_nowait("first")
+
+    task = asyncio.create_task(
+        enqueue_event(queue, "second", name=NAME, write_batch=write_batch)
+    )
+    # Let the producer block on put(), then free a slot so it proceeds.
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert queue.get_nowait() == "first"
+    await task
+
+    assert queue.get_nowait() == "second"
+    assert calls == []
+    assert dropped_event_count(NAME) == 0
+
+
+@pytest.mark.asyncio
+async def test_synchronous_fallback_failure_is_recorded_not_raised(monkeypatch):
+    monkeypatch.setattr(settings, "audit_log_drop_allowed", False)
+    monkeypatch.setattr(settings, "audit_log_backpressure_timeout_seconds", 0.05)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+    queue.put_nowait("first")
+
+    async def failing_write(_batch):
+        raise RuntimeError("db down")
+
+    # Must not raise into the caller (the request middleware).
+    await enqueue_event(queue, "second", name=NAME, write_batch=failing_write)
+
+    assert dropped_event_count(NAME) == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_retry_succeeds_after_transient_failure(monkeypatch):
+    monkeypatch.setattr(settings, "audit_log_max_write_attempts", 3)
+    monkeypatch.setattr(settings, "audit_log_flush_interval_seconds", 0.01)
+    monkeypatch.setattr(settings, "audit_log_backpressure_timeout_seconds", 0.05)
+    attempts = {"n": 0}
+
+    async def flaky(_batch):
+        attempts["n"] += 1
+        if attempts["n"] < 2:
+            raise RuntimeError("transient")
+
+    await write_event_batch_with_retry(flaky, ["a", "b"], name=NAME)
+
+    assert attempts["n"] == 2
+    assert dropped_event_count(NAME) == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_retry_records_every_event_after_exhaustion(monkeypatch):
+    monkeypatch.setattr(settings, "audit_log_max_write_attempts", 2)
+    monkeypatch.setattr(settings, "audit_log_flush_interval_seconds", 0.01)
+    monkeypatch.setattr(settings, "audit_log_backpressure_timeout_seconds", 0.05)
+    attempts = {"n": 0}
+
+    async def always_fail(_batch):
+        attempts["n"] += 1
+        raise RuntimeError("db down")
+
+    await write_event_batch_with_retry(always_fail, ["a", "b", "c"], name=NAME)
+
+    assert attempts["n"] == 2  # bounded retries, not infinite
+    assert dropped_event_count(NAME) == 3  # every event recorded, none silent
+
+
+@pytest.mark.asyncio
+async def test_empty_batch_is_noop():
+    calls, write_batch = _recorder()
+    await write_event_batch_with_retry(write_batch, [], name=NAME)
+    assert calls == []
+    assert dropped_event_count(NAME) == 0

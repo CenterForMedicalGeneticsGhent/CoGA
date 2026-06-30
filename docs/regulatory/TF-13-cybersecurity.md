@@ -47,7 +47,7 @@ Tracked in [security-posture.md](../security-posture.md) "Remaining"; restated a
 | S-2 | TLS between services & to datastores | `sslmode=require` (PG); ClickHouse over HTTPS/9440. |
 | S-3 | Secrets management | Move DB/ClickHouse creds out of compose into a secret store; rotate `SECRET_KEY`. |
 | S-4 | Byte-level PHI download audit | S3 server-access logging / CloudTrail data events. |
-| S-5 | Audit-queue durability | Persistent queue or raised bound to avoid event drops under load. |
+| S-5 | Audit-queue durability | ✅ Done — a full async queue applies backpressure then writes the event synchronously; the worker retries batch writes and records (never silently drops) any unpersistable event at ERROR with its payload; default bound raised to `AUDIT_LOG_QUEUE_SIZE=10000`; silent drops refused in production (`AUDIT_LOG_DROP_ALLOWED=false`). See [security-posture.md](../security-posture.md) §2. |
 | S-6 | Branch-protection required checks | Enforce CI gates as required (also TF-09). |
 | S-7 | Dependency pinning | Pin all runtime deps for reproducible, vuln-tracked builds (TF-08). |
 | S-8 | Network posture | Private subnets for datastores; VPC endpoint for S3; minimal IAM (`s3:GetObject` on the PHI prefix only). |
