@@ -227,6 +227,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/integration/test_gene_search_indexes.py](../backend/tests/integration/test_gene_search_indexes.py) | P2-3: the gene-search expression indexes serve their real queries — seeds ~600 genes/gene_info + ANALYZE, then EXPLAINs the actual autocomplete / panel / region-OR / candidate-OR / gene_info-constraint shapes asserting no Seq Scan on genes/gene_info (and the autocomplete is pinned to its prefix index). |
 | [backend/tests/integration/test_track_availability_presence_integration.py](../backend/tests/integration/test_track_availability_presence_integration.py) | P2-1a end-to-end (real ClickHouse): ingests a tiny small-variant fixture and asserts the aggregated per-sample presence — non-ref counts, ref does not, chromosome filter scopes correctly. |
 | [backend/tests/integration/test_variant_explorer_keyset_integration.py](../backend/tests/integration/test_variant_explorer_keyset_integration.py) | P2-4b end-to-end (real ClickHouse): pages five variants (incl. a carrier-count tie) at page_size 2 via next_cursor — every variant once, non-increasing sort across page boundaries, correct page count — validating the HAVING seek + cursor round-trip. |
+| [backend/tests/integration/test_gcs_storage_integration.py](../backend/tests/integration/test_gcs_storage_integration.py) | GCS storage backend end-to-end against fake-gcs-server (real JSON API): seeds a bucket and asserts `object_exists`, `download_prefix` (nested-prefix layout), and remote package discovery (`list_remote_package_candidates` — manifest vs `.ped` vs neither). Endpoint from `GCS_ENDPOINT_URL`, else a container started via docker. Complements the mocked unit tests; signed-URL signing stays unit-only (needs real IAM SignBlob). |
 
 ### End-to-end (golden pipeline)
 | Test file | Purpose |
@@ -246,6 +247,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_async_blocking_io.py](../backend/tests/test_async_blocking_io.py) | Concurrent manifest resolution, reference-cache, and blocking-IO offload. |
 | [backend/tests/test_health_endpoint.py](../backend/tests/test_health_endpoint.py) | Health endpoint liveness without datastores. |
 | [backend/tests/test_postgres_schema_loader.py](../backend/tests/test_postgres_schema_loader.py) | SQL splitting and dollar-quoted PL/pgSQL handling (migration loader). |
+| [backend/tests/test_postgres_engine.py](../backend/tests/test_postgres_engine.py) | Postgres engine selection: Cloud SQL Python Connector (verify-full TLS) when enabled vs DSN when disabled. |
 | [backend/tests/test_github_releases_service.py](../backend/tests/test_github_releases_service.py) | GitHub release summary/changelog formatting. |
 | [backend/tests/test_ui_events.py](../backend/tests/test_ui_events.py) | UI-event path masking, label sanitization, batch insert. |
 | [backend/tests/test_apcad_band_targets.py](../backend/tests/test_apcad_band_targets.py) | APCAD downsample budget allocation across BAF bands. |

@@ -37,7 +37,7 @@ def test_staged_package_source_local_is_passthrough(tmp_path):
 
 
 def test_cram_manifest_uses_presigned_urls_in_s3_mode(monkeypatch):
-    monkeypatch.setattr(cram, "storage_is_s3", lambda: True)
+    monkeypatch.setattr(cram, "storage_is_remote", lambda: True)
     monkeypatch.setattr(cram, "object_key", lambda *parts: "/".join(parts))
     # Pretend the CRAM + index objects exist (but not the BAM ones).
     monkeypatch.setattr(cram, "object_exists", lambda key: ".cram" in key)
@@ -53,7 +53,7 @@ def test_cram_manifest_uses_presigned_urls_in_s3_mode(monkeypatch):
 
 
 def test_cram_manifest_relative_urls_in_local_mode(monkeypatch):
-    monkeypatch.setattr(cram, "storage_is_s3", lambda: False)
+    monkeypatch.setattr(cram, "storage_is_remote", lambda: False)
     monkeypatch.setattr(cram, "_alignment_exists", lambda fam, sample, ext, suffix="": ext == "cram")
     entry = cram._resolve_alignment_manifest_entry("F1", "S1")
     assert entry is not None

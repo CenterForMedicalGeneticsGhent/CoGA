@@ -1,0 +1,119 @@
+#!/bin/bash
+# CoGA ClickHouse bootstrap (Container-Optimized OS).
+# Rendered by Terraform templatefile(): bash variable expansions are escaped as $$
+# so Terraform passes them through literally; only the named TF vars are substituted.
+set -euo pipefail
+
+DATA_DEVICE="/dev/disk/by-id/google-clickhouse-data"
+MOUNT_POINT="/mnt/disks/clickhouse"
+CONFIG_DIR="/etc/coga-clickhouse/config.d"
+CERTS_DIR="/etc/coga-clickhouse/certs"
+
+mkdir -p "$${MOUNT_POINT}" "$${CONFIG_DIR}" "$${CERTS_DIR}"
+
+# Format the dedicated data disk on first boot only; never reformat existing data.
+if ! blkid "$${DATA_DEVICE}" >/dev/null 2>&1; then
+  mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard "$${DATA_DEVICE}"
+fi
+
+if ! mountpoint -q "$${MOUNT_POINT}"; then
+  mount -o discard,defaults "$${DATA_DEVICE}" "$${MOUNT_POINT}"
+fi
+mkdir -p "$${MOUNT_POINT}/clickhouse"
+
+# Secret Manager access via the VM's metadata token (COS has no gcloud). Reachable
+# over Private Google Access (no public IP).
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+  | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+fetch_secret() {
+  local name="$${1}"
+  curl -s -H "Authorization: Bearer $${TOKEN}" \
+    "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/$${name}/versions/latest:access" \
+    | grep -o '"data":"[^"]*"' | cut -d'"' -f4 | base64 -d
+}
+
+CH_PASSWORD=$(fetch_secret "${password_secret}")
+if [ -z "$${CH_PASSWORD}" ]; then
+  echo "FATAL: could not read ClickHouse password from Secret Manager" >&2
+  exit 1
+fi
+
+# TLS server key + cert (TF-13 S-2).
+fetch_secret "${tls_key_secret}"  > "$${CERTS_DIR}/server.key"
+fetch_secret "${tls_cert_secret}" > "$${CERTS_DIR}/server.crt"
+if [ ! -s "$${CERTS_DIR}/server.key" ] || [ ! -s "$${CERTS_DIR}/server.crt" ]; then
+  echo "FATAL: could not read ClickHouse TLS material from Secret Manager" >&2
+  exit 1
+fi
+# Readable by the in-container clickhouse user (uid/gid 101); key stays private.
+chown -R 101:101 "$${CERTS_DIR}"
+chmod 600 "$${CERTS_DIR}/server.key"
+chmod 644 "$${CERTS_DIR}/server.crt"
+
+# Enable HTTPS on ${https_port}; the plain HTTP interface stays bound but firewalled.
+cat > "$${CONFIG_DIR}/tls.xml" <<'XML'
+<clickhouse>
+  <https_port>${https_port}</https_port>
+  <listen_host>0.0.0.0</listen_host>
+  <openSSL>
+    <server>
+      <certificateFile>/etc/clickhouse-server/certs/server.crt</certificateFile>
+      <privateKeyFile>/etc/clickhouse-server/certs/server.key</privateKeyFile>
+      <verificationMode>none</verificationMode>
+      <cacheSessions>true</cacheSessions>
+      <disableProtocols>sslv2,sslv3</disableProtocols>
+      <preferServerCiphers>true</preferServerCiphers>
+    </server>
+  </openSSL>
+</clickhouse>
+XML
+
+# Idempotent: remove any prior container before (re)starting.
+docker rm -f clickhouse-server >/dev/null 2>&1 || true
+
+docker run -d \
+  --name clickhouse-server \
+  --restart always \
+  --ulimit nofile=262144:262144 \
+  -p ${https_port}:${https_port} -p 8123:8123 -p 9000:9000 \
+  -v "$${MOUNT_POINT}/clickhouse":/var/lib/clickhouse \
+  -v "$${CERTS_DIR}":/etc/clickhouse-server/certs:ro \
+  -v "$${CONFIG_DIR}":/etc/clickhouse-server/config.d:ro \
+  -e CLICKHOUSE_DB="${ch_db}" \
+  -e CLICKHOUSE_USER="${ch_user}" \
+  -e CLICKHOUSE_PASSWORD="$${CH_PASSWORD}" \
+  -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 \
+  "${clickhouse_image}"
+
+# TLS cert auto-rotation: install the refresh script (passed via instance metadata)
+# and a daily systemd timer that refetches the cert from Secret Manager and restarts
+# ClickHouse only if it changed — so rotation needs no manual VM rebuild.
+curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/attributes/cert-refresh-script" \
+  > /etc/coga-clickhouse/refresh-certs.sh
+chmod 700 /etc/coga-clickhouse/refresh-certs.sh
+
+cat > /etc/systemd/system/coga-cert-refresh.service <<'UNIT'
+[Unit]
+Description=Refresh ClickHouse TLS certs from Secret Manager
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/etc/coga-clickhouse/refresh-certs.sh
+UNIT
+
+cat > /etc/systemd/system/coga-cert-refresh.timer <<'UNIT'
+[Unit]
+Description=Daily ClickHouse TLS cert refresh
+[Timer]
+OnBootSec=1h
+OnUnitActiveSec=24h
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now coga-cert-refresh.timer

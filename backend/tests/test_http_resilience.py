@@ -129,8 +129,8 @@ def test_s3_client_has_bounded_timeouts_and_retries():
     pytest.importorskip("boto3")
     from backend.app.core import object_storage
 
-    object_storage._client.cache_clear()
-    config = object_storage._client().meta.config
+    object_storage._s3_client.cache_clear()
+    config = object_storage._s3_client().meta.config
     assert config.connect_timeout == settings.s3_connect_timeout_seconds
     assert config.read_timeout == settings.s3_read_timeout_seconds
     # botocore resolves max_attempts -> total_max_attempts (counting the initial attempt,

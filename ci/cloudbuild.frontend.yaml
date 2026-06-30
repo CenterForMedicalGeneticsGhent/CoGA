@@ -1,0 +1,38 @@
+# Build the frontend image from the REPO ROOT context (frontend/Dockerfile uses
+# `COPY frontend/...`). VITE_API_BASE_URL is baked at build time and must be /api so
+# the SPA calls same-origin; the load balancer routes /api/* to the backend.
+#
+# Invoke from repo root:
+#   gcloud builds submit --config=ci/cloudbuild.frontend.yaml \
+#     --substitutions=_IMAGE=<url>,_REPO_URL=<url>,_RELEASES_URL=<url>,_ISSUES_URL=<url> .
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - frontend/Dockerfile
+      - --target
+      - production
+      - --build-arg
+      - VITE_API_BASE_URL=/api
+      - --build-arg
+      - VITE_GITHUB_REPOSITORY_URL=${_REPO_URL}
+      - --build-arg
+      - VITE_GITHUB_RELEASES_URL=${_RELEASES_URL}
+      - --build-arg
+      - VITE_GITHUB_ISSUES_URL=${_ISSUES_URL}
+      - -t
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _REPO_URL: ""
+  _RELEASES_URL: ""
+  _ISSUES_URL: ""

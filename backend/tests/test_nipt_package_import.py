@@ -133,7 +133,7 @@ def test_scan_includes_s3_packages(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         ]
 
-    monkeypatch.setattr(fpi, "list_s3_package_candidates", fake_list)
+    monkeypatch.setattr(fpi, "list_remote_package_candidates", fake_list)
 
     packages = {pkg["name"]: pkg for pkg in scan_family_import_packages()}
     assert "FAM_S3" in packages
@@ -148,7 +148,7 @@ def test_scan_s3_failure_is_best_effort(monkeypatch: pytest.MonkeyPatch) -> None
     def boom(_uri: str):
         raise RuntimeError("no credentials")
 
-    monkeypatch.setattr(fpi, "list_s3_package_candidates", boom)
+    monkeypatch.setattr(fpi, "list_remote_package_candidates", boom)
     assert scan_family_import_packages() == []
 
 

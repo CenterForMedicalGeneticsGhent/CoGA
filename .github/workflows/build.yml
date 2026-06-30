@@ -1,0 +1,154 @@
+name: Build, push, and deploy (GCP)
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main, master]
+    tags: ['*']
+  pull_request:
+    branches: [main, master]
+
+env:
+  REGISTRY_PROJECT_ID: ${{ secrets.GCP_REGISTRY_PROJECT_ID }}
+  CLOUDBUILD_BUCKET: ${{ secrets.GCP_CLOUDBUILD_STAGING_BUCKET }}
+  WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+  COGA_PROJECT_ID: ${{ secrets.GCP_COGA_PROJECT_ID }}
+  TF_STATE_BUCKET: ${{ secrets.GCP_COGA_TF_STATE_BUCKET }}
+  GCP_ENV: dev
+  GCP_REGION_SHORT: ${{ vars.GCP_REGION_SHORT }}
+  GCP_REGION: europe-west1
+  REGISTRY_HOST: europe-west1-docker.pkg.dev
+  AR_REPO: gen-ghreg-shared-gbl
+
+jobs:
+  # ---- PR safety: validate Terraform without any cloud credentials -----------
+  tf-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: terraform fmt -check
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+      - name: terraform init (no backend)
+        working-directory: terraform
+        run: terraform init -backend=false
+      - name: terraform validate
+        working-directory: terraform
+        run: terraform validate
+
+  prepare:
+    # Build/deploy only on push to a release branch, tags, or a published release —
+    # never on pull_request (no auto-apply of infra from PR code).
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      repo_name: ${{ steps.meta.outputs.repo_name }}
+      app_version: ${{ steps.meta.outputs.app_version }}
+      git_sha: ${{ steps.meta.outputs.git_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute build metadata
+        id: meta
+        run: |
+          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo_name=${REPO}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          elif [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "master" ]; then
+            TAG="main"
+          else
+            TAG=$(echo "${{ github.ref_name }}" | tr '/.' '_')
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "app_version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+          echo "git_sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-backend:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
+          project_id: ${{ env.REGISTRY_PROJECT_ID }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build & push backend (root context, build identity baked)
+        run: |
+          gcloud builds submit \
+            --project=${{ env.REGISTRY_PROJECT_ID }} \
+            --region=${{ env.GCP_REGION }} \
+            --config=ci/cloudbuild.backend.yaml \
+            --substitutions=_IMAGE=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-backend:${{ needs.prepare.outputs.tag }},_APP_VERSION=${{ needs.prepare.outputs.app_version }},_GIT_SHA=${{ needs.prepare.outputs.git_sha }} \
+            --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
+            --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
+            .
+
+  build-frontend:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com
+          project_id: ${{ env.REGISTRY_PROJECT_ID }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build & push frontend (VITE_API_BASE_URL=/api baked)
+        run: |
+          gcloud builds submit \
+            --project=${{ env.REGISTRY_PROJECT_ID }} \
+            --region=${{ env.GCP_REGION }} \
+            --config=ci/cloudbuild.frontend.yaml \
+            --substitutions=_IMAGE=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }} \
+            --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
+            --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
+            .
+
+  deploy:
+    needs: [prepare, build-backend, build-frontend]
+    # Apply only on push to main/master or a published release — never on a branch
+    # push or PR.
+    if: ${{ github.event_name == 'release' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: coga-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-gh-actions@${{ env.COGA_PROJECT_ID }}.iam.gserviceaccount.com
+          project_id: ${{ env.COGA_PROJECT_ID }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="prefix=coga/${{ env.GCP_ENV }}"
+      - name: Terraform Plan
+        working-directory: terraform
+        run: |
+          terraform plan -out=tfplan \
+            -var="project_id=${{ env.COGA_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="cmek_key_self_link=${{ secrets.GCP_COGA_CMEK_KEY_SELF_LINK }}" \
+            -var="backend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-backend:${{ needs.prepare.outputs.tag }}" \
+            -var="frontend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }}"
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve tfplan

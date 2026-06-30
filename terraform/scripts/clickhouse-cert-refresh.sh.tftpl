@@ -1,0 +1,49 @@
+#!/bin/bash
+# Refresh the ClickHouse TLS server cert/key from Secret Manager and restart the
+# container only if they changed. Run on a systemd timer so cert rotation needs no
+# manual VM rebuild. The CA is long-lived and unchanged, so the backend keeps
+# verifying across a server-cert rotation.
+#
+# Rendered by Terraform templatefile(): bash expansions are escaped as $$; only the
+# named TF vars are substituted.
+set -euo pipefail
+
+CERTS_DIR="/etc/coga-clickhouse/certs"
+
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+  | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+fetch_secret() {
+  curl -s -H "Authorization: Bearer $${TOKEN}" \
+    "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/$${1}/versions/latest:access" \
+    | grep -o '"data":"[^"]*"' | cut -d'"' -f4 | base64 -d
+}
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$${TMP}"' EXIT
+
+fetch_secret "${tls_cert_secret}" > "$${TMP}/server.crt"
+fetch_secret "${tls_key_secret}"  > "$${TMP}/server.key"
+if [ ! -s "$${TMP}/server.crt" ] || [ ! -s "$${TMP}/server.key" ]; then
+  echo "cert-refresh: empty fetch, leaving current certs in place" >&2
+  exit 0
+fi
+
+new_crt=$(sha256sum "$${TMP}/server.crt" | cut -d' ' -f1)
+new_key=$(sha256sum "$${TMP}/server.key" | cut -d' ' -f1)
+old_crt=$(sha256sum "$${CERTS_DIR}/server.crt" 2>/dev/null | cut -d' ' -f1 || echo none)
+old_key=$(sha256sum "$${CERTS_DIR}/server.key" 2>/dev/null | cut -d' ' -f1 || echo none)
+
+if [ "$${new_crt}" = "$${old_crt}" ] && [ "$${new_key}" = "$${old_key}" ]; then
+  echo "cert-refresh: no change"
+  exit 0
+fi
+
+cp "$${TMP}/server.crt" "$${CERTS_DIR}/server.crt"
+cp "$${TMP}/server.key" "$${CERTS_DIR}/server.key"
+chown 101:101 "$${CERTS_DIR}/server.crt" "$${CERTS_DIR}/server.key"
+chmod 644 "$${CERTS_DIR}/server.crt"
+chmod 600 "$${CERTS_DIR}/server.key"
+docker restart clickhouse-server || true
+echo "cert-refresh: certs rotated, ClickHouse restarted"

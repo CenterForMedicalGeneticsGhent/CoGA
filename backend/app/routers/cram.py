@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 import pysam
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_s3
+from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_remote
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
@@ -28,7 +28,7 @@ def _alignment_key(family_id: str, sample_id: str, ext: str, suffix: str = "") -
 
 
 def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = "") -> bool:
-    if storage_is_s3():
+    if storage_is_remote():
         return object_exists(_alignment_key(family_id, sample_id, ext, suffix))
     return _alignment_path(family_id, sample_id, ext, suffix).exists()
 
@@ -36,13 +36,13 @@ def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = ""
 def _serve_alignment(
     family_id: str, sample_id: str, ext: str, suffix: str, not_found_detail: str
 ) -> Response:
-    """Stream a local file, or redirect to a presigned S3 URL in s3 mode."""
+    """Stream a local file, or redirect to a presigned/signed object URL in remote mode."""
     file_name = f"{sample_id}.{ext}{suffix}"
-    if storage_is_s3():
+    if storage_is_remote():
         key = _alignment_key(family_id, sample_id, ext, suffix)
         if not object_exists(key):
             raise HTTPException(status_code=404, detail=not_found_detail)
-        # IGV follows the 302 and reads bytes (with HTTP range) straight from S3.
+        # IGV follows the 302 and reads bytes (with HTTP range) straight from the store.
         return RedirectResponse(presigned_get_url(key, filename=file_name), status_code=302)
     path = _alignment_path(family_id, sample_id, ext, suffix)
     if not path.exists():
@@ -65,7 +65,7 @@ def _resolve_alignment_manifest_entry(
     for fmt, ext, index_suffix in (("cram", "cram", ".crai"), ("bam", "bam", ".bai")):
         if not (_alignment_exists(family_id, sample_id, ext) and _alignment_exists(family_id, sample_id, ext, index_suffix)):
             continue
-        if storage_is_s3():
+        if storage_is_remote():
             data_name = f"{sample_id}.{ext}"
             index_name = f"{sample_id}.{ext}{index_suffix}"
             return AlignmentManifestEntryOut(
@@ -242,7 +242,7 @@ def _read_alignment_header(family_id: str, sample_id: str) -> dict:
     Blocking work (pysam open + S3/htslib byte-range I/O), so callers must run
     it via ``asyncio.to_thread`` to avoid stalling the event loop.
     """
-    if storage_is_s3():
+    if storage_is_remote():
         for ext, mode in (("cram", "rc"), ("bam", "rb")):
             key = _alignment_key(family_id, sample_id, ext)
             if object_exists(key):
