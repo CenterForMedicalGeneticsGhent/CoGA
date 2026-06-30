@@ -17,7 +17,6 @@ from ..schemas import (
     FamilyInventoryPageOut,
     FamilyInventorySummaryOut,
     FamilyRawFilesOut,
-    ProjectsUpdate,
     RawImportFileOut,
     RawImportFileVerifyOut,
     SampleInventoryOut,
@@ -662,23 +661,6 @@ async def verify_raw_import_file_by_id(
     record = await get_raw_import_file_record(session, file_id=file_id)
     result = await _verify_raw_import_file(record)
     return RawImportFileVerifyOut(**result)
-
-
-async def update_sample_projects_data(
-    session: AsyncSession,
-    sample_id: str,
-    update: ProjectsUpdate,
-) -> dict[str, Any]:
-    result = await session.execute(
-        text("SELECT 1 FROM samples WHERE sample_id = :sample_id"),
-        {"sample_id": sample_id},
-    )
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="Sample not found")
-    raise HTTPException(
-        status_code=400,
-        detail="Samples inherit project access from their family",
-    )
 
 
 async def list_clickhouse_variant_status(
