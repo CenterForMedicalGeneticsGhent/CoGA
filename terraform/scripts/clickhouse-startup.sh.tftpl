@@ -1,0 +1,50 @@
+#!/bin/bash
+# CoGA ClickHouse bootstrap (Container-Optimized OS).
+# Rendered by Terraform templatefile(): bash variable expansions are escaped as $$
+# so Terraform passes them through literally; only the named TF vars are substituted.
+set -euo pipefail
+
+DATA_DEVICE="/dev/disk/by-id/google-clickhouse-data"
+MOUNT_POINT="/mnt/disks/clickhouse"
+
+mkdir -p "$${MOUNT_POINT}"
+
+# Format the dedicated data disk on first boot only; never reformat existing data.
+if ! blkid "$${DATA_DEVICE}" >/dev/null 2>&1; then
+  mkfs.ext4 -m 0 -F -E lazy_itable_init=0,lazy_journal_init=0,discard "$${DATA_DEVICE}"
+fi
+
+if ! mountpoint -q "$${MOUNT_POINT}"; then
+  mount -o discard,defaults "$${DATA_DEVICE}" "$${MOUNT_POINT}"
+fi
+mkdir -p "$${MOUNT_POINT}/clickhouse"
+
+# Fetch the ClickHouse admin password from Secret Manager using the VM's metadata
+# token (COS has no gcloud). Reachable over Private Google Access (no public IP).
+TOKEN=$(curl -s -H "Metadata-Flavor: Google" \
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+  | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
+
+CH_PASSWORD=$(curl -s -H "Authorization: Bearer $${TOKEN}" \
+  "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/${secret_name}/versions/latest:access" \
+  | grep -o '"data":"[^"]*"' | cut -d'"' -f4 | base64 -d)
+
+if [ -z "$${CH_PASSWORD}" ]; then
+  echo "FATAL: could not read ClickHouse password from Secret Manager" >&2
+  exit 1
+fi
+
+# Idempotent: remove any prior container before (re)starting.
+docker rm -f clickhouse-server >/dev/null 2>&1 || true
+
+docker run -d \
+  --name clickhouse-server \
+  --restart always \
+  --ulimit nofile=262144:262144 \
+  -p 8123:8123 -p 9000:9000 \
+  -v "$${MOUNT_POINT}/clickhouse":/var/lib/clickhouse \
+  -e CLICKHOUSE_DB="${ch_db}" \
+  -e CLICKHOUSE_USER="${ch_user}" \
+  -e CLICKHOUSE_PASSWORD="$${CH_PASSWORD}" \
+  -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 \
+  "${clickhouse_image}"

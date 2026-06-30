@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars (gitignored) or pass via -var / CI. Image vars and
+# passwords are supplied by CI; you typically only set the project-level values here.
+
+project_id = "my-coga-project"
+region     = "europe-west1"
+zone       = "europe-west1-b"
+
+app_domain = "coga.cmgg.be"
+
+# Container images (CI sets these per build; example shown for manual applies).
+backend_image  = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-backend:main"
+frontend_image = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-frontend:main"
+
+# CMEK: fully-qualified crypto key id, same region as resources. Set enable_cmek
+# = false to fall back to Google-managed keys (not recommended for PHI).
+enable_cmek        = true
+cmek_key_self_link = "projects/my-kms-project/locations/europe-west1/keyRings/coga/cryptoKeys/coga"
+
+# Sizing (scale up for production).
+db_tier                 = "db-custom-1-3840"
+db_availability_type    = "ZONAL"
+clickhouse_machine_type = "e2-standard-4"
+clickhouse_data_disk_gb = 200
+
+# Optional Azure AD / Entra institutional login.
+azure_ad_tenant_id = ""
+azure_ad_client_id = ""
