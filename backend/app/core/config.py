@@ -291,6 +291,11 @@ class Settings(BaseSettings):
     # S3_PRESIGN_EXPIRY_SECONDS.
     gcs_bucket: str | None = Field(default=None, alias="GCS_BUCKET")
     gcs_prefix: str = Field(default="", alias="GCS_PREFIX")
+    # Optional GCS project (mainly for emulators where it can't be inferred from ADC).
+    gcs_project: str | None = Field(default=None, alias="GCS_PROJECT")
+    # Optional override for a GCS-compatible endpoint (e.g. fake-gcs-server in tests,
+    # or a self-hosted store). When set, the client uses anonymous credentials.
+    gcs_endpoint_url: str | None = Field(default=None, alias="GCS_ENDPOINT_URL")
     # Roots that Package Import may read family folders from. Defaults to the
     # local /data/families; cloud deployments (Terraform, etc.) override this
     # with an s3:// bucket prefix via FAMILY_IMPORT_ROOTS.

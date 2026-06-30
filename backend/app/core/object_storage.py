@@ -159,7 +159,17 @@ def _s3_client():
 def _gcs_client():
     from google.cloud import storage  # lazy: only needed in gcs mode
 
-    return storage.Client()
+    if settings.gcs_endpoint_url:
+        # Emulator / GCS-compatible endpoint (e.g. fake-gcs-server): anonymous creds
+        # + explicit endpoint. The project is arbitrary for an emulator.
+        from google.auth.credentials import AnonymousCredentials
+
+        return storage.Client(
+            project=settings.gcs_project or "coga",
+            credentials=AnonymousCredentials(),
+            client_options={"api_endpoint": settings.gcs_endpoint_url},
+        )
+    return storage.Client(project=settings.gcs_project or None)
 
 
 # ---------------------------------------------------------------------------

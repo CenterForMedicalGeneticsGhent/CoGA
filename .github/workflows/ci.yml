@@ -95,6 +95,8 @@ jobs:
       HPO_BOOTSTRAP_ON_STARTUP: "false"
       GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: "false"
       RUN_INTEGRATION: "1"
+      # GCS storage backend integration test runs against fake-gcs-server (started below).
+      GCS_ENDPOINT_URL: "http://localhost:4443"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -104,6 +106,10 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - name: Install dependencies
         run: pip install -r backend/requirements-dev.txt
+      - name: Start fake-gcs-server (GCS storage backend integration test)
+        run: |
+          docker run -d --name fake-gcs -p 4443:4443 fsouza/fake-gcs-server \
+            -scheme http -port 4443 -public-host 127.0.0.1:4443
       - name: Boot the app against real datastores and probe health
         # Runs the real lifespan (Postgres + ClickHouse schema init, admin seed)
         # and asserts the app serves — catches startup crash-loops the unit suite
