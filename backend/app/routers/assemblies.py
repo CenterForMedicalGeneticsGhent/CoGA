@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.postgres import get_postgres_session
 from ..dependencies import (
     get_current_admin_user,
+    get_current_user,
 )
 from ..schemas import (
     AssemblyCreate,
@@ -48,7 +49,12 @@ async def list_all_assemblies(
 @router.get("/reference-status", response_model=List[AssemblyReferenceStatusOut])
 async def list_all_reference_statuses(
     session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
 ) -> List[AssemblyReferenceStatusOut]:
+    # Requires authentication: the response embeds import provenance (source +
+    # performed-by operator email) that must not be exposed unauthenticated. Any
+    # signed-in user may read it (the reference-data page is not admin-only).
+    del user
     return await list_reference_statuses(session)
 
 
