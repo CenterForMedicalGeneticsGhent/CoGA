@@ -1,5 +1,10 @@
 # CoGA Codebase Review — Cleanups Applied & Follow-up Backlog
 
+> **ARCHIVED / SUPERSEDED (2026-06-30).** This is a frozen point-in-time snapshot;
+> nearly all of its findings are now **FIXED**. It is retained only as a review/cleanup
+> paper trail. For the current engineering + regulatory plan see
+> [`../IMPROVEMENT-WORKPLAN.md`](../IMPROVEMENT-WORKPLAN.md); do not treat this document as live.
+
 _Generated 2026-06-14 from a whole-codebase review (branch `codebase-review-cleanup`)._
 
 ## Scope & method
