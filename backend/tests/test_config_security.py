@@ -22,3 +22,26 @@ def test_settings_allow_placeholder_defaults_in_test_env() -> None:
     )
 
     assert settings.is_development is True
+
+
+def test_settings_reject_audit_log_drop_allowed_in_production() -> None:
+    # Silently dropping accountability events is not permitted in production.
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            APP_ENV="production",
+            SECRET_KEY="x" * 48,
+            POSTGRES_PASSWORD="s3cure-pg-pass",
+            ADMIN_PASSWORD="s3cure-admin-pass",
+            AUDIT_LOG_DROP_ALLOWED=True,
+        )
+
+
+def test_settings_allow_audit_log_drop_allowed_in_development() -> None:
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="test",
+        AUDIT_LOG_DROP_ALLOWED=True,
+    )
+
+    assert settings.audit_log_drop_allowed is True

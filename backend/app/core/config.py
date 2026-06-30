@@ -123,7 +123,21 @@ class Settings(BaseSettings):
         le=30.0,
         alias="AUDIT_LOG_FLUSH_INTERVAL_SECONDS",
     )
-    audit_log_queue_size: int = Field(default=1000, ge=1, le=100_000, alias="AUDIT_LOG_QUEUE_SIZE")
+    audit_log_queue_size: int = Field(default=10_000, ge=1, le=100_000, alias="AUDIT_LOG_QUEUE_SIZE")
+    # When false (production default) the async pipeline never silently drops: a
+    # full queue applies backpressure and then writes the event synchronously.
+    # True is a dev/test-only escape hatch (refused in production below) that
+    # restores the old drop-on-full behaviour for low overhead.
+    audit_log_drop_allowed: bool = Field(default=False, alias="AUDIT_LOG_DROP_ALLOWED")
+    audit_log_backpressure_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        le=60.0,
+        alias="AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS",
+    )
+    audit_log_max_write_attempts: int = Field(
+        default=3, ge=1, le=10, alias="AUDIT_LOG_MAX_WRITE_ATTEMPTS"
+    )
     # "keys" records which query parameters a request used (e.g. the filters on a
     # variant search) without their values, so searches are logged structurally
     # while clinical identifiers stay out of the audit trail. Override with
@@ -340,6 +354,13 @@ class Settings(BaseSettings):
             )
         if self.is_development:
             return self
+
+        if self.audit_log_drop_allowed:
+            raise ValueError(
+                "AUDIT_LOG_DROP_ALLOWED=true is only permitted in development/test: "
+                "production must not silently drop accountability events. Set "
+                "APP_ENV=development for local work or AUDIT_LOG_DROP_ALLOWED=false."
+            )
 
         insecure_fields: list[str] = []
         if self.secret_key.strip() in _INSECURE_SECRET_VALUES:

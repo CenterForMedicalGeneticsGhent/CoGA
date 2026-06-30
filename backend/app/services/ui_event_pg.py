@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -13,8 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import UiEventOut, UiEventPageOut
+from .event_pipeline import enqueue_event, write_event_batch_with_retry
 
-logger = logging.getLogger(__name__)
+_UI_EVENT_PIPELINE_NAME = "ui_event"
 
 _INSERT_UI_EVENT_SQL = text(
     """
@@ -144,10 +144,9 @@ async def _ui_event_worker() -> None:
             batch = _drain_ui_event_queue(settings.audit_log_batch_size)
             if not batch:
                 return
-            try:
-                await _write_ui_event_batch(batch)
-            except Exception:
-                logger.exception("Failed to flush UI events during shutdown")
+            await write_event_batch_with_retry(
+                _write_ui_event_batch, batch, name=_UI_EVENT_PIPELINE_NAME
+            )
             continue
 
         try:
@@ -159,10 +158,9 @@ async def _ui_event_worker() -> None:
             continue
 
         batch = [first_item, *_drain_ui_event_queue(settings.audit_log_batch_size - 1)]
-        try:
-            await _write_ui_event_batch(batch)
-        except Exception:
-            logger.exception("Failed to persist batched UI events")
+        await write_event_batch_with_retry(
+            _write_ui_event_batch, batch, name=_UI_EVENT_PIPELINE_NAME
+        )
 
 
 async def start_ui_event_worker() -> None:
@@ -202,10 +200,12 @@ async def write_ui_event(payload: UiEventPayload) -> None:
     if settings.audit_log_mode != "async" or _ui_event_queue is None:
         await _write_ui_event_batch([payload])
         return
-    try:
-        _ui_event_queue.put_nowait(payload)
-    except asyncio.QueueFull:
-        logger.warning("Dropping UI event because the queue is full")
+    await enqueue_event(
+        _ui_event_queue,
+        payload,
+        name=_UI_EVENT_PIPELINE_NAME,
+        write_batch=_write_ui_event_batch,
+    )
 
 
 def _ui_event_out_from_mapping(row: dict[str, Any]) -> UiEventOut:
