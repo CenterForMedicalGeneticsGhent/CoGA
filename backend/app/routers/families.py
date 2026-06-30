@@ -72,6 +72,7 @@ from ..schemas import (
     VariantPage,
 )
 from ..services.clickhouse_family_variants import (
+    MAX_VARIANT_PAGE_SIZE,
     export_family_small_variants,
     export_family_structural_variants,
     get_family_compound_het_candidates as get_family_compound_het_candidates_clickhouse,
@@ -668,7 +669,7 @@ async def upload_family_small_variants(
 async def get_family_structural_variants(
     family_id: str,
     page: int = 1,
-    page_size: int = 100,
+    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
     chr: str | None = None,
     start: int | None = None,
     end: int | None = None,
@@ -860,7 +861,7 @@ def _family_small_variant_filters(
 async def get_family_small_variants(
     family_id: str,
     page: int = 1,
-    page_size: int = 100,
+    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
     project_id: str | None = None,
     overlap: bool = False,
     require_sv_second_hit: bool = False,
@@ -953,7 +954,7 @@ async def get_family_nipt_summary(
 async def get_family_nipt_variants_page(
     family_id: str,
     page: int = 1,
-    page_size: int = 100,
+    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
     project_id: str | None = None,
     external_ff: float | None = None,
     category: list[int] | None = Query(None),

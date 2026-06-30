@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import VariantPage
 from ..services.clickhouse_family_variants import (
+    MAX_VARIANT_PAGE_SIZE,
     get_family_structural_variants_page as get_family_structural_variants_clickhouse,
 )
 from ..services.family_metadata_context import build_family_metadata_context, build_sample_metadata_context
@@ -58,7 +59,7 @@ async def upload_structural_variants(
 async def get_sample_structural_variants(
     sample_id: str,
     page: int = 1,
-    page_size: int = 100,
+    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
     chr: str | None = None,
     start: int | None = None,
     end: int | None = None,

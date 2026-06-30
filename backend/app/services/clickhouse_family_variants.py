@@ -119,6 +119,12 @@ _SMALL_COUNT_LIMIT = 10001
 # is reported as estimated.
 _SV_NON_NATIVE_STRUCTURAL_CANDIDATE_CAP = 50000
 _SMALL_TRACK_RESULT_LIMIT = 10000
+# Upper bound on a single variant page. Set to the track-result ceiling because the
+# variant endpoints are shared with genome-track rendering, which legitimately fetches
+# up to _SMALL_TRACK_RESULT_LIMIT rows; ordinary paginated UI requests are far smaller
+# (<=500). Caps unbounded scan/hydration from an oversized page_size without truncating
+# any real request. Mirrors the existing _SMALL_COUNT_LIMIT ceiling.
+MAX_VARIANT_PAGE_SIZE = _SMALL_TRACK_RESULT_LIMIT
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
     "recessive_hom": _RECESSIVE_HOMOZYGOUS_INHERITANCE,
@@ -5056,6 +5062,8 @@ async def get_family_small_variants_page(
     track_result_limit: int | None = None,
     count_only: bool = False,
 ) -> VariantPage:
+    # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
+    page_size = max(0, min(page_size, MAX_VARIANT_PAGE_SIZE))
     normalized_inheritance = _normalize_small_variant_inheritance(inheritance)
     filters = SmallVariantQueryFilters(
         page=page,
@@ -5751,6 +5759,8 @@ async def get_family_structural_variants_page(
     track_mode: bool = False,
     count_only: bool = False,
 ) -> VariantPage:
+    # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
+    page_size = max(0, min(page_size, MAX_VARIANT_PAGE_SIZE))
     filters = StructuralVariantQueryFilters(
         page=page,
         page_size=page_size,
