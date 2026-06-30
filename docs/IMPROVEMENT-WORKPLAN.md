@@ -1,7 +1,7 @@
 # CoGA — Improvement Workplan (Performance · Traceability · Security · Regulatory)
 
 _Generated 2026-06-26 from a forward-looking whole-codebase review. This is the
-companion to — not a replacement for — [`docs/CODEBASE_REVIEW.md`](CODEBASE_REVIEW.md)
+companion to — not a replacement for — [`docs/archive/CODEBASE_REVIEW.md`](archive/CODEBASE_REVIEW.md)
 (the 2026-06-14 dead-code/bug/perf cleanup, most of whose items are now **FIXED**) and
 [`docs/ROADMAP.md`](ROADMAP.md) (product direction). Where this plan and those documents
 overlap, this one supersedes._
@@ -10,6 +10,43 @@ overlap, this one supersedes._
 > plan, not an approved QMS artefact. Owners, dates and effort estimates are proposals
 > to be reconciled with the CMGG QMS (SOP **H11.1-OP5**) and the technical file in
 > [`docs/regulatory/`](regulatory/README.md).
+
+---
+
+## 0. Status update (as of 2026-06-30)
+
+_Progress since the 2026-06-26 draft. The phase tables in §4 record the original plan;
+this section is the current truth. ✅ shipped · ◐ partial · ☐ open._
+
+**Phase 0 — ✅ complete** (P0-1…P0-6, implemented 2026-06-26).
+
+**Phase 1 — mostly shipped.**
+
+- ✅ **P1-1** version + git-SHA identity: build-injected (`core/config.py`), exposed in `/health`, shown in the report footer, and **frozen into the sign-out snapshot** (`report_signout_service.py`).
+- ✅ **P1-2** Sample-QC sign-out gate — _the top clinical-safety item_: a hard `fail` (sample/pedigree swap, TF-06 H4 S5) now **blocks sign-out** with acknowledge-with-reason (409), and QC is frozen into the snapshot + content hash.
+- ✅ **P1-3** runtime app-role privilege separation (migration `040`, `test_app_role_privileges.py`, `db-runtime-role-runbook.md`).
+- ✅ **P1-4** hash-chained audit + sign-out tables with a verifier and integrity anchors (migrations `038`/`039`/`041`, `hash_chain.py`, `integrity_anchor_service.py`).
+- ✅ **P1-5** integration tests that exercise the privilege/trigger enforcement and the anchors.
+- ✅ **P1-6** CI security scanning that fails the build (gitleaks + CodeQL v4).
+- ✅ **P1-7** security-headers middleware + `/docs` disabled in prod _(confirm non-root container `USER`)_.
+- ✅ **P1-9** bounded upload read/inflation + family-package manifest-path confinement.
+- ✅ **P1-10** durable audit / UI-event pipeline (closes TF-13 S-5).
+- ✅ **P1-14** per-modality annotation / SOUP provenance capture from VCF/VEP headers (see `annotation-provenance.md`).
+- ✅ _Adjacent:_ TLS for Postgres + ClickHouse connections (Security S-2).
+- ◐ **P1-8** session token shortened to 2h; full `token_version` revocation + `AZURE_ADMIN_OVERRIDE` lockdown still open (documented as accepted P3 residual).
+- ◐ **P1-16** branch protection exists; `enforce_admins` + independent review / CODEOWNERS still to confirm.
+- ☐ **P1-11** `/metrics`, **P1-12** versioned migration ledger, **P1-13** backups + tested restore, **P1-15** release tags + CHANGELOG + signed release records (still **0 tags / no CHANGELOG**).
+
+**Phase 2 — perf/observability largely shipped.**
+
+- ✅ **P2-1** track-availability aggregation · **P2-3** gene expression indexes · **P2-4** bounded count + keyset pagination · **P2-6** scheduled ClickHouse integrity monitor · **P2-7** backend + frontend coverage gates · **P2-9** external-call timeouts + backoff · **P2-10** perf long-tail (S3 offload, `keepPreviousData`, batched inserts, memoization).
+- ◐ **P2-5** fail-clean import rollback landed; startup stuck-job reaper + terminal incomplete-import state still open.
+- ☐ **P2-2** multi-worker uvicorn + import off the event loop · **P2-8** GIAB/GeT-RM truth set + concordance harness.
+
+**Phase 3 — mostly open.**
+
+- ✅ **P3-6** e2e harness shipped (API-contract, import, sign-out/hash-chain, and Playwright browser journeys; TF-09c/09d).
+- ☐ **P3-1** performance evaluation (the long pole) · **P3-2/3/4/5/7** unchanged.
 
 ---
 

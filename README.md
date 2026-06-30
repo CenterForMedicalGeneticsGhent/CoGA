@@ -4,6 +4,8 @@
 
 CoGA, Comprehensive Genomic Analysis, is a unified platform for variant interpretation, genome visualization, and clinically oriented genomic review. It combines a FastAPI backend, a React frontend, `Postgres` for metadata and review state, and `ClickHouse` for high-volume variant storage.
 
+It is operated as an **in-house IVD under IVDR Article 5(5)** (CMGG, ISO 15189), with the device boundary _annotated VCF → signed clinical report_. The supporting technical file lives in [docs/regulatory/](docs/regulatory/README.md).
+
 ## Capabilities
 
 CoGA is organized around three areas: a family workspace, cross-cohort discovery tools, and intake/administration.
@@ -11,15 +13,19 @@ CoGA is organized around three areas: a family workspace, cross-cohort discovery
 ### Family workspace (`/families/:familyId`)
 
 - Pedigree-aware family dashboard with variant-review/curation summaries and an editable region of interest (ROI).
-- Per-data-type analysis views, surfaced only when that data is present: small variants (SNV/indel), structural variants, a combined variant summary, repeat expansions (TRGT), Paraphase, and mitochondrial (mtDNA) analysis. The mtDNA view supports combined **mitochondrial-disease testing** where ONT long-read adaptive sampling reads the complete mtDNA and the nuclear mito-gene panel in one run — interpreted together, with the Sample QC checks (relatedness/sex/Mendelian, maternal lineage) used to flag sample swaps and data-integrity issues.
+- Per-data-type analysis views, surfaced only when that data is present: small variants (SNV/indel), structural variants, a combined variant summary, repeat expansions (TRGT), Paraphase, mitochondrial (mtDNA) analysis, and monogenic NIPT. The mtDNA view supports combined **mitochondrial-disease testing** where ONT long-read adaptive sampling reads the complete mtDNA and the nuclear mito-gene panel in one run — interpreted together, with the Sample QC checks (relatedness/sex/Mendelian, maternal lineage) used to flag sample swaps and data-integrity issues.
+- [Monogenic NIPT](docs/monogenic-nipt.md): cfDNA-from-maternal-plasma analysis with fetal-fraction estimation, the maternal/fetal VAF category model, and its own report view.
+- [PGT haplotype segregation](docs/haplotype-segregation-analysis.md): pedigree-aware IBD founder colouring with a raw phased-marker overlay and an ROI marker overview, deriving an embryo classification (affected/carrier/unaffected/uninformative) — including single-parent (donor) families.
 - Genome visualization: whole-genome overview, per-chromosome view, Circos plot, and an embedded IGV browser.
 - Per-variant review with ACMG classification, tags, and notes. Phenotype (clinical status) and carrier status are tracked as independent axes.
 - Semi-automatic [ACMG classifier](docs/acmg-classification.md): pre-evaluates ACMG/AMP criteria from the variant, trio and gene data onto a points scale, with every criterion overridable.
+- [Case sign-out and clinical traceability](docs/clinical-traceability.md): a frozen, versioned report snapshot bound to the software version and the annotation/reference versions, gated on classification-drift and Sample-QC acknowledgement, and recorded in an append-only, hash-chained clinical audit trail.
 
 ### Discovery and analysis
 
 - Gene Explorer (`/genes`): locus-first gene profile with a transcript overview that badges the clinically relevant transcripts (MANE Select, MANE Plus Clinical, RefSeq Select, Ensembl Canonical), plus constraint metrics, disease/phenotype associations, and external links.
 - Global Small Variant Explorer (`/variant-explorer`): variant-centric search and aggregation of SNVs/indels across every project the user can access, with carrier counts (heterozygous/homozygous/families), tag and classification filters, per-sample genotype filters, and carrier drill-down grouped by family.
+- Clinical CNV Explorer (`/cnv-explorer`): browse the curated clinical-CNV knowledge base with per-CNV detail (`/cnv-details/:cnvId`).
 - HPO term browser (`/hpo`) and a reusable gene-panel catalog (`/panels`).
 
 ### Intake and administration
@@ -31,7 +37,7 @@ CoGA is organized around three areas: a family workspace, cross-cohort discovery
 
 - `frontend/`: React, TypeScript, Vite, Tailwind.
 - `backend/`: FastAPI, SQLAlchemy async, ClickHouse client.
-- `Postgres`: users, projects, families, samples, review state, repeat expansions, Paraphase results, gene cache, panels, HPO, audit logs.
+- `Postgres`: users, projects, families, samples, review state, repeat expansions, Paraphase results, NIPT artifacts, gene cache, panels, HPO, the annotation/reference-version manifest, and the append-only hash-chained clinical audit + report sign-out trail.
 - `ClickHouse`: small variants, structural variants, and interval tracks (coverage/segments/APCAD/haplotypes) per assembly, plus cross-project genotype aggregates used by the variant explorer.
 
 ## Quick Start
@@ -174,12 +180,16 @@ npm run build
 
 ## Docs
 
+- [docs/README.md](docs/README.md) — full documentation index
 - [docs/storage-architecture.md](docs/storage-architecture.md)
 - [docs/database.md](docs/database.md)
 - [docs/development.md](docs/development.md)
 - [docs/application-scheme.md](docs/application-scheme.md)
 - [docs/data-import.md](docs/data-import.md)
 - [docs/testing.md](docs/testing.md)
+- [docs/security-posture.md](docs/security-posture.md)
+- [docs/clinical-traceability.md](docs/clinical-traceability.md)
+- [docs/regulatory/](docs/regulatory/README.md) — IVDR technical file
 
 ## Notes
 
