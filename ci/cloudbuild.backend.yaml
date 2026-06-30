@@ -1,0 +1,32 @@
+# Build the backend image from the REPO ROOT context so backend/Dockerfile's
+# `COPY backend/db`, `COPY backend/app`, and `COPY scripts ./scripts` all resolve
+# (the clinical-CNV knowledgebase script lives at repo-root scripts/). Build
+# identity (APP_VERSION/GIT_SHA) is injected as build-args and baked into the image
+# — these are frozen into signed-report content hashes, so they must be real.
+#
+# Invoke from repo root:
+#   gcloud builds submit --config=ci/cloudbuild.backend.yaml \
+#     --substitutions=_IMAGE=<url>,_APP_VERSION=<v>,_GIT_SHA=<sha> .
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/Dockerfile
+      - --target
+      - production
+      - --build-arg
+      - APP_VERSION=${_APP_VERSION}
+      - --build-arg
+      - GIT_SHA=${_GIT_SHA}
+      - -t
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  # A user-specified build service account requires explicit log routing.
+  logging: CLOUD_LOGGING_ONLY
