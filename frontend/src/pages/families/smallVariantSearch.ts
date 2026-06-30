@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
+import { logUiEvent } from '../../lib/telemetry';
 import {
   hasNonDefaultGenotypeSelection,
   parseSerializedGenotypeSelection,
@@ -1031,6 +1032,17 @@ const countActiveFilters = (
   return topLevel + sampleLevel;
 };
 
+// Field names of the active top-level filters — keys only, never their values, so
+// no gene/region/clinical identifier leaves the client (mirrors the backend's
+// keys-only query-string audit). Used to populate the `query` UI-telemetry event.
+const activeFilterKeys = (filters: SmallFilterState): string[] =>
+  Object.entries(filters)
+    .filter(
+      ([key, value]) =>
+        value.trim() && key !== 'prioritize' && key !== 'clinvar_overrides_frequency',
+    )
+    .map(([key]) => key);
+
 const hasActiveSampleFilter = (filter: SmallVariantSampleFilter) => {
   if (filter.qual || filter.dp || filter.af || filter.ad_alt) return true;
   return hasNonDefaultGenotypeSelection(filter.gt, ALL_GT_GROUPS);
@@ -1686,6 +1698,16 @@ export const useSmallVariantSearchState = ({
   const handleApply = (event: FormEvent) => {
     event.preventDefault();
     const nextSampleFilters = cloneSampleFilters(sampleDraftFilters);
+    // Record the deliberate variant query (the substantive search intent) in the UI
+    // telemetry. Keys/counts only — no filter values — so it stays PHI-free.
+    logUiEvent({
+      event_type: 'query',
+      category: 'small-variant-filter',
+      detail: {
+        filter_keys: activeFilterKeys(draftFilters),
+        active_filter_count: countActiveFilters(draftFilters, nextSampleFilters),
+      },
+    });
     applySearchState(draftFilters, nextSampleFilters, 1);
   };
 

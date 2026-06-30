@@ -418,6 +418,8 @@ const ApcadChart: React.FC<Props> = ({
         ref={canvasRef}
         width={width}
         height={height}
+        data-audit-id="apcad-chart"
+        data-audit-label="APCAD chart"
         onClick={handleClick}
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoverSegment(null)}
