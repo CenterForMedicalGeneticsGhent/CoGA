@@ -15,17 +15,14 @@ Owner: ‹CMGG software lead› · Review cadence: each release, and on every De
 
 ## 1. Dependency audit (`pip-audit` / `npm audit`)
 
-### 1a. Backend — `ecdsa` Minerva timing attack (suppressed)
+### 1a. Backend — `ecdsa` Minerva timing attack (**resolved, no longer suppressed**)
 
 | Field | Value |
 | --- | --- |
 | Advisory | **GHSA-wj6h-64fc-37mp** — Minerva timing attack on P-256 in `python-ecdsa` |
-| Package | `ecdsa==0.19.2` (transitive, `# via python-jose[cryptography]`) |
-| Severity | High |
-| Fix available | **None** — no upstream patch exists; `python-ecdsa` maintainers consider constant-timeness out of scope |
-| Mechanism | `pip-audit --ignore-vuln GHSA-wj6h-64fc-37mp` (exact ID; any other advisory still fails) |
-| Why CoGA is not exposed | CoGA mints/verifies JWTs via `python-jose` using the **cryptography** backend (HS256 symmetric in the local-auth path; RS256 for Azure). The pure-Python **ECDSA P-256** code path in `ecdsa` that the timing attack targets is **not exercised** by the device. The advisory is also GHSA-only (not in OSV/PyPI), which is why `pip-audit` itself reports clean — the ignore is an explicit, future-proof record of the Dependabot alert. |
-| Flip action | Remove the `--ignore-vuln` when `ecdsa` ships a constant-time fix **or** when JWT handling is migrated off `python-jose`/`ecdsa` (e.g. to PyJWT, which uses `cryptography` directly and drops the `ecdsa` dependency — tracked as a follow-up). |
+| Resolution | **Removed the dependency.** JWT handling was migrated from `python-jose` to **PyJWT** (`PyJWT[crypto]`), which verifies HS256/RS256 via the `cryptography` backend and does not depend on `ecdsa`. The hash-locked requirements no longer contain `ecdsa`, `python-jose`, `rsa` or `pyasn1`. |
+| Suppression | **None.** The former `pip-audit --ignore-vuln GHSA-wj6h-64fc-37mp` carve-out has been removed from `security.yml`; the dependency-audit gate now blocks on _any_ advisory, including a reappearance of `ecdsa`. |
+| History | Previously suppressed as a no-fix transitive of `python-jose[cryptography]`; CoGA only ever used HS256 (local) + RS256 (Azure), never the vulnerable ECDSA P-256 path. The documented flip action (migrate off `python-jose`/`ecdsa`) has now been taken. |
 
 ### 1b. Frontend production tree — **fixed, not suppressed**
 
@@ -46,11 +43,18 @@ new production high/critical.
 
 ## 2. Secret scanning (`gitleaks`)
 
+Run via the **gitleaks binary** (pinned, `security.yml`), not `gitleaks-action@v2`:
+under the `CenterForMedicalGeneticsGhent` org the action requires a paid
+`GITLEAKS_LICENSE`. The binary is MIT-licensed, uses the same `.gitleaks.toml`, and
+scans the **full git history** (`fetch-depth: 0`) — stricter than the action's
+diff-only default.
+
 Allowlisted in [`.gitleaks.toml`](.gitleaks.toml) — all **non-secrets**:
 
 | Entry | Why it is not a secret |
 | --- | --- |
 | `ci-smoke-not-a-real-secret`, `ci-admin-not-a-real-secret` | Deliberate placeholder values used only by the CI smoke job (`.github/workflows/ci.yml`); not valid for any real environment. |
+| `grch3[78]_coordinates` | False positive: the `grch37_coordinates` / `grch38_coordinates` dict-field selector in `panelapp_service.py` (PanelApp is a public, key-less API); the default `generic-api-key` rule flags the surrounding assignment shape, not a credential. |
 | `.env.example` (path) | The template operators copy and fill in; ships `change-me`-style placeholders by design. |
 | `sbom/*.cdx.json` (path) | Generated dependency inventories (names + hashes), not credentials. |
 
