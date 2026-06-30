@@ -935,6 +935,7 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
         CREATE TABLE IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/family_sample_variant_summary`
         (
             `family_guid` String,
+            `project_guid` LowCardinality(String),
             `sample_id` String,
             `non_ref_count` UInt64,
             `het_count` UInt64,
@@ -942,8 +943,8 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `updated_at` DateTime DEFAULT now()
         )
         ENGINE = ReplacingMergeTree(updated_at)
-        PRIMARY KEY (family_guid, sample_id)
-        ORDER BY (family_guid, sample_id)
+        PRIMARY KEY (family_guid, project_guid, sample_id)
+        ORDER BY (family_guid, project_guid, sample_id)
         """,
         f"""
         CREATE MATERIALIZED VIEW IF NOT EXISTS {database}.`{dataset}/SNV_INDEL/entries_to_project_gt_stats_mv`
@@ -1042,9 +1043,38 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
     async with _ensure_variant_tables_lock:
         if dataset in _ensured_variant_table_assemblies:
             return
+        await _migrate_legacy_family_sample_variant_summary(database, dataset)
         for statement in statements:
             await _execute(statement)
         _ensured_variant_table_assemblies.add(dataset)
+
+
+async def _migrate_legacy_family_sample_variant_summary(database: str, dataset: str) -> None:
+    """Drop the pre-``project_guid`` ``family_sample_variant_summary`` so it is recreated.
+
+    The per-sample summary was originally keyed ``(family_guid, sample_id)`` with no
+    ``project_guid`` column, so per-sample counts aggregated across every project a family
+    belonged to and leaked cross-project counts to project-scoped users. ``project_guid``
+    must live in the ReplacingMergeTree sort key (otherwise a family's per-project rows
+    collapse into one), and ClickHouse cannot insert a column mid-key in place, so the
+    legacy table is dropped and recreated by the ``CREATE TABLE IF NOT EXISTS`` that runs
+    afterwards. The summary is a cache: the read path falls back to a project-scoped live
+    query against ``entries`` until each family is re-refreshed, so no counts are lost.
+    """
+    table = f"{dataset}/SNV_INDEL/family_sample_variant_summary"
+    rows = await _execute(
+        """
+        SELECT countIf(name = 'project_guid')
+        FROM system.columns
+        WHERE database = %(database)s AND table = %(table)s
+        """,
+        {"database": database, "table": table},
+    )
+    has_project_guid = bool(rows and rows[0] and int(rows[0][0] or 0) > 0)
+    if has_project_guid:
+        return
+    # No-op when the table does not exist yet; drops the legacy table when present.
+    await _execute(f"DROP TABLE IF EXISTS {database}.`{table}` SYNC")
 
 
 async def delete_family_small_variants(assembly_name: str, family_uuid: str) -> None:
@@ -1325,6 +1355,7 @@ async def refresh_family_small_variant_summaries(
         f"""
         INSERT INTO {_small_table_name(assembly_name, 'family_sample_variant_summary')} (
             family_guid,
+            project_guid,
             sample_id,
             non_ref_count,
             het_count,
@@ -1332,6 +1363,7 @@ async def refresh_family_small_variant_summaries(
         )
         SELECT
             family_guid,
+            project_guid,
             sample_id,
             countDistinctIf(key, gt NOT IN {ref_or_missing_gts}) AS non_ref_count,
             countDistinctIf(key, gt IN {het_gts}) AS het_count,
@@ -1340,7 +1372,7 @@ async def refresh_family_small_variant_summaries(
         ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
         WHERE family_guid = %(family_guid)s
           AND sign = 1
-        GROUP BY family_guid, sample_id
+        GROUP BY family_guid, project_guid, sample_id
         """,
         params,
     )
