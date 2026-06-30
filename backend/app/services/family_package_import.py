@@ -703,7 +703,22 @@ def _resolve_package_path(root: Path, value: str | None) -> Path | None:
     if value is None or not str(value).strip():
         return None
     candidate = Path(str(value).strip()).expanduser()
-    return candidate if candidate.is_absolute() else root / candidate
+    # A manifest-declared asset path must stay inside the (already-authorized) package
+    # root. Resolving the joined path collapses any '..'/symlink and lets an absolute
+    # value override the join, so the containment check below rejects a crafted manifest
+    # trying to read arbitrary host files (e.g. `ped: /etc/passwd` or `../../etc/passwd`)
+    # while still allowing ordinary relative paths and absolute paths that point inside
+    # the package root.
+    root_resolved = root.resolve()
+    resolved = (root_resolved / candidate).resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Package manifest paths must stay within the package directory",
+        ) from exc
+    return resolved
 
 
 def _display_path(root: Path, path: Path) -> str:

@@ -1116,3 +1116,39 @@ async def test_total_failure_on_existing_family_is_not_rolled_back(
     assert result.completed is False
     assert result.error is not None and "snv" in result.error
     assert deleted == [], "a pre-existing family must never be deleted by compensation"
+
+
+def test_resolve_package_path_blocks_escape_outside_root(tmp_path: Path) -> None:
+    from fastapi import HTTPException
+
+    root = tmp_path / "PKG"
+    (root / "data").mkdir(parents=True)
+    (root / "data" / "fam.ped").write_text("ped\n")
+
+    # Legitimate relative paths resolve inside the package root.
+    assert (
+        package_import._resolve_package_path(root, "data/fam.ped")
+        == (root / "data" / "fam.ped").resolve()
+    )
+    assert package_import._resolve_package_path(root, None) is None
+    assert package_import._resolve_package_path(root, "   ") is None
+
+    # A manifest pointing at an absolute host path is rejected (no arbitrary read).
+    with pytest.raises(HTTPException) as exc:
+        package_import._resolve_package_path(root, "/etc/passwd")
+    assert exc.value.status_code == 400
+
+    # '..' traversal escaping the root is rejected.
+    with pytest.raises(HTTPException) as exc:
+        package_import._resolve_package_path(root, "../../../../etc/passwd")
+    assert exc.value.status_code == 400
+
+
+def test_resolve_package_path_allows_absolute_inside_root(tmp_path: Path) -> None:
+    root = tmp_path / "PKG"
+    (root / "sub").mkdir(parents=True)
+    target = root / "sub" / "x.vcf"
+    target.write_text("##\n")
+
+    # An absolute path that still points inside the package root stays allowed.
+    assert package_import._resolve_package_path(root, str(target)) == target.resolve()
