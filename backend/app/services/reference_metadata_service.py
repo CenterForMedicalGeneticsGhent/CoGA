@@ -30,6 +30,7 @@ from ..schemas import (
     SegmentalDuplicationOut,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
+from .upload_safety import decode_upload_text
 
 ReferenceDatasetType = Literal[
     "cytobands", "genes", "blacklist", "clinical_cnvs", "segmental_duplications", "dgv"
@@ -256,17 +257,7 @@ async def _get_assembly_by_name(
 
 
 async def decode_reference_upload(file: UploadFile) -> str:
-    contents = await file.read()
-    try:
-        return contents.decode()
-    except UnicodeDecodeError:
-        try:
-            return gzip.decompress(contents).decode()
-        except OSError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="Reference upload must be plain text or gzipped",
-            ) from exc
+    return await decode_upload_text(file, kind="Reference")
 
 
 def _reader_from_text(text_value: str) -> Iterable[list[str]]:

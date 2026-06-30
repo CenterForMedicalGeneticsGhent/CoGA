@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import gzip
 import json
 from pathlib import Path
 from typing import Any, Iterable
@@ -21,6 +20,7 @@ from ..schemas import (
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .upload_safety import decode_upload_text
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
 from .vcf_header_provenance import extract_header_provenance
 
@@ -277,17 +277,7 @@ async def seed_builtin_repeat_catalog(session: AsyncSession) -> None:
 
 
 async def decode_repeat_upload_text(file: UploadFile) -> str:
-    contents = await file.read()
-    try:
-        return contents.decode()
-    except UnicodeDecodeError:
-        try:
-            return gzip.decompress(contents).decode()
-        except OSError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="TRGT file must be plain text or gzipped",
-            ) from exc
+    return await decode_upload_text(file, kind="TRGT")
 
 
 def parse_info(info_field: str) -> dict[str, str]:

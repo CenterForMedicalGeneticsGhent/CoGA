@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
+from .upload_safety import decode_upload_text
 from .metadata_service import CurrentUser
 
 INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
@@ -868,7 +869,7 @@ async def upload_ped_data(
     proven_carriers: str | None = None,
 ) -> PedUploadResult:
     resolved_project_id = await _resolve_accessible_project_id(session, user, project_id)
-    text_value = (await file.read()).decode()
+    text_value = await decode_upload_text(file, kind="PED")
     families = _parse_ped_text(text_value)
     await _replace_existing_families(session, list(families.keys()), overwrite, user)
     sample_ids = sorted({member["iid"] for members in families.values() for member in members})

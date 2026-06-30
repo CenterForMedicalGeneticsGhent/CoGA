@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone
-import gzip
 import json
 import logging
 from typing import Any
@@ -12,6 +11,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import HaplotypeResponse
+from .upload_safety import decode_upload_text
 from .clickhouse_interval_tracks import (
     count_interval_track_source_rows,
     delete_interval_track_sources,
@@ -53,17 +53,7 @@ def validate_bed_type(bed_type: str, *, allow_haplotype: bool = False) -> None:
 
 
 async def _decode_bed_upload(file: UploadFile) -> str:
-    contents = await file.read()
-    try:
-        return contents.decode()
-    except UnicodeDecodeError:
-        try:
-            return gzip.decompress(contents).decode()
-        except OSError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail="BED file must be plain text or gzipped",
-            ) from exc
+    return await decode_upload_text(file, kind="BED")
 
 
 def _upload_metadata(track_type: str, file: UploadFile) -> str:
