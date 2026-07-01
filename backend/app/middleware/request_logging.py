@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from fastapi import Request, Response
 
 from ..core.coga_logging import CoGALogger
-from ..core.config import settings
+from ..core.config import API_PATH_PREFIX, settings
 from ..services.audit_log_pg import (
     AuditLogEventPayload,
     log_model_update,
@@ -168,6 +168,12 @@ def _derive_db_update(
     }[method]
 
     path_parts = [part for part in request.url.path.split("/") if part]
+    # Every router is mounted under the API prefix (e.g. ``/api/families/...``), so the
+    # first raw segment is the mount ("api"), not the entity. Drop it so the audit trail
+    # records the real collection ("families") instead of "api" for every mutation.
+    prefix_parts = [part for part in API_PATH_PREFIX.split("/") if part]
+    if path_parts[: len(prefix_parts)] == prefix_parts:
+        path_parts = path_parts[len(prefix_parts) :]
     if not path_parts:
         return None
     entity = path_parts[0]

@@ -174,6 +174,16 @@ variable "cloud_armor_rate_limit_per_minute" {
 }
 
 # ---------------------------------------------------------------------------
+# Database privilege separation (P1-3 / P1-4)
+# ---------------------------------------------------------------------------
+
+variable "run_db_schema_migrations_on_startup" {
+  description = "Whether the API applies Postgres schema DDL + admin seed on startup. true = the app self-migrates as the table owner (current single-DSN deployment). false = migrations run out-of-band as the owner ('python -m backend.app.db_migrate') and the app boots as the restricted runtime role coga_app (which cannot run DDL). Part of the change-controlled DSN flip in docs/db-runtime-role-runbook.md — keep true until POSTGRES_USER is repointed at coga_app in the same deploy."
+  type        = bool
+  default     = true
+}
+
+# ---------------------------------------------------------------------------
 # Object storage backend
 # ---------------------------------------------------------------------------
 
