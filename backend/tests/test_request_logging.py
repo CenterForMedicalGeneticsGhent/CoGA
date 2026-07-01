@@ -77,6 +77,27 @@ def test_derive_db_update_for_patch_request() -> None:
     assert update["updateFields"] == ["color", "label"]
 
 
+def test_derive_db_update_strips_api_mount_prefix() -> None:
+    # Deployed routes are mounted under ``/api`` — the derived entity must be the real
+    # collection ("families"), not the "api" mount segment.
+    request = _build_request(
+        "POST",
+        "/api/families/demo_family/notes",
+        path_params={"family_id": "demo_family"},
+    )
+    update = _derive_db_update(request, {"text": "hi"})
+    assert update is not None
+    assert update["dbEntity"] == "families"
+    assert update["entityId"] == "demo_family"
+    assert update["updateType"] == "create"
+
+
+def test_derive_db_update_ignores_bare_api_prefix() -> None:
+    # A request to the mount root alone has no entity once the prefix is stripped.
+    request = _build_request("DELETE", "/api")
+    assert _derive_db_update(request, None) is None
+
+
 def test_query_string_for_logging_omits_values_by_default(monkeypatch) -> None:
     monkeypatch.setattr(settings, "audit_log_query_string_mode", "none")
     request = Request(

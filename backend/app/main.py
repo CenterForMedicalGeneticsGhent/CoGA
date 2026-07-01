@@ -1,26 +1,23 @@
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 
 from .core.clickhouse import (
     close_clickhouse_client,
     init_clickhouse_schema,
     wait_for_clickhouse,
 )
-from .core.config import settings
+from .core.config import API_PATH_PREFIX, settings
 from .core.postgres import (
     close_postgres_engine,
-    get_postgres_engine,
     get_postgres_sessionmaker,
     init_postgres_schema,
     wait_for_postgres,
 )
 from .core.coga_logging import configure_json_logging
-from .dependencies import get_password_hash
+from .db_migrate import init_postgres_admin_user
 from .middleware.request_logging import log_request_response
 from .middleware.security_headers import security_headers_middleware
 from .routers import all_routers
@@ -45,48 +42,6 @@ from .services.clickhouse_integrity_monitor import (
 from .services.ui_event_pg import start_ui_event_worker, stop_ui_event_worker
 
 
-async def init_postgres_admin_user() -> None:
-    """Ensure a metadata admin user exists in Postgres."""
-
-    engine = get_postgres_engine()
-    async with engine.begin() as conn:
-        existing = await conn.execute(
-            text("SELECT id FROM users WHERE username = :username"),
-            {"username": settings.admin_username},
-        )
-        if existing.scalar_one_or_none() is not None:
-            return
-
-        await conn.execute(
-            text(
-                """
-                INSERT INTO users (
-                    username,
-                    hashed_password,
-                    role,
-                    email,
-                    metadata,
-                    created_at
-                )
-                VALUES (
-                    :username,
-                    :hashed_password,
-                    'admin',
-                    :email,
-                    '{}'::jsonb,
-                    :created_at
-                )
-                """
-            ),
-            {
-                "username": settings.admin_username,
-                "hashed_password": get_password_hash(settings.admin_password),
-                "email": settings.admin_email,
-                "created_at": datetime.now(timezone.utc),
-            },
-        )
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if getattr(app.state, "skip_startup_tasks", False):
@@ -98,8 +53,13 @@ async def lifespan(app: FastAPI):
     family_import_worker_stop = asyncio.Event()
     family_import_worker_tasks: list[asyncio.Task] = []
     await wait_for_postgres()
-    await init_postgres_schema()
-    await init_postgres_admin_user()
+    # Schema DDL + admin seed require the table OWNER. When migrations are run out-of-band
+    # (as the owner) the app boots as the restricted runtime role ``coga_app`` and must NOT
+    # attempt DDL — ``coga_app`` cannot run it and startup would crash-loop. See
+    # docs/db-runtime-role-runbook.md and backend/app/db_migrate.py.
+    if settings.postgres_run_schema_migrations_on_startup:
+        await init_postgres_schema()
+        await init_postgres_admin_user()
     await start_audit_log_worker()
     await start_ui_event_worker()
     session_factory = get_postgres_sessionmaker()
@@ -173,7 +133,7 @@ app.add_middleware(
 
 app.middleware("http")(log_request_response)
 
-api_router = APIRouter(prefix="/api")
+api_router = APIRouter(prefix=API_PATH_PREFIX)
 for router in all_routers:
     api_router.include_router(router)
 

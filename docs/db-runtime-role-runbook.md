@@ -12,6 +12,20 @@ runtime role cannot `ALTER TABLE … DISABLE TRIGGER`, cannot `SET session_repli
 (superuser-only), and cannot `UPDATE`/`DELETE` the append-only tables — so it can neither
 edit/remove an audit row or signed report nor re-chain an interior edit.
 
+The **application side of the split is already implemented** — the flip is a configuration
+change, no code change:
+
+- Setting `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` makes the app **skip** the
+  owner-only schema DDL + admin seed on startup, so it can boot as `coga_app` without
+  crash-looping on DDL it is not allowed to run. Left at its default (`true`) the app
+  self-migrates as the owner — the current single-DSN deployment, unchanged.
+- The owner-privileged migration is exposed as a standalone entrypoint,
+  `python -m backend.app.db_migrate` (applies the schema and seeds the admin user). Both the
+  startup path and this entrypoint call the same `init_postgres_schema` /
+  `init_postgres_admin_user`, so there is one source of truth for the schema apply.
+- Terraform exposes the knob as `var.run_db_schema_migrations_on_startup` (wired to the env
+  var; defaults to `true`).
+
 > **Regulatory note (IVDR / TF-09b REQ-TRACE-008):** until this flip is done, the running
 > application credential *is* the owner and the owner-bypass tampering remains undetectable
 > by the hash chain. The flip + the deferred external chain-head anchor together close that
@@ -21,7 +35,7 @@ edit/remove an audit row or signed report nor re-chain an interior edit.
 
 | Connection | Role | Why |
 | --- | --- | --- |
-| Schema migrations / `init_postgres_schema` | **owner** (current `DATABASE_URL` role) | needs `CREATE`/`ALTER TABLE`, trigger management, `GRANT` |
+| Schema migrations / `python -m backend.app.db_migrate` | **owner** (current `DATABASE_URL` role) | needs `CREATE`/`ALTER TABLE`, trigger management, `GRANT` |
 | Application runtime | **`coga_app`** | least privilege; cannot bypass the append-only controls |
 
 Do **not** make migrations run as `coga_app` — it deliberately cannot create or alter
@@ -37,19 +51,24 @@ tables or manage triggers.
    ALTER ROLE coga_app WITH LOGIN PASSWORD '<from-secret-manager>';
    ```
    (Leaving it `NOLOGIN` until now means no passwordless login ever existed.)
-3. **Split the DSNs.**
+3. **Split the DSNs and disable startup migrations.**
    - Keep the existing owner DSN as a **migration-only** secret (used by the migration/CI
-     step that runs `init_postgres_schema`).
-   - Point the **application** `DATABASE_URL` at `coga_app`:
-     `postgresql+asyncpg://coga_app:<secret>@<host>:<port>/<db>`.
+     step that runs `python -m backend.app.db_migrate`).
+   - Point the **application** connection at `coga_app` (`POSTGRES_USER=coga_app` +
+     the secret password, or a `coga_app` `DATABASE_URL`).
+   - Set `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` on the app (Terraform:
+     `run_db_schema_migrations_on_startup = false`) so it no longer attempts owner-only DDL
+     at boot.
 4. **Connection pooler (PgBouncer / RDS Proxy), if any.** Configure the app's pool to
    authenticate as `coga_app`. Transaction-pooling mode is fine — the app connects
    *directly* as `coga_app` (no `SET ROLE`), so nothing leaks across pooled sessions.
-5. **Deploy** the app with the new DSN. Run migrations first (as owner), then start the app
-   (as `coga_app`).
+5. **Deploy.** Run the migration step first, **as the owner**:
+   `python -m backend.app.db_migrate` (applies the schema + seeds the admin user). Then start
+   the app (as `coga_app`, with startup migrations disabled).
 6. **Verify** (see below). 
-7. **Rollback** (if needed): repoint the application `DATABASE_URL` back to the owner role
-   and redeploy. No schema change is involved, so rollback is immediate.
+7. **Rollback** (if needed): repoint the application connection back to the owner role and
+   set `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true` again, then redeploy. No schema
+   change is involved, so rollback is immediate.
 
 ## Verification
 
@@ -66,8 +85,13 @@ tables or manage triggers.
   DELETE FROM report_signouts;                                  -- ERROR: permission denied
   ALTER TABLE audit_log_events DISABLE TRIGGER USER;            -- ERROR: must be owner
   ```
-- The automated proof is `backend/tests/integration/test_app_role_privileges.py`
-  (CI `smoke` job), which asserts exactly these allow/deny outcomes plus the cascade.
+- The automated proof is two integration tests in the CI `smoke` job:
+  - `backend/tests/integration/test_app_role_privileges.py` asserts the allow/deny outcomes
+    above plus the `ON DELETE SET NULL` cascade (via `SET ROLE coga_app`).
+  - `backend/tests/integration/test_app_boots_as_restricted_role.py` runs the migration
+    out-of-band as the owner, then **boots the whole app as `coga_app`** with startup
+    migrations disabled — proving the deployed flip serves without owner-only DDL and that
+    the append-only revoke holds on a real `coga_app` login (not just via `SET ROLE`).
 
 ## Future schema changes
 

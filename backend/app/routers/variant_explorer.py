@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.csv_export import csv_safe_cell
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
@@ -260,7 +261,7 @@ async def export_global_small_variants_csv(
     writer = csv.writer(buffer)
     writer.writerow([label for _, label in _EXPORT_COLUMNS])
     for row in rows:
-        writer.writerow([_export_cell(row, field) for field, _ in _EXPORT_COLUMNS])
+        writer.writerow([csv_safe_cell(_export_cell(row, field)) for field, _ in _EXPORT_COLUMNS])
 
     filename = f"variant-explorer-{assembly_name or 'export'}.csv"
     return StreamingResponse(

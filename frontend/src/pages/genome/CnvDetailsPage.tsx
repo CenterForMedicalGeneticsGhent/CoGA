@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import api from '../../lib/api';
 import type { ApiChromosome, ApiClinicalCnv } from '../../lib/apiTypes';
 import PageState from '../../components/PageState';
+import { sanitizeHtml } from '../../lib/sanitizeHtml';
 
 const formatBp = (bp: number) => bp.toLocaleString();
 
@@ -63,11 +64,12 @@ const CnvDetailsPage: React.FC = () => {
 
   const cytoband = useMemo(() => (cnv ? computeCytoband(cnv, chromosome) : ''), [cnv, chromosome]);
 
-  const sourceHtml = useMemo(() => {
-    if (!cnv?.details_html) return '';
-    const doc = new DOMParser().parseFromString(cnv.details_html, 'text/html');
-    return doc.body.innerHTML;
-  }, [cnv?.details_html]);
+  // details_html comes from imported reference data — strip it to a safe allowlist before
+  // it reaches dangerouslySetInnerHTML (defense-in-depth alongside backend sanitisation).
+  const sourceHtml = useMemo(
+    () => (cnv?.details_html ? sanitizeHtml(cnv.details_html) : ''),
+    [cnv?.details_html],
+  );
 
   if (isLoading) {
     return (

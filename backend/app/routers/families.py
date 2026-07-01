@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.csv_export import csv_safe_cell
 from ..core.sql import is_missing_postgres_schema_error
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
@@ -1399,7 +1400,7 @@ async def export_family_small_variants_csv(
     writer = csv.writer(buffer)
     writer.writerow([label for _, label in columns])
     for variant in rows:
-        writer.writerow([_family_export_cell(variant, field) for field, _ in columns])
+        writer.writerow([csv_safe_cell(_family_export_cell(variant, field)) for field, _ in columns])
 
     filename = f"family-{family_id}-small-variants.csv"
     return StreamingResponse(
@@ -1536,7 +1537,7 @@ async def export_family_structural_variants_csv(
     writer = csv.writer(buffer)
     writer.writerow([label for _, label in columns])
     for variant in rows:
-        writer.writerow([_family_sv_export_cell(variant, field) for field, _ in columns])
+        writer.writerow([csv_safe_cell(_family_sv_export_cell(variant, field)) for field, _ in columns])
 
     filename = f"family-{family_id}-structural-variants.csv"
     return StreamingResponse(

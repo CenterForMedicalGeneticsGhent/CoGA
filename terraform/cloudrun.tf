@@ -111,6 +111,15 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "POSTGRES_USER"
         value = google_sql_user.coga.name
       }
+      # DB privilege separation (P1-3/P1-4). Default (true) = the app self-migrates as the
+      # owner above. To flip to the restricted runtime role, set
+      # var.run_db_schema_migrations_on_startup = false, run `python -m backend.app.db_migrate`
+      # as the owner in the same deploy, and repoint POSTGRES_USER at coga_app. See
+      # docs/db-runtime-role-runbook.md (change-controlled).
+      env {
+        name  = "POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP"
+        value = tostring(var.run_db_schema_migrations_on_startup)
+      }
       env {
         name  = "POSTGRES_SSLMODE"
         value = "require"

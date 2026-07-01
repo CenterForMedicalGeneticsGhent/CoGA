@@ -6,6 +6,11 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
+# Every application router is mounted under this prefix (see ``app/main.py``). Kept here
+# as the single source of truth so request-scoped consumers (e.g. the audit-entity
+# derivation in request_logging) can strip it without re-hardcoding the path.
+API_PATH_PREFIX = "/api"
+
 _DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
 _INSECURE_SECRET_VALUES = {"secret", "change-me"}
 _INSECURE_PASSWORD_VALUES = {"admin", "change-me"}
@@ -43,6 +48,16 @@ class Settings(BaseSettings):
     postgres_db: str = Field(default="coga", alias="POSTGRES_DB")
     postgres_user: str = Field(default="coga", alias="POSTGRES_USER")
     postgres_password: str = Field(default="change-me", alias="POSTGRES_PASSWORD")
+    # Whether the API applies the Postgres schema (DDL) + admin seed on startup.
+    #   True  (default): the app boots as the table OWNER and self-migrates — the current
+    #                    single-DSN deployment, unchanged.
+    #   False: schema migrations are run out-of-band as the owner (``python -m
+    #          backend.app.db_migrate``) and the app boots as the restricted runtime role
+    #          ``coga_app``, which cannot run DDL. This is the P1-3/P1-4 owner-bypass flip
+    #          (see docs/db-runtime-role-runbook.md).
+    postgres_run_schema_migrations_on_startup: bool = Field(
+        default=True, alias="POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP"
+    )
     clickhouse_host: str = Field(default="localhost", alias="CLICKHOUSE_HOST")
     clickhouse_http_port: int = Field(default=8123, alias="CLICKHOUSE_HTTP_PORT")
     clickhouse_database: str = Field(default="coga", alias="CLICKHOUSE_DATABASE")

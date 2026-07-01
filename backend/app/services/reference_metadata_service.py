@@ -14,6 +14,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.html_sanitize import sanitize_reference_html
 from ..schemas import (
     AssemblyReferenceStatusOut,
     BlacklistRegionOut,
@@ -973,7 +974,9 @@ async def apply_reference_dataset_text(
                     "end": end_i,
                     "type": cnv_type,
                     "label": label,
-                    "details_html": html,
+                    # Untrusted imported HTML rendered via dangerouslySetInnerHTML — strip
+                    # to the safe allowlist at ingest so stored data is clean at rest.
+                    "details_html": sanitize_reference_html(html),
                     "omim_id": omim_id,
                     "decipher_id": decipher_id,
                     "description": description,
@@ -1415,7 +1418,9 @@ def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> Clinic
         end=int(row["end"]),
         type=row.get("type"),
         label=row["label"],
-        details_html=row.get("details_html"),
+        # Sanitise again on the way out so legacy rows stored before ingest sanitisation
+        # (or any bypassed write path) can never serve unsafe HTML to the render sink.
+        details_html=sanitize_reference_html(row.get("details_html")),
         assembly=assembly,
         omim_id=row.get("omim_id"),
         omim_title=row.get("omim_title"),
