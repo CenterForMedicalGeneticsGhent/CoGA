@@ -29,7 +29,7 @@
     "react-router-dom": "^7.18.0",
     "remark-gfm": "^4.0.1",
     "typescript": "^6.0.3",
-    "vite": "^7.3.6"
+    "vite": "^8.1.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -39,7 +39,7 @@
     "@testing-library/user-event": "^14.5.2",
     "@typescript-eslint/eslint-plugin": "^8.62.0",
     "@typescript-eslint/parser": "^8.40.0",
-    "@vitejs/plugin-react": "^4.3.2",
+    "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.9",
     "autoprefixer": "^10.5.2",
     "eslint": "^8.57.1",
