@@ -95,6 +95,7 @@ from ..services.gene_info_jobs_pg import (
     queue_gene_reference_refresh_job,
 )
 from ..services.hpo_service import (
+    ensure_authorized_hpo_ontology_path,
     get_hpo_admin_summary,
     list_hpo_admin_terms,
     sync_hpo_ontology,
@@ -701,7 +702,7 @@ async def sync_hpo_terms(
     try:
         return await sync_hpo_ontology(
             session,
-            path=payload.path,
+            path=ensure_authorized_hpo_ontology_path(payload.path),
             release_version=payload.release_version,
             release_date=payload.release_date,
             preview_only=payload.preview_only,
