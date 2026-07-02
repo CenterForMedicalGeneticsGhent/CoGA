@@ -32,24 +32,39 @@ variable "app_domain" {
 }
 
 # ---------------------------------------------------------------------------
-# Encryption (CMEK)
+# Encryption (CMEK) — mandatory (organization policy), always on
 # ---------------------------------------------------------------------------
 
-variable "enable_cmek" {
-  description = "Use a customer-managed KMS key (CMEK) for Cloud SQL, Compute disks, and GCS buckets. When false, Google-managed keys are used."
-  type        = bool
-  default     = true
-}
-
 variable "cmek_key_self_link" {
-  description = "Resource id of the KMS crypto key for CMEK, in the form projects/<p>/locations/<region>/keyRings/<ring>/cryptoKeys/<key>. Must live in the same region as the resources it protects. Required when enable_cmek is true."
+  description = "Resource id of the KMS crypto key used for CMEK on Cloud SQL, Compute disks, and GCS buckets, in the form projects/<p>/locations/<region>/keyRings/<ring>/cryptoKeys/<key>. Must live in the same region as the resources it protects. Encryption is mandatory, so this is required. The key is created/managed and granted to the Google service agents in the central infra repo (terraform/main-repo-reference/)."
   type        = string
-  default     = ""
 
   validation {
-    condition     = var.cmek_key_self_link == "" || can(regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", var.cmek_key_self_link))
+    condition     = can(regex("^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$", var.cmek_key_self_link))
     error_message = "cmek_key_self_link must be a fully-qualified crypto key id: projects/<p>/locations/<loc>/keyRings/<ring>/cryptoKeys/<key>."
   }
+}
+
+# ---------------------------------------------------------------------------
+# Runtime service accounts (created + IAM-granted in the central infra repo)
+# ---------------------------------------------------------------------------
+
+variable "backend_service_account_email" {
+  description = "Email of the backend Cloud Run runtime service account. Created and IAM-granted in the central infra repo. Empty = derive the default name coga-backend-run@<project>.iam.gserviceaccount.com."
+  type        = string
+  default     = ""
+}
+
+variable "frontend_service_account_email" {
+  description = "Email of the frontend Cloud Run runtime service account. Created and IAM-granted in the central infra repo. Empty = derive the default name coga-frontend-run@<project>.iam.gserviceaccount.com."
+  type        = string
+  default     = ""
+}
+
+variable "clickhouse_vm_service_account_email" {
+  description = "Email of the ClickHouse VM service account. Created and IAM-granted in the central infra repo. Empty = derive the default name coga-clickhouse-vm@<project>.iam.gserviceaccount.com."
+  type        = string
+  default     = ""
 }
 
 # ---------------------------------------------------------------------------
@@ -171,6 +186,12 @@ variable "cloud_armor_rate_limit_per_minute" {
   description = "Per-client-IP request budget per minute before throttling (429). Tune to expected peak interactive use."
   type        = number
   default     = 600
+}
+
+variable "allowed_ingress_cidrs" {
+  description = "Source IP ranges (CIDR) allowed to reach the app through the load balancer — e.g. UGent / UZ Gent public ranges and institutional VPN egress. When non-empty, Cloud Armor denies every other source at the edge (highest-priority rule), so the app is only reachable on-network. Empty = no IP restriction (open to the internet; app authentication still applies). Requires enable_cloud_armor = true."
+  type        = list(string)
+  default     = []
 }
 
 # ---------------------------------------------------------------------------

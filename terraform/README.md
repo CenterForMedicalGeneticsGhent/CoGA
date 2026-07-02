@@ -49,6 +49,7 @@ deployment-level security items tracked in
 1. **Two/three projects** (or one): the CoGA runtime project, the shared Artifact
    Registry project, and a KMS project. Adjust to your landing zone.
 2. **A KMS crypto key** (`cmek_key_self_link`) in the same region as the resources.
+   Encryption is mandatory (org policy) — the key is always used; there is no toggle.
 3. **A GCS state bucket** — private, versioned, CMEK, tight IAM. It holds the Cloud
    SQL user password in plaintext (see "Secrets" below).
 4. **Workload Identity Federation** for GitHub Actions + the service accounts named
@@ -56,6 +57,15 @@ deployment-level security items tracked in
    (`reg-*-gh-actions`, `reg-*-cb-runner`, `coga-*-gh-actions`).
 5. **Artifact Registry repo** (the workflow uses `gen-ghreg-shared-gbl`).
 6. **DNS** control for `app_domain`.
+7. **Central infra repo prerequisites** — this config no longer enables project APIs,
+   creates service accounts, or grants project-level / KMS IAM (so the CoGA pipeline
+   holds no project-IAM-admin or SA-admin rights and cannot self-escalate). The central
+   repo must provision the APIs, the three runtime SAs (`coga-backend-run`,
+   `coga-frontend-run`, `coga-clickhouse-vm`), their project + KMS role grants, and the
+   project-wide GCS Data Access audit config **before** this config applies. A
+   ready-to-lift template lives in
+   [`main-repo-reference/`](main-repo-reference/coga-prerequisites.tf.example). If the
+   SA names differ, pass their emails via the `*_service_account_email` variables.
 
 GitHub repo secrets used by CI: `GCP_REGISTRY_PROJECT_ID`,
 `GCP_CLOUDBUILD_STAGING_BUCKET`, `GCP_WIF_PROVIDER`, `GCP_COGA_PROJECT_ID`,
@@ -113,11 +123,11 @@ the Google-managed cert provisions once DNS resolves (can take ~15–60 min).
 
 | Item | Status in this config |
 |---|---|
-| S-1 encryption at rest | CMEK on Cloud SQL, both disks, and both buckets (`enable_cmek`) |
+| S-1 encryption at rest | CMEK on Cloud SQL, both disks, and both buckets (mandatory, always on; key granted to the service agents in the central infra repo) |
 | S-2 TLS to datastores | Postgres: Cloud SQL Python Connector (mTLS + verify-full-grade) over private IP, `ssl_mode=ENCRYPTED_ONLY`. ClickHouse: HTTPS on 8443 with a private CA; backend verifies (`CLICKHOUSE_CA_CERT` + `SERVER_HOST_NAME`) |
 | S-3 secrets management | Secret Manager + `secret_key_ref`; VM reads its password at boot |
-| S-4 byte-level PHI audit | GCS Data Access audit logs enabled |
-| S-8 network posture | Private IPs, no public DB ingress, least-privilege SAs, NAT/PGA |
+| S-4 byte-level PHI audit | GCS Data Access audit logs (project-wide; set in the central infra repo) |
+| S-8 network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege SAs, NAT/PGA; optional edge IP allowlist (`allowed_ingress_cidrs`) |
 | P1-13 backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots |
 
 ## Object storage backend
@@ -138,10 +148,15 @@ on itself, and the IAM Credentials API is enabled — all required for signed UR
 
 A Cloud Armor policy is attached to both LB backend services (`enable_cloud_armor`):
 adaptive L7 DDoS defense, per-IP rate limiting (`cloud_armor_rate_limit_per_minute`,
-enforced), and the OWASP CRS WAF (SQLi/XSS/RCE/LFI). The WAF ships in **preview
-(log-only)** by default — review the Cloud Armor logs against real traffic, then set
-`cloud_armor_waf_enforce = true` to block. This avoids false-positive blocks on the
-genomics API's unusual query payloads.
+enforced), and the OWASP **CRS 4.22** WAF (SQLi/XSS/RCE/LFI). The WAF ships in
+**preview (log-only)** by default — review the Cloud Armor logs against real traffic,
+then set `cloud_armor_waf_enforce = true` to block. This avoids false-positive blocks
+on the genomics API's unusual query payloads.
+
+Set **`allowed_ingress_cidrs`** to the UGent / UZ Gent public ranges (plus VPN egress)
+to restrict access at the edge: any source outside the list is denied before rate
+limiting / WAF / app auth. Left empty (default) the app is reachable from anywhere and
+relies on application authentication only.
 
 ## ClickHouse cert rotation
 

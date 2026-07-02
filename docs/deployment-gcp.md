@@ -232,8 +232,9 @@ gcloud kms keys create coga --location "$REGION" --keyring coga \
 echo "projects/${PROJECT}/locations/${REGION}/keyRings/coga/cryptoKeys/coga"
 ```
 
-> Don't want CMEK yet? You can set `enable_cmek = false` to use Google's default
-> encryption. For PHI, CMEK is strongly recommended.
+> CMEK is mandatory (organization policy) and always on — `cmek_key_self_link` is a
+> required variable. The key is granted to the Cloud SQL / Compute / Storage service
+> agents in the central infra repo before this config applies.
 
 ### 5.3 Artifact Registry (for images)
 
@@ -320,9 +321,10 @@ The variables you'll most likely set:
 | `project_id` | Your GCP project | *(required)* |
 | `region` / `zone` | Where to deploy | `europe-west1` / `europe-west1-b` |
 | `app_domain` | Public domain for the app | `coga.cmgg.be` |
-| `cmek_key_self_link` | Your KMS key (from 5.2) | *(required if `enable_cmek`)* |
-| `enable_cmek` | Use your own encryption key | `true` |
+| `cmek_key_self_link` | Your KMS key (from 5.2) | *(required — CMEK is always on)* |
 | `backend_image` / `frontend_image` | Container images to run | *(required)* — CI sets these |
+| `allowed_ingress_cidrs` | Source ranges allowed at the edge (UGent/UZ + VPN); empty = open | `[]` |
+| `*_service_account_email` | Override runtime SA emails (created in the central repo) | *(derived by default)* |
 | `db_tier` | Cloud SQL machine size | `db-custom-1-3840` (1 vCPU / 3.75 GB) |
 | `db_availability_type` | `ZONAL` (cheaper) or `REGIONAL` (HA) | `ZONAL` |
 | `clickhouse_machine_type` | ClickHouse VM size | `e2-standard-4` (4 vCPU / 16 GB) |
@@ -532,9 +534,12 @@ gcloud compute disks create coga-clickhouse-data-restored \
 
 Automatic: a daily `systemd` timer on the VM re-fetches the cert from Secret Manager
 and restarts ClickHouse only if it changed — no action needed for a server-cert
-re-issue. To force it now: SSH in (via IAP) and run
-`sudo /etc/coga-clickhouse/refresh-certs.sh`. Rotating the **CA** (10-year) is rare
-and needs a backend redeploy to pick up the new `CLICKHOUSE_CA_CERT`.
+re-issue. The VM has **no SSH ingress** (see §S-8), so there is normally nothing to do
+by hand. If you must force a refresh, either wait for the daily timer, or add a
+temporary break-glass IAP SSH rule (source `35.235.240.0/20`, tcp/22, target tag
+`clickhouse`), run `sudo /etc/coga-clickhouse/refresh-certs.sh`, then remove the rule.
+Rotating the **CA** (10-year) is rare and needs a backend redeploy to pick up the new
+`CLICKHOUSE_CA_CERT`.
 
 ### 12.5 Scaling
 
@@ -581,10 +586,10 @@ This deployment closes the deployment-level security items tracked in
 | **S-1** encryption at rest | CMEK on Cloud SQL, both disks, and both GCS buckets |
 | **S-2** TLS to datastores | Postgres via the Cloud SQL Connector (mTLS, verify-full grade); ClickHouse over HTTPS:8443 with a private CA the backend verifies |
 | **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images |
-| **S-4** byte-level PHI audit | GCS Data Access audit logs |
-| **S-8** network posture | Private IPs, no public DB ingress, least-privilege service accounts, NAT/PGA |
+| **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) |
+| **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist |
 | **P1-13** backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
-| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP WAF |
+| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist |
 
 **Still your responsibility (process, not code):** IVDR **change control** (TF-18)
 and an updated **DPIA** (TF-14) — deploying to Google Cloud adds Google as a
@@ -600,7 +605,7 @@ calculator):
 
 - **Cloud SQL** — the biggest fixed cost; scales with `db_tier` and `REGIONAL` HA.
 - **ClickHouse VM + SSD** — a constantly-running `e2-standard-4` + 200 GB SSD.
-- **Cloud Run** — cheap; scales to your `min_instance_count` (1 each here) + traffic.
+- **Cloud Run** — cheap; backend keeps `min_instance_count = 1` (background workers), the frontend scales to zero when idle + traffic.
 - **Load balancer + Cloud Armor** — small fixed fee + per-request.
 - **Storage + egress** — GCS for CRAM/BAM (can be large) + signed-URL download egress.
 - **KMS / Secret Manager / logging** — negligible.
@@ -664,9 +669,9 @@ Yes — set `region`/`zone` (and put the KMS key in that region). Keep it in the
 data residency.
 
 **Do I have to use CMEK / Cloud Armor / Azure login?**
-CMEK (`enable_cmek`) and Cloud Armor (`enable_cloud_armor`) can be turned off but are
-recommended for PHI. Azure AD login is optional (leave the `azure_ad_*` vars empty to
-disable).
+CMEK is **mandatory** (org policy) and always on. Cloud Armor (`enable_cloud_armor`)
+can be turned off but is recommended for PHI. Azure AD login is optional (leave the
+`azure_ad_*` vars empty to disable).
 
 **Where do the build version numbers come from?**
 `APP_VERSION` (from the `VERSION` file) and `GIT_SHA` are baked into the image at

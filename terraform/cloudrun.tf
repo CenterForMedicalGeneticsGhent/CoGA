@@ -15,7 +15,7 @@ resource "google_cloud_run_v2_service" "backend" {
   ingress  = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
   template {
-    service_account = google_service_account.backend.email
+    service_account = local.backend_sa_email
 
     # GCS volume mounts require the 2nd-gen execution environment.
     execution_environment = "EXECUTION_ENVIRONMENT_GEN2"
@@ -259,7 +259,6 @@ resource "google_cloud_run_v2_service" "backend" {
   }
 
   depends_on = [
-    google_project_service.services,
     google_secret_manager_secret_iam_member.backend,
   ]
 }
@@ -272,10 +271,13 @@ resource "google_cloud_run_v2_service" "frontend" {
   ingress  = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
   template {
-    service_account = google_service_account.frontend.email
+    service_account = local.frontend_sa_email
 
     scaling {
-      min_instance_count = 1
+      # The frontend only serves static assets (no background workers), so it can
+      # scale fully to zero when idle — the first request after a cold period pays a
+      # ~1–2s cold start. The backend keeps min 1 because it runs in-process workers.
+      min_instance_count = 0
       max_instance_count = var.frontend_max_instances
     }
 
@@ -295,8 +297,6 @@ resource "google_cloud_run_v2_service" "frontend" {
       }
     }
   }
-
-  depends_on = [google_project_service.services]
 }
 
 # ---- Public invocation (LB is unauthenticated; ingress blocks direct .run.app) ----

@@ -21,11 +21,8 @@ resource "google_storage_bucket" "phi" {
     enabled = true
   }
 
-  dynamic "encryption" {
-    for_each = local.cmek_key == null ? [] : [local.cmek_key]
-    content {
-      default_kms_key_name = encryption.value
-    }
+  encryption {
+    default_kms_key_name = local.cmek_key
   }
 
   lifecycle_rule {
@@ -46,8 +43,6 @@ resource "google_storage_bucket" "phi" {
       type = "AbortIncompleteMultipartUpload"
     }
   }
-
-  depends_on = [google_kms_crypto_key_iam_member.storage]
 }
 
 resource "google_storage_bucket" "refdata" {
@@ -62,44 +57,33 @@ resource "google_storage_bucket" "refdata" {
     enabled = true
   }
 
-  dynamic "encryption" {
-    for_each = local.cmek_key == null ? [] : [local.cmek_key]
-    content {
-      default_kms_key_name = encryption.value
-    }
+  encryption {
+    default_kms_key_name = local.cmek_key
   }
-
-  depends_on = [google_kms_crypto_key_iam_member.storage]
 }
 
 # --- App access (least privilege) ------------------------------------------
+#
+# These are RESOURCE-level grants on the buckets this config creates, so they stay
+# here (granting IAM on your own bucket cannot escalate to project-level roles). The
+# runtime SA itself is created in the central infra repo; we grant it by email.
 
 # PHI bucket: the app only READS family bytes (presigned/streamed). Viewer only.
 resource "google_storage_bucket_iam_member" "backend_phi_reader" {
   bucket = google_storage_bucket.phi.name
   role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${google_service_account.backend.email}"
+  member = "serviceAccount:${local.backend_sa_email}"
 }
 
 # Reference data is mounted read-write so first-run bootstrap can populate it.
 resource "google_storage_bucket_iam_member" "backend_refdata_user" {
   bucket = google_storage_bucket.refdata.name
   role   = "roles/storage.objectUser"
-  member = "serviceAccount:${google_service_account.backend.email}"
+  member = "serviceAccount:${local.backend_sa_email}"
 }
 
-# --- S-4: byte-level PHI download audit ------------------------------------
-# Presigned/direct object reads bypass the app, so capture them via GCS Data
-# Access audit logs (the GCP equivalent of S3 access logging / CloudTrail data
-# events). NOTE: this is project-wide for storage.googleapis.com.
-resource "google_project_iam_audit_config" "storage_data_access" {
-  project = var.project_id
-  service = "storage.googleapis.com"
-
-  audit_log_config {
-    log_type = "DATA_READ"
-  }
-  audit_log_config {
-    log_type = "DATA_WRITE"
-  }
-}
+# NOTE (S-4: byte-level PHI download audit): presigned/direct object reads bypass the
+# app, so they are captured via project-wide GCS Data Access audit logs
+# (storage.googleapis.com DATA_READ/DATA_WRITE). That is a project-level IAM audit
+# config and now lives in the central infra repo (terraform/main-repo-reference/), not
+# here, so this pipeline needs no project-IAM-admin rights.

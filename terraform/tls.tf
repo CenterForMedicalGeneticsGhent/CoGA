@@ -80,8 +80,6 @@ resource "google_secret_manager_secret" "clickhouse_tls" {
       }
     }
   }
-
-  depends_on = [google_project_service.services]
 }
 
 resource "google_secret_manager_secret_version" "clickhouse_tls_key" {
@@ -98,5 +96,5 @@ resource "google_secret_manager_secret_iam_member" "clickhouse_vm_tls" {
   for_each  = google_secret_manager_secret.clickhouse_tls
   secret_id = each.value.id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.clickhouse_vm.email}"
+  member    = "serviceAccount:${local.clickhouse_vm_sa_email}"
 }

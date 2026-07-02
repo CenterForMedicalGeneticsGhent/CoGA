@@ -9,12 +9,12 @@ resource "google_sql_database_instance" "postgres" {
   database_version = "POSTGRES_16"
   region           = var.region
 
-  # CMEK key must be granted to the Cloud SQL service agent first.
+  # CMEK key (the Cloud SQL service agent is granted encrypt/decrypt on it in the
+  # central infra repo, before this config runs).
   encryption_key_name = local.cmek_key
 
   depends_on = [
     google_service_networking_connection.private_vpc_connection,
-    google_kms_crypto_key_iam_member.sql,
   ]
 
   settings {
@@ -76,15 +76,11 @@ resource "google_compute_disk" "clickhouse_data" {
   zone = var.zone
   size = var.clickhouse_data_disk_gb
 
-  dynamic "disk_encryption_key" {
-    for_each = local.cmek_key == null ? [] : [local.cmek_key]
-    content {
-      kms_key_self_link = disk_encryption_key.value
-    }
+  disk_encryption_key {
+    kms_key_self_link = local.cmek_key
   }
 
-  labels     = var.labels
-  depends_on = [google_kms_crypto_key_iam_member.compute]
+  labels = var.labels
 }
 
 resource "google_compute_instance" "clickhouse" {
@@ -104,7 +100,6 @@ resource "google_compute_instance" "clickhouse" {
       type  = "pd-ssd"
     }
 
-    # null when CMEK is disabled → Google-managed key.
     kms_key_self_link = local.cmek_key
   }
 
@@ -128,7 +123,7 @@ resource "google_compute_instance" "clickhouse" {
   }
 
   service_account {
-    email  = google_service_account.clickhouse_vm.email
+    email  = local.clickhouse_vm_sa_email
     scopes = ["cloud-platform"]
   }
 

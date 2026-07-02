@@ -5,9 +5,12 @@
 # Attached to the load balancer's backend services (loadbalancer.tf). Provides:
 #  - Adaptive Protection: ML-based L7 DDoS defense.
 #  - Per-client-IP rate limiting (throttle abusive sources).
-#  - OWASP CRS preconfigured WAF (SQLi/XSS/RCE/LFI), at the lowest sensitivity to
+#  - OWASP CRS 4.22 preconfigured WAF (SQLi/XSS/RCE/LFI), at the lowest sensitivity to
 #    limit false positives. Shipped in PREVIEW (log-only) by default so the team can
 #    review hits against the genomics API before enforcing (cloud_armor_waf_enforce).
+#  - Optional institutional IP allowlist (var.allowed_ingress_cidrs): when set, only
+#    those source ranges (UGent/UZ Gent + VPN) reach the app; everything else is denied
+#    at the edge, before rate limiting / WAF / the app's own auth.
 
 resource "google_compute_security_policy" "lb" {
   count = var.enable_cloud_armor ? 1 : 0
@@ -17,6 +20,25 @@ resource "google_compute_security_policy" "lb" {
   adaptive_protection_config {
     layer_7_ddos_defense_config {
       enable = true
+    }
+  }
+
+  # Institutional IP allowlist (UGent / UZ Gent + VPN). Highest priority so it runs
+  # FIRST: any source NOT in var.allowed_ingress_cidrs is denied here, before rate
+  # limiting / WAF / default-allow. Allowed sources do not match this rule and fall
+  # through to the rules below (so they are still rate-limited and WAF-checked). Only
+  # emitted when the list is non-empty — empty list keeps the app open (app auth only).
+  dynamic "rule" {
+    for_each = length(var.allowed_ingress_cidrs) > 0 ? [1] : []
+    content {
+      action      = "deny(403)"
+      priority    = 100
+      description = "Allow only institutional (UGent/UZ) source ranges"
+      match {
+        expr {
+          expression = "!(${join(" || ", [for c in var.allowed_ingress_cidrs : "inIpRange(origin.ip, '${c}')"])})"
+        }
+      }
     }
   }
 
@@ -42,19 +64,19 @@ resource "google_compute_security_policy" "lb" {
     }
   }
 
-  # OWASP CRS preconfigured WAF. preview = log-only until cloud_armor_waf_enforce.
+  # OWASP CRS 4.22 preconfigured WAF. preview = log-only until cloud_armor_waf_enforce.
   rule {
     action      = "deny(403)"
     priority    = 2000
     preview     = !var.cloud_armor_waf_enforce
-    description = "OWASP CRS: SQLi / XSS / RCE / LFI"
+    description = "OWASP CRS 4.22: SQLi / XSS / RCE / LFI"
     match {
       expr {
         expression = <<-EXPR
-          evaluatePreconfiguredWaf('sqli-v33-stable', {'sensitivity': 1})
-          || evaluatePreconfiguredWaf('xss-v33-stable', {'sensitivity': 1})
-          || evaluatePreconfiguredWaf('rce-v33-stable', {'sensitivity': 1})
-          || evaluatePreconfiguredWaf('lfi-v33-stable', {'sensitivity': 1})
+          evaluatePreconfiguredWaf('sqli-v422-stable', {'sensitivity': 1})
+          || evaluatePreconfiguredWaf('xss-v422-stable', {'sensitivity': 1})
+          || evaluatePreconfiguredWaf('rce-v422-stable', {'sensitivity': 1})
+          || evaluatePreconfiguredWaf('lfi-v422-stable', {'sensitivity': 1})
         EXPR
       }
     }
