@@ -42,7 +42,11 @@ def clickhouse_dataset_key(assembly_name: str) -> str:
 _async_client: Any | None = None
 _client_lock: asyncio.Lock | None = None
 _INSERT_QUERY_PATTERN = re.compile(
-    r"^\s*INSERT\s+INTO\s+(?P<table>.+?)\s*\((?P<columns>.*?)\)\s*VALUES\s*$",
+    # `table` is anchored to start with a non-whitespace char and end on a non-`(`,
+    # non-whitespace char so the following `\s*\(` boundary is unambiguous. The old
+    # `.+?` overlapped the surrounding `\s+`/`\s*`, giving cubic backtracking on a long
+    # `INSERT INTO ` + whitespace/near-miss run (py/polynomial-redos).
+    r"^\s*INSERT\s+INTO\s+(?P<table>\S(?:[^(]*[^(\s])?)\s*\((?P<columns>.*?)\)\s*VALUES\s*$",
     re.IGNORECASE | re.DOTALL,
 )
 _QUALIFIED_TABLE_PATTERN = re.compile(
