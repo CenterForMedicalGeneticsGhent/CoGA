@@ -121,6 +121,27 @@ async def _fetch_release_version() -> str | None:
     return None
 
 
+async def _resolve_release_version(release_version: str | None) -> str:
+    """Resolve the Monarch KG release id, raising if it cannot be determined.
+
+    A signed clinical report's gene-disease / phenotype provenance must record which
+    Monarch release produced it, so we refuse to load data with an unknown version.
+    Previously a failed metadata fetch only logged a warning and the refresh committed
+    every row with ``release_version = NULL`` and reported success — silently losing the
+    provenance of data that feeds clinical reports. Pass an explicit ``release_version``
+    to bypass the network lookup.
+    """
+    if release_version is None:
+        release_version = await _fetch_release_version()
+    if not release_version:
+        raise RuntimeError(
+            "Refusing to load Monarch data with an unknown release version: the KG "
+            "metadata (version:) could not be read. Retry when it is reachable, or pass "
+            "an explicit release_version."
+        )
+    return release_version
+
+
 def parse_gene_disease_tsv(
     text_value: str,
     *,
@@ -236,8 +257,7 @@ async def refresh_monarch_gene_disease(
     Returns a summary dict suitable for an admin response.
     """
     started_at = datetime.now(timezone.utc)
-    if release_version is None:
-        release_version = await _fetch_release_version()
+    release_version = await _resolve_release_version(release_version)
 
     associations: dict[tuple[str, str], _Association] = {}
     files_loaded = 0
@@ -389,8 +409,7 @@ async def refresh_monarch_disease_phenotype(
 ) -> dict[str, Any]:
     """Download, parse, and replace the Monarch disease -> phenotype table."""
     started_at = datetime.now(timezone.utc)
-    if release_version is None:
-        release_version = await _fetch_release_version()
+    release_version = await _resolve_release_version(release_version)
 
     phenotypes: dict[tuple[str, str], _DiseasePhenotype] = {}
     text_value = await _download_gzip_tsv(MONARCH_DISEASE_PHENOTYPE_FILE)
@@ -431,7 +450,9 @@ async def refresh_monarch(session: AsyncSession) -> dict[str, Any]:
     tables stay consistent. Returns a merged summary.
     """
     started_at = datetime.now(timezone.utc)
-    release_version = await _fetch_release_version()
+    # Resolve once (raising if the release is unknown) and share it across both refreshes
+    # so the tables stay on a single, recorded release.
+    release_version = await _resolve_release_version(None)
 
     # Stage both table swaps in one transaction so a failure can't leave the tables on
     # mismatched releases (gene_disease new, disease_phenotype old/empty).
