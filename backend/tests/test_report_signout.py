@@ -7,7 +7,14 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app.services import report_signout_service as rss
-from backend.app.services.sample_integrity_qc import SampleIntegrityReport
+from backend.app.services.sample_integrity_qc import (
+    MendelianCheck,
+    NiptCategoryQc,
+    PaternityCheck,
+    RelatednessCheck,
+    SampleIntegrityReport,
+    SexCheck,
+)
 
 
 def test_canonical_hash_is_stable_and_order_independent() -> None:
@@ -314,6 +321,215 @@ def test_sample_qc_is_bound_into_content_hash(monkeypatch) -> None:
 
     assert _body_hash("pass") == _body_hash("pass")  # deterministic
     assert _body_hash("pass") != _body_hash("fail")  # bound to the QC verdict
+
+
+def _patch_qc_report(monkeypatch, report: SampleIntegrityReport) -> None:
+    async def _qc(session, *, family_id, user, project_id=None):
+        return report
+
+    monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
+
+
+def _asserted_parent_child(sites: int, status: str = "warn") -> RelatednessCheck:
+    return RelatednessCheck(
+        "CHILD", "FATHER", "parent-child",
+        "indeterminate" if sites < 1000 else "parent-child",
+        0.0 if sites < 1000 else 0.25, 0.0, sites, status,
+        "Too few shared sites to assess relatedness." if sites < 1000 else "Confirmed parent-child.",
+    )
+
+
+def test_unverifiable_asserted_relatedness_blocks_sign_out(monkeypatch) -> None:
+    # #330: a swap that manifests as MISSING data leaves the parent-child relatedness
+    # check unable to run (0 informative sites -> warn, not fail). It must still gate.
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(overall_status="warn", relatedness_checks=[_asserted_parent_child(0)]),
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "sample_qc"
+    assert excinfo.value.detail["unverifiable_checks"]  # names the asserted edge
+
+
+def test_unverifiable_asserted_relatedness_acknowledged_proceeds_and_audits(monkeypatch) -> None:
+    captured: dict = {}
+
+    async def _capture(*args, **kwargs):
+        captured.update(kwargs)
+
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    monkeypatch.setattr(rss, "record_clinical_event", _capture)
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(overall_status="warn", relatedness_checks=[_asserted_parent_child(0)]),
+    )
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(), family_id="FAM1", user=_user(),
+            acknowledge_qc=True, qc_acknowledgement_reason="  Repeat genotyping confirms identity.  ",
+        )
+    )
+    assert out["snapshot"]["acknowledged_qc"] is True
+    assert out["snapshot"]["qc_acknowledgement_reason"] == "Repeat genotyping confirms identity."
+    # The audit distinguishes an unverifiable-check override (qc_status "warn" +
+    # qc_unverifiable) from an override of a detected mismatch (qc_status "fail").
+    assert captured["after"]["qc_status"] == "warn"
+    assert captured["after"]["qc_unverifiable"]
+
+
+def test_unverifiable_asserted_relatedness_ack_without_reason_is_422(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(overall_status="warn", relatedness_checks=[_asserted_parent_child(0)]),
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            rss.sign_out_report(
+                _Session(), family_id="FAM1", user=_user(),
+                acknowledge_qc=True, qc_acknowledgement_reason="   ",
+            )
+        )
+    assert excinfo.value.status_code == 422
+
+
+def test_non_asserted_and_verified_edges_do_not_block(monkeypatch) -> None:
+    # A non-asserted ("unrelated") pair with no sites is NOT a swap-relevant assertion,
+    # and a fully-verified asserted edge ran fine — neither should require acknowledgement.
+    unrelated_no_sites = RelatednessCheck("A", "B", "unrelated", "indeterminate", 0.0, 0.0, 0, "warn", "x")
+    for report in (
+        SampleIntegrityReport(overall_status="warn", relatedness_checks=[unrelated_no_sites]),
+        SampleIntegrityReport(overall_status="pass", relatedness_checks=[_asserted_parent_child(5000, status="pass")]),
+    ):
+        _patch_common(monkeypatch, drifted_count=0)
+        _patch_qc_report(monkeypatch, report)
+        out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+        assert out["snapshot"]["acknowledged_qc"] is False
+
+
+def test_mendelian_unverifiable_blocks_but_elevated_rate_does_not(monkeypatch) -> None:
+    # Too few informative sites = could-not-run -> gate. An elevated (but measured) error
+    # rate over enough sites is a ran-and-concerning "warn" and must NOT newly gate.
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(
+            overall_status="warn",
+            mendelian_checks=[MendelianCheck("CHILD", ["FATHER", "MOTHER"], 10, 0, 0.0, "warn", "Too few informative sites.")],
+        ),
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(
+            overall_status="warn",
+            mendelian_checks=[MendelianCheck("CHILD", ["FATHER", "MOTHER"], 5000, 150, 0.03, "warn", "Elevated Mendelian-error rate.")],
+        ),
+    )
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_qc"] is False
+
+
+def test_nipt_paternity_and_silent_maternal_pass_through_block(monkeypatch) -> None:
+    # NIPT paternity that could not run gates.
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(
+            overall_status="warn",
+            paternity_check=PaternityCheck("FATHER", 2, 1, 3, "warn", "Too few paternal-informative sites."),
+        ),
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+
+    # The NIPT category QC reports "pass" when maternal transmission is skipped for too
+    # few maternal-informative sites — an unverified mother that must now gate despite
+    # the overall "pass" verdict.
+    _patch_common(monkeypatch, drifted_count=0, qc_status="pass")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(
+            overall_status="pass",
+            category_qc_check=NiptCategoryQc(0, 0, 5, 2, 0.4, "pass", "Category distribution within expectation."),
+        ),
+    )
+    with pytest.raises(HTTPException) as excinfo2:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo2.value.status_code == 409
+    assert excinfo2.value.detail["gate"] == "sample_qc"
+
+
+def test_sex_only_identity_unverifiable_blocks(monkeypatch) -> None:
+    # A single-sample / couple / added-relative member whose identity rests solely on the
+    # sex check: an indeterminate sex with no anchoring relatedness edge must gate (the
+    # fail-open the review found — _unverifiable_swap_checks previously ignored sex).
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(
+            overall_status="warn",
+            application="single",
+            sex_checks=[SexCheck("PROBAND", "female", "indeterminate", None, 0, "skip", "No chrX genotypes available.")],
+        ),
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "sample_qc"
+
+
+def test_indeterminate_sex_on_anchored_sample_does_not_block(monkeypatch) -> None:
+    # The child's sex is indeterminate but a passing parent-child relatedness anchors its
+    # identity, so sex is redundant and must NOT newly gate (no over-block on trios).
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(
+            overall_status="warn",
+            application="wgs",
+            relatedness_checks=[_asserted_parent_child(5000, status="pass")],
+            sex_checks=[SexCheck("CHILD", "male", "indeterminate", None, 0, "skip", "No chrX genotypes available.")],
+        ),
+    )
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_qc"] is False
+
+
+def test_nipt_unresolved_trio_blocks(monkeypatch) -> None:
+    # NIPT family whose trio could not be resolved -> zero cfDNA checks -> would sign out
+    # with no integrity evidence at all. Must gate despite overall_status "skip".
+    _patch_common(monkeypatch, drifted_count=0, qc_status="skip")
+    _patch_qc_report(monkeypatch, SampleIntegrityReport(overall_status="skip", application="nipt"))
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "sample_qc"
+
+
+def test_nipt_with_ran_checks_signs_out(monkeypatch) -> None:
+    # A NIPT report whose paternity + category checks ran fine must NOT be gated by the
+    # no-evidence branch (no false positive).
+    _patch_common(monkeypatch, drifted_count=0, qc_status="pass")
+    _patch_qc_report(
+        monkeypatch,
+        SampleIntegrityReport(
+            overall_status="pass",
+            application="nipt",
+            paternity_check=PaternityCheck("FATHER", 40, 5, 45, "pass", "Paternity supported."),
+            category_qc_check=NiptCategoryQc(1, 2, 60, 30, 0.5, "pass", "Within expectation."),
+        ),
+    )
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_qc"] is False
 
 
 def test_audit_records_qc_status_and_acknowledgement(monkeypatch) -> None:
