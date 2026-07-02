@@ -421,17 +421,18 @@ const FamilyReportPage: React.FC = () => {
           className="modal-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label="Sample QC failed"
+          aria-label="Sample-integrity QC acknowledgement required"
         >
           <div className="modal-surface surface-card report-qc-ack-modal">
             <h2 className="report-paragraph">
-              <strong>Sample QC failed — possible sample / pedigree swap</strong>
+              <strong>Sample-integrity QC — acknowledgement required</strong>
             </h2>
+            {/* The backend message describes the specific concern — a detected mismatch
+                (fail) OR an asserted relationship that could not be verified (missing
+                data). Render it verbatim so the reviewer attests to the right thing. */}
+            <p className="report-paragraph">{qcGate.message}</p>
             <p className="report-paragraph">
-              Sample-integrity QC status is{' '}
-              <strong>{qcGate.summary?.overall_status ?? 'fail'}</strong> (TF-06 H4). To sign out
-              anyway you must record a reason for overriding the failure — it is frozen into the
-              signed record.
+              To sign out anyway you must record a reason — it is frozen into the signed record.
             </p>
             {qcGate.summary?.messages?.length ? (
               <ul>
@@ -441,7 +442,7 @@ const FamilyReportPage: React.FC = () => {
               </ul>
             ) : null}
             <label className="report-footer-label" htmlFor="qc-ack-reason">
-              Reason for overriding the QC failure (required)
+              Reason for signing out despite the QC concern (required)
             </label>
             <textarea
               id="qc-ack-reason"

@@ -405,13 +405,17 @@ describe('FamilyReportPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
 
-    // The failing QC opens the acknowledge-with-reason dialog with the failing summary.
-    expect(await screen.findByRole('dialog', { name: /Sample QC failed/ })).toBeInTheDocument();
+    // The failing QC opens the acknowledge-with-reason dialog with the backend message
+    // + the failing summary.
+    expect(
+      await screen.findByRole('dialog', { name: /acknowledgement required/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/possible swap/)).toBeInTheDocument();
     expect(screen.getByText(/FATHER-CHILD looks unrelated/)).toBeInTheDocument();
 
     // "Sign out anyway" is disabled until a non-empty reason is typed.
     expect(screen.getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/Reason for overriding/), {
+    fireEvent.change(screen.getByLabelText(/Reason for signing out/), {
       target: { value: 'Repeat genotyping confirms identity' },
     });
     const overrideBtn = screen.getByRole('button', { name: /Sign out anyway/ });
@@ -436,13 +440,57 @@ describe('FamilyReportPage', () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
-    await screen.findByRole('dialog', { name: /Sample QC failed/ });
+    await screen.findByRole('dialog', { name: /acknowledgement required/i });
     fireEvent.click(screen.getByRole('button', { name: /Cancel/ }));
 
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: /Sample QC failed/ })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole('dialog', { name: /acknowledgement required/i }),
+      ).not.toBeInTheDocument(),
     );
     expect(posts).toHaveLength(1); // only the initial attempt; no override post
+  });
+
+  it('opens the acknowledgement dialog for an UNVERIFIABLE Sample QC (warn), not only a detected fail', async () => {
+    // #330: a swap that manifests as missing data blocks with overall_status 'warn'
+    // (not 'fail'); the dialog must still fire and show the specific reason.
+    const UNVERIFIABLE_QC_409 = {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            gate: 'sample_qc',
+            message:
+              'A swap-relevant sample-integrity check could not be verified for an asserted pedigree relationship (Relatedness of CHILD–FATHER could not be verified).',
+            qc_summary: { overall_status: 'warn', messages: [] },
+            unverifiable_checks: ['Relatedness of CHILD–FATHER could not be verified.'],
+          },
+        },
+      },
+    };
+    mockUnsignedFamily();
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      return posts.length === 1
+        ? Promise.reject(UNVERIFIABLE_QC_409)
+        : Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    expect(
+      await screen.findByRole('dialog', { name: /acknowledgement required/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/could not be verified/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Reason for signing out/), {
+      target: { value: 'Father not sequenced (deceased); relatedness not assessable.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1]).toMatchObject({ acknowledge_qc: true });
   });
 
   it('renders the frozen Sample QC status + override reason in the signed-out record', async () => {

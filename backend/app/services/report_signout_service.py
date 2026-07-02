@@ -31,7 +31,13 @@ from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import build_family_metadata_context
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .metadata_service import CurrentUser
-from .sample_integrity_qc import SampleIntegrityReport
+from .sample_integrity_qc import (
+    MIN_MATERNAL_TRANSMISSION_SITES,
+    MIN_MENDEL_SITES,
+    MIN_PATERNITY_SITES,
+    MIN_RELATEDNESS_SITES,
+    SampleIntegrityReport,
+)
 from .sample_integrity_service import get_family_sample_integrity_qc
 
 logger = logging.getLogger(__name__)
@@ -39,9 +45,18 @@ logger = logging.getLogger(__name__)
 _REPORT_TAG = "report"
 
 # Sample-integrity QC statuses that BLOCK sign-out unless acknowledged with a reason.
-# Per clinical policy, only a hard "fail" (a detected sample/pedigree swap — TF-06 H4,
-# rated S5 catastrophic) blocks; "warn"/"skip" are frozen + surfaced but do not gate.
+# A hard "fail" is a DETECTED mismatch (a sample/pedigree swap — TF-06 H4, rated S5
+# catastrophic). Separately, a swap can manifest as MISSING data (a sample absent from
+# the callset, a whole-family genotype-load failure, too few cfDNA sites): that leaves
+# the swap-relevant check unable to run, so it stays "warn"/"skip"/"pass" and never
+# reaches "fail". _unverifiable_swap_checks() gates those too (#330), so an unverifiable
+# ASSERTED pedigree relationship cannot sign out silently. Both are acknowledge-with-
+# reason (never a hard lockout); the reason is frozen into the content hash + audit.
 _QC_BLOCKING_STATUSES = {"fail"}
+
+# Pedigree-declared first-degree relationships whose swap check, when it cannot run,
+# indicates missing data for an asserted edge (vs a non-asserted/"unrelated" pair).
+_ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling"})
 
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
@@ -102,6 +117,111 @@ def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
         "application_label": qc.get("application_label"),
         "messages": [m for m in messages if m],
     }
+
+
+def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
+    """Asserted swap-relevant QC checks that COULD NOT RUN (too few informative sites).
+
+    A genuine mismatch rolls up to "fail" (which already blocks). But a swap that
+    manifests as MISSING data — a sample absent from the callset, a whole-family
+    genotype-load failure, too few cfDNA sites — leaves the relevant check unable to
+    run, so it stays "warn"/"skip"/"pass" and would otherwise sign out silently. Flag
+    each ASSERTED (pedigree-declared) relationship whose swap check has too few
+    informative sites to verify it. Scoped to asserted edges: non-asserted pairs and
+    donor/unknown-parent edges never trigger.
+    """
+    reasons: list[str] = []
+    for check in qc.get("relatedness_checks") or []:
+        if (
+            check.get("expected_relationship") in _ASSERTED_RELATIONSHIPS
+            and int(check.get("informative_sites") or 0) < MIN_RELATEDNESS_SITES
+        ):
+            reasons.append(
+                check.get("message")
+                or (
+                    f"Relatedness of {check.get('sample_a')}–{check.get('sample_b')} "
+                    f"(expected {check.get('expected_relationship')}) could not be verified."
+                )
+            )
+    # Mendelian checks are only generated for asserted child+parent(s), so any with too
+    # few informative sites is an unverifiable asserted trio — distinct from an elevated
+    # but measurable error rate, which is a ran-and-concerning "warn" we leave alone.
+    for check in qc.get("mendelian_checks") or []:
+        if int(check.get("informative_sites") or 0) < MIN_MENDEL_SITES:
+            reasons.append(
+                check.get("message")
+                or f"Mendelian consistency for {check.get('child')} could not be verified."
+            )
+    paternity = qc.get("paternity_check")
+    if paternity and int(paternity.get("informative_sites") or 0) < MIN_PATERNITY_SITES:
+        reasons.append(
+            paternity.get("message")
+            or "NIPT paternity could not be verified (too few paternal-informative sites)."
+        )
+    # The NIPT category QC silently reports "pass" when the maternal-transmission block
+    # is skipped for too few maternal-informative sites — i.e. a wrong/absent mother is
+    # not caught. Treat that unverifiable maternal lineage as gating.
+    category = qc.get("category_qc_check")
+    if (
+        category
+        and int(category.get("maternal_informative") or 0) < MIN_MATERNAL_TRANSMISSION_SITES
+    ):
+        reasons.append(
+            "NIPT maternal lineage could not be verified (too few maternal-informative "
+            "sites) — possible wrong mother."
+        )
+
+    # Samples anchored by an asserted relatedness/Mendelian edge have their identity
+    # covered there. Sex is the ONLY identity signal for a sample with no asserted edge
+    # (the single/couple profiles, or an added relative), so a sex call that could not be
+    # made for such a sample — the sample absent from its callset, or no usable chrX — is
+    # an otherwise-ungated swap gap. (A sex MISmatch already rolls up to "fail".)
+    anchored: set[str] = set()
+    for check in qc.get("relatedness_checks") or []:
+        if check.get("expected_relationship") in _ASSERTED_RELATIONSHIPS:
+            anchored.add(check.get("sample_a"))
+            anchored.add(check.get("sample_b"))
+    for check in qc.get("mendelian_checks") or []:
+        anchored.add(check.get("child"))
+        anchored.update(check.get("parents") or [])
+    for check in qc.get("sex_checks") or []:
+        if check.get("inferred_sex") == "indeterminate" and check.get("sample_id") not in anchored:
+            reasons.append(
+                check.get("message")
+                or (
+                    f"Sex/identity of {check.get('sample_id')} could not be verified, and no "
+                    "relatedness check anchors this sample."
+                )
+            )
+
+    # NIPT integrity rests entirely on the cfDNA paternity + category-QC checks. If
+    # NEITHER ran — the maternal/paternal trio could not be resolved, or the cfDNA
+    # analysis failed — a prenatal report would otherwise sign out with no identity
+    # evidence at all (the checks are None and nothing rolls up to "fail").
+    if (
+        qc.get("application") == "nipt"
+        and qc.get("paternity_check") is None
+        and qc.get("category_qc_check") is None
+    ):
+        reasons.append(
+            "NIPT sample integrity could not be assessed — the trio could not be resolved "
+            "or the cfDNA analysis did not run (no paternity or maternal-lineage check)."
+        )
+    return reasons
+
+
+def _qc_gate_message(qc_status: str, hard_fail: bool, unverifiable: list[str]) -> str:
+    if hard_fail:
+        return (
+            f"Sample-integrity QC status is '{qc_status}' (possible sample or pedigree "
+            "swap — TF-06 H4). Resolve it, or acknowledge with a reason to sign out anyway."
+        )
+    return (
+        "A swap-relevant sample-integrity check could not be verified for an asserted "
+        f"pedigree relationship ({'; '.join(unverifiable)}). A sample swap can present as "
+        "missing data rather than a mismatch. Resolve it, or acknowledge with a reason to "
+        "sign out anyway."
+    )
 
 
 async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
@@ -243,26 +363,29 @@ async def sign_out_report(
     # is acknowledged independently). Only a hard "fail" blocks (TF-06 H4 sample/pedigree
     # swap, S5 catastrophic); acknowledging requires a non-empty reason, which — like the
     # QC verdict itself — is frozen into the content hash below.
-    qc_status = snapshot_body["sample_qc"]["overall_status"]
-    qc_blocks = qc_status in _QC_BLOCKING_STATUSES
+    sample_qc = snapshot_body["sample_qc"]
+    qc_status = sample_qc["overall_status"]
+    qc_hard_fail = qc_status in _QC_BLOCKING_STATUSES
+    # A swap that manifests as MISSING data leaves the swap-relevant check unable to run
+    # (it never becomes "fail"); gate those unverifiable asserted-pedigree checks too so
+    # they cannot sign out silently (#330).
+    qc_unverifiable = _unverifiable_swap_checks(sample_qc)
+    qc_blocks = qc_hard_fail or bool(qc_unverifiable)
     if qc_blocks and not acknowledge_qc:
         raise HTTPException(
             status_code=409,
             detail={
                 "gate": "sample_qc",
-                "message": (
-                    f"Sample-integrity QC status is '{qc_status}' (possible sample or "
-                    "pedigree swap — TF-06 H4). Resolve it, or acknowledge with a reason "
-                    "to sign out anyway."
-                ),
-                "qc_summary": _qc_failure_summary(snapshot_body["sample_qc"]),
+                "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable),
+                "qc_summary": _qc_failure_summary(sample_qc),
+                "unverifiable_checks": qc_unverifiable,
             },
         )
     qc_reason = (qc_acknowledgement_reason or "").strip()
     if qc_blocks and acknowledge_qc and not qc_reason:
         raise HTTPException(
             status_code=422,
-            detail="A reason is required to acknowledge a failing sample-integrity QC.",
+            detail="A reason is required to acknowledge a sample-integrity QC concern.",
         )
 
     # Per-family advisory lock: makes version selection + chain-head read + insert
@@ -361,6 +484,7 @@ async def sign_out_report(
             "qc_status": qc_status,
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
+            "qc_unverifiable": qc_unverifiable,
         },
     )
     await session.commit()
