@@ -7,6 +7,7 @@ from datetime import date
 import io
 import json
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
@@ -531,13 +532,17 @@ def ensure_authorized_hpo_ontology_path(path: str | Path) -> Path:
     ontology locations (the configured ``HPO_ONTOLOGY_PATH`` plus the default ref-data
     dirs), so routine updates that drop a new ``hp.obo``/``hpo.json`` in place still work.
     """
-    resolved = Path(path).expanduser().resolve()
     authorized_roots = {
-        candidate.expanduser().resolve().parent
+        os.path.normpath(os.path.expanduser(str(candidate.parent)))
         for candidate in hpo_ontology_candidate_paths(settings.hpo_ontology_path)
     }
-    if any(root == resolved.parent or root in resolved.parents for root in authorized_roots):
-        return resolved
+    # Validate with pure string normalization — no Path.resolve()/read_text() touches the
+    # raw admin-supplied value before it is checked. os.path.normpath collapses '..' so a
+    # traversal cannot escape, and requiring the file's directory to be one of the
+    # authorized roots rejects absolute or relative paths pointing anywhere else.
+    normalized = os.path.normpath(os.path.expanduser(str(path)))
+    if os.path.dirname(normalized) in authorized_roots:
+        return Path(normalized)
     raise ValueError("HPO ontology path is outside the authorized ontology directory")
 
 
