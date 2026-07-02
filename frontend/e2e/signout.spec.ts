@@ -27,7 +27,7 @@ test('signs out the family report from the browser (with gate handling)', async 
   await signOutButton.click();
 
   // The sample-QC gate may open a modal that requires an override reason.
-  const qcDialog = page.getByRole('dialog', { name: /sample qc failed/i });
+  const qcDialog = page.getByRole('dialog', { name: /acknowledgement required/i });
   if (await qcDialog.isVisible({ timeout: 3000 }).catch(() => false)) {
     await page.locator('#qc-ack-reason').fill('e2e QC override');
     await page.getByRole('button', { name: /sign out anyway/i }).click();
