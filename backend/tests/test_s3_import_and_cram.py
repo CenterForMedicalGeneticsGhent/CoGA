@@ -1,5 +1,6 @@
 import asyncio
 import types
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -28,6 +29,30 @@ def test_s3_source_rejected_without_configured_root(monkeypatch):
     monkeypatch.setattr(fpi.settings, "family_import_roots", ["/data/families"])
     with pytest.raises(HTTPException):
         fpi._ensure_authorized_s3_source("s3://bucket/families/F1")
+
+
+def test_local_package_path_rejected_when_no_local_root_configured(monkeypatch):
+    # S3-only config: no local root is configured. An out-of-staging local path must be
+    # rejected — the previous fail-open returned any admin-supplied path unchecked,
+    # giving an out-of-allowlist file read/write primitive.
+    monkeypatch.setattr(fpi.settings, "family_import_roots", ["s3://bucket/families"])
+    assert fpi._authorized_local_roots() == []
+    with pytest.raises(HTTPException) as exc:
+        fpi._ensure_authorized_package_path(Path("/etc/coga-attacker"))
+    assert exc.value.status_code == 403
+
+
+def test_local_package_path_allowed_under_configured_root(monkeypatch, tmp_path):
+    monkeypatch.setattr(fpi.settings, "family_import_roots", [str(tmp_path)])
+    target = tmp_path / "F1"
+    assert fpi._ensure_authorized_package_path(target) == target.resolve()
+
+
+def test_local_package_path_traversal_rejected(monkeypatch, tmp_path):
+    monkeypatch.setattr(fpi.settings, "family_import_roots", [str(tmp_path)])
+    with pytest.raises(HTTPException) as exc:
+        fpi._ensure_authorized_package_path(tmp_path / ".." / "coga-outside")
+    assert exc.value.status_code == 403
 
 
 def test_staged_package_source_local_is_passthrough(tmp_path):

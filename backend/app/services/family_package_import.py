@@ -602,11 +602,16 @@ def _ensure_authorized_package_path(path: Path) -> Path:
     if resolved == staging_root or staging_root in resolved.parents:
         return resolved
     allowed_roots = _authorized_local_roots()
-    if not allowed_roots:
-        return resolved
     if any(resolved == root or root in resolved.parents for root in allowed_roots):
         return resolved
-    roots = ", ".join(str(root) for root in allowed_roots)
+    # Fail open ONLY when nothing is configured at all — the explicit "unrestricted" dev
+    # default (family_import_roots=[]). When roots ARE configured, a local path outside
+    # them is unauthorized: previously the guard fell open whenever no *local* root
+    # matched, so an S3-only (remote-only) FAMILY_IMPORT_ROOTS silently allowed any
+    # admin-supplied local path — an out-of-allowlist file read/write primitive.
+    if not settings.family_import_roots:
+        return resolved
+    roots = ", ".join(str(root) for root in allowed_roots) or "(remote-only FAMILY_IMPORT_ROOTS)"
     raise HTTPException(
         status_code=403,
         detail=f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {roots}",
