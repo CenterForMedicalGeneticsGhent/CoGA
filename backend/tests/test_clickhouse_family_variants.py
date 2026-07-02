@@ -21,6 +21,7 @@ from backend.app.services.clickhouse_family_variants import (
     _fetch_small_variant_rows,
     _flexible_status_match,
     _small_detail_filter_clauses,
+    _small_variant_where_clauses,
     _small_variant_out,
     _small_record_matches,
     _normalize_small_variant_inheritance,
@@ -1052,6 +1053,70 @@ async def test_fetch_small_variant_rows_uses_entry_source_column(
     assert rows[0].source == "clair3"
     assert "annotation_version" in captured_queries[1]
     assert "e.source AS source" in captured_queries[0]
+
+
+def test_small_variant_where_clauses_excludes_imputed_when_requested() -> None:
+    clauses, params = _small_variant_where_clauses(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+        exclude_imputed=True,
+    )
+    assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in clauses
+    assert params["imputed_sources"] == ("glimpse2", "shapeit")
+
+
+def test_small_variant_where_clauses_keeps_all_sources_by_default() -> None:
+    # Internal readers (phased markers, sample-QC) must still see every callset, so
+    # the exclusion only applies when explicitly requested.
+    clauses, params = _small_variant_where_clauses(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+    )
+    assert not any("imputed_sources" in clause for clause in clauses)
+    assert "imputed_sources" not in params
+
+
+def test_small_variant_where_clauses_explicit_source_overrides_exclusion() -> None:
+    # An explicit source request surfaces that callset even when exclude_imputed is set.
+    clauses, params = _small_variant_where_clauses(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1, source="glimpse2"),
+        exclude_imputed=True,
+    )
+    assert "positionCaseInsensitive(e.source, %(source)s) > 0" in clauses
+    assert not any("imputed_sources" in clause for clause in clauses)
+    assert params["source"] == "glimpse2"
+    assert "imputed_sources" not in params
+
+
+@pytest.mark.asyncio
+async def test_fetch_small_variant_rows_excludes_imputed_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_queries: list[str] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        _ = params
+        captured_queries.append(query)
+        if "variants/details" in query:
+            return [_small_detail_row()]
+        return [_small_entry_row()]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    await _fetch_small_variant_rows(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+    )
+
+    # The clinician-facing family list hides imputed callsets by default.
+    assert any(
+        "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in query
+        for query in captured_queries
+    )
 
 
 @pytest.mark.asyncio

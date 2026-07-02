@@ -5746,11 +5746,17 @@ async def _import_snv_dataset(
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
     if vcf_path is None:
         return await _register_only(summary, "Registered only; family_vcf path is unavailable")
+    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
+    # The SNV dataset holds primary (directly-called) genotypes — clair3 unless the
+    # manifest overrides it. Scope the coexistence checks/cleanup to this source so
+    # the imputed glimpse2 callset is never touched by the SNV importer.
+    snv_source = "glimpse2" if source_format == "glimpse2" else "clair3"
     if conflict_mode == "update":
         existing_count = await count_family_small_variants(
             family_context.assembly_name,
             family_context.family_uuid,
             project_ids=family_context.project_ids,
+            source=snv_source,
         )
         if existing_count:
             return summary.model_copy(
@@ -5760,7 +5766,6 @@ async def _import_snv_dataset(
                     "summary": {"existing": existing_count},
                 }
             )
-    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
     annotation_path = _resolve_package_path(bundle.root, dataset.annotation_tsv)
     progress_lock = asyncio.Lock()
 
@@ -5822,22 +5827,15 @@ async def _import_snv_dataset(
             },
         )
     except Exception:
+        # The SNV loader only writes its own small-variant source; it never creates
+        # haplotype interval tracks (those belong to the glimpse2 loader). Scope the
+        # cleanup to this source so a failed SNV import cannot wipe a previously
+        # imported glimpse2 callset or its haplotype blocks.
         with suppress(Exception):
             await delete_family_small_variants(
                 family_context.assembly_name,
                 family_context.family_uuid,
-            )
-        with suppress(Exception):
-            await delete_interval_tracks(
-                family_context.assembly_name,
-                family_uuid=family_context.family_uuid,
-                track_type="haplotype",
-            )
-        with suppress(Exception):
-            await delete_interval_track_sources(
-                session,
-                family_uuid=family_context.family_uuid,
-                track_type="haplotype",
+                source=snv_source,
             )
         raise
     return summary.model_copy(
@@ -5875,6 +5873,7 @@ async def _import_haplotypes_dataset(
             family_context.assembly_name,
             family_context.family_uuid,
             project_ids=family_context.project_ids,
+            source="glimpse2",
         )
         existing_haplotype_count = await count_interval_track_source_rows(
             session,
@@ -5930,10 +5929,14 @@ async def _import_haplotypes_dataset(
             stats={"family_vcf": _display_path(bundle.root, vcf_path)},
         )
     except Exception:
+        # The glimpse2 loader owns the imputed small-variant source and the haplotype
+        # interval tracks, so scope the small-variant cleanup to glimpse2 (leaving the
+        # annotated clair3 SNVs intact) while still clearing its own haplotype blocks.
         with suppress(Exception):
             await delete_family_small_variants(
                 family_context.assembly_name,
                 family_context.family_uuid,
+                source="glimpse2",
             )
         with suppress(Exception):
             await delete_interval_tracks(
