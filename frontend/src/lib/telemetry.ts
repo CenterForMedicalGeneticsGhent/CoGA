@@ -54,7 +54,7 @@ const getSessionId = (): string => {
     try {
       sessionId = crypto.randomUUID();
     } catch {
-      sessionId = `s-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`;
+      sessionId = `s-${Date.now().toString(36)}-${crypto.getRandomValues(new Uint32Array(1))[0].toString(36)}`;
     }
   }
   return sessionId;
