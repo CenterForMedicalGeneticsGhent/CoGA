@@ -147,4 +147,51 @@ describe('AcmgClassificationModal', () => {
     expect(payload.tags).toContain('acmg_vus_cold');
     expect(payload.acmg?.vus_tier).toBe('cold');
   });
+
+  it('preserves in-progress analyst edits when late gene/HPO context resolves (#337)', async () => {
+    // Keep the HPO query pending so it resolves AFTER the analyst edits — the late
+    // re-seed must NOT overwrite their work.
+    let resolveHpo: (value: { data: unknown }) => void = () => {};
+    const hpoPromise = new Promise<{ data: unknown }>((resolve) => {
+      resolveHpo = resolve;
+    });
+    mockedGet.mockReset();
+    mockedGet.mockImplementation((url: string) => {
+      if (url.includes('/hpo')) return hpoPromise;
+      return Promise.resolve({
+        data: {
+          extra: {
+            clingen_dosage_assertions: [
+              { haploinsufficiency: 'Sufficient evidence for dosage pathogenicity' },
+            ],
+            gencc_assertions: [],
+            hpo_terms: [],
+          },
+        },
+      });
+    });
+
+    renderModal();
+    const user = userEvent.setup();
+
+    // Gene profile resolved -> PVS1 auto-applies; HPO is still pending.
+    const pvs1 = await screen.findByRole('checkbox', { name: /PVS1/ });
+    await waitFor(() => expect(pvs1).toBeChecked());
+    expect(screen.getByRole('link', { name: /PubMed \(gene\)/ })).toBeInTheDocument();
+
+    // Analyst un-accepts PVS1 before the HPO query resolves.
+    await user.click(pvs1);
+    expect(pvs1).not.toBeChecked();
+
+    // HPO resolves late (a proband 'present' term), re-running the seeding effect.
+    // Before #337 this re-applied the auto-suggestions and re-checked PVS1.
+    resolveHpo({
+      data: [{ status: 'present', hpo_id: 'HP:0001250', label: 'Seizure', sample_id: 'S1' }],
+    });
+
+    // The PubMed link gains HPO scope, proving the seeding effect re-ran...
+    await screen.findByRole('link', { name: /PubMed \(gene \+ HPO\)/ });
+    // ...and the analyst's edit survived it.
+    expect(screen.getByRole('checkbox', { name: /PVS1/ })).not.toBeChecked();
+  });
 });
