@@ -26,6 +26,26 @@ def test_pathogenicity_clinvar_pathogenic_overrides() -> None:
     ) == 1.0
 
 
+def test_pathogenicity_clinvar_conflicting_is_not_scored_pathogenic() -> None:
+    # "Conflicting_interpretations_of_pathogenicity" contains the substring "pathogenic"
+    # but must NOT short-circuit to 1.0 — it is not a clean pathogenic call. Whole-word
+    # matching + the conflict guard fall through to the predictor-based score.
+    conflicting = pathogenicity_score(
+        impact="MODERATE", clinvar="Conflicting_interpretations_of_pathogenicity",
+        cadd_phred=20, revel=0.8, spliceai_max=0.1, lof=None,
+    )
+    assert conflicting < 1.0
+    # A real likely-pathogenic assertion still overrides to 1.0...
+    assert pathogenicity_score(
+        impact="low", clinvar="Likely_pathogenic", cadd_phred=0, revel=0,
+        spliceai_max=0, lof=None,
+    ) == 1.0
+    # ...and a clean benign assertion still scores low.
+    assert pathogenicity_score(
+        impact="low", clinvar="Benign", cadd_phred=0, revel=0, spliceai_max=0, lof=None,
+    ) == 0.05
+
+
 def test_pathogenicity_high_impact_lof() -> None:
     # LoF/HIGH predicted-deleterious, but capped below the ClinVar-reserved 1.0.
     assert pathogenicity_score(

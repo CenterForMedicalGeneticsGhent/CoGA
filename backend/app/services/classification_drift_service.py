@@ -56,11 +56,20 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     cur_clinvar = current.get("clinvar")
     cur_version = current.get("annotation_version")
 
-    # Only call it drift when both hashes are known and differ — a missing hash on
-    # either side is "unknown", not "changed", to avoid false alarms.
-    changed = bool(snap_hash) and bool(cur_hash) and snap_hash != cur_hash
+    # A signed report must be verifiably bound to the evidence behind each reported
+    # classification. When either hash is absent the binding CANNOT be verified as
+    # unchanged, so fail safe to "unknown" — which the sign-out drift gate counts like a
+    # real drift (requiring acknowledgement) — rather than silently reporting "current".
+    # Previously a present-but-hashless current record read as "current" and cleared the
+    # gate, letting a stale classification freeze into a report unchallenged.
+    if not snap_hash or not cur_hash:
+        status = "unknown"
+    elif snap_hash != cur_hash:
+        status = "drifted"
+    else:
+        status = "current"
     return {
-        "status": "drifted" if changed else "current",
+        "status": status,
         "annotation_version_from": snap_version,
         "annotation_version_to": cur_version,
         "clinvar_from": snap_clinvar,

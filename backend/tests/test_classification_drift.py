@@ -51,11 +51,19 @@ def test_diff_missing_variant() -> None:
     assert diff["status"] == "variant_missing" and diff["clinvar_to"] is None
 
 
-def test_diff_unknown_hash_is_not_false_drift() -> None:
-    # A missing hash on either side is "unknown", not "changed".
+def test_diff_missing_hash_is_unknown_not_false_current() -> None:
+    # A missing hash on either side means drift cannot be VERIFIED. It must not read as
+    # a false "drifted" — but it must also not read as a false "current" (which would
+    # silently clear the sign-out drift gate). Fail safe to "unknown", which the gate
+    # counts like a drift (requiring acknowledgement).
     snap = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1"}
     cur = {"annotation_set_hash": "h2", "clinvar": "VUS", "annotation_version": "v1"}
-    assert cds._diff(snap, cur)["status"] == "current"
+    assert cds._diff(snap, cur)["status"] == "unknown"
+
+    # The finding's case: a present current record whose hash field is empty/renamed.
+    snap2 = {"annotation_set_hash": "h1", "clinvar": "VUS", "annotation_version": "v1"}
+    cur2 = {"annotation_set_hash": None, "clinvar": "VUS", "annotation_version": "v1"}
+    assert cds._diff(snap2, cur2)["status"] == "unknown"
 
 
 def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None:
