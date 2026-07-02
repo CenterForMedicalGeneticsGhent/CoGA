@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from fastapi import HTTPException
 
 from backend.app.schemas import ReferenceImportSourceAssemblyOut
 from backend.app.services import reference_source_service
@@ -162,6 +163,31 @@ def test_build_single_band_cytobands_text_generates_one_band_per_chromosome() ->
         "chr1\t0\t248956422\tchr1\tgneg",
         "chr2\t0\t242193529\tchr2\tgneg",
     ]
+
+
+@pytest.mark.parametrize("genome", ["hg38", "mm39", "GCF_000001405.40", "danRer11"])
+def test_safe_ucsc_genome_accepts_real_identifiers(genome: str) -> None:
+    assert reference_source_service._safe_ucsc_genome(genome) == genome
+
+
+@pytest.mark.parametrize(
+    "genome",
+    [
+        "../../etc/passwd",
+        "hg38/../../secret",
+        "hg38?x=1",
+        "hg38#frag",
+        "user@host",
+        "hg38 space",
+        "",
+    ],
+)
+def test_safe_ucsc_genome_rejects_path_or_url_injection(genome: str) -> None:
+    # A tainted assembly identifier must not smuggle path/URL-significant characters
+    # into the download path (partial-SSRF guard).
+    with pytest.raises(HTTPException) as exc:
+        reference_source_service._safe_ucsc_genome(genome)
+    assert exc.value.status_code == 400
 
 
 @pytest.mark.asyncio

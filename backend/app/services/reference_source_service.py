@@ -429,11 +429,25 @@ async def list_reference_source_assemblies(*, tax_id: int) -> list[ReferenceImpo
     return results
 
 
+# UCSC genome/db identifiers are short alphanumerics (hg38, mm39, GCF_000001405.40).
+# The value can originate from an admin-supplied assembly name, so constrain it before
+# interpolating into a download URL: no path- or URL-significant character can enter the
+# request path, closing a partial-SSRF (request-forgery) vector on the fixed UCSC host.
+_UCSC_GENOME_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _safe_ucsc_genome(ucsc_genome: str) -> str:
+    if not _UCSC_GENOME_RE.fullmatch(ucsc_genome):
+        raise HTTPException(status_code=400, detail=f"Invalid UCSC genome identifier: {ucsc_genome!r}")
+    return ucsc_genome
+
+
 async def _download_cytobands(
     client: httpx.AsyncClient,
     *,
     ucsc_genome: str,
 ) -> tuple[str, str]:
+    ucsc_genome = _safe_ucsc_genome(ucsc_genome)
     for table_name in ("cytoBandIdeo", "cytoBand"):
         source_url = f"{UCSC_DOWNLOAD_ROOT}/{ucsc_genome}/database/{table_name}.txt.gz"
         text_value = await _get_optional_gzip_text(client, source_url)
@@ -459,6 +473,7 @@ async def _download_genes(
     *,
     ucsc_genome: str,
 ) -> tuple[str, str, str]:
+    ucsc_genome = _safe_ucsc_genome(ucsc_genome)
     for track in ("ncbiRefSeqCurated", "ncbiRefSeq", "refGene", "ensGene"):
         base_url = f"{UCSC_DOWNLOAD_ROOT}/{ucsc_genome}/database/{track}"
         sql_text = await _get_optional_text(client, f"{base_url}.sql")
