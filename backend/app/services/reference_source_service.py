@@ -33,6 +33,11 @@ HUMAN_GRCH38_UCSC_GENOME = "hg38"
 HUMAN_GRCH38_ASSEMBLY_NAME = "GRCh38"
 HUMAN_GRCH38_FALLBACK_VERSION = "hg38"
 HUMAN_GRCH38_RELEASE_DATE = date(2013, 12, 1)
+# 0001-01-01 sentinel meaning "upstream release date unknown/unparseable". Keeps
+# assemblies.release_date (DATE NOT NULL) honest instead of stamping today(), and
+# matches the sort sentinel used in the catalog ordering below so an undated assembly
+# sorts oldest rather than masquerading as the newest.
+_UNKNOWN_RELEASE_DATE = date.min
 _CATALOG_TTL_SECONDS = 60 * 60
 _catalog_lock = asyncio.Lock()
 _catalog_cached_at = 0.0
@@ -333,7 +338,7 @@ async def _load_catalog_entries() -> list[dict[str, Any]]:
             key=lambda entry: (
                 str(entry["scientific_name"]).lower(),
                 str(entry["assembly_name"]).lower(),
-                entry["release_date"] or date.min,
+                entry["release_date"] or _UNKNOWN_RELEASE_DATE,
             )
         )
         _catalog_entries = parsed_entries
@@ -420,7 +425,7 @@ async def list_reference_source_assemblies(*, tax_id: int) -> list[ReferenceImpo
 
     results.sort(
         key=lambda entry: (
-            entry.release_date or date.min,
+            entry.release_date or _UNKNOWN_RELEASE_DATE,
             entry.assembly_name.lower(),
             entry.assembly_version.lower(),
         ),
@@ -580,7 +585,7 @@ async def _get_or_create_assembly(
             "species_id": species_id,
             "assembly_name": assembly_name,
             "version": assembly_version,
-            "release_date": release_date or date.today(),
+            "release_date": release_date or _UNKNOWN_RELEASE_DATE,
         },
     )
     created_row = created.mappings().one()

@@ -85,7 +85,10 @@ async def fetch_panelapp_panel(panelapp_id: int, *, version: str | None = None) 
     params: dict[str, Any] = {"format": "json"}
     if version:
         params["version"] = version
-    return await _get_panelapp_json(f"/panels/{panelapp_id}/", params=params)
+    # panelapp_id is int-typed (Pydantic ge=1) at the router edge; the explicit int()
+    # pins that numeric invariant at the URL sink so no '/' or traversal can enter the
+    # request path even if a future caller forgets upstream validation (partial-SSRF guard).
+    return await _get_panelapp_json(f"/panels/{int(panelapp_id)}/", params=params)
 
 
 def _entity_confidence(entity: dict[str, Any]) -> str:
