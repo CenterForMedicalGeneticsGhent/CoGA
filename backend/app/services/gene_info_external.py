@@ -197,7 +197,7 @@ def parse_clingen_gene_page(raw_html: str) -> Dict[str, Any]:
 
 
 async def fetch_hgnc_gene(symbol: str) -> Dict[str, Any]:
-    url = f"https://rest.genenames.org/fetch/symbol/{quote(symbol)}"
+    url = f"https://rest.genenames.org/fetch/symbol/{quote(symbol, safe='')}"
     response = await resilient_request("GET", url, headers={"Accept": "application/json"})
     response.raise_for_status()
     data = response.json()
@@ -207,7 +207,7 @@ async def fetch_hgnc_gene(symbol: str) -> Dict[str, Any]:
 
 async def fetch_ensembl_gene(symbol: str, species_name: str) -> Dict[str, Any]:
     species_key = ensembl_species_name({"name": species_name})
-    url = f"https://rest.ensembl.org/lookup/symbol/{quote(species_key)}/{quote(symbol)}"
+    url = f"https://rest.ensembl.org/lookup/symbol/{quote(species_key, safe='')}/{quote(symbol, safe='')}"
     response = await resilient_request(
         "GET", url, params={"expand": 1}, headers={"Content-Type": "application/json"}
     )
@@ -216,7 +216,7 @@ async def fetch_ensembl_gene(symbol: str, species_name: str) -> Dict[str, Any]:
 
 
 async def fetch_ensembl_homologies(ensembl_gene_id: str) -> Dict[str, Any]:
-    url = f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id)}"
+    url = f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id, safe='')}"
     response = await resilient_request(
         "GET",
         url,
@@ -253,7 +253,7 @@ async def fetch_ncbi_gene(symbol: str, species_name: str) -> Dict[str, Any]:
 
 async def fetch_clingen_gene(symbol: str, hgnc_id: str | None) -> Dict[str, Any]:
     identifier = hgnc_id or symbol
-    url = f"https://search.clinicalgenome.org/kb/genes/{quote(identifier)}"
+    url = f"https://search.clinicalgenome.org/kb/genes/{quote(identifier, safe='')}"
     response = await resilient_request("GET", url)
     response.raise_for_status()
     return parse_clingen_gene_page(response.text)
@@ -343,14 +343,14 @@ async def fetch_external_gene_bundle(
             hgnc_payload = await fetch_hgnc_gene(cleaned_symbol)
             source_status_map["hgnc"] = source_status(
                 status="success" if hgnc_payload else "missing",
-                source_url=f"https://rest.genenames.org/fetch/symbol/{quote(cleaned_symbol)}",
+                source_url=f"https://rest.genenames.org/fetch/symbol/{quote(cleaned_symbol, safe='')}",
                 payload=hgnc_payload,
                 message=None if hgnc_payload else "No HGNC record returned",
             )
         except Exception as error:  # pragma: no cover
             source_status_map["hgnc"] = source_status(
                 status="error",
-                source_url=f"https://rest.genenames.org/fetch/symbol/{quote(cleaned_symbol)}",
+                source_url=f"https://rest.genenames.org/fetch/symbol/{quote(cleaned_symbol, safe='')}",
                 message=str(error),
             )
     else:
@@ -364,14 +364,14 @@ async def fetch_external_gene_bundle(
         ensembl_payload = await fetch_ensembl_gene(cleaned_symbol, str(species_document.get("name")))
         source_status_map["ensembl"] = source_status(
             status="success" if ensembl_payload else "missing",
-            source_url=f"https://rest.ensembl.org/lookup/symbol/{quote(ensembl_species_name(species_document))}/{quote(cleaned_symbol)}",
+            source_url=f"https://rest.ensembl.org/lookup/symbol/{quote(ensembl_species_name(species_document), safe='')}/{quote(cleaned_symbol, safe='')}",
             payload=ensembl_payload,
             message=None if ensembl_payload else "No Ensembl record returned",
         )
     except Exception as error:  # pragma: no cover
         source_status_map["ensembl"] = source_status(
             status="error",
-            source_url=f"https://rest.ensembl.org/lookup/symbol/{quote(ensembl_species_name(species_document))}/{quote(cleaned_symbol)}",
+            source_url=f"https://rest.ensembl.org/lookup/symbol/{quote(ensembl_species_name(species_document), safe='')}/{quote(cleaned_symbol, safe='')}",
             message=str(error),
         )
 
@@ -402,14 +402,14 @@ async def fetch_external_gene_bundle(
             homologs = normalize_homologs(homology_payload, species_docs)
             source_status_map["ensembl_homology"] = source_status(
                 status="success" if homologs else "missing",
-                source_url=f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id)}",
+                source_url=f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id, safe='')}",
                 payload={"count": len(homologs)},
                 message=None if homologs else "No orthologues returned",
             )
         except Exception as error:  # pragma: no cover
             source_status_map["ensembl_homology"] = source_status(
                 status="error",
-                source_url=f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id)}",
+                source_url=f"https://rest.ensembl.org/homology/id/human/{quote(ensembl_gene_id, safe='')}",
                 message=str(error),
             )
 
@@ -432,7 +432,7 @@ async def fetch_external_gene_bundle(
             source_status_map["clingen"] = source_status(
                 status="success" if clingen_payload else "missing",
                 source_url=(
-                    f"https://search.clinicalgenome.org/kb/genes/{quote(first_non_empty(hgnc_payload.get('hgnc_id')) or cleaned_symbol)}"
+                    f"https://search.clinicalgenome.org/kb/genes/{quote(first_non_empty(hgnc_payload.get('hgnc_id')) or cleaned_symbol, safe='')}"
                 ),
                 payload={
                     "gene_facts_keys": sorted((clingen_payload.get("gene_facts") or {}).keys()),
@@ -444,7 +444,7 @@ async def fetch_external_gene_bundle(
             source_status_map["clingen"] = source_status(
                 status="error",
                 source_url=(
-                    f"https://search.clinicalgenome.org/kb/genes/{quote(first_non_empty(hgnc_payload.get('hgnc_id')) or cleaned_symbol)}"
+                    f"https://search.clinicalgenome.org/kb/genes/{quote(first_non_empty(hgnc_payload.get('hgnc_id')) or cleaned_symbol, safe='')}"
                 ),
                 message=str(error),
             )
