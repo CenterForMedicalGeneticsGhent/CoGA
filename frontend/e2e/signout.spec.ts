@@ -26,11 +26,22 @@ test('signs out the family report from the browser (with gate handling)', async 
   const before = await currentVersion(page);
   await signOutButton.click();
 
-  // The sample-QC gate may open a modal that requires an override reason.
-  const qcDialog = page.getByRole('dialog', { name: /acknowledgement required/i });
-  if (await qcDialog.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await page.locator('#qc-ack-reason').fill('e2e QC override');
-    await page.getByRole('button', { name: /sign out anyway/i }).click();
+  // The sample-integrity gate (#330) requires an acknowledgement when an asserted
+  // relationship can't be verified — the seeded trio's sparse genotypes give too few
+  // shared sites, so the acknowledge-with-reason modal appears. WAIT for it (its reason
+  // field is a stable anchor; a plain isVisible() check does not wait and races the
+  // async POST -> 409 -> render), record a reason, and override once the button enables.
+  // Guarded so the test still passes if a denser seed later makes the QC verifiable.
+  const qcReason = page.locator('#qc-ack-reason');
+  const gated = await qcReason
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (gated) {
+    await qcReason.fill('e2e QC override — relatedness not assessable on seed data');
+    const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
+    await expect(overrideButton).toBeEnabled();
+    await overrideButton.click();
   }
 
   // A freshly signed-out version is shown, and the version advanced.
