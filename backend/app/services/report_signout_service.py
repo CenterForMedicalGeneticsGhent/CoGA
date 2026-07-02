@@ -275,6 +275,23 @@ async def build_report_snapshot(
         session, family_id=family_id, user=user, project_id=project_id
     )
     reported = await _reported_reviews(session, context.family_uuid)
+    # A reported classification with no frozen evidence snapshot cannot be drift-verified
+    # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
+    # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
+    # drift entry so the gate requires acknowledgement (#332).
+    unsnapshotted = [
+        {
+            "variant_id": r["variant_id"],
+            "acmg_class": r.get("acmg_class"),
+            "status": "no_snapshot",
+        }
+        for r in reported
+        if not r.get("evidence_snapshot")
+    ]
+    drifted = sorted(
+        [*drift["drifted"], *unsnapshotted],
+        key=lambda item: item.get("variant_id") or "",
+    )
     return {
         "family_id": context.family_id,
         "assembly": manifest.get("assembly"),
@@ -285,17 +302,15 @@ async def build_report_snapshot(
         # hash stays deterministic for identical clinical content.
         "software": {"version": settings.app_version, "git_sha": settings.git_sha},
         "drift": {
-            "checked": drift["checked"],
-            "drifted_count": drift["drifted_count"],
-            # The live drift endpoint orders drifted rows by updated_at (non-unique),
-            # so the list order is non-deterministic on ties. Sort by the unique,
-            # stable variant_id here so the hashed snapshot (content_hash) is
-            # reproducible for identical content; json.dumps(sort_keys=True) canonicalizes
-            # dict keys but never list-element order. Scoped to the sign-out/hash path
-            # only — the endpoint keeps its most-recent-first display order.
-            "drifted": sorted(
-                drift["drifted"], key=lambda item: item.get("variant_id") or ""
-            ),
+            "checked": drift["checked"] + len(unsnapshotted),
+            "drifted_count": len(drifted),
+            # Sorted by the unique, stable variant_id so the hashed snapshot
+            # (content_hash) is reproducible for identical content — json.dumps(sort_keys)
+            # canonicalizes dict keys but never list-element order. Includes reported
+            # classifications with no snapshot ("no_snapshot"), which can't be drift-
+            # verified and so must gate. Scoped to the sign-out/hash path only — the live
+            # drift endpoint keeps its most-recent-first display order.
+            "drifted": drifted,
         },
         # Sample-integrity QC (sample/pedigree-swap detection) frozen into the content
         # hash so the signed record proves QC was run and exactly what it found. A pure
@@ -354,8 +369,9 @@ async def sign_out_report(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"{drifted_count} classification(s) have evidence changes since they were "
-                "made. Re-review, or acknowledge the drift to sign out anyway."
+                f"{drifted_count} classification(s) have evidence that changed, or that "
+                "cannot be verified (no frozen snapshot), since they were made. Re-review, "
+                "or acknowledge the drift to sign out anyway."
             ),
         )
 
