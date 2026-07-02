@@ -14,6 +14,7 @@ from typing import Any, Iterable, TextIO
 import httpx
 
 from ..core.config import settings
+from .bounded_download import download_bounded_bytes, gunzip_bounded
 
 _MAX_ASSOCIATIONS_PER_GENE = 24
 _MAX_TERMS_PER_GENE = 96
@@ -219,12 +220,10 @@ def build_bulk_gene_bundle(
 
 async def _download_text(url: str) -> str:
     async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-    raw = response.content
+        raw = await download_bounded_bytes(client, url, source=url)
     if url.endswith(".gz"):
-        raw = gzip.decompress(raw)
-    return raw.decode(response.encoding or "utf-8")
+        raw = gunzip_bounded(raw, source=url)
+    return raw.decode("utf-8")
 
 
 def _add_unique_record(bucket: list[dict[str, Any]], record: dict[str, Any]) -> None:

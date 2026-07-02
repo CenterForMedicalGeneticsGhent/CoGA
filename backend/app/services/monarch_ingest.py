@@ -12,7 +12,6 @@ read time. See docs/monarch-integration.md.
 from __future__ import annotations
 
 import csv
-import gzip
 import io
 import json
 import logging
@@ -24,6 +23,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .bounded_download import download_bounded_bytes, gunzip_bounded
 from .monarch_phenotype_score import reset_information_content_cache
 
 logger = logging.getLogger(__name__)
@@ -97,11 +97,9 @@ class _Association:
 
 async def _download_gzip_tsv(url: str) -> str:
     async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
-        response = await client.get(url)
-        response.raise_for_status()
-    raw = response.content
+        raw = await download_bounded_bytes(client, url, source=url)
     if url.endswith(".gz"):
-        raw = gzip.decompress(raw)
+        raw = gunzip_bounded(raw, source=url)
     return raw.decode("utf-8")
 
 

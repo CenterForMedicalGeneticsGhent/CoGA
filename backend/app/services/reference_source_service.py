@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import gzip
 import io
 import logging
 import re
@@ -22,6 +21,7 @@ from ..schemas import (
     ReferenceImportSourceAssemblyOut,
     ReferenceImportSourceOrganismOut,
 )
+from .bounded_download import download_bounded_bytes, gunzip_bounded
 from .reference_metadata_service import _assembly_dataset_count, apply_reference_dataset_text
 
 UCSC_API_ROOT = "https://api.genome.ucsc.edu"
@@ -96,18 +96,14 @@ async def _get_optional_text(client: httpx.AsyncClient, url: str) -> str | None:
 
 async def _get_optional_gzip_text(client: httpx.AsyncClient, url: str) -> str | None:
     try:
-        response = await client.get(url)
+        raw = await download_bounded_bytes(client, url, source=url, none_on_404=True)
     except httpx.HTTPError as exc:
         _raise_upstream_error(url, exc)
-    if response.status_code == 404:
+    if raw is None:
         return None
     try:
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        _raise_upstream_error(url, exc)
-    try:
-        return gzip.decompress(response.content).decode()
-    except OSError as exc:
+        return gunzip_bounded(raw, source=url).decode()
+    except ValueError as exc:
         raise HTTPException(status_code=502, detail=f"Unexpected compressed response from {url}") from exc
 
 
