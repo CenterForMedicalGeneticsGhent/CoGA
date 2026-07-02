@@ -64,7 +64,7 @@ def _patch_common(monkeypatch, *, drifted_count: int, qc_status: str = "pass"):
         }
 
     async def _reviews(session, family_uuid):
-        return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4"}]
+        return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
     async def _audit(*args, **kwargs):
         return None
@@ -112,6 +112,30 @@ def test_sign_out_proceeds_with_acknowledged_drift(monkeypatch) -> None:
     assert out["version"] == 1
     assert out["snapshot"]["acknowledged_drift"] is True
     assert out["snapshot"]["drift"]["drifted_count"] == 1
+
+
+def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
+    # A reported classification with no frozen evidence snapshot can't be drift-verified,
+    # so it must trip the drift gate (#332) rather than sign out unchallenged.
+    async def _reviews_no_snapshot(session, family_uuid):
+        return [{"variant_id": "9-9-A-G", "acmg_class": "acmg_class_4"}]  # no snapshot
+
+    _patch_common(monkeypatch, drifted_count=0)
+    monkeypatch.setattr(rss, "_reported_reviews", _reviews_no_snapshot)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    assert "cannot be verified" in str(excinfo.value.detail)
+
+    # Acknowledging the drift lets it proceed, and the no_snapshot entry is counted.
+    _patch_common(monkeypatch, drifted_count=0)
+    monkeypatch.setattr(rss, "_reported_reviews", _reviews_no_snapshot)
+    out = asyncio.run(
+        rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), acknowledge_drift=True)
+    )
+    assert out["snapshot"]["drift"]["drifted_count"] == 1
+    assert out["snapshot"]["drift"]["drifted"][0]["status"] == "no_snapshot"
+    assert out["snapshot"]["acknowledged_drift"] is True
 
 
 def test_build_report_snapshot_freezes_software_identity(monkeypatch) -> None:
@@ -197,7 +221,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
             }
 
         async def _reviews(session, family_uuid):
-            return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4"}]
+            return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
         async def _qc(session, *, family_id, user, project_id=None):
             return SampleIntegrityReport(overall_status="pass")
