@@ -157,3 +157,17 @@ async def test_impact_skips_mapping_when_family_uuid_supplied(
     )
     assert mapping_calls == 1
     assert seen_family_uuid[-1] == "mapped-uuid"
+
+
+def test_rename_block_reason_fails_closed_on_unverified_clickhouse() -> None:
+    # No genomic data and ClickHouse counts verified -> safe to rename.
+    assert service._rename_block_reason({}) is None
+    # Imported genomic data -> blocked (raw datasets still use the source sample id).
+    assert service._rename_block_reason({"small_variants": 5}) is not None
+    # #333: when the ClickHouse counts could not be verified, fail CLOSED even with no
+    # other genomic data — a rename must not silently orphan CH variant rows keyed by the
+    # old sample id. (Previously the marker was excluded from the count, so it summed to
+    # 0 and the rename proceeded.)
+    reason = service._rename_block_reason({"clickhouse_counts_unavailable": 1})
+    assert reason is not None
+    assert "could not be verified" in reason
