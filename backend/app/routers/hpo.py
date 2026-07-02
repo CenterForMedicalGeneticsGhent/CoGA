@@ -14,6 +14,7 @@ from ..schemas import (
     HpoTermOut,
 )
 from ..services.hpo_service import (
+    ensure_authorized_hpo_ontology_path,
     get_hpo_term_details,
     import_hpo_ontology,
     search_hpo_terms,
@@ -44,7 +45,7 @@ async def import_hpo(
     try:
         return await import_hpo_ontology(
             session,
-            path=request.path,
+            path=ensure_authorized_hpo_ontology_path(request.path),
             release_version=request.release_version,
             release_date=request.release_date,
         )
