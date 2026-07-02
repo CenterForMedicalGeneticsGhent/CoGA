@@ -36,6 +36,31 @@ def test_sanitize_detail_masks_sensitive_keys() -> None:
     assert sanitized["label"] == "ok"
 
 
+def test_sanitize_detail_drops_nested_structures_without_leaking() -> None:
+    # Top-level key masking misses a secret nested under a non-sensitive key. The nested
+    # value must be recorded as a shape placeholder, never serialized (which previously
+    # persisted the token verbatim, truncated).
+    sanitized = _sanitize_detail(
+        {"headers": {"authorization": "Bearer super-secret-token"}, "tags": ["a", "b"]}
+    )
+    assert sanitized["headers"] == "[dict]"
+    assert sanitized["tags"] == "[list]"
+    assert "super-secret-token" not in str(sanitized)
+
+
+def test_payload_caps_user_agent_length() -> None:
+    user = SimpleNamespace(id="u-1", email="a@example.com", role="viewer")
+    payload = _payload_from_event(
+        UiEventIn(event_type="click"),
+        user=user,
+        remote_ip="127.0.0.1",
+        user_agent="UA-" + "x" * 1000,
+    )
+    assert payload is not None
+    assert payload.user_agent is not None
+    assert len(payload.user_agent) <= 256
+
+
 def test_payload_takes_actor_from_user_not_body_and_drops_unknown_type() -> None:
     user = SimpleNamespace(id="u-1", email="analyst@example.com", role="viewer")
 
