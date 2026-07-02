@@ -2,8 +2,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
+
+# C0 control characters + DEL. CR/LF here are what let an attacker forge extra log
+# lines (CWE-117); tab/other control chars can corrupt log parsing too.
+_LOG_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def scrub_log(value: Any, *, max_len: int = 512) -> str:
+    """Neutralize control characters before a value is interpolated into a log message,
+    defeating log forging. Returns a plain ``str``; oversized values are truncated."""
+    scrubbed = _LOG_CONTROL_RE.sub(" ", str(value))
+    return scrubbed if len(scrubbed) <= max_len else scrubbed[: max_len - 3] + "..."
 
 
 class JsonLogFormatter(logging.Formatter):

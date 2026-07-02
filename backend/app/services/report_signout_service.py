@@ -24,6 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import scrub_log
 from ..core.config import settings
 from .annotation_manifest_service import get_family_annotation_manifest
 from .classification_drift_service import evaluate_classification_drift
@@ -593,7 +594,7 @@ async def get_report_signout(
         logger.error(
             "report_signout content hash mismatch on read (possible tampering)",
             extra={
-                "family_id": context.family_id,
+                "family_id": scrub_log(context.family_id),
                 "signout_version": version,
                 "stored_content_hash": record["content_hash"],
                 "recomputed_content_hash": recomputed,

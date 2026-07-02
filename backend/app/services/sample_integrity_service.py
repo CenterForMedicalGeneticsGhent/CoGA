@@ -15,6 +15,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import scrub_log
 from .clickhouse_family_variants import (
     fetch_family_variant_sources,
     fetch_imputed_phased_genotypes,
@@ -210,7 +211,7 @@ async def get_family_sample_integrity_qc(
                 )
             )
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
-            logger.warning("NIPT cfDNA QC could not run for family %s: %s", family_id, exc)
+            logger.warning("NIPT cfDNA QC could not run for family %s: %s", scrub_log(family_id), scrub_log(exc))
             service_notes.append(f"NIPT cfDNA analysis could not run ({exc}).")
 
     autosomal: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
@@ -231,7 +232,7 @@ async def get_family_sample_integrity_qc(
                     context, QC_X_CHROM, QC_X_SITES, samples, genotype_source
                 )
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
-            logger.warning("Genotypes could not be loaded for family %s: %s", family_id, exc)
+            logger.warning("Genotypes could not be loaded for family %s: %s", scrub_log(family_id), scrub_log(exc))
             service_notes.append(f"Genotypes could not be loaded ({exc}).")
             autosomal = {sample: [] for sample in samples}
             x_genotypes = {sample: [] for sample in samples}
