@@ -209,6 +209,135 @@ def test_gcs_download_prefix(monkeypatch, tmp_path):
     assert (tmp_path / "sub" / "x.vcf.gz").exists()
 
 
+def test_plan_downloads_maps_legitimate_keys(tmp_path):
+    downloads = s._plan_downloads(
+        "fam/F1",
+        ["fam/F1/manifest.yaml", "fam/F1/sub/x.vcf.gz", "fam/F1/"],
+        tmp_path,
+    )
+    relatives = sorted(
+        str(Path(target).relative_to(tmp_path.resolve())) for _name, target in downloads
+    )
+    assert relatives == ["manifest.yaml", str(Path("sub") / "x.vcf.gz")]
+
+
+def test_plan_downloads_rejects_parent_traversal_key(tmp_path):
+    # A crafted object key with ``..`` must not write outside the staging dir.
+    with pytest.raises(ValueError, match="outside the staging directory"):
+        s._plan_downloads(
+            "fam/F1",
+            ["fam/F1/../../../etc/cron.d/evil"],
+            tmp_path,
+        )
+    assert not (tmp_path.parent.parent / "etc").exists()
+
+
+def test_plan_downloads_rejects_absolute_key(tmp_path):
+    # An absolute key would otherwise override the join and escape the staging dir.
+    with pytest.raises(ValueError, match="outside the staging directory"):
+        s._plan_downloads("", ["/etc/passwd"], tmp_path)
+
+
+def test_plan_downloads_rejects_symlink_escape(tmp_path):
+    # A symlinked subdirectory inside the staging dir must not let a key escape: the
+    # containment check resolves the target (following the link) and rejects it. This
+    # locks in the symlink behavior so a future switch to a non-symlink-following
+    # normalization (e.g. os.path.normpath / PurePath) can't silently reintroduce the
+    # traversal while still passing the ``..``/absolute cases.
+    dest = tmp_path / "stage"
+    dest.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (dest / "escape").symlink_to(outside)
+    with pytest.raises(ValueError, match="outside the staging directory"):
+        s._plan_downloads("fam/F1", ["fam/F1/escape/evil.txt"], dest)
+    assert not (outside / "evil.txt").exists()
+
+
+def test_gcs_download_prefix_rejects_traversal_key(monkeypatch, tmp_path):
+    # End-to-end: a malicious key surfaced by the listing must abort staging before
+    # any file is written, rather than escaping via download_to_filename.
+    _use_gcs(monkeypatch)
+
+    written_targets: list[str] = []
+
+    class _Blob:
+        def __init__(self, name):
+            self.name = name
+
+        def download_to_filename(self, target):
+            written_targets.append(target)
+            Path(target).write_text("data")
+
+    class _Client:
+        def list_blobs(self, bucket, prefix=None, delimiter=None):
+            return [
+                _Blob("fam/F1/manifest.yaml"),
+                _Blob("fam/F1/../../../tmp/coga-evil"),
+            ]
+
+    monkeypatch.setattr(s, "_gcs_client", lambda: _Client())
+
+    with pytest.raises(ValueError, match="outside the staging directory"):
+        s.download_prefix("gs://phi-bucket/fam/F1", tmp_path)
+    # Planning happens before any transfer, so nothing was written.
+    assert written_targets == []
+
+
+# --- S3 backend (clients mocked: boto3 not exercised) -----------------------
+
+def _use_s3(monkeypatch, bucket="phi-bucket"):
+    monkeypatch.setattr(s.settings, "storage_backend", "s3")
+    monkeypatch.setattr(s.settings, "s3_bucket", bucket)
+
+
+class _FakeS3Paginator:
+    def __init__(self, keys):
+        self._keys = keys
+
+    def paginate(self, Bucket=None, Prefix=None):
+        return [{"Contents": [{"Key": key} for key in self._keys]}]
+
+
+class _FakeS3Client:
+    def __init__(self, keys):
+        self._keys = keys
+        self.downloaded: list[tuple[str, str]] = []
+
+    def get_paginator(self, name):
+        assert name == "list_objects_v2"
+        return _FakeS3Paginator(self._keys)
+
+    def download_file(self, bucket, key, target):
+        self.downloaded.append((key, target))
+        Path(target).write_text("data")
+
+
+def test_s3_download_prefix(monkeypatch, tmp_path):
+    _use_s3(monkeypatch)
+    client = _FakeS3Client(
+        ["fam/F1/manifest.yaml", "fam/F1/sub/x.vcf.gz", "fam/F1/"]  # dir placeholder skipped
+    )
+    monkeypatch.setattr(s, "_s3_client", lambda: client)
+
+    written = s.download_prefix("s3://phi-bucket/fam/F1", tmp_path)
+    assert written == 2
+    assert (tmp_path / "manifest.yaml").read_text() == "data"
+    assert (tmp_path / "sub" / "x.vcf.gz").exists()
+
+
+def test_s3_download_prefix_rejects_traversal_key(monkeypatch, tmp_path):
+    # S3 mirror of the GCS e2e test: a ``..`` key in the listing aborts staging at
+    # plan time, before any download_file is called.
+    _use_s3(monkeypatch)
+    client = _FakeS3Client(["fam/F1/manifest.yaml", "fam/F1/../../../tmp/coga-evil"])
+    monkeypatch.setattr(s, "_s3_client", lambda: client)
+
+    with pytest.raises(ValueError, match="outside the staging directory"):
+        s.download_prefix("s3://phi-bucket/fam/F1", tmp_path)
+    assert client.downloaded == []
+
+
 def test_gcs_list_package_candidates(monkeypatch):
     _use_gcs(monkeypatch)
 

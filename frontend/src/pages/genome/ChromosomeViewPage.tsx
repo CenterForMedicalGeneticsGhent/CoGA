@@ -155,7 +155,7 @@ const ChromosomeViewPage: React.FC = () => {
     params.delete('project_id');
     params.delete('sample');
     params.delete('sample_filter');
-    const filters: Record<string, string> = {};
+    const filters: Record<string, string> = Object.create(null);
     params.forEach((value, key) => {
       filters[key] = value;
     });

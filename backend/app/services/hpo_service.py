@@ -7,6 +7,7 @@ from datetime import date
 import io
 import json
 import logging
+import os
 from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
@@ -17,6 +18,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.config import settings
 from ..core.sql import is_missing_postgres_schema_error
 
 HPO_ID_PATTERN = re.compile(r"^HP:[0-9]{7}$", re.IGNORECASE)
@@ -517,6 +519,31 @@ def resolve_hpo_ontology_path(ontology_path: str | Path | None = None) -> Path |
         if candidate.exists() and candidate.is_file():
             return candidate
     return None
+
+
+def ensure_authorized_hpo_ontology_path(path: str | Path) -> Path:
+    """Confirm an API-supplied ontology path resolves inside an authorized HPO ontology
+    directory before it is opened.
+
+    ``/hpo/import`` and ``/admin/hpo/sync`` accept a raw filesystem path from the request
+    body; without this guard a request could point ``read_text`` at any host file (e.g.
+    ``/etc/passwd``) — an admin-gated arbitrary-file read that violates least privilege
+    on a clinical platform. The authorized roots are the directories of the known
+    ontology locations (the configured ``HPO_ONTOLOGY_PATH`` plus the default ref-data
+    dirs), so routine updates that drop a new ``hp.obo``/``hpo.json`` in place still work.
+    """
+    authorized_roots = {
+        os.path.normpath(os.path.expanduser(str(candidate.parent)))
+        for candidate in hpo_ontology_candidate_paths(settings.hpo_ontology_path)
+    }
+    # Validate with pure string normalization — no Path.resolve()/read_text() touches the
+    # raw admin-supplied value before it is checked. os.path.normpath collapses '..' so a
+    # traversal cannot escape, and requiring the file's directory to be one of the
+    # authorized roots rejects absolute or relative paths pointing anywhere else.
+    normalized = os.path.normpath(os.path.expanduser(str(path)))
+    if os.path.dirname(normalized) in authorized_roots:
+        return Path(normalized)
+    raise ValueError("HPO ontology path is outside the authorized ontology directory")
 
 
 def _download_hpo_ontology_file(url: str, candidate_paths: list[Path]) -> Path:

@@ -11,6 +11,7 @@ docs/monarch-integration.md.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 # Segregation modes (compatible inheritance patterns given the pedigree).
@@ -39,8 +40,11 @@ _PHENOTYPE_WEIGHT = 0.5
 _MAX_PREDICTOR_PATHOGENICITY = 0.9
 
 _HIGH_IMPACT = "high"
-_PATHOGENIC_CLINVAR = ("pathogenic", "likely_pathogenic", "likely pathogenic")
-_BENIGN_CLINVAR = ("benign", "likely_benign", "likely benign")
+# ClinVar significance is matched on whole words (splitting on the ,/&|_ and space
+# delimiters), NOT substrings — so "Conflicting_interpretations_of_pathogenicity" does
+# not match the "pathogenic" call (its only relevant token is "pathogenicity"). A
+# conflicting assertion is excluded from both the pathogenic and benign shortcuts.
+_CLINVAR_TOKEN_RE = re.compile(r"[a-z]+")
 
 # AlphaMissense categorical calls (per missense variant).
 _AM_PATHOGENIC = ("likely_pathogenic", "pathogenic")
@@ -86,9 +90,10 @@ def pathogenicity_score(
     missense). ClinVar pathogenic/benign assertions take precedence.
     """
     clin = (clinvar or "").strip().lower()
-    if any(token in clin for token in _PATHOGENIC_CLINVAR):
+    clin_words = set(_CLINVAR_TOKEN_RE.findall(clin))
+    if "conflict" not in clin and "pathogenic" in clin_words:
         return 1.0
-    if clin and "conflict" not in clin and any(token in clin for token in _BENIGN_CLINVAR):
+    if "conflict" not in clin and "benign" in clin_words:
         return 0.05
 
     impact_value = (impact or "").strip().lower()

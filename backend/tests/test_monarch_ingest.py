@@ -2,10 +2,12 @@
 
 import pytest
 
+from backend.app.services import monarch_ingest as monarch
 from backend.app.services.monarch_ingest import (
     _Association,
     _DiseasePhenotype,
     _escape_like,
+    _resolve_release_version,
     parse_disease_phenotype_tsv,
     parse_gene_disease_tsv,
     search_monarch_associations,
@@ -143,3 +145,32 @@ async def test_search_blank_query_returns_empty_shape_without_db() -> None:
         "diseases": [],
         "gene_overview": {"total": 0, "genes": []},
     }
+
+
+@pytest.mark.asyncio
+async def test_resolve_release_version_uses_explicit_and_skips_fetch(monkeypatch) -> None:
+    called = False
+
+    async def _fake_fetch() -> str:
+        nonlocal called
+        called = True
+        return "2026-06-08"
+
+    monkeypatch.setattr(monarch, "_fetch_release_version", _fake_fetch)
+    # An explicit version is returned as-is with no network lookup.
+    assert await _resolve_release_version("2025-01-01") == "2025-01-01"
+    assert called is False
+    # None resolves from the metadata fetch.
+    assert await _resolve_release_version(None) == "2026-06-08"
+    assert called is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_release_version_raises_when_unknown(monkeypatch) -> None:
+    async def _fake_fetch_none() -> None:
+        return None
+
+    monkeypatch.setattr(monarch, "_fetch_release_version", _fake_fetch_none)
+    # An unresolvable release version must hard-fail rather than load NULL-version data.
+    with pytest.raises(RuntimeError, match="unknown release version"):
+        await _resolve_release_version(None)

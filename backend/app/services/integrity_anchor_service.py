@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -49,6 +50,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from . import hash_chain
+
+logger = logging.getLogger(__name__)
 
 # The two append-only tables that carry per-family hash chains, mapped to the canonical
 # chain-order COLUMNS (ascending). The head is the LAST row in this order; the prefix check
@@ -169,6 +172,16 @@ async def create_integrity_anchor(session: AsyncSession) -> dict[str, Any]:
     created_at = datetime.now(timezone.utc)
 
     key = _load_signing_key()
+    if key is None and not settings.is_development:
+        # An unsigned anchor carries NO anti-owner tamper-evidence (the owner can re-mint
+        # it over doctored state). Loudly flag the misconfiguration in a real environment;
+        # the anchor is still written and verify_* reports 'unverifiable_unsigned'. (#332)
+        logger.warning(
+            "Creating an UNSIGNED integrity anchor in a non-development environment "
+            "(APP_ENV=%s): INTEGRITY_ANCHOR_SIGNING_KEY is unset, so this anchor provides "
+            "no tamper-evidence against a database owner. Configure a signing key.",
+            settings.app_env,
+        )
     algo = "ed25519" if key else "unsigned"
     key_id = key.key_id if key else "unsigned"
     public_b64 = key.public_b64 if key else None
@@ -242,7 +255,7 @@ def export_anchor(record: dict[str, Any]) -> None:
 
 @dataclass(slots=True)
 class AnchorVerification:
-    status: str  # ok | diverged | signature_invalid | unknown_key | unverifiable_unsigned | no_anchor
+    status: str  # ok | diverged | chain_broken | signature_invalid | unknown_key | unverifiable_unsigned | no_anchor
     anchor_seq: int | None = None
     chain_count: int = 0
     diverged: list[dict[str, Any]] = field(default_factory=list)
@@ -284,6 +297,11 @@ async def verify_against_latest_anchor(session: AsyncSession) -> AnchorVerificat
     if anchor is None:
         return AnchorVerification(status="no_anchor", reason="no anchor has been created yet")
 
+    if not isinstance(anchor["heads"], list):
+        return AnchorVerification(
+            status="signature_invalid", anchor_seq=anchor["anchor_seq"],
+            reason="heads is not a JSON array",
+        )
     heads = list(anchor["heads"])
     core = _signed_core(
         anchor_seq=anchor["anchor_seq"],
@@ -346,4 +364,138 @@ async def verify_against_latest_anchor(session: AsyncSession) -> AnchorVerificat
         anchor_seq=anchor["anchor_seq"],
         chain_count=anchor["chain_count"],
         diverged=diverged,
+    )
+
+
+def _check_anchor_chain(anchors: list[dict[str, Any]]) -> AnchorVerification:
+    """Structural walk of the FULL anchor chain (ordered by anchor_seq ASC): contiguous
+    sequence numbers, prev_anchor_hash continuity, and per-anchor hash/root recomputation.
+
+    These checks are all keyless SHA-256, so they catch SLOPPY interior tampering (a
+    deletion that leaves a sequence gap, or a re-link that leaves a dangling
+    prev_anchor_hash). A competent owner who deletes an interior anchor and recomputes the
+    whole suffix's hashes leaves NO structural gap — that is caught only by the per-anchor
+    SIGNATURE check in verify_anchor_chain (the owner cannot re-sign without the key), or,
+    if they downgrade the suffix to unsigned, surfaces as ``unverifiable_unsigned`` there.
+    So this pure/DB-free helper (unit-testable) is one layer; the full guarantee needs
+    verify_anchor_chain's signature loop, and verify_against_latest_anchor separately
+    checks the latest anchor's heads against the live chains.
+    """
+    if not anchors:
+        return AnchorVerification(status="no_anchor", reason="no anchor has been created yet")
+    prev_hash: str | None = None
+    for index, anchor in enumerate(anchors):
+        seq = anchor["anchor_seq"]
+        if seq != index + 1:
+            return AnchorVerification(
+                status="chain_broken",
+                anchor_seq=seq,
+                reason=(
+                    f"anchor_seq is not contiguous (expected {index + 1}, found {seq}) — "
+                    "an interior anchor was deleted"
+                ),
+            )
+        if anchor["prev_anchor_hash"] != prev_hash:
+            return AnchorVerification(
+                status="chain_broken",
+                anchor_seq=seq,
+                reason=(
+                    "prev_anchor_hash does not match the prior anchor's anchor_hash — the "
+                    "anchor chain was re-linked or an interior anchor removed"
+                ),
+            )
+        raw_heads = anchor["heads"]
+        if not isinstance(raw_heads, list):
+            # A JSONB scalar/null (e.g. 'null'::jsonb) decodes to a non-list; treat it as
+            # a broken anchor rather than letting list() raise (this fn never raises).
+            return AnchorVerification(
+                status="chain_broken", anchor_seq=seq, reason="heads is not a JSON array",
+            )
+        heads = list(raw_heads)
+        if hash_chain.canonical_hash(heads) != anchor["anchor_root"]:
+            return AnchorVerification(
+                status="chain_broken", anchor_seq=seq,
+                reason="anchor_root does not match stored heads",
+            )
+        core = _signed_core(
+            anchor_seq=seq,
+            created_at=anchor["created_at"],
+            prev_anchor_hash=anchor["prev_anchor_hash"],
+            anchor_root=anchor["anchor_root"],
+            chain_count=anchor["chain_count"],
+            key_id=anchor["key_id"],
+            algo=anchor["algo"],
+            heads=heads,
+        )
+        if hash_chain.chain_row_hash(prev_hash, core) != anchor["anchor_hash"]:
+            return AnchorVerification(
+                status="chain_broken", anchor_seq=seq,
+                reason="anchor_hash does not match anchor content",
+            )
+        prev_hash = anchor["anchor_hash"]
+    return AnchorVerification(
+        status="ok", anchor_seq=anchors[-1]["anchor_seq"], chain_count=len(anchors)
+    )
+
+
+async def verify_anchor_chain(session: AsyncSession) -> AnchorVerification:
+    """Verify the ENTIRE anchor chain — structural continuity (via _check_anchor_chain)
+    plus every signed anchor's Ed25519 signature. Complements verify_against_latest_anchor
+    (which checks the latest anchor's heads against the live chains). Never raises."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT anchor_seq, created_at, prev_anchor_hash, anchor_root, anchor_hash, "
+                "heads, chain_count, key_id, algo, signature FROM integrity_anchors "
+                "ORDER BY anchor_seq ASC"
+            )
+        )
+    ).mappings().all()
+    anchors = [dict(row) for row in rows]
+    structural = _check_anchor_chain(anchors)
+    if structural.status != "ok":
+        return structural
+
+    # Structure is intact; now confirm every signed anchor's signature with the CONFIGURED
+    # key, and flag any unsigned anchor in the chain (not just the latest).
+    key = _load_signing_key()
+    unsigned = 0
+    for anchor in anchors:
+        if anchor["algo"] != "ed25519":
+            unsigned += 1
+            continue
+        if key is None or key.key_id != anchor["key_id"]:
+            return AnchorVerification(
+                status="unknown_key", anchor_seq=anchor["anchor_seq"],
+                reason="no configured key matches an anchor's key_id; cannot verify its signature",
+            )
+        core = _signed_core(
+            anchor_seq=anchor["anchor_seq"],
+            created_at=anchor["created_at"],
+            prev_anchor_hash=anchor["prev_anchor_hash"],
+            anchor_root=anchor["anchor_root"],
+            chain_count=anchor["chain_count"],
+            key_id=anchor["key_id"],
+            algo=anchor["algo"],
+            heads=list(anchor["heads"]),
+        )
+        try:
+            Ed25519PublicKey.from_public_bytes(base64.b64decode(key.public_b64)).verify(
+                base64.b64decode(anchor["signature"] or ""),
+                hash_chain.canonical_json(core).encode("utf-8"),
+            )
+        except (InvalidSignature, ValueError, TypeError):
+            return AnchorVerification(
+                status="signature_invalid", anchor_seq=anchor["anchor_seq"],
+                reason="Ed25519 signature verification failed",
+            )
+    if unsigned:
+        return AnchorVerification(
+            status="unverifiable_unsigned",
+            anchor_seq=anchors[-1]["anchor_seq"],
+            chain_count=len(anchors),
+            reason=f"{unsigned} anchor(s) in the chain are unsigned",
+        )
+    return AnchorVerification(
+        status="ok", anchor_seq=anchors[-1]["anchor_seq"], chain_count=len(anchors)
     )

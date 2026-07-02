@@ -1008,18 +1008,28 @@ async def upload_family_small_variant_file(
     annotation_version = "vep_tsv" if vep_annotations is not None else "vcf_info"
     try:
         resolved_format = _detect_small_variant_format_from_upload(file, format_hint)
+        # A family holds more than one small-variant callset at once (annotated
+        # clair3 SNVs plus imputed glimpse2 genotypes), distinguished by ``source``.
+        # Scope the overwrite to this upload's own source so re-importing one loader
+        # never deletes the other's rows. Haplotype blocks belong to glimpse2 only.
+        loads_haplotype_blocks = resolved_format == "glimpse2"
         existing_variants = await count_family_small_variants(
             context.assembly_name,
             context.family_uuid,
             project_ids=context.project_ids,
+            source=resolved_format,
         )
-        existing_haplotypes = len(
-            await get_track_presence_by_sample(
-                session,
-                context=context,
-                track_type="haplotype",
-                chromosomes=[str(value) for value in range(1, 23)] + ["X", "Y", "M"],
+        existing_haplotypes = (
+            len(
+                await get_track_presence_by_sample(
+                    session,
+                    context=context,
+                    track_type="haplotype",
+                    chromosomes=[str(value) for value in range(1, 23)] + ["X", "Y", "M"],
+                )
             )
+            if loads_haplotype_blocks
+            else 0
         )
         if existing_variants or existing_haplotypes:
             if not overwrite:
@@ -1027,12 +1037,15 @@ async def upload_family_small_variant_file(
                     status_code=409,
                     detail="Small variants or haplotype blocks already exist for this family",
                 )
-            await delete_family_small_variants(context.assembly_name, context.family_uuid)
-            await _delete_family_haplotype_blocks(
-                session,
-                assembly_name=context.assembly_name,
-                family_uuid=context.family_uuid,
+            await delete_family_small_variants(
+                context.assembly_name, context.family_uuid, source=resolved_format
             )
+            if loads_haplotype_blocks:
+                await _delete_family_haplotype_blocks(
+                    session,
+                    assembly_name=context.assembly_name,
+                    family_uuid=context.family_uuid,
+                )
 
         sample_names: list[str] = []
         annotation_state = AnnotationHeaderState()

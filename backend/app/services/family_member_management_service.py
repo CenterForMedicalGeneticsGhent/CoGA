@@ -578,6 +578,30 @@ def _genomic_data_count(counts: dict[str, int]) -> int:
     return sum(count for key, count in counts.items() if key in GENOMIC_DATA_KEYS)
 
 
+def _rename_block_reason(counts: dict[str, int]) -> str | None:
+    """Why renaming this member would risk orphaning genomic data keyed by the old
+    sample id, or None if it is safe.
+
+    Fails CLOSED: if the ClickHouse genotype counts could not be verified (ClickHouse
+    unreachable), we cannot confirm there is nothing to orphan, so the rename is blocked
+    rather than allowed. Previously the ``clickhouse_counts_unavailable`` marker was not
+    in GENOMIC_DATA_KEYS, so the guard summed to 0 and the rename proceeded — silently
+    orphaning ClickHouse variant rows still keyed by the old sample-id string.
+    """
+    if _genomic_data_count(counts) > 0:
+        return (
+            "Renaming a family member with imported genomic data is blocked because raw "
+            "datasets are preserved and still use the source sample id."
+        )
+    if counts.get("clickhouse_counts_unavailable"):
+        return (
+            "Renaming is blocked because this sample's ClickHouse genotype linkage could "
+            "not be verified (ClickHouse unreachable) — a rename could silently orphan "
+            "variant data keyed by the old sample id. Retry when ClickHouse is reachable."
+        )
+    return None
+
+
 async def update_family_member_for_admin(
     session: AsyncSession,
     *,
@@ -612,16 +636,11 @@ async def update_family_member_for_admin(
                 sample_id=resolved_sample_id,
                 user=user,
             )
-            if _genomic_data_count(impact.data_counts) > 0:
+            block_reason = _rename_block_reason(impact.data_counts)
+            if block_reason is not None:
                 raise HTTPException(
                     status_code=409,
-                    detail={
-                        "message": (
-                            "Renaming a family member with imported genomic data is blocked "
-                            "because raw datasets are preserved and still use the source sample id."
-                        ),
-                        "impact": impact.model_dump(),
-                    },
+                    detail={"message": block_reason, "impact": impact.model_dump()},
                 )
             await session.execute(
                 text(
@@ -719,16 +738,11 @@ async def update_family_members_batch_for_admin(
                     sample_id=resolved_sample_id,
                     user=user,
                 )
-                if _genomic_data_count(impact.data_counts) > 0:
+                block_reason = _rename_block_reason(impact.data_counts)
+                if block_reason is not None:
                     raise HTTPException(
                         status_code=409,
-                        detail={
-                            "message": (
-                                "Renaming a family member with imported genomic data is blocked "
-                                "because raw datasets are preserved and still use the source sample id."
-                            ),
-                            "impact": impact.model_dump(),
-                        },
+                        detail={"message": block_reason, "impact": impact.model_dump()},
                     )
                 await session.execute(
                     text(

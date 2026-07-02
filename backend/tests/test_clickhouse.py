@@ -279,3 +279,40 @@ async def test_create_client_plain_http_has_no_tls_kwargs(monkeypatch):
     assert captured["secure"] is False
     assert "ca_cert" not in captured
     assert "server_host_name" not in captured
+
+
+@pytest.mark.parametrize(
+    "query,table,database,columns",
+    [
+        ("INSERT INTO t (a, b) VALUES", "t", None, ["a", "b"]),
+        ("  insert into db.`tbl` (`x`,`y`) values  ", "tbl", "db", ["x", "y"]),
+        ("INSERT INTO   my_table   (c1, c2, c3)   VALUES", "my_table", None, ["c1", "c2", "c3"]),
+        ("INSERT INTO t () VALUES", "t", None, []),
+        ("INSERT INTO t(a) VALUES", "t", None, ["a"]),
+    ],
+)
+def test_parse_insert_query_matches_valid_inserts(query, table, database, columns) -> None:
+    parsed_table, parsed_db, parsed_cols = clickhouse._parse_insert_query(query)
+    assert (parsed_table, parsed_db, parsed_cols) == (table, database, columns)
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["SELECT * FROM t", "INSERT INTO t (a) VALUES (1,2)", "INSERTINTO t (a) VALUES"],
+)
+def test_parse_insert_query_rejects_non_insert_forms(query) -> None:
+    with pytest.raises(ValueError):
+        clickhouse._parse_insert_query(query)
+
+
+def test_insert_pattern_is_not_redos_vulnerable() -> None:
+    # The old `(?P<table>.+?)` overlapped the surrounding whitespace and took minutes on
+    # this input; the anchored `table` group must resolve it in well under a second.
+    import time
+
+    adversarial = "INSERT INTO " + " " * 20_000
+    start = time.perf_counter()
+    result = clickhouse._INSERT_QUERY_PATTERN.match(adversarial)
+    elapsed = time.perf_counter() - start
+    assert result is None
+    assert elapsed < 1.0

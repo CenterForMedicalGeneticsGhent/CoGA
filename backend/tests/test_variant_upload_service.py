@@ -309,6 +309,121 @@ async def test_glimpse2_upload_stores_haplotype_blocks_separate_from_snv_rows(
     assert upserted_sources[0]["row_count"] == 1
 
 
+_GLIMPSE2_VCF = (
+    "##fileformat=VCFv4.2\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Phased genotype">\n'
+    '##FORMAT=<ID=GP,Number=G,Type=Float,Description="Genotype probabilities">\n'
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+    "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:GP\t0|1:0.01,0.98,0.01\n"
+)
+_CLAIR3_VCF = (
+    "##fileformat=VCFv4.2\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+    "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:DP\t0/1:30\n"
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "vcf_text, expected_source, expect_haplotype_block_delete",
+    [
+        (_GLIMPSE2_VCF, "glimpse2", True),
+        (_CLAIR3_VCF, "clair3", False),
+    ],
+)
+async def test_overwrite_scopes_delete_to_uploaded_source(
+    monkeypatch: pytest.MonkeyPatch,
+    vcf_text: str,
+    expected_source: str,
+    expect_haplotype_block_delete: bool,
+) -> None:
+    # #329: re-importing one small-variant callset must not wipe the other. The
+    # overwrite branch must delete only the uploaded source's rows, and only clear
+    # haplotype blocks for glimpse2 (which owns them).
+    count_sources: list[str | None] = []
+    deleted_sources: list[str | None] = []
+    haplotype_block_deletes: list[bool] = []
+
+    async def fake_count_family_small_variants(*_args, **kwargs):
+        count_sources.append(kwargs.get("source"))
+        return 5  # rows already exist -> overwrite branch fires
+
+    async def fake_delete_family_small_variants(_assembly, _family, *, source=None):
+        deleted_sources.append(source)
+
+    async def fake_delete_family_haplotype_blocks(*_args, **_kwargs):
+        haplotype_block_deletes.append(True)
+
+    async def fake_get_track_presence_by_sample(*_args, **_kwargs):
+        return set()
+
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    async def fake_fetch_chromosome_sizes(*_args, **_kwargs):
+        return {}
+
+    for name, fn in {
+        "count_family_small_variants": fake_count_family_small_variants,
+        "delete_family_small_variants": fake_delete_family_small_variants,
+        "_delete_family_haplotype_blocks": fake_delete_family_haplotype_blocks,
+        "get_track_presence_by_sample": fake_get_track_presence_by_sample,
+        "insert_small_variant_records": fake_noop,
+        "refresh_family_small_variant_summaries": fake_noop,
+        "insert_interval_track_rows": fake_noop,
+        "upsert_interval_track_source": fake_noop,
+        "_fetch_chromosome_sizes": fake_fetch_chromosome_sizes,
+    }.items():
+        monkeypatch.setattr(variant_upload_service, name, fn)
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+    context = FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM001",
+        project_ids=["project-uuid"],
+        sample_rows=[],
+        sample_uuid_to_name={"sample-uuid": "S1"},
+        sample_name_to_uuid={"S1": "sample-uuid"},
+        affected_sample_names=[],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+    sample_contexts = {
+        "S1": SampleMetadataContext(
+            sample_uuid="sample-uuid",
+            sample_id="S1",
+            family_uuid="family-uuid",
+            family_id="FAM001",
+            sex="und",
+            project_ids=["project-uuid"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+    }
+    upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="variants.vcf")
+
+    result = await variant_upload_service.upload_family_small_variant_file(
+        FakeSession(),  # type: ignore[arg-type]
+        context=context,
+        sample_contexts=sample_contexts,
+        file=upload,
+        overwrite=True,
+        format_hint="auto",
+    )
+
+    assert result["source_format"] == expected_source
+    # Existence check and delete are both scoped to the uploaded source only.
+    assert count_sources == [expected_source]
+    assert deleted_sources == [expected_source]
+    # Haplotype blocks are cleared only for the glimpse2 loader that owns them.
+    assert bool(haplotype_block_deletes) is expect_haplotype_block_delete
+
+
 @pytest.mark.asyncio
 async def test_glimpse2_upload_derives_child_haplotype_blocks_from_parental_segregation(
     monkeypatch: pytest.MonkeyPatch,

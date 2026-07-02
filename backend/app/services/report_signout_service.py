@@ -24,6 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import scrub_log
 from ..core.config import settings
 from .annotation_manifest_service import get_family_annotation_manifest
 from .classification_drift_service import evaluate_classification_drift
@@ -31,7 +32,13 @@ from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import build_family_metadata_context
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .metadata_service import CurrentUser
-from .sample_integrity_qc import SampleIntegrityReport
+from .sample_integrity_qc import (
+    MIN_MATERNAL_TRANSMISSION_SITES,
+    MIN_MENDEL_SITES,
+    MIN_PATERNITY_SITES,
+    MIN_RELATEDNESS_SITES,
+    SampleIntegrityReport,
+)
 from .sample_integrity_service import get_family_sample_integrity_qc
 
 logger = logging.getLogger(__name__)
@@ -39,9 +46,18 @@ logger = logging.getLogger(__name__)
 _REPORT_TAG = "report"
 
 # Sample-integrity QC statuses that BLOCK sign-out unless acknowledged with a reason.
-# Per clinical policy, only a hard "fail" (a detected sample/pedigree swap — TF-06 H4,
-# rated S5 catastrophic) blocks; "warn"/"skip" are frozen + surfaced but do not gate.
+# A hard "fail" is a DETECTED mismatch (a sample/pedigree swap — TF-06 H4, rated S5
+# catastrophic). Separately, a swap can manifest as MISSING data (a sample absent from
+# the callset, a whole-family genotype-load failure, too few cfDNA sites): that leaves
+# the swap-relevant check unable to run, so it stays "warn"/"skip"/"pass" and never
+# reaches "fail". _unverifiable_swap_checks() gates those too (#330), so an unverifiable
+# ASSERTED pedigree relationship cannot sign out silently. Both are acknowledge-with-
+# reason (never a hard lockout); the reason is frozen into the content hash + audit.
 _QC_BLOCKING_STATUSES = {"fail"}
+
+# Pedigree-declared first-degree relationships whose swap check, when it cannot run,
+# indicates missing data for an asserted edge (vs a non-asserted/"unrelated" pair).
+_ASSERTED_RELATIONSHIPS = frozenset({"parent-child", "sibling"})
 
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
@@ -104,6 +120,111 @@ def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
+    """Asserted swap-relevant QC checks that COULD NOT RUN (too few informative sites).
+
+    A genuine mismatch rolls up to "fail" (which already blocks). But a swap that
+    manifests as MISSING data — a sample absent from the callset, a whole-family
+    genotype-load failure, too few cfDNA sites — leaves the relevant check unable to
+    run, so it stays "warn"/"skip"/"pass" and would otherwise sign out silently. Flag
+    each ASSERTED (pedigree-declared) relationship whose swap check has too few
+    informative sites to verify it. Scoped to asserted edges: non-asserted pairs and
+    donor/unknown-parent edges never trigger.
+    """
+    reasons: list[str] = []
+    for check in qc.get("relatedness_checks") or []:
+        if (
+            check.get("expected_relationship") in _ASSERTED_RELATIONSHIPS
+            and int(check.get("informative_sites") or 0) < MIN_RELATEDNESS_SITES
+        ):
+            reasons.append(
+                check.get("message")
+                or (
+                    f"Relatedness of {check.get('sample_a')}–{check.get('sample_b')} "
+                    f"(expected {check.get('expected_relationship')}) could not be verified."
+                )
+            )
+    # Mendelian checks are only generated for asserted child+parent(s), so any with too
+    # few informative sites is an unverifiable asserted trio — distinct from an elevated
+    # but measurable error rate, which is a ran-and-concerning "warn" we leave alone.
+    for check in qc.get("mendelian_checks") or []:
+        if int(check.get("informative_sites") or 0) < MIN_MENDEL_SITES:
+            reasons.append(
+                check.get("message")
+                or f"Mendelian consistency for {check.get('child')} could not be verified."
+            )
+    paternity = qc.get("paternity_check")
+    if paternity and int(paternity.get("informative_sites") or 0) < MIN_PATERNITY_SITES:
+        reasons.append(
+            paternity.get("message")
+            or "NIPT paternity could not be verified (too few paternal-informative sites)."
+        )
+    # The NIPT category QC silently reports "pass" when the maternal-transmission block
+    # is skipped for too few maternal-informative sites — i.e. a wrong/absent mother is
+    # not caught. Treat that unverifiable maternal lineage as gating.
+    category = qc.get("category_qc_check")
+    if (
+        category
+        and int(category.get("maternal_informative") or 0) < MIN_MATERNAL_TRANSMISSION_SITES
+    ):
+        reasons.append(
+            "NIPT maternal lineage could not be verified (too few maternal-informative "
+            "sites) — possible wrong mother."
+        )
+
+    # Samples anchored by an asserted relatedness/Mendelian edge have their identity
+    # covered there. Sex is the ONLY identity signal for a sample with no asserted edge
+    # (the single/couple profiles, or an added relative), so a sex call that could not be
+    # made for such a sample — the sample absent from its callset, or no usable chrX — is
+    # an otherwise-ungated swap gap. (A sex MISmatch already rolls up to "fail".)
+    anchored: set[str] = set()
+    for check in qc.get("relatedness_checks") or []:
+        if check.get("expected_relationship") in _ASSERTED_RELATIONSHIPS:
+            anchored.add(check.get("sample_a"))
+            anchored.add(check.get("sample_b"))
+    for check in qc.get("mendelian_checks") or []:
+        anchored.add(check.get("child"))
+        anchored.update(check.get("parents") or [])
+    for check in qc.get("sex_checks") or []:
+        if check.get("inferred_sex") == "indeterminate" and check.get("sample_id") not in anchored:
+            reasons.append(
+                check.get("message")
+                or (
+                    f"Sex/identity of {check.get('sample_id')} could not be verified, and no "
+                    "relatedness check anchors this sample."
+                )
+            )
+
+    # NIPT integrity rests entirely on the cfDNA paternity + category-QC checks. If
+    # NEITHER ran — the maternal/paternal trio could not be resolved, or the cfDNA
+    # analysis failed — a prenatal report would otherwise sign out with no identity
+    # evidence at all (the checks are None and nothing rolls up to "fail").
+    if (
+        qc.get("application") == "nipt"
+        and qc.get("paternity_check") is None
+        and qc.get("category_qc_check") is None
+    ):
+        reasons.append(
+            "NIPT sample integrity could not be assessed — the trio could not be resolved "
+            "or the cfDNA analysis did not run (no paternity or maternal-lineage check)."
+        )
+    return reasons
+
+
+def _qc_gate_message(qc_status: str, hard_fail: bool, unverifiable: list[str]) -> str:
+    if hard_fail:
+        return (
+            f"Sample-integrity QC status is '{qc_status}' (possible sample or pedigree "
+            "swap — TF-06 H4). Resolve it, or acknowledge with a reason to sign out anyway."
+        )
+    return (
+        "A swap-relevant sample-integrity check could not be verified for an asserted "
+        f"pedigree relationship ({'; '.join(unverifiable)}). A sample swap can present as "
+        "missing data rather than a mismatch. Resolve it, or acknowledge with a reason to "
+        "sign out anyway."
+    )
+
+
 async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
@@ -155,6 +276,23 @@ async def build_report_snapshot(
         session, family_id=family_id, user=user, project_id=project_id
     )
     reported = await _reported_reviews(session, context.family_uuid)
+    # A reported classification with no frozen evidence snapshot cannot be drift-verified
+    # (evaluate_classification_drift only checks reviews that HAVE a snapshot), so it would
+    # otherwise clear the sign-out drift gate unchallenged. Surface each as a "no_snapshot"
+    # drift entry so the gate requires acknowledgement (#332).
+    unsnapshotted = [
+        {
+            "variant_id": r["variant_id"],
+            "acmg_class": r.get("acmg_class"),
+            "status": "no_snapshot",
+        }
+        for r in reported
+        if not r.get("evidence_snapshot")
+    ]
+    drifted = sorted(
+        [*drift["drifted"], *unsnapshotted],
+        key=lambda item: item.get("variant_id") or "",
+    )
     return {
         "family_id": context.family_id,
         "assembly": manifest.get("assembly"),
@@ -165,17 +303,15 @@ async def build_report_snapshot(
         # hash stays deterministic for identical clinical content.
         "software": {"version": settings.app_version, "git_sha": settings.git_sha},
         "drift": {
-            "checked": drift["checked"],
-            "drifted_count": drift["drifted_count"],
-            # The live drift endpoint orders drifted rows by updated_at (non-unique),
-            # so the list order is non-deterministic on ties. Sort by the unique,
-            # stable variant_id here so the hashed snapshot (content_hash) is
-            # reproducible for identical content; json.dumps(sort_keys=True) canonicalizes
-            # dict keys but never list-element order. Scoped to the sign-out/hash path
-            # only — the endpoint keeps its most-recent-first display order.
-            "drifted": sorted(
-                drift["drifted"], key=lambda item: item.get("variant_id") or ""
-            ),
+            "checked": drift["checked"] + len(unsnapshotted),
+            "drifted_count": len(drifted),
+            # Sorted by the unique, stable variant_id so the hashed snapshot
+            # (content_hash) is reproducible for identical content — json.dumps(sort_keys)
+            # canonicalizes dict keys but never list-element order. Includes reported
+            # classifications with no snapshot ("no_snapshot"), which can't be drift-
+            # verified and so must gate. Scoped to the sign-out/hash path only — the live
+            # drift endpoint keeps its most-recent-first display order.
+            "drifted": drifted,
         },
         # Sample-integrity QC (sample/pedigree-swap detection) frozen into the content
         # hash so the signed record proves QC was run and exactly what it found. A pure
@@ -234,8 +370,9 @@ async def sign_out_report(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"{drifted_count} classification(s) have evidence changes since they were "
-                "made. Re-review, or acknowledge the drift to sign out anyway."
+                f"{drifted_count} classification(s) have evidence that changed, or that "
+                "cannot be verified (no frozen snapshot), since they were made. Re-review, "
+                "or acknowledge the drift to sign out anyway."
             ),
         )
 
@@ -243,26 +380,29 @@ async def sign_out_report(
     # is acknowledged independently). Only a hard "fail" blocks (TF-06 H4 sample/pedigree
     # swap, S5 catastrophic); acknowledging requires a non-empty reason, which — like the
     # QC verdict itself — is frozen into the content hash below.
-    qc_status = snapshot_body["sample_qc"]["overall_status"]
-    qc_blocks = qc_status in _QC_BLOCKING_STATUSES
+    sample_qc = snapshot_body["sample_qc"]
+    qc_status = sample_qc["overall_status"]
+    qc_hard_fail = qc_status in _QC_BLOCKING_STATUSES
+    # A swap that manifests as MISSING data leaves the swap-relevant check unable to run
+    # (it never becomes "fail"); gate those unverifiable asserted-pedigree checks too so
+    # they cannot sign out silently (#330).
+    qc_unverifiable = _unverifiable_swap_checks(sample_qc)
+    qc_blocks = qc_hard_fail or bool(qc_unverifiable)
     if qc_blocks and not acknowledge_qc:
         raise HTTPException(
             status_code=409,
             detail={
                 "gate": "sample_qc",
-                "message": (
-                    f"Sample-integrity QC status is '{qc_status}' (possible sample or "
-                    "pedigree swap — TF-06 H4). Resolve it, or acknowledge with a reason "
-                    "to sign out anyway."
-                ),
-                "qc_summary": _qc_failure_summary(snapshot_body["sample_qc"]),
+                "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable),
+                "qc_summary": _qc_failure_summary(sample_qc),
+                "unverifiable_checks": qc_unverifiable,
             },
         )
     qc_reason = (qc_acknowledgement_reason or "").strip()
     if qc_blocks and acknowledge_qc and not qc_reason:
         raise HTTPException(
             status_code=422,
-            detail="A reason is required to acknowledge a failing sample-integrity QC.",
+            detail="A reason is required to acknowledge a sample-integrity QC concern.",
         )
 
     # Per-family advisory lock: makes version selection + chain-head read + insert
@@ -361,6 +501,7 @@ async def sign_out_report(
             "qc_status": qc_status,
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
+            "qc_unverifiable": qc_unverifiable,
         },
     )
     await session.commit()
@@ -453,7 +594,7 @@ async def get_report_signout(
         logger.error(
             "report_signout content hash mismatch on read (possible tampering)",
             extra={
-                "family_id": context.family_id,
+                "family_id": scrub_log(context.family_id),
                 "signout_version": version,
                 "stored_content_hash": record["content_hash"],
                 "recomputed_content_hash": recomputed,

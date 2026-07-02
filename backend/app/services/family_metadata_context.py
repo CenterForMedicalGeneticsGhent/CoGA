@@ -119,9 +119,19 @@ async def _resolve_family_assembly(
         )
     rows = [dict(row) for row in result.mappings().all()]
     if not rows:
+        # No assembly linked yet (e.g. a family with no imported data): legitimately
+        # empty, not an error.
         return None, None
     if len(rows) > 1:
-        return None, None
+        # The family's visible projects span more than one assembly and no single
+        # project was specified. Returning None here made every variant/track view
+        # silently render empty (200 OK) — indistinguishable from "no variants". Fail
+        # loud so the caller disambiguates with a project_id (mirrors
+        # family_service._resolve_family_assembly).
+        raise HTTPException(
+            status_code=400,
+            detail="Could not resolve a single assembly for this family; specify a project to disambiguate.",
+        )
     return rows[0]["assembly_id"], rows[0]["assembly_name"]
 
 

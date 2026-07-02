@@ -8,6 +8,7 @@ from typing import Any, Iterable, Sequence
 from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
 from .clickhouse_family_variants import (
+    IMPUTED_SMALL_VARIANT_SOURCES,
     SmallVariantCall,
     SmallVariantRecord,
     StructuralVariantCall,
@@ -1077,9 +1078,28 @@ async def _migrate_legacy_family_sample_variant_summary(database: str, dataset: 
     await _execute(f"DROP TABLE IF EXISTS {database}.`{table}` SYNC")
 
 
-async def delete_family_small_variants(assembly_name: str, family_uuid: str) -> None:
+async def delete_family_small_variants(
+    assembly_name: str,
+    family_uuid: str,
+    *,
+    source: str | None = None,
+) -> None:
     await ensure_clickhouse_variant_tables(assembly_name)
-    params = {"family_guid": family_uuid}
+    params: dict[str, Any] = {"family_guid": family_uuid}
+    if source is not None:
+        # Source-scoped delete: only clear this callset's entries (e.g. re-importing
+        # the glimpse2 dataset must not wipe the clair3 annotated SNVs, and vice
+        # versa). The summary tables have no source column and are rebuilt from the
+        # surviving entries by refresh_family_small_variant_summaries, so the caller
+        # refreshes them after re-inserting rather than blanket-clearing them here.
+        params["source"] = source
+        await _execute(
+            f"ALTER TABLE {_small_table_name(assembly_name, 'entries')} DELETE "
+            "WHERE family_guid = %(family_guid)s AND source = %(source)s "
+            "SETTINGS mutations_sync = 1",
+            params,
+        )
+        return
     for suffix in (
         "entries",
         "family_variant_summary",
@@ -1325,6 +1345,10 @@ async def refresh_family_small_variant_summaries(
             params,
         )
 
+    # The family variant summary is a diagnostic count, so it excludes imputed
+    # callsets (glimpse2/shapeit) — matching the live-fallback query in
+    # _fetch_small_variant_summary and the default of the per-family variant list.
+    params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
     ref_or_missing_gts = _small_genotype_tuple(sorted(_SMALL_GT_REF | _SMALL_GT_MISSING))
     het_gts = _small_genotype_tuple(("0/1", "1/0", "0|1", "1|0"))
     hom_alt_gts = _small_genotype_tuple(("1/1", "1|1"))
@@ -1347,6 +1371,7 @@ async def refresh_family_small_variant_summaries(
         FROM {_small_table_name(assembly_name, 'entries')}
         WHERE family_guid = %(family_guid)s
           AND sign = 1
+          AND lowerUTF8(source) NOT IN %(imputed_sources)s
         GROUP BY family_guid, project_guid
         """,
         params,
@@ -1372,6 +1397,7 @@ async def refresh_family_small_variant_summaries(
         ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
         WHERE family_guid = %(family_guid)s
           AND sign = 1
+          AND lowerUTF8(source) NOT IN %(imputed_sources)s
         GROUP BY family_guid, project_guid, sample_id
         """,
         params,
@@ -1464,6 +1490,7 @@ async def count_family_small_variants(
     family_uuid: str,
     *,
     project_ids: Sequence[str] | None = None,
+    source: str | None = None,
 ) -> int:
     await ensure_clickhouse_variant_tables(assembly_name)
     clauses = ["family_guid = %(family_guid)s", "sign = 1"]
@@ -1471,6 +1498,9 @@ async def count_family_small_variants(
     if project_ids:
         clauses.append("project_guid IN %(project_ids)s")
         params["project_ids"] = tuple(_normalized_project_ids(project_ids))
+    if source is not None:
+        clauses.append("source = %(source)s")
+        params["source"] = source
     rows = await _execute(
         f"""
         SELECT count()
@@ -1491,6 +1521,7 @@ async def _count_distinct_keys_by_family(
     entries_table: str,
     family_project_pairs: Sequence[tuple[str, str]],
     families_without_project: Sequence[str],
+    exclude_sources: Sequence[str] | None = None,
 ) -> dict[str, int]:
     """Distinct-`key` counts grouped by family_guid in a single query, preserving
     the exact per-family project scope of the single-family counters:
@@ -1517,13 +1548,17 @@ async def _count_distinct_keys_by_family(
     if no_project:
         scope_terms.append("family_guid IN %(families_without_project)s")
         params["families_without_project"] = no_project
+    source_clause = ""
+    if exclude_sources:
+        params["exclude_sources"] = tuple(exclude_sources)
+        source_clause = " AND lowerUTF8(source) NOT IN %(exclude_sources)s"
     rows = await _execute(
         f"""
         SELECT family_guid, count()
         FROM (
             SELECT family_guid, key
             FROM {entries_table}
-            WHERE sign = 1 AND ({' OR '.join(scope_terms)})
+            WHERE sign = 1 AND ({' OR '.join(scope_terms)}){source_clause}
             GROUP BY family_guid, key
         )
         GROUP BY family_guid
@@ -1546,6 +1581,7 @@ async def count_family_small_variants_by_family(
         entries_table=_small_table_name(assembly_name, "entries"),
         family_project_pairs=family_project_pairs,
         families_without_project=families_without_project,
+        exclude_sources=IMPUTED_SMALL_VARIANT_SOURCES,
     )
 
 

@@ -143,6 +143,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_reference_status_auth.py](../backend/tests/test_reference_status_auth.py) | `/assemblies/reference-status` requires auth (no unauthenticated provenance/operator-email leak). |
 | [backend/tests/test_admin_route_gating.py](../backend/tests/test_admin_route_gating.py) | Panel/tag-definition mutations enforce admin at the route (403 for a viewer); the dead `/admin/samples/{id}/projects` route is removed (404). |
 | [backend/tests/test_config_security.py](../backend/tests/test_config_security.py) | Refuse-to-start on insecure default secrets outside dev. |
+| [backend/tests/test_coga_logging.py](../backend/tests/test_coga_logging.py) | `scrub_log` control-character neutralization (CWE-117 log forging): CR/LF/tab/DEL replaced, clean values pass through, oversized truncated. |
 | [backend/tests/test_request_logging.py](../backend/tests/test_request_logging.py) | Request-logging sanitization, path/secret masking, db-update derivation (incl. stripping the `/api` mount prefix so the audit entity is the real collection). |
 | [backend/tests/test_http_resilience.py](../backend/tests/test_http_resilience.py) | P2-9 outbound resilience: idempotent requests retry transient failures (transport errors + 429/5xx) with capped backoff; non-idempotent + 4xx never retry; bounded worst case; own-client body still readable; S3 Config has bounded timeouts + adaptive retries. |
 | [backend/tests/test_csv_export.py](../backend/tests/test_csv_export.py) | CSV formula-injection guard: cells starting with `=`/`+`/`-`/`@`/tab/CR/LF are quote-prefixed; benign values untouched; survives a real csv writer/reader round-trip. |
@@ -171,7 +172,9 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 ### Gene / HPO / panel / Monarch / reference
 | Test file | Purpose |
 | --- | --- |
+| [backend/tests/test_bounded_download.py](../backend/tests/test_bounded_download.py) | Bounded outbound download + gunzip for reference/gene/Monarch fetches (#336): gunzip roundtrip / oversized-output / invalid-stream / a real decompression bomb halted at the cap; streamed size-cap abort, optional-404, and 5xx paths. |
 | [backend/tests/test_gene_info_bulk_sources.py](../backend/tests/test_gene_info_bulk_sources.py) | Gene-reference bulk-source parsing; dbNSFP constraint metrics. |
+| [backend/tests/test_gene_info_external.py](../backend/tests/test_gene_info_external.py) | Outbound gene-lookup URL encoding (#336): quote(safe='') escapes '/' so an injected identifier stays in one path segment on the fixed external hosts; legitimate ids unchanged. |
 | [backend/tests/test_gene_locus_primary_chromosome.py](../backend/tests/test_gene_locus_primary_chromosome.py) | Primary-chromosome / multi-contig gene-locus resolution. |
 | [backend/tests/test_hpo_api.py](../backend/tests/test_hpo_api.py) | HPO router and family HPO-term attachment. |
 | [backend/tests/test_hpo_service.py](../backend/tests/test_hpo_service.py) | HPO ontology parsing, closure computation, inline-HPO handling. |
