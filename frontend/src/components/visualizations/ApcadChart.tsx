@@ -74,7 +74,7 @@ const deriveLayoutFromBins = (
   regionStart?: number,
   regionEnd?: number,
 ): Layout => {
-  const lengths: Record<string, number> = {};
+  const lengths: Record<string, number> = Object.create(null);
   chroms.forEach((chrom) => {
     lengths[chrom] = 0;
   });
@@ -83,7 +83,7 @@ const deriveLayoutFromBins = (
     lengths[bin.chr] = Math.max(lengths[bin.chr] ?? 0, bin.end);
   });
 
-  const offsets: Record<string, number> = {};
+  const offsets: Record<string, number> = Object.create(null);
   let total = 0;
   chroms.forEach((chrom) => {
     offsets[chrom] = total;
