@@ -53,6 +53,7 @@ from ..services.family_metadata_context import build_family_metadata_context
 from ..services.integrity_anchor_service import (
     create_integrity_anchor,
     verify_against_latest_anchor,
+    verify_anchor_chain,
 )
 from ..services.report_signout_service import verify_report_signout_chain
 from ..services.ui_event_pg import list_ui_events
@@ -194,6 +195,24 @@ async def verify_integrity_anchor_endpoint(
     prefix check). ``diverged`` localises any re-chained / truncated family since the
     anchor; ``status`` is a finding, not an error."""
     result = await verify_against_latest_anchor(session)
+    return IntegrityAnchorVerifyOut(
+        status=result.status,
+        anchor_seq=result.anchor_seq,
+        chain_count=result.chain_count,
+        diverged=result.diverged,
+        reason=result.reason,
+    )
+
+
+@router.get("/integrity/anchor/verify-chain", response_model=IntegrityAnchorVerifyOut)
+async def verify_integrity_anchor_chain_endpoint(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> IntegrityAnchorVerifyOut:
+    """Verify the anchor chain itself: sequence contiguity, prev_anchor_hash continuity,
+    and every signed anchor's signature. Detects deletion/re-linking of an INTERIOR anchor
+    — which the latest-anchor check cannot see. ``status`` is a finding, not an error."""
+    result = await verify_anchor_chain(session)
     return IntegrityAnchorVerifyOut(
         status=result.status,
         anchor_seq=result.anchor_seq,
