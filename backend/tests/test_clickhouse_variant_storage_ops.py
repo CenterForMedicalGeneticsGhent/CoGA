@@ -451,4 +451,100 @@ async def test_refresh_family_small_variant_summaries_rebuilds_family_and_sample
     assert "countDistinctIf(key, gt IN ('0/1', '1/0', '0|1', '1|0'))" in executed[3][0]
     assert "GROUP BY family_guid, project_guid, sample_id" in executed[3][0]
     assert "project_guid" in executed[3][0]
-    assert all(params == {"family_guid": "family-1"} for _query, params in executed)
+    # The summary is a diagnostic count, so both rebuild queries exclude imputed
+    # callsets (glimpse2/shapeit) — matching the live-fallback query and the default
+    # per-family variant list. The delete queries stay unscoped by source.
+    assert "lowerUTF8(source) NOT IN %(imputed_sources)s" in executed[2][0]
+    assert "lowerUTF8(source) NOT IN %(imputed_sources)s" in executed[3][0]
+    assert "lowerUTF8(source)" not in executed[0][0]
+    assert all(params["family_guid"] == "family-1" for _query, params in executed)
+    assert executed[2][1]["imputed_sources"] == ("glimpse2", "shapeit")
+
+
+@pytest.mark.asyncio
+async def test_delete_family_small_variants_scopes_entries_to_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, dict[str, object] | None]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(query, params=None, data=None):
+        executed.append((query, params))
+        return []
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage, "ensure_clickhouse_variant_tables", fake_ensure
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    await clickhouse_variant_storage.delete_family_small_variants(
+        "GRCh38", "family-1", source="glimpse2"
+    )
+
+    # Source-scoped: exactly one DELETE, against entries only, filtered by source, so
+    # re-importing glimpse2 cannot touch the clair3 rows. The summary tables are left
+    # for the caller's refresh to rebuild from the surviving entries.
+    assert len(executed) == 1
+    query, params = executed[0]
+    assert "entries" in query
+    assert "AND source = %(source)s" in query
+    assert "family_variant_summary" not in query
+    assert params == {"family_guid": "family-1", "source": "glimpse2"}
+
+
+@pytest.mark.asyncio
+async def test_delete_family_small_variants_without_source_clears_all_tables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, dict[str, object] | None]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(query, params=None, data=None):
+        executed.append((query, params))
+        return []
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage, "ensure_clickhouse_variant_tables", fake_ensure
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    await clickhouse_variant_storage.delete_family_small_variants("GRCh38", "family-1")
+
+    # Unscoped: clears entries and both summary tables, with no source filter.
+    assert len(executed) == 3
+    assert "entries" in executed[0][0]
+    assert "family_variant_summary" in executed[1][0]
+    assert "family_sample_variant_summary" in executed[2][0]
+    assert all("source = %(source)s" not in query for query, _params in executed)
+
+
+@pytest.mark.asyncio
+async def test_count_family_small_variants_scopes_to_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed: list[tuple[str, dict[str, object] | None]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == "GRCh38"
+
+    async def fake_execute(query, params=None, data=None):
+        executed.append((query, params))
+        return [[7]]
+
+    monkeypatch.setattr(
+        clickhouse_variant_storage, "ensure_clickhouse_variant_tables", fake_ensure
+    )
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    count = await clickhouse_variant_storage.count_family_small_variants(
+        "GRCh38", "family-1", source="clair3"
+    )
+
+    assert count == 7
+    query, params = executed[0]
+    assert "source = %(source)s" in query
+    assert params["source"] == "clair3"

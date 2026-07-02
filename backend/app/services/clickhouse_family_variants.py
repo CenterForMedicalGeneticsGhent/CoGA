@@ -74,6 +74,14 @@ from .structural_variant_review_pg import (
 
 logger = logging.getLogger(__name__)
 
+# Callset ``source`` values that hold imputed (not directly-called) genotypes.
+# These are excluded by default from the diagnostic per-family small-variant list,
+# counts, and summary (matching the global Variant Explorer's default), but remain
+# available to callers that request a source explicitly — the phased-marker /
+# relative-haplotype colouring and sample-integrity QC readers. Kept in sync with
+# variant_explorer_service._IMPUTED_SOURCES.
+IMPUTED_SMALL_VARIANT_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
+
 # ClickHouse error substrings that mean "this query was too broad/expensive to
 # run", not "the server is broken". We turn these into an actionable 422 so the
 # user can narrow their filters instead of seeing an opaque 500.
@@ -2790,6 +2798,7 @@ def _small_variant_where_clauses(
     *,
     include_variant_ids: Sequence[str] | None = None,
     exclude_variant_ids: Sequence[str] = (),
+    exclude_imputed: bool = False,
 ) -> tuple[list[str], dict[str, Any]]:
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
@@ -2841,6 +2850,13 @@ def _small_variant_where_clauses(
     if filters.source:
         params["source"] = filters.source
         where_clauses.append("positionCaseInsensitive(e.source, %(source)s) > 0")
+    elif exclude_imputed:
+        # Diagnostic list/count: hide imputed callsets (glimpse2/shapeit) by default,
+        # consistent with the global Variant Explorer. An explicit filters.source still
+        # surfaces them (handled above); the phased-marker / sample-QC readers pass
+        # exclude_imputed=False so they continue to see every callset.
+        params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
+        where_clauses.append("lowerUTF8(e.source) NOT IN %(imputed_sources)s")
     if filters.rsid:
         params["rsid"] = filters.rsid
         annotation_rsid_condition = _small_annotation_key_membership_condition(
@@ -3398,6 +3414,7 @@ async def _count_small_variant_rows_bounded(
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,
         exclude_gene_terms=exclude_gene_terms,
+        exclude_imputed=True,
     )
     params["count_limit"] = max(int(count_limit), 1)
     rows = await _execute_clickhouse(
@@ -3582,6 +3599,10 @@ async def _fetch_small_variant_summary(
         if context.project_ids:
             where_clauses.append("project_guid IN %(project_ids)s")
             params["project_ids"] = tuple(context.project_ids)
+        # Exclude imputed callsets so the live-fallback count matches the cached
+        # summary (refresh_family_small_variant_summaries also excludes them).
+        where_clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
+        params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         rows = await _execute_clickhouse(
             f"""
             SELECT
@@ -3623,6 +3644,8 @@ async def _fetch_small_variant_summary(
         if context.project_ids:
             sample_where_clauses.append("project_guid IN %(project_ids)s")
             sample_params["project_ids"] = tuple(context.project_ids)
+        sample_where_clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
+        sample_params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         sample_rows = await _execute_clickhouse(
             f"""
             SELECT
@@ -3687,12 +3710,14 @@ def _small_query_filter_parts(
     exclude_regions: Sequence[Region] = (),
     exclude_gene_regions: Sequence[Region] = (),
     exclude_gene_terms: Sequence[str] = (),
+    exclude_imputed: bool = False,
 ) -> tuple[list[str], dict[str, Any], bool]:
     where_clauses, params = _small_variant_where_clauses(
         context,
         filters,
         include_variant_ids=include_variant_ids,
         exclude_variant_ids=exclude_variant_ids,
+        exclude_imputed=exclude_imputed,
     )
 
     gene_condition = _small_gene_filter_condition(
@@ -3821,6 +3846,7 @@ async def _fetch_small_variant_rows(
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,
         exclude_gene_terms=exclude_gene_terms,
+        exclude_imputed=True,
     )
     query = f"""
         SELECT
