@@ -265,9 +265,19 @@ def download_prefix(uri: str, dest_dir: Path) -> int:
 
 def _plan_downloads(base_key: str, names: list[str], dest_dir: Path) -> list[tuple[str, str]]:
     """Map remote object names under ``base_key`` to local targets, creating parent
-    dirs single-threaded (avoids mkdir races) before the concurrent transfer."""
+    dirs single-threaded (avoids mkdir races) before the concurrent transfer.
+
+    Object keys are untrusted strings. Each target is confined to ``dest_dir`` the same
+    way manifest asset paths are (see ``_resolve_package_path``): resolving the join
+    collapses any ``..`` segment or symlink and lets an absolute value override the
+    join, so the containment check rejects a crafted key like
+    ``pkg/../../../etc/cron.d/evil`` (or an absolute key) before any directory is
+    created or byte is written, instead of escaping the staging root and writing an
+    arbitrary host file.
+    """
     base = base_key.rstrip("/")
     base_prefix = f"{base}/" if base else ""
+    dest_root = dest_dir.resolve()
     downloads: list[tuple[str, str]] = []
     for name in names:
         if name.endswith("/"):
@@ -275,7 +285,13 @@ def _plan_downloads(base_key: str, names: list[str], dest_dir: Path) -> list[tup
         relative = name[len(base_prefix):] if base_prefix and name.startswith(base_prefix) else name
         if not relative:
             continue
-        target = dest_dir / relative
+        target = (dest_root / relative).resolve()
+        try:
+            target.relative_to(dest_root)
+        except ValueError as exc:
+            raise ValueError(
+                f"Refusing to stage object key outside the staging directory: {name!r}"
+            ) from exc
         target.parent.mkdir(parents=True, exist_ok=True)
         downloads.append((name, str(target)))
     return downloads
