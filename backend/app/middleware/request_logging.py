@@ -116,11 +116,30 @@ def _parse_request_body(request: Request, body_bytes: bytes) -> Any | None:
     if len(body_bytes) > _MAX_REQUEST_BODY_BYTES:
         return {"_truncated": True, "_bytes": len(body_bytes)}
 
+    # Form-encoded bodies (e.g. the OAuth2 password flow at ``/api/auth/token``) never
+    # parse as JSON. Without explicit handling they fall through to the raw decode below
+    # and persist ``username=...&password=<PLAINTEXT>`` verbatim to the audit DB. Parse
+    # them and run through the same sensitive-key mask applied to JSON bodies.
+    if "application/x-www-form-urlencoded" in content_type:
+        try:
+            form_items = parse_qsl(body_bytes.decode("utf-8"), keep_blank_values=True)
+        except Exception:
+            return {"_captured": False, "_reason": "unparsed_body", "_bytes": len(body_bytes)}
+        return _sanitize_for_logging({key: value for key, value in form_items})
+
     try:
         parsed = json.loads(body_bytes.decode("utf-8"))
-        return _sanitize_for_logging(parsed)
     except Exception:
-        return body_bytes.decode("utf-8", errors="replace")
+        # Unknown/unparseable body: do not persist raw bytes, which may carry
+        # credentials or other secrets we cannot key-mask. Record a placeholder
+        # instead so the audit trail stays useful without leaking (fail closed).
+        return {
+            "_captured": False,
+            "_reason": "unparsed_body",
+            "_content_type": content_type or None,
+            "_bytes": len(body_bytes),
+        }
+    return _sanitize_for_logging(parsed)
 
 
 def _should_capture_body(request: Request) -> bool:
