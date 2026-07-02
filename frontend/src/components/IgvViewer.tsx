@@ -34,7 +34,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
 
   const logCleanupError = (action: string, error: unknown) => {
     if (process.env.NODE_ENV !== 'production') {
-      // eslint-disable-next-line no-console
+       
       console.warn(`[IgvViewer] ${action}`, error);
     }
   };

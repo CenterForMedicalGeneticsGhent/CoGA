@@ -17,7 +17,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: unknown, errorInfo: unknown) {
-    // eslint-disable-next-line no-console
+     
     console.error('Render error:', error, errorInfo);
   }
 
