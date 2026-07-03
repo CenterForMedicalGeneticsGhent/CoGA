@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
-from app.services.upload_safety import decode_upload_text
+from app.services.upload_safety import decode_upload_text, read_path_text_bounded
 
 
 def _upload(data: bytes) -> UploadFile:
@@ -63,3 +63,55 @@ async def test_non_utf8_plain_rejected_as_bad_request():
     with pytest.raises(HTTPException) as exc:
         await decode_upload_text(_upload(b"\xff\xfe\x00bad"), kind="PED")
     assert exc.value.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# read_path_text_bounded — the on-disk analogue used by package SV import.
+# ---------------------------------------------------------------------------
+
+
+def test_read_path_plain_file_round_trips(tmp_path):
+    text = "##fileformat=VCFv4.2\nchr1\t1\t.\tA\tT\n"
+    path = tmp_path / "sv.vcf"
+    path.write_text(text, encoding="utf-8")
+    assert read_path_text_bounded(path, kind="Package VCF") == text
+
+
+def test_read_path_gzip_file_is_decompressed(tmp_path):
+    text = "##fileformat=VCFv4.2\n"
+    path = tmp_path / "sv.vcf.gz"
+    path.write_bytes(gzip.compress(text.encode()))
+    assert read_path_text_bounded(path, kind="Package VCF") == text
+
+
+def test_read_path_gzip_bomb_rejected_by_decompressed_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "max_upload_bytes", 100 * 1024 * 1024)
+    monkeypatch.setattr(settings, "max_decompressed_upload_bytes", 1 * 1024 * 1024)
+    path = tmp_path / "bomb.vcf.gz"
+    path.write_bytes(gzip.compress(b"\x00" * (8 * 1024 * 1024)))
+    assert path.stat().st_size < 1 * 1024 * 1024  # tiny on disk
+    with pytest.raises(HTTPException) as exc:
+        read_path_text_bounded(path, kind="Package VCF")
+    assert exc.value.status_code == 413
+
+
+def test_read_path_oversized_plain_rejected(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "max_upload_bytes", 64)
+    path = tmp_path / "big.vcf"
+    path.write_bytes(b"x" * 1000)
+    with pytest.raises(HTTPException) as exc:
+        read_path_text_bounded(path, kind="Package VCF")
+    assert exc.value.status_code == 413
+
+
+def test_read_path_detects_gzip_by_magic_not_extension(tmp_path, monkeypatch):
+    # A .gz-named plain file must not be force-decompressed; a gzip-content file with a
+    # non-.gz name must still be capped. Cap the decompressed size and confirm a gzip
+    # bomb named ".vcf" is still rejected.
+    monkeypatch.setattr(settings, "max_upload_bytes", 100 * 1024 * 1024)
+    monkeypatch.setattr(settings, "max_decompressed_upload_bytes", 1 * 1024 * 1024)
+    path = tmp_path / "bomb.vcf"  # gzip content, non-.gz name
+    path.write_bytes(gzip.compress(b"\x00" * (8 * 1024 * 1024)))
+    with pytest.raises(HTTPException) as exc:
+        read_path_text_bounded(path, kind="Package VCF")
+    assert exc.value.status_code == 413

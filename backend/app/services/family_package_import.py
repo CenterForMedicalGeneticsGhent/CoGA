@@ -83,6 +83,7 @@ from .repeat_expansion_pg import (
 )
 from .variant_upload_service import upload_family_small_variant_file
 from .bed_service import precompute_family_haplotype_lineage
+from .upload_safety import read_path_text_bounded
 
 logger = logging.getLogger(__name__)
 
@@ -2496,11 +2497,19 @@ def _availability_from_manifest_dataset(
 
     def _add(role: str, value: Any, sample_id: str | None = None) -> None:
         if isinstance(value, str) and value.strip():
+            # Resolve through the containment guard rather than probing `root / value`
+            # directly: a manifest declaring `../../etc/passwd` must not have its
+            # existence stat'd outside the package root. An escaping path resolves to
+            # None here and is reported as not-present.
+            try:
+                resolved = _resolve_package_path(root, value)
+            except HTTPException:
+                resolved = None
             files.append(
                 FamilyManifestFileAvailability(
                     role=role,
                     path=value,
-                    exists=(root / value).exists(),
+                    exists=bool(resolved is not None and resolved.exists()),
                     sample_id=sample_id,
                 )
             )
@@ -4143,6 +4152,10 @@ async def _delete_family_shell(
         try:
             await delete_family_small_variants(assembly_name, family_uuid)
             await delete_family_structural_variants(assembly_name, family_uuid)
+            # Coverage/segment/haplotype interval tracks are keyed by family_guid in
+            # a separate ClickHouse table; without this they survive the family delete
+            # as orphan rows pointing at a now-deleted family.
+            await delete_interval_tracks(assembly_name, family_uuid=family_uuid)
         except Exception:  # noqa: BLE001 - best-effort store cleanup
             logger.warning(
                 "Failed to clear ClickHouse rows during import compensation for %s",
@@ -4153,6 +4166,82 @@ async def _delete_family_shell(
         text("DELETE FROM families WHERE id = CAST(:family_uuid AS uuid)"),
         {"family_uuid": family_uuid},
     )
+
+
+async def _flag_family_import_incomplete(
+    session: AsyncSession,
+    family_context: FamilyMetadataContext,
+    *,
+    failed_datasets: list[str],
+    imported_datasets: list[str],
+) -> None:
+    """Stamp a pre-existing family as import-incomplete after a failed update/overwrite.
+
+    We do not snapshot/restore existing family data, so a partial update/overwrite can
+    leave the family with some datasets (over)written and others missing (overwrite
+    even pre-clears before insert). Rather than let that state be silently queryable as
+    if complete, record it in the family metadata so it is explicit and auditable.
+    Best-effort and self-committing: a flag-write failure must not mask the original
+    import failure.
+    """
+    payload = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "failed_datasets": sorted(set(failed_datasets)),
+        "imported_datasets": sorted(set(imported_datasets)),
+    }
+    try:
+        await session.execute(
+            text(
+                """
+                UPDATE families
+                SET metadata = jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{import_incomplete}',
+                    CAST(:payload AS jsonb),
+                    true
+                )
+                WHERE id = CAST(:family_uuid AS uuid)
+                """
+            ),
+            {"family_uuid": family_context.family_uuid, "payload": json.dumps(payload)},
+        )
+        await session.commit()
+    except Exception:  # noqa: BLE001 - flag write must not mask the import failure
+        await session.rollback()
+        logger.warning(
+            "Failed to flag family %s as import-incomplete",
+            family_context.family_id,
+            exc_info=True,
+        )
+
+
+async def _clear_family_import_incomplete(
+    session: AsyncSession, family_context: FamilyMetadataContext
+) -> None:
+    """Drop a stale ``import_incomplete`` flag after a fully-successful (re)import.
+
+    Best-effort: leaving the flag would misreport a now-complete family as degraded.
+    """
+    try:
+        await session.execute(
+            text(
+                """
+                UPDATE families
+                SET metadata = metadata - 'import_incomplete'
+                WHERE id = CAST(:family_uuid AS uuid)
+                  AND metadata ? 'import_incomplete'
+                """
+            ),
+            {"family_uuid": family_context.family_uuid},
+        )
+        await session.commit()
+    except Exception:  # noqa: BLE001 - best-effort flag clear
+        await session.rollback()
+        logger.warning(
+            "Failed to clear import-incomplete flag for family %s",
+            family_context.family_id,
+            exc_info=True,
+        )
 
 
 def _enabled_dataset_summaries(validation: FamilyPackageValidationOut) -> list[FamilyImportDatasetSummary]:
@@ -4332,10 +4421,11 @@ def _coerce_finite_float(value: Any) -> float | None:
 
 
 def _read_package_text(path: Path) -> str:
-    if path.name.endswith(".gz"):
-        with gzip.open(path, "rt", encoding="utf-8") as handle:
-            return handle.read()
-    return path.read_text(encoding="utf-8")
+    # Bound the read + decompression so a crafted package `.gz` (decompression bomb)
+    # can't inflate to exhaust the import worker's memory — mirrors the bounded path
+    # used for user uploads (upload_safety). Only the family SV VCF flows through here,
+    # and it is read whole (used twice: record parsing + header-provenance mining).
+    return read_path_text_bounded(path, kind="Package VCF")
 
 
 @asynccontextmanager
@@ -6941,20 +7031,39 @@ async def _execute_family_package_import_local(
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
 
-    # Fail-clean. A failed import must not leave a partial family behind:
-    #   * if this import CREATED the family and NO dataset imported, compensate by
-    #     deleting the freshly-created shell (+ its ClickHouse rows) so nothing
-    #     partial survives;
-    #   * if ANY enabled dataset failed, the import is reported as FAILED (error set
-    #     -> the job row ends status='failed') rather than a silent "completed".
+    # Fail-clean. A failed import must not leave a silently-partial family behind:
+    #   * NEW family (created by this run) + ANY dataset failed -> tear the whole
+    #     family down (every dataset imported in this run + its ClickHouse variant &
+    #     interval rows). A freshly-created family is all-or-nothing; a partial new
+    #     family that stays queryable-but-incomplete is exactly what we must avoid.
+    #   * EXISTING family (update/overwrite) + ANY dataset failed -> we must not
+    #     delete it and we don't snapshot/restore, so some datasets may already be
+    #     (over)written while others failed (overwrite even pre-clears before insert).
+    #     Flag the family metadata import-incomplete so the partial state is explicit
+    #     and auditable rather than silently queryable as if complete.
+    #   * In every failed case `error` is set -> the job row ends status='failed'
+    #     (never a silent "completed").
     compensated = False
-    if failed_datasets and not imported_datasets and family_created:
+    if failed_datasets and family_created:
         await session.rollback()
         await _delete_family_shell(session, family_context)
         await session.commit()
         compensated = True
         logs.append(
-            "No dataset imported successfully; rolled back the newly-created family shell."
+            "Import failed; rolled back the newly-created family and every dataset "
+            "imported in this run (a new family is all-or-nothing)."
+        )
+    elif failed_datasets:
+        await _flag_family_import_incomplete(
+            session,
+            family_context,
+            failed_datasets=failed_datasets,
+            imported_datasets=imported_datasets,
+        )
+        logs.append(
+            "Import into an existing family failed after partial changes; flagged the "
+            "family metadata as import-incomplete (no automatic rollback for "
+            "update/overwrite — re-run the import or restore from backup)."
         )
 
     if failed_datasets:
@@ -6965,6 +7074,10 @@ async def _execute_family_package_import_local(
     else:
         error = None
         logs.append("Family package import completed.")
+        # A fully-successful (re)import clears any stale incompleteness flag left by a
+        # prior failed update/overwrite so a now-complete family isn't misreported.
+        if not compensated and session is not None:
+            await _clear_family_import_incomplete(session, family_context)
 
     # (Re)importing variant data changes the prioritised ranking, but the cache's input
     # hash doesn't cover variant content — drop any cached ranking so it recomputes.

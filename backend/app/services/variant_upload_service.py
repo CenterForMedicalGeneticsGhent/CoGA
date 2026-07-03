@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 import gzip
 import io
 import json
+import logging
+import math
 import os
 import sqlite3
 import tempfile
@@ -80,6 +82,24 @@ SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS = 50
 SEGREGATION_HAPLOTYPE_SWITCH_MIN_SPAN = 500_000
 SMALL_VARIANT_UPLOAD_BATCH_SIZE = 1_000
 SMALL_VARIANT_PROGRESS_INTERVAL = 10_000
+# Upper bound on a single streamed upload line. Real VCF lines are KB-scale even with
+# thousands of samples; this only trips on a pathological un-newlined / bomb line.
+MAX_UPLOAD_LINE_BYTES = 16 * 1024 * 1024
+
+logger = logging.getLogger(__name__)
+
+
+def _coerce_int(value: Any) -> int | None:
+    """Parse an integer, tolerating float-like text; None when unparseable/missing."""
+    if value is None or str(value).strip() in {"", "."}:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        try:
+            return int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            return None
 
 
 @dataclass(slots=True)
@@ -142,6 +162,23 @@ async def _decode_upload_text(file: UploadFile, *, kind: str) -> str:
     return await decode_upload_text(file, kind=kind)
 
 
+def _iter_bounded_lines(handle, *, kind: str):
+    # `for line in handle` buffers a whole line before yielding, so a VCF with no
+    # newlines (or a gzip that inflates to one enormous line) could exhaust memory
+    # even though the file streams. readline(cap+1) stops at the cap: a chunk that
+    # reaches the cap without a trailing newline is a too-long line and is rejected.
+    while True:
+        line = handle.readline(MAX_UPLOAD_LINE_BYTES + 1)
+        if not line:
+            break
+        if len(line) > MAX_UPLOAD_LINE_BYTES and not line.endswith("\n"):
+            raise HTTPException(
+                status_code=413,
+                detail=f"{kind} file contains a line exceeding the maximum allowed length",
+            )
+        yield line
+
+
 def _iter_upload_text_lines(file: UploadFile, *, kind: str):
     raw = file.file
     try:
@@ -155,13 +192,11 @@ def _iter_upload_text_lines(file: UploadFile, *, kind: str):
     try:
         if is_gzip:
             with gzip.open(raw, mode="rt", encoding="utf-8", errors="replace") as handle:
-                for line in handle:
-                    yield line
+                yield from _iter_bounded_lines(handle, kind=kind)
         else:
             wrapper = io.TextIOWrapper(raw, encoding="utf-8", errors="replace")
             try:
-                for line in wrapper:
-                    yield line
+                yield from _iter_bounded_lines(wrapper, kind=kind)
             finally:
                 wrapper.detach()
     except OSError as exc:
@@ -355,27 +390,40 @@ def _parse_vep_tsv_annotation_upload(file: UploadFile) -> VepAnnotationLookup:
 def _parse_format(format_field: str, sample_field: str) -> dict[str, str]:
     keys = format_field.split(":")
     values = sample_field.split(":")
+    # A VCF sample field may legitimately carry fewer values than the FORMAT keys
+    # (trailing per-sample fields dropped). zip() already truncates to the shorter of
+    # the two, so keys without a matching value are simply absent from the mapping —
+    # never paired with a value from the wrong FORMAT key.
     return {k: v for k, v in zip(keys, values)}
 
 
 def _parse_float_list(value: str | None) -> list[float]:
+    # Tolerant of malformed entries: a single bad AF value skips that entry rather than
+    # aborting the whole ingest with a 500 (mirrors the package-import coercion path).
     if value in (None, ".", ""):
         return []
     parsed: list[float] = []
     for item in value.split(","):
         if item and item != ".":
-            parsed.append(float(item))
+            try:
+                number = float(item)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(number):
+                parsed.append(number)
     return parsed
 
 
 def _parse_int_list(value: str | None) -> list[int]:
+    # Tolerant of malformed entries (see _parse_float_list); a missing/bad token maps
+    # to 0 so positional AD alignment is preserved without raising.
     if value in (None, ".", ""):
         return []
     parsed: list[int] = []
     for item in value.split(","):
         if not item:
             continue
-        parsed.append(0 if item == "." else int(item))
+        parsed.append(_coerce_int(item) or 0)
     return parsed
 
 
@@ -1006,6 +1054,13 @@ async def upload_family_small_variant_file(
             annotation_file,
         )
     annotation_version = "vep_tsv" if vep_annotations is not None else "vcf_info"
+    # Defined before the try so the compensating except can scope its cleanup to this
+    # upload's own source even if detection itself is what failed.
+    resolved_format: SmallVariantFormat | None = None
+    # Only compensate once we've entered the mutating phase (past the "refuse if data
+    # already exists and not overwrite" 409). Otherwise a non-overwrite conflict would
+    # trigger a delete of the very rows the refusal was protecting.
+    mutation_started = False
     try:
         resolved_format = _detect_small_variant_format_from_upload(file, format_hint)
         # A family holds more than one small-variant callset at once (annotated
@@ -1047,10 +1102,14 @@ async def upload_family_small_variant_file(
                     family_uuid=context.family_uuid,
                 )
 
+        # Past the conflict gate: from here any failure may have flushed rows (or, in
+        # overwrite mode, already pre-cleared) so cleaning this source is now correct.
+        mutation_started = True
         sample_names: list[str] = []
         annotation_state = AnnotationHeaderState()
         provenance_header_lines: list[str] = []
         inserted = 0
+        skipped_malformed = 0
         last_reported = 0
         haplotype_rows: list[dict[str, Any]] = []
         hap_prev: dict[str, dict[str, Any]] = {}
@@ -1126,8 +1185,21 @@ async def upload_family_small_variant_file(
 
             chrom, pos, _vid, ref, alt, qual, filt, info_field, fmt = fields[:9]
             sample_fields = fields[9:]
+            # A data row whose sample-column count doesn't match the #CHROM header is
+            # malformed: a bare zip() would silently truncate to the shorter side and
+            # attach genotype calls to the wrong samples. Skip it (counted) instead.
+            if sample_names and len(sample_fields) != len(sample_names):
+                skipped_malformed += 1
+                continue
             chrom = normalize_chromosome(chrom)
-            start = int(pos)
+            # A malformed POS can't position the variant. Skip the row (counted +
+            # reported below) rather than aborting the whole ingest with a 500 and
+            # leaving partially-flushed rows behind (mirrors the package-import path,
+            # which coerces + skips unparseable records).
+            start = _coerce_int(pos)
+            if start is None:
+                skipped_malformed += 1
+                continue
             end = start + len(ref) - 1
             info = _parse_info(info_field)
             variant_id = build_small_variant_id(chrom, start, ref, alt)
@@ -1388,8 +1460,16 @@ async def upload_family_small_variant_file(
             modality="snv",
         )
         await session.commit()
+        if skipped_malformed:
+            logger.warning(
+                "Skipped %d malformed small-variant row(s) (unparseable POS) during "
+                "upload for family %s",
+                skipped_malformed,
+                context.family_id,
+            )
         result = {
             "inserted": inserted,
+            "skipped_malformed": skipped_malformed,
             "haplotypes_inserted": len(haplotype_rows),
             "source_format": resolved_format,
             "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
@@ -1401,6 +1481,32 @@ async def upload_family_small_variant_file(
         if progress is not None:
             await progress(result)
         return result
+    except Exception:
+        # Any failure after rows have started flushing (a DB error mid-batch, a
+        # malformed annotation, etc.) must not leave partially-flushed ClickHouse rows
+        # queryable under this family — the package-import path compensates, and the
+        # direct-upload path must too. Best-effort delete of this upload's own source,
+        # then re-raise the original error unchanged. Skipped before the mutating phase
+        # so a non-overwrite 409 never deletes the pre-existing rows it was protecting.
+        if mutation_started and context.assembly_name and resolved_format is not None:
+            try:
+                await delete_family_small_variants(
+                    context.assembly_name, context.family_uuid, source=resolved_format
+                )
+                if resolved_format == "glimpse2":
+                    await _delete_family_haplotype_blocks(
+                        session,
+                        assembly_name=context.assembly_name,
+                        family_uuid=context.family_uuid,
+                    )
+            except Exception:  # noqa: BLE001 - cleanup must not mask the original error
+                logger.warning(
+                    "Failed to clean up partial small-variant rows for family %s "
+                    "after an upload error",
+                    context.family_id,
+                    exc_info=True,
+                )
+        raise
     finally:
         if vep_annotations is not None:
             vep_annotations.close()
