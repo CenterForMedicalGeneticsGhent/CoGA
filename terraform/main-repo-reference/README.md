@@ -4,6 +4,10 @@
 repo, drop the `.example` suffix, wire the two variables, and apply it **before** the
 CoGA repo's `terraform apply`.
 
+**Operator runbook:** [`rollout-checklist.md`](rollout-checklist.md) — the central-repo PR
+body, the ⚠️ state-migration steps (so merging CoGA #326 doesn't destroy the running
+service accounts), `gcloud` verifications, and the coordinated merge/rollback.
+
 ## What must exist before CoGA applies
 
 1. **Enabled APIs** on the CoGA project (see the `google_project_service` block).
