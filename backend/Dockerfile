@@ -1,4 +1,6 @@
-FROM python:3.10-slim AS base
+# Pin the base image by digest (tag kept for readability) so builds are reproducible
+# — an IVDR requirement — and don't drift if the upstream tag is repushed.
+FROM python:3.10-slim@sha256:5f9928ea39771e8ddf4fb9a96ab24f65f087793635614405a1dc9384f040852e AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -30,4 +32,14 @@ FROM base AS dev
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
 FROM base AS production
+# Drop root: create an unprivileged user and give it the app tree + the /data mount
+# point. In Cloud Run /data/ref-data is a read-only gcsfuse mount (world-readable, so
+# a non-root UID can read it) and PHI family data goes to GCS via the API — not this
+# path. Local docker-compose bind-mounts a host-owned ./data and overrides
+# `user: root` to keep that writable; the hardening targets the deployed image default.
+RUN groupadd --system --gid 10001 appuser \
+    && useradd --system --uid 10001 --gid appuser --home-dir /app --shell /usr/sbin/nologin appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
+USER appuser
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
