@@ -12,6 +12,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege: these jobs only check out and test the code, so the workflow
+# GITHUB_TOKEN needs no more than read access to repo contents (mirrors security.yml).
+permissions:
+  contents: read
+
 jobs:
   backend:
     name: backend (pytest)
