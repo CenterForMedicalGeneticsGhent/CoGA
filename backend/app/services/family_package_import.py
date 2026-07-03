@@ -4207,12 +4207,15 @@ async def _flag_family_import_incomplete(
         )
         await session.commit()
     except Exception:  # noqa: BLE001 - flag write must not mask the import failure
-        await session.rollback()
         logger.warning(
             "Failed to flag family %s as import-incomplete",
             family_context.family_id,
             exc_info=True,
         )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
 
 
 async def _clear_family_import_incomplete(
@@ -4236,12 +4239,15 @@ async def _clear_family_import_incomplete(
         )
         await session.commit()
     except Exception:  # noqa: BLE001 - best-effort flag clear
-        await session.rollback()
         logger.warning(
             "Failed to clear import-incomplete flag for family %s",
             family_context.family_id,
             exc_info=True,
         )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
 
 
 def _enabled_dataset_summaries(validation: FamilyPackageValidationOut) -> list[FamilyImportDatasetSummary]:
@@ -7032,26 +7038,24 @@ async def _execute_family_package_import_local(
     imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
 
     # Fail-clean. A failed import must not leave a silently-partial family behind:
-    #   * NEW family (created by this run) + ANY dataset failed -> tear the whole
-    #     family down (every dataset imported in this run + its ClickHouse variant &
-    #     interval rows). A freshly-created family is all-or-nothing; a partial new
-    #     family that stays queryable-but-incomplete is exactly what we must avoid.
-    #   * EXISTING family (update/overwrite) + ANY dataset failed -> we must not
-    #     delete it and we don't snapshot/restore, so some datasets may already be
-    #     (over)written while others failed (overwrite even pre-clears before insert).
-    #     Flag the family metadata import-incomplete so the partial state is explicit
-    #     and auditable rather than silently queryable as if complete.
+    #   * NEW family, and NOTHING imported -> compensate by deleting the freshly-created
+    #     shell (+ its ClickHouse variant & interval rows) so nothing partial survives.
+    #   * Any OTHER failure that left the family in place — a partial success (some
+    #     datasets imported, some failed) or a failed update/overwrite of a PRE-EXISTING
+    #     family — is NOT torn down (successfully-imported datasets are deliberately
+    #     preserved, and we don't snapshot/restore existing data). Instead the family
+    #     metadata is flagged import-incomplete so the partial state is explicit and
+    #     auditable rather than silently queryable as if complete.
     #   * In every failed case `error` is set -> the job row ends status='failed'
     #     (never a silent "completed").
     compensated = False
-    if failed_datasets and family_created:
+    if failed_datasets and not imported_datasets and family_created:
         await session.rollback()
         await _delete_family_shell(session, family_context)
         await session.commit()
         compensated = True
         logs.append(
-            "Import failed; rolled back the newly-created family and every dataset "
-            "imported in this run (a new family is all-or-nothing)."
+            "No dataset imported successfully; rolled back the newly-created family shell."
         )
     elif failed_datasets:
         await _flag_family_import_incomplete(
@@ -7061,9 +7065,9 @@ async def _execute_family_package_import_local(
             imported_datasets=imported_datasets,
         )
         logs.append(
-            "Import into an existing family failed after partial changes; flagged the "
-            "family metadata as import-incomplete (no automatic rollback for "
-            "update/overwrite — re-run the import or restore from backup)."
+            "Import left the family partially populated (some datasets failed); flagged "
+            "the family metadata as import-incomplete. Successfully-imported datasets are "
+            "kept; re-run the import to complete it."
         )
 
     if failed_datasets:
