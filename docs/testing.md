@@ -211,7 +211,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_family_metadata_context.py](../backend/tests/test_family_metadata_context.py) | Family-metadata context building from DB rows. |
 | [backend/tests/test_family_member_batch_update_service.py](../backend/tests/test_family_member_batch_update_service.py) | Batch member updates with dirty-tracking. |
 | [backend/tests/test_family_member_detail_service.py](../backend/tests/test_family_member_detail_service.py) | Member detail retrieval and impact analysis. |
-| [backend/tests/test_family_package_import_pcf.py](../backend/tests/test_family_package_import_pcf.py) | PCF (array-CGH) dataset discovery and segment parsing. |
+| [backend/tests/test_family_package_import_pcf.py](../backend/tests/test_family_package_import_pcf.py) | PCF (array-CGH) dataset discovery and segment parsing; manifest availability probe stays inside the package root. |
+| [backend/tests/test_family_import_compensation.py](../backend/tests/test_family_import_compensation.py) | Failed-import compensation: shell delete clears interval tracks; incomplete-flag set/clear on family metadata. |
 | [backend/tests/test_family_pedigree_generation.py](../backend/tests/test_family_pedigree_generation.py) | Pedigree file generation / LINKAGE output. |
 | [backend/tests/test_family_structure_update_dirty.py](../backend/tests/test_family_structure_update_dirty.py) | Family-structure update with member dirty-tracking. |
 | [backend/tests/test_manual_family_metadata.py](../backend/tests/test_manual_family_metadata.py) | Manual family creation and pedigree threading. |
@@ -264,6 +265,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_small_variant_review_payload.py](../backend/tests/test_small_variant_review_payload.py) | Review payload datetime serialization / bigint truncation. |
 | [backend/tests/test_structural_panel_gene_match.py](../backend/tests/test_structural_panel_gene_match.py) | SV gene-overlap matching and panel-filter constraints. |
 | [backend/tests/test_structural_variant_track_slim.py](../backend/tests/test_structural_variant_track_slim.py) | SV track slimming (annotations dropped in track mode). |
+| [backend/tests/test_structural_variant_ingest.py](../backend/tests/test_structural_variant_ingest.py) | SV record iterators coerce coordinates and skip malformed records rather than aborting ingest. |
 | [backend/tests/test_variant_annotation_parser.py](../backend/tests/test_variant_annotation_parser.py) | VCF annotation parsing incl. SpliceAI / scientific notation. |
 | [tests/test_variant_annotation_parser.py](../tests/test_variant_annotation_parser.py) | VCF CSQ annotation header parsing (top-level suite). |
 | [tests/test_admin_inventory.py](../tests/test_admin_inventory.py) | Data-inventory admin endpoint, assembly-scoped counting. |

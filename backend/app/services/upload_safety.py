@@ -15,6 +15,7 @@ BED, repeat-expansion, PED) up to the same standard.
 from __future__ import annotations
 
 import zlib
+from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
 
@@ -69,6 +70,58 @@ def _gunzip_bounded(data: bytes, max_bytes: int, *, kind: str) -> bytes:
             detail=f"{kind} upload expands beyond the maximum allowed size",
         )
     return bytes(out)
+
+
+def _read_stream_bounded(handle, max_bytes: int, *, kind: str) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = handle.read(_READ_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{kind} exceeds the maximum allowed size",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def read_path_text_bounded(
+    path: Path,
+    *,
+    kind: str,
+    max_bytes: int | None = None,
+    max_decompressed_bytes: int | None = None,
+) -> str:
+    """Read an on-disk file (optionally gzip) into UTF-8 text with bounded memory.
+
+    The on-disk analogue of :func:`decode_upload_text` for package assets that are
+    already staged to the filesystem. Caps both the bytes read (``MAX_UPLOAD_BYTES``)
+    and the decompressed size (``MAX_DECOMPRESSED_UPLOAD_BYTES``) so a crafted package
+    ``.gz`` (decompression bomb) can't inflate to exhaust worker memory; oversized
+    input is rejected with HTTP 413. gzip framing is detected by magic bytes, so the
+    cap applies regardless of the file's name/extension.
+    """
+    max_bytes = settings.max_upload_bytes if max_bytes is None else max_bytes
+    max_decompressed_bytes = (
+        settings.max_decompressed_upload_bytes
+        if max_decompressed_bytes is None
+        else max_decompressed_bytes
+    )
+    with open(path, "rb") as handle:
+        raw = _read_stream_bounded(handle, max_bytes, kind=kind)
+    if raw[:2] == _GZIP_MAGIC:
+        raw = _gunzip_bounded(raw, max_decompressed_bytes, kind=kind)
+    try:
+        return raw.decode()
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{kind} file must be UTF-8 text or gzipped UTF-8 text",
+        ) from exc
 
 
 async def decode_upload_text(file: UploadFile, *, kind: str) -> str:
