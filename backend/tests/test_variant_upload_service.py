@@ -1,22 +1,115 @@
 from io import BytesIO
+from types import SimpleNamespace
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 import pytest
 
 from backend.app.services.clickhouse_variant_storage import build_small_variant_id
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services import variant_upload_service
 from backend.app.services.variant_upload_service import (
+    _coerce_int,
     _detect_small_variant_format,
     _detect_small_variant_format_from_upload,
     _haplotype_state_end,
     _haplotype_state_matches_block,
+    _iter_upload_text_lines,
     _new_haplotype_state,
+    _parse_float_list,
+    _parse_int_list,
     _parse_qual,
     _parse_vep_tsv_annotation_upload,
     _phased_haplotype_alleles,
     _vep_location_allele_key,
 )
+
+
+def test_coerce_int_tolerates_floats_and_junk() -> None:
+    assert _coerce_int("42") == 42
+    assert _coerce_int("42.0") == 42
+    assert _coerce_int(".") is None
+    assert _coerce_int("") is None
+    assert _coerce_int(None) is None
+    assert _coerce_int("not-a-number") is None
+
+
+def test_parse_float_list_skips_malformed_entries_without_raising() -> None:
+    # A single bad AF token must not abort the whole ingest with a 500.
+    assert _parse_float_list("0.1,junk,0.3") == [0.1, 0.3]
+    assert _parse_float_list("inf,0.5") == [0.5]  # non-finite dropped
+    assert _parse_float_list(".") == []
+    assert _parse_float_list(None) == []
+
+
+def test_parse_int_list_coerces_bad_tokens_to_zero() -> None:
+    # AD is positional; a bad token maps to 0 rather than raising or shifting alignment.
+    assert _parse_int_list("5,10,20") == [5, 10, 20]
+    assert _parse_int_list("5,junk,20") == [5, 0, 20]
+    assert _parse_int_list(".") == []
+
+
+def _line_upload(data: bytes) -> UploadFile:
+    return UploadFile(file=BytesIO(data))
+
+
+def test_iter_upload_text_lines_rejects_overlong_line(monkeypatch) -> None:
+    # A VCF with no newline (or a gzip inflating to one giant line) must not buffer an
+    # unbounded line into memory — it is rejected at the per-line cap.
+    monkeypatch.setattr(variant_upload_service, "MAX_UPLOAD_LINE_BYTES", 16)
+    upload = _line_upload(b"x" * 64)  # 64 bytes, no newline, cap 16
+    with pytest.raises(HTTPException) as exc:
+        list(_iter_upload_text_lines(upload, kind="VCF"))
+    assert exc.value.status_code == 413
+
+
+def test_iter_upload_text_lines_allows_normal_lines(monkeypatch) -> None:
+    monkeypatch.setattr(variant_upload_service, "MAX_UPLOAD_LINE_BYTES", 1024)
+    upload = _line_upload(b"##fileformat=VCFv4.2\nchr1\t1\t.\tA\tT\n")
+    lines = list(_iter_upload_text_lines(upload, kind="VCF"))
+    assert lines[0].startswith("##fileformat")
+    assert lines[1].startswith("chr1")
+
+
+class _NoopSession:
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_non_overwrite_conflict_does_not_delete_existing_rows(monkeypatch) -> None:
+    # A non-overwrite upload against a family that already has this source must 409
+    # WITHOUT the compensating cleanup deleting the pre-existing rows it protects.
+    deleted = {"called": False}
+
+    async def fake_count(*args, **kwargs):
+        return 5  # existing rows present
+
+    async def fake_delete(*args, **kwargs):
+        deleted["called"] = True
+
+    monkeypatch.setattr(variant_upload_service, "count_family_small_variants", fake_count)
+    monkeypatch.setattr(variant_upload_service, "delete_family_small_variants", fake_delete)
+
+    context = SimpleNamespace(
+        assembly_name="GRCh38",
+        family_uuid="uuid-1",
+        family_id="F1",
+        project_ids=[],
+    )
+    with pytest.raises(HTTPException) as exc:
+        await variant_upload_service.upload_family_small_variant_file(
+            _NoopSession(),
+            context=context,
+            sample_contexts={},
+            file=_line_upload(b"##fileformat=VCFv4.2\n"),
+            overwrite=False,
+            format_hint="clair3",
+        )
+    assert exc.value.status_code == 409
+    assert deleted["called"] is False  # existing rows were NOT touched
 
 
 def test_parse_qual_reads_float_and_treats_missing_as_none() -> None:
