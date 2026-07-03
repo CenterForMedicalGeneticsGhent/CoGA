@@ -39,7 +39,7 @@ export const parseSerializedGenotypeSelection = (
 export const parseExplicitSampleFilterMap = (
   params: URLSearchParams,
 ): Record<string, string> => {
-  const map: Record<string, string> = {};
+  const map: Record<string, string> = Object.create(null);
   params.getAll('sample_filter').forEach((entry) => {
     const [sample] = entry.split(':');
     if (sample) {

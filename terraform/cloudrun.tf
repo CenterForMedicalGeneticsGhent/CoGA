@@ -79,6 +79,16 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "ENABLE_HSTS"
         value = "true"
       }
+      # uvicorn (started with --proxy-headers) only rewrites request.client.host
+      # from X-Forwarded-For for peers listed here. Cloud Run terminates the
+      # connection at Google's managed front end, so the immediate peer is a
+      # Google-internal IP that varies; trusting "*" is safe because the container
+      # never receives direct external ingress. Without this, the signup rate-limit
+      # bucket collapses to one global bucket and audit remoteIp is a Google IP.
+      env {
+        name  = "FORWARDED_ALLOW_IPS"
+        value = var.forwarded_allow_ips
+      }
 
       # --- Object storage (PHI family data) ---
       # Defaults to local; flip var.storage_backend to "gcs" once the PHI bucket is

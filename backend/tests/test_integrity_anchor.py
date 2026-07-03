@@ -92,3 +92,72 @@ def test_signed_core_renders_created_at_isoformat() -> None:
     )
     assert core["created_at"] == "2026-01-02T03:04:05+00:00"
     assert core["anchor_seq"] == 3 and core["prev_anchor_hash"] == "prev"
+
+
+def _make_anchor(seq, prev_hash, *, algo="unsigned", key_id="unsigned"):
+    heads = [
+        {"table": "report_signouts", "family_identifier": "F", "height": seq, "head_row_hash": f"h{seq}"}
+    ]
+    created_at = datetime(2026, 1, min(seq, 28), tzinfo=timezone.utc)
+    anchor_root = hash_chain.canonical_hash(heads)
+    core = ias._signed_core(
+        anchor_seq=seq, created_at=created_at, prev_anchor_hash=prev_hash,
+        anchor_root=anchor_root, chain_count=len(heads), key_id=key_id, algo=algo, heads=heads,
+    )
+    return {
+        "anchor_seq": seq, "created_at": created_at, "prev_anchor_hash": prev_hash,
+        "anchor_root": anchor_root, "anchor_hash": hash_chain.chain_row_hash(prev_hash, core),
+        "heads": heads, "chain_count": len(heads), "key_id": key_id, "algo": algo, "signature": None,
+    }
+
+
+def _valid_chain(n=3):
+    anchors, prev = [], None
+    for seq in range(1, n + 1):
+        a = _make_anchor(seq, prev)
+        anchors.append(a)
+        prev = a["anchor_hash"]
+    return anchors
+
+
+def test_check_anchor_chain_accepts_valid_contiguous_chain() -> None:
+    v = ias._check_anchor_chain(_valid_chain(3))
+    assert v.status == "ok"
+    assert v.anchor_seq == 3 and v.chain_count == 3
+
+
+def test_check_anchor_chain_empty_is_no_anchor() -> None:
+    assert ias._check_anchor_chain([]).status == "no_anchor"
+
+
+def test_check_anchor_chain_detects_deleted_interior_anchor() -> None:
+    chain = _valid_chain(3)
+    del chain[1]  # remove anchor seq 2 -> [1, 3] leaves a sequence gap
+    v = ias._check_anchor_chain(chain)
+    assert v.status == "chain_broken"
+    assert "contiguous" in (v.reason or "")
+
+
+def test_check_anchor_chain_detects_relinked_prev_hash() -> None:
+    chain = _valid_chain(3)
+    chain[1]["prev_anchor_hash"] = "0" * 64  # re-linked / prior anchor swapped
+    v = ias._check_anchor_chain(chain)
+    assert v.status == "chain_broken"
+    assert "prev_anchor_hash" in (v.reason or "")
+
+
+def test_check_anchor_chain_detects_tampered_anchor_hash() -> None:
+    chain = _valid_chain(2)
+    chain[1]["anchor_hash"] = "de" * 32  # content edited without re-minting the hash
+    v = ias._check_anchor_chain(chain)
+    assert v.status == "chain_broken"
+    assert "anchor_hash" in (v.reason or "")
+
+
+def test_check_anchor_chain_rejects_non_list_heads() -> None:
+    # A 'null'::jsonb scalar decodes to None; the walk must not raise (it never does).
+    chain = _valid_chain(1)
+    chain[0]["heads"] = None
+    v = ias._check_anchor_chain(chain)
+    assert v.status == "chain_broken"
+    assert "JSON array" in (v.reason or "")

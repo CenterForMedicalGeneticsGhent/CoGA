@@ -47,6 +47,46 @@ def test_settings_allow_audit_log_drop_allowed_in_development() -> None:
     assert settings.audit_log_drop_allowed is True
 
 
+def test_cors_origin_regex_default_is_fully_anchored() -> None:
+    settings = Settings(_env_file=None, APP_ENV="test")
+    assert settings.cors_origin_regex.startswith("^")
+    assert settings.cors_origin_regex.endswith("$")
+
+
+def test_cors_origin_regex_accepts_anchored_pattern() -> None:
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="test",
+        CORS_ORIGIN_REGEX=r"^https://app\.example\.org$",
+    )
+    assert settings.cors_origin_regex == r"^https://app\.example\.org$"
+
+
+def test_cors_origin_regex_empty_is_allowed() -> None:
+    settings = Settings(_env_file=None, APP_ENV="test", CORS_ORIGIN_REGEX="")
+    assert settings.cors_origin_regex == ""
+
+
+def test_cors_origin_regex_rejects_unanchored_pattern() -> None:
+    # An unanchored pattern could match a hostile origin as a substring while
+    # allow_credentials=True — reject it at load time.
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            CORS_ORIGIN_REGEX=r"https://app\.example\.org",
+        )
+
+
+def test_cors_origin_regex_rejects_invalid_regex() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            CORS_ORIGIN_REGEX=r"^https://(unclosed$",
+        )
+
+
 def test_postgres_connect_args_reflects_sslmode() -> None:
     # Default (disable) -> plain connection, no ssl arg.
     assert Settings(_env_file=None, APP_ENV="test").postgres_connect_args == {}

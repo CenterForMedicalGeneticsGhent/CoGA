@@ -21,6 +21,7 @@ from backend.app.services.clickhouse_family_variants import (
     _fetch_small_variant_rows,
     _flexible_status_match,
     _small_detail_filter_clauses,
+    _small_variant_where_clauses,
     _small_variant_out,
     _small_record_matches,
     _normalize_small_variant_inheritance,
@@ -340,7 +341,8 @@ async def test_get_family_small_variants_page_uses_clickhouse_pagination(
     assert [str(variant.id) for variant in page.variants] == ["v2"]
     assert len(queries) == 4
     assert "hasAny(e.calls.sampleId, %(visible_sample_ids)s)" in queries[0][0]
-    assert "GROUP BY e.key, e.variantId" not in queries[0][0]
+    # The list dedups by key (#333) so it agrees with the deduped count.
+    assert "GROUP BY e.key" in queries[0][0]
     assert queries[0][1]["visible_sample_ids"] == [
         "PROBAND",
         "sample-proband",
@@ -638,7 +640,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert "INNER JOIN" not in query
     assert "GRCh38/SNV_INDEL/variants/annotations" in query
     assert "(e.key, e.annotation_version, e.annotationSetHash) IN (SELECT a.key, a.annotation_version, a.annotationSetHash" in query
-    assert "GROUP BY e.key, e.variantId" not in query
+    assert "GROUP BY e.key" in query  # list dedups by key (#333)
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
     assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
@@ -1051,7 +1053,71 @@ async def test_fetch_small_variant_rows_uses_entry_source_column(
     assert len(rows) == 1
     assert rows[0].source == "clair3"
     assert "annotation_version" in captured_queries[1]
-    assert "e.source AS source" in captured_queries[0]
+    assert "any(e.source) AS source" in captured_queries[0]
+
+
+def test_small_variant_where_clauses_excludes_imputed_when_requested() -> None:
+    clauses, params = _small_variant_where_clauses(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+        exclude_imputed=True,
+    )
+    assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in clauses
+    assert params["imputed_sources"] == ("glimpse2", "shapeit")
+
+
+def test_small_variant_where_clauses_keeps_all_sources_by_default() -> None:
+    # Internal readers (phased markers, sample-QC) must still see every callset, so
+    # the exclusion only applies when explicitly requested.
+    clauses, params = _small_variant_where_clauses(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+    )
+    assert not any("imputed_sources" in clause for clause in clauses)
+    assert "imputed_sources" not in params
+
+
+def test_small_variant_where_clauses_explicit_source_overrides_exclusion() -> None:
+    # An explicit source request surfaces that callset even when exclude_imputed is set.
+    clauses, params = _small_variant_where_clauses(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1, source="glimpse2"),
+        exclude_imputed=True,
+    )
+    assert "positionCaseInsensitive(e.source, %(source)s) > 0" in clauses
+    assert not any("imputed_sources" in clause for clause in clauses)
+    assert params["source"] == "glimpse2"
+    assert "imputed_sources" not in params
+
+
+@pytest.mark.asyncio
+async def test_fetch_small_variant_rows_excludes_imputed_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_queries: list[str] = []
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        _ = params
+        captured_queries.append(query)
+        if "variants/details" in query:
+            return [_small_detail_row()]
+        return [_small_entry_row()]
+
+    monkeypatch.setattr(
+        "backend.app.services.clickhouse_family_variants._execute_clickhouse",
+        fake_execute_clickhouse,
+    )
+
+    await _fetch_small_variant_rows(
+        _family_context(),
+        SmallVariantQueryFilters(page=1, page_size=1),
+    )
+
+    # The clinician-facing family list hides imputed callsets by default.
+    assert any(
+        "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in query
+        for query in captured_queries
+    )
 
 
 @pytest.mark.asyncio
@@ -1186,7 +1252,7 @@ async def test_fetch_small_variant_rows_pushes_simple_inheritance_to_clickhouse(
     assert "inheritance_affected_het_0_gts" in params
     assert "inheritance_unaffected_alt_0_gts" in params
     assert "arrayExists((sample_id, gt) ->" in query
-    assert "GROUP BY e.key, e.variantId" not in query
+    assert "GROUP BY e.key" in query  # list dedups by key (#333)
 
 
 @pytest.mark.asyncio
@@ -2182,3 +2248,27 @@ async def test_prioritized_structural_variants_tie_order_is_deterministic(
     assert forward == reverse_
     # reverse=True -> equal-score ties order by DESCENDING variant id.
     assert forward == ["sv-200", "sv-100"]
+
+
+def test_clamp_small_variant_page_bounds_deep_offset() -> None:
+    from backend.app.services.clickhouse_family_variants import (
+        _SMALL_COUNT_LIMIT,
+        _clamp_small_variant_page,
+        _page_offset,
+    )
+
+    # A huge page is clamped so the resulting OFFSET stays bounded (no deep scan+skip);
+    # the total is capped at _SMALL_COUNT_LIMIT, so nothing real is lost.
+    clamped = _clamp_small_variant_page(10_000_000, 100)
+    assert clamped < 10_000_000
+    assert _page_offset(clamped, 100) <= _SMALL_COUNT_LIMIT + 100
+
+    # Real pages within the bounded total are preserved unchanged.
+    assert _clamp_small_variant_page(1, 100) == 1
+    assert _clamp_small_variant_page(5, 100) == 5
+
+    # Degenerate inputs are handled: page < 1 floors to 1; page_size 0 yields no offset
+    # anyway (so the page is left as-is).
+    assert _clamp_small_variant_page(0, 100) == 1
+    assert _clamp_small_variant_page(10_000_000, 0) == 10_000_000
+    assert _page_offset(_clamp_small_variant_page(10_000_000, 0), 0) == 0

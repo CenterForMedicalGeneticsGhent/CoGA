@@ -111,9 +111,9 @@ variable "clickhouse_data_disk_gb" {
 }
 
 variable "clickhouse_image" {
-  description = "ClickHouse server container image, pinned to match the local stack."
+  description = "ClickHouse server container image, digest-pinned to match the local stack (tag kept for readability). Bump the digest alongside the tag."
   type        = string
-  default     = "clickhouse/clickhouse-server:25.3"
+  default     = "clickhouse/clickhouse-server:25.3@sha256:b627d7a9bc0e0c1bac26cdbe9d2fc6316faa29c5d8a174f28f5abd57d0fa6ba2"
 }
 
 variable "clickhouse_snapshot_retention_days" {
@@ -202,6 +202,12 @@ variable "run_db_schema_migrations_on_startup" {
   description = "Whether the API applies Postgres schema DDL + admin seed on startup. true = the app self-migrates as the table owner (current single-DSN deployment). false = migrations run out-of-band as the owner ('python -m backend.app.db_migrate') and the app boots as the restricted runtime role coga_app (which cannot run DDL). Part of the change-controlled DSN flip in docs/db-runtime-role-runbook.md — keep true until POSTGRES_USER is repointed at coga_app in the same deploy."
   type        = bool
   default     = true
+}
+
+variable "forwarded_allow_ips" {
+  description = "Peers uvicorn trusts X-Forwarded-For from (FORWARDED_ALLOW_IPS). Cloud Run terminates the connection at Google's managed front end, so the immediate peer is a Google-internal IP that varies and the container gets no direct external ingress — '*' is the safe, standard value there and is required for the real client IP to reach the signup rate-limiter and audit log. Narrow to a specific CIDR only if you front the service with your own reverse proxy."
+  type        = string
+  default     = "*"
 }
 
 # ---------------------------------------------------------------------------

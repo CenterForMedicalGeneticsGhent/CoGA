@@ -138,11 +138,13 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [backend/tests/test_access_control.py](../backend/tests/test_access_control.py) | Project-scoped RBAC: viewer/admin access, cross-project visibility. |
 | [backend/tests/test_auth_rate_limit_pg.py](../backend/tests/test_auth_rate_limit_pg.py) | Failed-login throttling and reset; per-IP signup throttling (independent bucket). |
-| [backend/tests/test_signup_throttle.py](../backend/tests/test_signup_throttle.py) | /auth/signup is rate-limited per IP: 429 (with Retry-After) when throttled before any hash/create; records the attempt and creates when allowed. |
+| [backend/tests/test_signup_throttle.py](../backend/tests/test_signup_throttle.py) | /auth/signup is rate-limited per IP (429 + Retry-After before any hash/create) and returns an identical generic 202 for new vs. already-registered emails (no account enumeration). |
+| [backend/tests/test_auth_login_timing.py](../backend/tests/test_auth_login_timing.py) | Login runs a dummy bcrypt verify on the no-such-account path so response time doesn't leak account existence; the equalizer hash is a valid bcrypt hash. |
 | [backend/tests/test_auth_swagger_token.py](../backend/tests/test_auth_swagger_token.py) | Swagger/bearer token authentication. |
 | [backend/tests/test_reference_status_auth.py](../backend/tests/test_reference_status_auth.py) | `/assemblies/reference-status` requires auth (no unauthenticated provenance/operator-email leak). |
 | [backend/tests/test_admin_route_gating.py](../backend/tests/test_admin_route_gating.py) | Panel/tag-definition mutations enforce admin at the route (403 for a viewer); the dead `/admin/samples/{id}/projects` route is removed (404). |
-| [backend/tests/test_config_security.py](../backend/tests/test_config_security.py) | Refuse-to-start on insecure default secrets outside dev. |
+| [backend/tests/test_config_security.py](../backend/tests/test_config_security.py) | Refuse-to-start on insecure default secrets outside dev; CORS origin regex must compile and be fully anchored. |
+| [backend/tests/test_coga_logging.py](../backend/tests/test_coga_logging.py) | `scrub_log` control-character neutralization (CWE-117 log forging): CR/LF/tab/DEL replaced, clean values pass through, oversized truncated. |
 | [backend/tests/test_request_logging.py](../backend/tests/test_request_logging.py) | Request-logging sanitization, path/secret masking, db-update derivation (incl. stripping the `/api` mount prefix so the audit entity is the real collection). |
 | [backend/tests/test_http_resilience.py](../backend/tests/test_http_resilience.py) | P2-9 outbound resilience: idempotent requests retry transient failures (transport errors + 429/5xx) with capped backoff; non-idempotent + 4xx never retry; bounded worst case; own-client body still readable; S3 Config has bounded timeouts + adaptive retries. |
 | [backend/tests/test_csv_export.py](../backend/tests/test_csv_export.py) | CSV formula-injection guard: cells starting with `=`/`+`/`-`/`@`/tab/CR/LF are quote-prefixed; benign values untouched; survives a real csv writer/reader round-trip. |
@@ -171,7 +173,9 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 ### Gene / HPO / panel / Monarch / reference
 | Test file | Purpose |
 | --- | --- |
+| [backend/tests/test_bounded_download.py](../backend/tests/test_bounded_download.py) | Bounded outbound download + gunzip for reference/gene/Monarch fetches (#336): gunzip roundtrip / oversized-output / invalid-stream / a real decompression bomb halted at the cap; streamed size-cap abort, optional-404, and 5xx paths. |
 | [backend/tests/test_gene_info_bulk_sources.py](../backend/tests/test_gene_info_bulk_sources.py) | Gene-reference bulk-source parsing; dbNSFP constraint metrics. |
+| [backend/tests/test_gene_info_external.py](../backend/tests/test_gene_info_external.py) | Outbound gene-lookup URL encoding (#336): quote(safe='') escapes '/' so an injected identifier stays in one path segment on the fixed external hosts; legitimate ids unchanged. |
 | [backend/tests/test_gene_locus_primary_chromosome.py](../backend/tests/test_gene_locus_primary_chromosome.py) | Primary-chromosome / multi-contig gene-locus resolution. |
 | [backend/tests/test_hpo_api.py](../backend/tests/test_hpo_api.py) | HPO router and family HPO-term attachment. |
 | [backend/tests/test_hpo_service.py](../backend/tests/test_hpo_service.py) | HPO ontology parsing, closure computation, inline-HPO handling. |
@@ -207,7 +211,8 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_family_metadata_context.py](../backend/tests/test_family_metadata_context.py) | Family-metadata context building from DB rows. |
 | [backend/tests/test_family_member_batch_update_service.py](../backend/tests/test_family_member_batch_update_service.py) | Batch member updates with dirty-tracking. |
 | [backend/tests/test_family_member_detail_service.py](../backend/tests/test_family_member_detail_service.py) | Member detail retrieval and impact analysis. |
-| [backend/tests/test_family_package_import_pcf.py](../backend/tests/test_family_package_import_pcf.py) | PCF (array-CGH) dataset discovery and segment parsing. |
+| [backend/tests/test_family_package_import_pcf.py](../backend/tests/test_family_package_import_pcf.py) | PCF (array-CGH) dataset discovery and segment parsing; manifest availability probe stays inside the package root. |
+| [backend/tests/test_family_import_compensation.py](../backend/tests/test_family_import_compensation.py) | Failed-import compensation: shell delete clears interval tracks; incomplete-flag set/clear on family metadata. |
 | [backend/tests/test_family_pedigree_generation.py](../backend/tests/test_family_pedigree_generation.py) | Pedigree file generation / LINKAGE output. |
 | [backend/tests/test_family_structure_update_dirty.py](../backend/tests/test_family_structure_update_dirty.py) | Family-structure update with member dirty-tracking. |
 | [backend/tests/test_manual_family_metadata.py](../backend/tests/test_manual_family_metadata.py) | Manual family creation and pedigree threading. |
@@ -260,6 +265,7 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | [backend/tests/test_small_variant_review_payload.py](../backend/tests/test_small_variant_review_payload.py) | Review payload datetime serialization / bigint truncation. |
 | [backend/tests/test_structural_panel_gene_match.py](../backend/tests/test_structural_panel_gene_match.py) | SV gene-overlap matching and panel-filter constraints. |
 | [backend/tests/test_structural_variant_track_slim.py](../backend/tests/test_structural_variant_track_slim.py) | SV track slimming (annotations dropped in track mode). |
+| [backend/tests/test_structural_variant_ingest.py](../backend/tests/test_structural_variant_ingest.py) | SV record iterators coerce coordinates and skip malformed records rather than aborting ingest. |
 | [backend/tests/test_variant_annotation_parser.py](../backend/tests/test_variant_annotation_parser.py) | VCF annotation parsing incl. SpliceAI / scientific notation. |
 | [tests/test_variant_annotation_parser.py](../tests/test_variant_annotation_parser.py) | VCF CSQ annotation header parsing (top-level suite). |
 | [tests/test_admin_inventory.py](../tests/test_admin_inventory.py) | Data-inventory admin endpoint, assembly-scoped counting. |

@@ -1,4 +1,5 @@
-FROM node:20-alpine AS deps
+# Pin the base image by digest (tag kept for readability) for reproducible builds.
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS deps
 
 WORKDIR /app
 
@@ -22,7 +23,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
 COPY frontend/ ./
 RUN npm run build
 
-FROM node:20-alpine AS production
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS production
 ENV NODE_ENV=production
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
@@ -33,8 +34,8 @@ COPY --from=build /app/proxyLocation.mjs ./proxyLocation.mjs
 COPY --from=build /app/securityHeaders.mjs ./securityHeaders.mjs
 # Drop to the unprivileged built-in node user (least privilege). The frontend
 # container serves static assets + proxies the API and has no writable bind mounts,
-# so non-root is safe here. (The backend container's non-root move is deferred — it
-# writes to the host-owned /data volume and needs UID/ownership coordination.)
+# so non-root is safe here. (The backend container now also runs non-root; local
+# docker-compose overrides `user: root` for its host-owned /data bind mount.)
 RUN chown -R node:node /app
 USER node
 EXPOSE 3000

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+import backend.app.services.panelapp_service as panelapp_service
 from backend.app.services.panelapp_service import (
     extract_panelapp_import_content,
     panelapp_summary,
@@ -106,3 +109,21 @@ def test_extract_panelapp_import_content_can_include_amber_entities() -> None:
         ("AAAS", "12"),
         ("AMBER", "1"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_panelapp_panel_builds_numeric_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The explicit int() at the URL sink pins panelapp_id to digits, so no '/' or
+    # traversal can enter the request path (partial-SSRF guard, CodeQL #10).
+    captured: dict = {}
+
+    async def fake_get(path, params=None):
+        captured["path"] = path
+        captured["params"] = params
+        return {}
+
+    monkeypatch.setattr(panelapp_service, "_get_panelapp_json", fake_get)
+    await panelapp_service.fetch_panelapp_panel(20, version="1.3")
+
+    assert captured["path"] == "/panels/20/"
+    assert captured["params"] == {"format": "json", "version": "1.3"}

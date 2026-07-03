@@ -1565,7 +1565,7 @@ export const useSmallVariantSearchState = ({
     params.getAll('sample_filter').forEach((entry) => {
       const parts = entry.split(':');
       const sample = parts[0];
-      if (!sample || !initialSampleFilters[sample]) return;
+      if (!sample || !Object.prototype.hasOwnProperty.call(initialSampleFilters, sample)) return;
       initialSampleFilters[sample] = {
         gt: parseSerializedGenotypeSelection(entry, initialSampleFilters[sample].gt),
         qual: parts[2] ?? '',

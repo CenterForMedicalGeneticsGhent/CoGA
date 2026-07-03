@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -586,3 +587,33 @@ def test_family_package_validation_accepts_hpo_phenotype_manifest(
     assert phenotype_summary.files == ["phenotypes.tsv"]
     assert phenotype_summary.samples == ["MOTHER", "PROBAND"]
     assert phenotype_summary.summary["rows"] == 3
+
+
+def _authorized_candidate() -> Path:
+    # An actual candidate path lives directly in an authorized ontology dir.
+    return hpo_service.hpo_ontology_candidate_paths(None)[0]
+
+
+def test_ensure_authorized_hpo_ontology_path_accepts_file_in_ref_data_dir() -> None:
+    candidate = _authorized_candidate()
+    assert hpo_service.ensure_authorized_hpo_ontology_path(candidate) == Path(
+        os.path.normpath(str(candidate))
+    )
+    # A sibling file in the same authorized dir is accepted too (existence is not
+    # required — this is a containment check, so a not-yet-downloaded name passes).
+    sibling = candidate.parent / "custom_release.obo"
+    assert hpo_service.ensure_authorized_hpo_ontology_path(sibling) == Path(
+        os.path.normpath(str(sibling))
+    )
+
+
+@pytest.mark.parametrize("bad_path", ["/etc/passwd", "/tmp/evil.obo", "relative/hp.obo"])
+def test_ensure_authorized_hpo_ontology_path_rejects_paths_outside_ref_data(bad_path: str) -> None:
+    with pytest.raises(ValueError):
+        hpo_service.ensure_authorized_hpo_ontology_path(bad_path)
+
+
+def test_ensure_authorized_hpo_ontology_path_rejects_traversal_escape() -> None:
+    traversal = _authorized_candidate().parent / ".." / ".." / ".." / "etc" / "passwd"
+    with pytest.raises(ValueError):
+        hpo_service.ensure_authorized_hpo_ontology_path(traversal)

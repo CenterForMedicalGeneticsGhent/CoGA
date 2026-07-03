@@ -74,6 +74,14 @@ from .structural_variant_review_pg import (
 
 logger = logging.getLogger(__name__)
 
+# Callset ``source`` values that hold imputed (not directly-called) genotypes.
+# These are excluded by default from the diagnostic per-family small-variant list,
+# counts, and summary (matching the global Variant Explorer's default), but remain
+# available to callers that request a source explicitly — the phased-marker /
+# relative-haplotype colouring and sample-integrity QC readers. Kept in sync with
+# variant_explorer_service._IMPUTED_SOURCES.
+IMPUTED_SMALL_VARIANT_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
+
 # ClickHouse error substrings that mean "this query was too broad/expensive to
 # run", not "the server is broken". We turn these into an actionable 422 so the
 # user can narrow their filters instead of seeing an opaque 500.
@@ -2790,6 +2798,7 @@ def _small_variant_where_clauses(
     *,
     include_variant_ids: Sequence[str] | None = None,
     exclude_variant_ids: Sequence[str] = (),
+    exclude_imputed: bool = False,
 ) -> tuple[list[str], dict[str, Any]]:
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
@@ -2841,6 +2850,13 @@ def _small_variant_where_clauses(
     if filters.source:
         params["source"] = filters.source
         where_clauses.append("positionCaseInsensitive(e.source, %(source)s) > 0")
+    elif exclude_imputed:
+        # Diagnostic list/count: hide imputed callsets (glimpse2/shapeit) by default,
+        # consistent with the global Variant Explorer. An explicit filters.source still
+        # surfaces them (handled above); the phased-marker / sample-QC readers pass
+        # exclude_imputed=False so they continue to see every callset.
+        params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
+        where_clauses.append("lowerUTF8(e.source) NOT IN %(imputed_sources)s")
     if filters.rsid:
         params["rsid"] = filters.rsid
         annotation_rsid_condition = _small_annotation_key_membership_condition(
@@ -3372,6 +3388,22 @@ def _page_offset(page: int, page_size: int) -> int:
     return max(page - 1, 0) * page_size
 
 
+def _clamp_small_variant_page(page: int, page_size: int) -> int:
+    """Bound ``page`` so a huge value can't force a deep-OFFSET scan+skip.
+
+    The small-variant total is capped at ``_SMALL_COUNT_LIMIT``, so any page past the one
+    that could hold real data returns empty regardless. Without this, ``page=10_000_000``
+    turned into a ~10^10-row DB OFFSET on the native/track_mode list path — a cheap
+    amplification vector. (#333)
+    """
+    page = max(page, 1)
+    if page_size <= 0:
+        return page
+    # One page beyond the last that could contain data (total <= _SMALL_COUNT_LIMIT).
+    max_page = (_SMALL_COUNT_LIMIT + page_size - 1) // page_size + 1
+    return min(page, max_page)
+
+
 async def _count_small_variant_rows_bounded(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
@@ -3398,6 +3430,7 @@ async def _count_small_variant_rows_bounded(
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,
         exclude_gene_terms=exclude_gene_terms,
+        exclude_imputed=True,
     )
     params["count_limit"] = max(int(count_limit), 1)
     rows = await _execute_clickhouse(
@@ -3582,6 +3615,10 @@ async def _fetch_small_variant_summary(
         if context.project_ids:
             where_clauses.append("project_guid IN %(project_ids)s")
             params["project_ids"] = tuple(context.project_ids)
+        # Exclude imputed callsets so the live-fallback count matches the cached
+        # summary (refresh_family_small_variant_summaries also excludes them).
+        where_clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
+        params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         rows = await _execute_clickhouse(
             f"""
             SELECT
@@ -3623,6 +3660,8 @@ async def _fetch_small_variant_summary(
         if context.project_ids:
             sample_where_clauses.append("project_guid IN %(project_ids)s")
             sample_params["project_ids"] = tuple(context.project_ids)
+        sample_where_clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
+        sample_params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         sample_rows = await _execute_clickhouse(
             f"""
             SELECT
@@ -3687,12 +3726,14 @@ def _small_query_filter_parts(
     exclude_regions: Sequence[Region] = (),
     exclude_gene_regions: Sequence[Region] = (),
     exclude_gene_terms: Sequence[str] = (),
+    exclude_imputed: bool = False,
 ) -> tuple[list[str], dict[str, Any], bool]:
     where_clauses, params = _small_variant_where_clauses(
         context,
         filters,
         include_variant_ids=include_variant_ids,
         exclude_variant_ids=exclude_variant_ids,
+        exclude_imputed=exclude_imputed,
     )
 
     gene_condition = _small_gene_filter_condition(
@@ -3821,33 +3862,42 @@ async def _fetch_small_variant_rows(
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,
         exclude_gene_terms=exclude_gene_terms,
+        exclude_imputed=True,
     )
+    # Collapse to one row per key with any() + GROUP BY e.key — exactly the grouping the
+    # count path (_count_small_variant_rows_bounded) uses, so the list and the deduped
+    # total always agree. The entries table is a CollapsingMergeTree and a lagged/partial
+    # ALTER…DELETE mutation or replica lag can transiently leave more than one sign=1 row
+    # per key; without the GROUP BY those surfaced as duplicate rows in the page and
+    # drifted the OFFSET boundaries. Column order/aliases are unchanged so the row parser
+    # below is unaffected. (any() aggregation mirrors _fetch_structural_variant_rows.) (#333)
     query = f"""
         SELECT
-            e.key AS key,
-            e.variantId AS variant_id,
-            e.annotation_version AS annotation_version,
-            e.annotationSetHash AS annotation_set_hash,
-            e.chrom AS chrom,
-            e.pos AS pos,
-            e.ref AS ref,
-            e.alt AS alt,
-            e.source AS source,
-            e.rsid AS rsid,
-            e.filters AS entry_filters,
-            e.gene_symbols AS gene_symbols,
-            e.calls.sampleId AS sample_ids,
-            e.calls.gt AS sample_gts,
-            e.calls.gq AS sample_gqs,
-            e.calls.dp AS sample_dps,
-            e.calls.ab AS sample_abs,
-            e.calls.af AS sample_afs,
-            e.calls.ad AS sample_ads,
-            e.calls.ps AS sample_phase_sets,
-            e.qual AS qual
+            any(e.key) AS key,
+            any(e.variantId) AS variant_id,
+            any(e.annotation_version) AS annotation_version,
+            any(e.annotationSetHash) AS annotation_set_hash,
+            any(e.chrom) AS chrom,
+            any(e.pos) AS pos,
+            any(e.ref) AS ref,
+            any(e.alt) AS alt,
+            any(e.source) AS source,
+            any(e.rsid) AS rsid,
+            any(e.filters) AS entry_filters,
+            any(e.gene_symbols) AS gene_symbols,
+            any(e.calls.sampleId) AS sample_ids,
+            any(e.calls.gt) AS sample_gts,
+            any(e.calls.gq) AS sample_gqs,
+            any(e.calls.dp) AS sample_dps,
+            any(e.calls.ab) AS sample_abs,
+            any(e.calls.af) AS sample_afs,
+            any(e.calls.ad) AS sample_ads,
+            any(e.calls.ps) AS sample_phase_sets,
+            any(e.qual) AS qual
         FROM {entries_table} AS e
         WHERE {' AND '.join(where_clauses)}
-        ORDER BY e.xpos, e.key
+        GROUP BY e.key
+        ORDER BY any(e.xpos), key
     """
     query = _append_limit_offset(query, params, limit=limit, offset=offset)
     rows = await _execute_clickhouse(query, params)
@@ -5094,6 +5144,10 @@ async def get_family_small_variants_page(
 ) -> VariantPage:
     # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
     page_size = max(0, min(page_size, MAX_VARIANT_PAGE_SIZE))
+    # ...and clamp page: the routers declare it as an unbounded `int`, so a huge page would
+    # otherwise force a deep-OFFSET scan+skip on the native/track_mode list path. Done
+    # before filters is built so filters.page is bounded everywhere it flows. (#333)
+    page = _clamp_small_variant_page(page, page_size)
     normalized_inheritance = _normalize_small_variant_inheritance(inheritance)
     filters = SmallVariantQueryFilters(
         page=page,

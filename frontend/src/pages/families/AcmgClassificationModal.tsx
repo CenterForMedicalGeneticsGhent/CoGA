@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
@@ -127,6 +127,16 @@ export default function AcmgClassificationModal({
   // The computed acmg_class_* tag is derived from the criteria and excluded here.
   const [reviewTags, setReviewTags] = useState<string[]>([]);
 
+  // #337: seed the analyst's editable state (selections/note/tags) once per variant and
+  // keep refining it while the async gene-profile / HPO context resolves — but STOP the
+  // moment the analyst edits anything, so a late-arriving query never wipes their
+  // in-progress work.
+  const seededVariantKey = useRef<string | null>(null);
+  const analystEdited = useRef(false);
+  const markEdited = () => {
+    analystEdited.current = true;
+  };
+
   const tagMap = useMemo(() => getTagDefinitionMap(tagDefinitions), [tagDefinitions]);
   // Tags the analyst can toggle by hand — everything except the auto-managed
   // ACMG class tags, which the selected criteria own.
@@ -134,12 +144,14 @@ export default function AcmgClassificationModal({
     const autoKeys = ACMG_AUTO_MANAGED_TAG_KEYS as readonly string[];
     return sortTagDefinitions(tagDefinitions).filter((def) => !autoKeys.includes(def.key));
   }, [tagDefinitions]);
-  const toggleReviewTag = (tagKey: string) =>
+  const toggleReviewTag = (tagKey: string) => {
+    markEdited();
     setReviewTags((current) =>
       current.includes(tagKey)
         ? current.filter((key) => key !== tagKey)
         : [...current, tagKey],
     );
+  };
 
   const geneSymbol = variant.gene?.trim();
   const { data: geneProfile } = useQuery<GeneProfileResponse>({
@@ -216,8 +228,17 @@ export default function AcmgClassificationModal({
     return links;
   }, [variant, speciesName, assemblyName, assemblyVersion, probandHpo.labels]);
 
-  // (Re)seed selections when the variant changes or gene/HPO context arrives.
+  // (Re)seed selections when the variant changes or gene/HPO context arrives — but only
+  // until the analyst edits this variant (see the refs above), so late-resolving
+  // gene/HPO queries refine the suggestions without discarding in-progress work (#337).
   useEffect(() => {
+    if (variant._id !== seededVariantKey.current) {
+      // A different variant is being classified: reset the edit guard and (re)seed.
+      seededVariantKey.current = variant._id;
+      analystEdited.current = false;
+    } else if (analystEdited.current) {
+      return;
+    }
     // PP4: pass the Monarch phenotype-specificity score when prioritization
     // populated it on the variant (otherwise PP4 falls back to HPO overlap).
     const phenotypeContext = {
@@ -256,6 +277,7 @@ export default function AcmgClassificationModal({
   const hideTip = () => setTip(null);
 
   const upsert = (code: AcmgCriterionCode, patch: Partial<AcmgSelection>) => {
+    markEdited();
     setSelections((current) => {
       const def = ACMG_CRITERIA_BY_CODE[code];
       const existing =
@@ -415,7 +437,10 @@ export default function AcmgClassificationModal({
           <textarea
             className="variant-review-textarea"
             value={note}
-            onChange={(event) => setNote(event.target.value)}
+            onChange={(event) => {
+              markEdited();
+              setNote(event.target.value);
+            }}
             rows={3}
             placeholder="Classification rationale / note"
           />
@@ -425,7 +450,10 @@ export default function AcmgClassificationModal({
           <button
             type="button"
             className="button-secondary"
-            onClick={() => setSelections({})}
+            onClick={() => {
+              markEdited();
+              setSelections({});
+            }}
           >
             Clear all
           </button>

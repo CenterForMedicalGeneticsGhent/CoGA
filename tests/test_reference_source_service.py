@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from fastapi import HTTPException
 
 from backend.app.schemas import ReferenceImportSourceAssemblyOut
 from backend.app.services import reference_source_service
@@ -162,6 +163,102 @@ def test_build_single_band_cytobands_text_generates_one_band_per_chromosome() ->
         "chr1\t0\t248956422\tchr1\tgneg",
         "chr2\t0\t242193529\tchr2\tgneg",
     ]
+
+
+@pytest.mark.parametrize("genome", ["hg38", "mm39", "GCF_000001405.40", "danRer11"])
+def test_safe_ucsc_genome_accepts_real_identifiers(genome: str) -> None:
+    assert reference_source_service._safe_ucsc_genome(genome) == genome
+
+
+@pytest.mark.parametrize(
+    "genome",
+    [
+        "../../etc/passwd",
+        "hg38/../../secret",
+        "hg38?x=1",
+        "hg38#frag",
+        "user@host",
+        "hg38 space",
+        "",
+    ],
+)
+def test_safe_ucsc_genome_rejects_path_or_url_injection(genome: str) -> None:
+    # A tainted assembly identifier must not smuggle path/URL-significant characters
+    # into the download path (partial-SSRF guard).
+    with pytest.raises(HTTPException) as exc:
+        reference_source_service._safe_ucsc_genome(genome)
+    assert exc.value.status_code == 400
+
+
+class _FakeMappings:
+    def __init__(self, *, first=None, one=None) -> None:
+        self._first = first
+        self._one = one
+
+    def first(self):
+        return self._first
+
+    def one(self):
+        return self._one
+
+
+class _FakeResult:
+    def __init__(self, mappings: _FakeMappings) -> None:
+        self._mappings = mappings
+
+    def mappings(self) -> _FakeMappings:
+        return self._mappings
+
+
+class _AssemblyInsertSession:
+    """Fake AsyncSession: the existence SELECT finds no row, the INSERT captures its
+    params and returns a fresh id — enough to exercise _get_or_create_assembly's
+    release_date fallback without a database."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.insert_params: dict = {}
+
+    async def execute(self, _query, params=None):
+        self.calls += 1
+        if self.calls == 1:
+            return _FakeResult(_FakeMappings(first=None))
+        self.insert_params = dict(params or {})
+        return _FakeResult(
+            _FakeMappings(one={"id": "11111111-1111-1111-1111-111111111111"})
+        )
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_assembly_writes_unknown_sentinel_when_release_date_missing() -> None:
+    # An unparseable UCSC source date must not fabricate today() as the assembly's
+    # release_date (clinical provenance); it writes the honest 0001-01-01 sentinel.
+    session = _AssemblyInsertSession()
+    assembly_id, created = await reference_source_service._get_or_create_assembly(
+        session,
+        species_id="22222222-2222-2222-2222-222222222222",
+        assembly_name="FooAsm",
+        assembly_version="v1",
+        release_date=None,
+    )
+
+    assert created is True
+    assert session.insert_params["release_date"] == date.min
+    assert session.insert_params["release_date"] != date.today()
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_assembly_preserves_a_real_release_date() -> None:
+    session = _AssemblyInsertSession()
+    await reference_source_service._get_or_create_assembly(
+        session,
+        species_id="22222222-2222-2222-2222-222222222222",
+        assembly_name="FooAsm",
+        assembly_version="v1",
+        release_date=date(2020, 5, 1),
+    )
+
+    assert session.insert_params["release_date"] == date(2020, 5, 1)
 
 
 @pytest.mark.asyncio

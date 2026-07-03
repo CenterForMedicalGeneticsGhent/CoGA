@@ -83,6 +83,7 @@ from .repeat_expansion_pg import (
 )
 from .variant_upload_service import upload_family_small_variant_file
 from .bed_service import precompute_family_haplotype_lineage
+from .upload_safety import read_path_text_bounded
 
 logger = logging.getLogger(__name__)
 
@@ -602,11 +603,16 @@ def _ensure_authorized_package_path(path: Path) -> Path:
     if resolved == staging_root or staging_root in resolved.parents:
         return resolved
     allowed_roots = _authorized_local_roots()
-    if not allowed_roots:
-        return resolved
     if any(resolved == root or root in resolved.parents for root in allowed_roots):
         return resolved
-    roots = ", ".join(str(root) for root in allowed_roots)
+    # Fail open ONLY when nothing is configured at all — the explicit "unrestricted" dev
+    # default (family_import_roots=[]). When roots ARE configured, a local path outside
+    # them is unauthorized: previously the guard fell open whenever no *local* root
+    # matched, so an S3-only (remote-only) FAMILY_IMPORT_ROOTS silently allowed any
+    # admin-supplied local path — an out-of-allowlist file read/write primitive.
+    if not settings.family_import_roots:
+        return resolved
+    roots = ", ".join(str(root) for root in allowed_roots) or "(remote-only FAMILY_IMPORT_ROOTS)"
     raise HTTPException(
         status_code=403,
         detail=f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {roots}",
@@ -2491,11 +2497,19 @@ def _availability_from_manifest_dataset(
 
     def _add(role: str, value: Any, sample_id: str | None = None) -> None:
         if isinstance(value, str) and value.strip():
+            # Resolve through the containment guard rather than probing `root / value`
+            # directly: a manifest declaring `../../etc/passwd` must not have its
+            # existence stat'd outside the package root. An escaping path resolves to
+            # None here and is reported as not-present.
+            try:
+                resolved = _resolve_package_path(root, value)
+            except HTTPException:
+                resolved = None
             files.append(
                 FamilyManifestFileAvailability(
                     role=role,
                     path=value,
-                    exists=(root / value).exists(),
+                    exists=bool(resolved is not None and resolved.exists()),
                     sample_id=sample_id,
                 )
             )
@@ -4138,6 +4152,10 @@ async def _delete_family_shell(
         try:
             await delete_family_small_variants(assembly_name, family_uuid)
             await delete_family_structural_variants(assembly_name, family_uuid)
+            # Coverage/segment/haplotype interval tracks are keyed by family_guid in
+            # a separate ClickHouse table; without this they survive the family delete
+            # as orphan rows pointing at a now-deleted family.
+            await delete_interval_tracks(assembly_name, family_uuid=family_uuid)
         except Exception:  # noqa: BLE001 - best-effort store cleanup
             logger.warning(
                 "Failed to clear ClickHouse rows during import compensation for %s",
@@ -4148,6 +4166,88 @@ async def _delete_family_shell(
         text("DELETE FROM families WHERE id = CAST(:family_uuid AS uuid)"),
         {"family_uuid": family_uuid},
     )
+
+
+async def _flag_family_import_incomplete(
+    session: AsyncSession,
+    family_context: FamilyMetadataContext,
+    *,
+    failed_datasets: list[str],
+    imported_datasets: list[str],
+) -> None:
+    """Stamp a pre-existing family as import-incomplete after a failed update/overwrite.
+
+    We do not snapshot/restore existing family data, so a partial update/overwrite can
+    leave the family with some datasets (over)written and others missing (overwrite
+    even pre-clears before insert). Rather than let that state be silently queryable as
+    if complete, record it in the family metadata so it is explicit and auditable.
+    Best-effort and self-committing: a flag-write failure must not mask the original
+    import failure.
+    """
+    payload = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "failed_datasets": sorted(set(failed_datasets)),
+        "imported_datasets": sorted(set(imported_datasets)),
+    }
+    try:
+        await session.execute(
+            text(
+                """
+                UPDATE families
+                SET metadata = jsonb_set(
+                    COALESCE(metadata, '{}'::jsonb),
+                    '{import_incomplete}',
+                    CAST(:payload AS jsonb),
+                    true
+                )
+                WHERE id = CAST(:family_uuid AS uuid)
+                """
+            ),
+            {"family_uuid": family_context.family_uuid, "payload": json.dumps(payload)},
+        )
+        await session.commit()
+    except Exception:  # noqa: BLE001 - flag write must not mask the import failure
+        logger.warning(
+            "Failed to flag family %s as import-incomplete",
+            family_context.family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+
+
+async def _clear_family_import_incomplete(
+    session: AsyncSession, family_context: FamilyMetadataContext
+) -> None:
+    """Drop a stale ``import_incomplete`` flag after a fully-successful (re)import.
+
+    Best-effort: leaving the flag would misreport a now-complete family as degraded.
+    """
+    try:
+        await session.execute(
+            text(
+                """
+                UPDATE families
+                SET metadata = metadata - 'import_incomplete'
+                WHERE id = CAST(:family_uuid AS uuid)
+                  AND metadata ? 'import_incomplete'
+                """
+            ),
+            {"family_uuid": family_context.family_uuid},
+        )
+        await session.commit()
+    except Exception:  # noqa: BLE001 - best-effort flag clear
+        logger.warning(
+            "Failed to clear import-incomplete flag for family %s",
+            family_context.family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
 
 
 def _enabled_dataset_summaries(validation: FamilyPackageValidationOut) -> list[FamilyImportDatasetSummary]:
@@ -4327,10 +4427,11 @@ def _coerce_finite_float(value: Any) -> float | None:
 
 
 def _read_package_text(path: Path) -> str:
-    if path.name.endswith(".gz"):
-        with gzip.open(path, "rt", encoding="utf-8") as handle:
-            return handle.read()
-    return path.read_text(encoding="utf-8")
+    # Bound the read + decompression so a crafted package `.gz` (decompression bomb)
+    # can't inflate to exhaust the import worker's memory — mirrors the bounded path
+    # used for user uploads (upload_safety). Only the family SV VCF flows through here,
+    # and it is read whole (used twice: record parsing + header-provenance mining).
+    return read_path_text_bounded(path, kind="Package VCF")
 
 
 @asynccontextmanager
@@ -5746,11 +5847,17 @@ async def _import_snv_dataset(
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
     if vcf_path is None:
         return await _register_only(summary, "Registered only; family_vcf path is unavailable")
+    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
+    # The SNV dataset holds primary (directly-called) genotypes — clair3 unless the
+    # manifest overrides it. Scope the coexistence checks/cleanup to this source so
+    # the imputed glimpse2 callset is never touched by the SNV importer.
+    snv_source = "glimpse2" if source_format == "glimpse2" else "clair3"
     if conflict_mode == "update":
         existing_count = await count_family_small_variants(
             family_context.assembly_name,
             family_context.family_uuid,
             project_ids=family_context.project_ids,
+            source=snv_source,
         )
         if existing_count:
             return summary.model_copy(
@@ -5760,7 +5867,6 @@ async def _import_snv_dataset(
                     "summary": {"existing": existing_count},
                 }
             )
-    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
     annotation_path = _resolve_package_path(bundle.root, dataset.annotation_tsv)
     progress_lock = asyncio.Lock()
 
@@ -5822,22 +5928,15 @@ async def _import_snv_dataset(
             },
         )
     except Exception:
+        # The SNV loader only writes its own small-variant source; it never creates
+        # haplotype interval tracks (those belong to the glimpse2 loader). Scope the
+        # cleanup to this source so a failed SNV import cannot wipe a previously
+        # imported glimpse2 callset or its haplotype blocks.
         with suppress(Exception):
             await delete_family_small_variants(
                 family_context.assembly_name,
                 family_context.family_uuid,
-            )
-        with suppress(Exception):
-            await delete_interval_tracks(
-                family_context.assembly_name,
-                family_uuid=family_context.family_uuid,
-                track_type="haplotype",
-            )
-        with suppress(Exception):
-            await delete_interval_track_sources(
-                session,
-                family_uuid=family_context.family_uuid,
-                track_type="haplotype",
+                source=snv_source,
             )
         raise
     return summary.model_copy(
@@ -5875,6 +5974,7 @@ async def _import_haplotypes_dataset(
             family_context.assembly_name,
             family_context.family_uuid,
             project_ids=family_context.project_ids,
+            source="glimpse2",
         )
         existing_haplotype_count = await count_interval_track_source_rows(
             session,
@@ -5930,10 +6030,14 @@ async def _import_haplotypes_dataset(
             stats={"family_vcf": _display_path(bundle.root, vcf_path)},
         )
     except Exception:
+        # The glimpse2 loader owns the imputed small-variant source and the haplotype
+        # interval tracks, so scope the small-variant cleanup to glimpse2 (leaving the
+        # annotated clair3 SNVs intact) while still clearing its own haplotype blocks.
         with suppress(Exception):
             await delete_family_small_variants(
                 family_context.assembly_name,
                 family_context.family_uuid,
+                source="glimpse2",
             )
         with suppress(Exception):
             await delete_interval_tracks(
@@ -6933,12 +7037,17 @@ async def _execute_family_package_import_local(
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
 
-    # Fail-clean. A failed import must not leave a partial family behind:
-    #   * if this import CREATED the family and NO dataset imported, compensate by
-    #     deleting the freshly-created shell (+ its ClickHouse rows) so nothing
-    #     partial survives;
-    #   * if ANY enabled dataset failed, the import is reported as FAILED (error set
-    #     -> the job row ends status='failed') rather than a silent "completed".
+    # Fail-clean. A failed import must not leave a silently-partial family behind:
+    #   * NEW family, and NOTHING imported -> compensate by deleting the freshly-created
+    #     shell (+ its ClickHouse variant & interval rows) so nothing partial survives.
+    #   * Any OTHER failure that left the family in place — a partial success (some
+    #     datasets imported, some failed) or a failed update/overwrite of a PRE-EXISTING
+    #     family — is NOT torn down (successfully-imported datasets are deliberately
+    #     preserved, and we don't snapshot/restore existing data). Instead the family
+    #     metadata is flagged import-incomplete so the partial state is explicit and
+    #     auditable rather than silently queryable as if complete.
+    #   * In every failed case `error` is set -> the job row ends status='failed'
+    #     (never a silent "completed").
     compensated = False
     if failed_datasets and not imported_datasets and family_created:
         await session.rollback()
@@ -6947,6 +7056,18 @@ async def _execute_family_package_import_local(
         compensated = True
         logs.append(
             "No dataset imported successfully; rolled back the newly-created family shell."
+        )
+    elif failed_datasets:
+        await _flag_family_import_incomplete(
+            session,
+            family_context,
+            failed_datasets=failed_datasets,
+            imported_datasets=imported_datasets,
+        )
+        logs.append(
+            "Import left the family partially populated (some datasets failed); flagged "
+            "the family metadata as import-incomplete. Successfully-imported datasets are "
+            "kept; re-run the import to complete it."
         )
 
     if failed_datasets:
@@ -6957,6 +7078,10 @@ async def _execute_family_package_import_local(
     else:
         error = None
         logs.append("Family package import completed.")
+        # A fully-successful (re)import clears any stale incompleteness flag left by a
+        # prior failed update/overwrite so a now-complete family isn't misreported.
+        if not compensated and session is not None:
+            await _clear_family_import_incomplete(session, family_context)
 
     # (Re)importing variant data changes the prioritised ranking, but the cache's input
     # hash doesn't cover variant content — drop any cached ranking so it recomputes.

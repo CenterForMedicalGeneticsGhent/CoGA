@@ -1,22 +1,115 @@
 from io import BytesIO
+from types import SimpleNamespace
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 import pytest
 
 from backend.app.services.clickhouse_variant_storage import build_small_variant_id
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services import variant_upload_service
 from backend.app.services.variant_upload_service import (
+    _coerce_int,
     _detect_small_variant_format,
     _detect_small_variant_format_from_upload,
     _haplotype_state_end,
     _haplotype_state_matches_block,
+    _iter_upload_text_lines,
     _new_haplotype_state,
+    _parse_float_list,
+    _parse_int_list,
     _parse_qual,
     _parse_vep_tsv_annotation_upload,
     _phased_haplotype_alleles,
     _vep_location_allele_key,
 )
+
+
+def test_coerce_int_tolerates_floats_and_junk() -> None:
+    assert _coerce_int("42") == 42
+    assert _coerce_int("42.0") == 42
+    assert _coerce_int(".") is None
+    assert _coerce_int("") is None
+    assert _coerce_int(None) is None
+    assert _coerce_int("not-a-number") is None
+
+
+def test_parse_float_list_skips_malformed_entries_without_raising() -> None:
+    # A single bad AF token must not abort the whole ingest with a 500.
+    assert _parse_float_list("0.1,junk,0.3") == [0.1, 0.3]
+    assert _parse_float_list("inf,0.5") == [0.5]  # non-finite dropped
+    assert _parse_float_list(".") == []
+    assert _parse_float_list(None) == []
+
+
+def test_parse_int_list_coerces_bad_tokens_to_zero() -> None:
+    # AD is positional; a bad token maps to 0 rather than raising or shifting alignment.
+    assert _parse_int_list("5,10,20") == [5, 10, 20]
+    assert _parse_int_list("5,junk,20") == [5, 0, 20]
+    assert _parse_int_list(".") == []
+
+
+def _line_upload(data: bytes) -> UploadFile:
+    return UploadFile(file=BytesIO(data))
+
+
+def test_iter_upload_text_lines_rejects_overlong_line(monkeypatch) -> None:
+    # A VCF with no newline (or a gzip inflating to one giant line) must not buffer an
+    # unbounded line into memory — it is rejected at the per-line cap.
+    monkeypatch.setattr(variant_upload_service, "MAX_UPLOAD_LINE_BYTES", 16)
+    upload = _line_upload(b"x" * 64)  # 64 bytes, no newline, cap 16
+    with pytest.raises(HTTPException) as exc:
+        list(_iter_upload_text_lines(upload, kind="VCF"))
+    assert exc.value.status_code == 413
+
+
+def test_iter_upload_text_lines_allows_normal_lines(monkeypatch) -> None:
+    monkeypatch.setattr(variant_upload_service, "MAX_UPLOAD_LINE_BYTES", 1024)
+    upload = _line_upload(b"##fileformat=VCFv4.2\nchr1\t1\t.\tA\tT\n")
+    lines = list(_iter_upload_text_lines(upload, kind="VCF"))
+    assert lines[0].startswith("##fileformat")
+    assert lines[1].startswith("chr1")
+
+
+class _NoopSession:
+    async def commit(self) -> None:
+        return None
+
+    async def rollback(self) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_non_overwrite_conflict_does_not_delete_existing_rows(monkeypatch) -> None:
+    # A non-overwrite upload against a family that already has this source must 409
+    # WITHOUT the compensating cleanup deleting the pre-existing rows it protects.
+    deleted = {"called": False}
+
+    async def fake_count(*args, **kwargs):
+        return 5  # existing rows present
+
+    async def fake_delete(*args, **kwargs):
+        deleted["called"] = True
+
+    monkeypatch.setattr(variant_upload_service, "count_family_small_variants", fake_count)
+    monkeypatch.setattr(variant_upload_service, "delete_family_small_variants", fake_delete)
+
+    context = SimpleNamespace(
+        assembly_name="GRCh38",
+        family_uuid="uuid-1",
+        family_id="F1",
+        project_ids=[],
+    )
+    with pytest.raises(HTTPException) as exc:
+        await variant_upload_service.upload_family_small_variant_file(
+            _NoopSession(),
+            context=context,
+            sample_contexts={},
+            file=_line_upload(b"##fileformat=VCFv4.2\n"),
+            overwrite=False,
+            format_hint="clair3",
+        )
+    assert exc.value.status_code == 409
+    assert deleted["called"] is False  # existing rows were NOT touched
 
 
 def test_parse_qual_reads_float_and_treats_missing_as_none() -> None:
@@ -307,6 +400,121 @@ async def test_glimpse2_upload_stores_haplotype_blocks_separate_from_snv_rows(
     ]
     assert upserted_sources[0]["track_type"] == "haplotype"
     assert upserted_sources[0]["row_count"] == 1
+
+
+_GLIMPSE2_VCF = (
+    "##fileformat=VCFv4.2\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Phased genotype">\n'
+    '##FORMAT=<ID=GP,Number=G,Type=Float,Description="Genotype probabilities">\n'
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+    "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:GP\t0|1:0.01,0.98,0.01\n"
+)
+_CLAIR3_VCF = (
+    "##fileformat=VCFv4.2\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+    "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:DP\t0/1:30\n"
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "vcf_text, expected_source, expect_haplotype_block_delete",
+    [
+        (_GLIMPSE2_VCF, "glimpse2", True),
+        (_CLAIR3_VCF, "clair3", False),
+    ],
+)
+async def test_overwrite_scopes_delete_to_uploaded_source(
+    monkeypatch: pytest.MonkeyPatch,
+    vcf_text: str,
+    expected_source: str,
+    expect_haplotype_block_delete: bool,
+) -> None:
+    # #329: re-importing one small-variant callset must not wipe the other. The
+    # overwrite branch must delete only the uploaded source's rows, and only clear
+    # haplotype blocks for glimpse2 (which owns them).
+    count_sources: list[str | None] = []
+    deleted_sources: list[str | None] = []
+    haplotype_block_deletes: list[bool] = []
+
+    async def fake_count_family_small_variants(*_args, **kwargs):
+        count_sources.append(kwargs.get("source"))
+        return 5  # rows already exist -> overwrite branch fires
+
+    async def fake_delete_family_small_variants(_assembly, _family, *, source=None):
+        deleted_sources.append(source)
+
+    async def fake_delete_family_haplotype_blocks(*_args, **_kwargs):
+        haplotype_block_deletes.append(True)
+
+    async def fake_get_track_presence_by_sample(*_args, **_kwargs):
+        return set()
+
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    async def fake_fetch_chromosome_sizes(*_args, **_kwargs):
+        return {}
+
+    for name, fn in {
+        "count_family_small_variants": fake_count_family_small_variants,
+        "delete_family_small_variants": fake_delete_family_small_variants,
+        "_delete_family_haplotype_blocks": fake_delete_family_haplotype_blocks,
+        "get_track_presence_by_sample": fake_get_track_presence_by_sample,
+        "insert_small_variant_records": fake_noop,
+        "refresh_family_small_variant_summaries": fake_noop,
+        "insert_interval_track_rows": fake_noop,
+        "upsert_interval_track_source": fake_noop,
+        "_fetch_chromosome_sizes": fake_fetch_chromosome_sizes,
+    }.items():
+        monkeypatch.setattr(variant_upload_service, name, fn)
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+    context = FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM001",
+        project_ids=["project-uuid"],
+        sample_rows=[],
+        sample_uuid_to_name={"sample-uuid": "S1"},
+        sample_name_to_uuid={"S1": "sample-uuid"},
+        affected_sample_names=[],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+    sample_contexts = {
+        "S1": SampleMetadataContext(
+            sample_uuid="sample-uuid",
+            sample_id="S1",
+            family_uuid="family-uuid",
+            family_id="FAM001",
+            sex="und",
+            project_ids=["project-uuid"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+    }
+    upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="variants.vcf")
+
+    result = await variant_upload_service.upload_family_small_variant_file(
+        FakeSession(),  # type: ignore[arg-type]
+        context=context,
+        sample_contexts=sample_contexts,
+        file=upload,
+        overwrite=True,
+        format_hint="auto",
+    )
+
+    assert result["source_format"] == expected_source
+    # Existence check and delete are both scoped to the uploaded source only.
+    assert count_sources == [expected_source]
+    assert deleted_sources == [expected_source]
+    # Haplotype blocks are cleared only for the glimpse2 loader that owns them.
+    assert bool(haplotype_block_deletes) is expect_haplotype_block_delete
 
 
 @pytest.mark.asyncio

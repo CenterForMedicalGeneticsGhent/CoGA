@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.middleware import request_logging as rl
 from app.middleware.request_logging import (
     _derive_db_update,
+    _parse_request_body,
     _query_string_for_logging,
     _request_url_for_logging,
     _sanitize_for_logging,
@@ -61,6 +62,65 @@ def test_sanitize_for_logging_masks_sensitive_keys_recursively() -> None:
     assert sanitized["profile"]["tokenValue"] == "***"
     assert sanitized["profile"]["first_name"] == "A"
     assert sanitized["nested"][0]["authorizationHeader"] == "***"
+
+
+def _request_with_content_type(content_type: str) -> Request:
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/auth/token",
+        "scheme": "http",
+        "query_string": b"",
+        "headers": [(b"content-type", content_type.encode())],
+        "client": ("127.0.0.1", 1234),
+        "server": ("testserver", 80),
+        "http_version": "1.1",
+        "path_params": {},
+    }
+    return Request(scope)
+
+
+def test_parse_request_body_masks_form_urlencoded_password() -> None:
+    # Regression: the OAuth2 password flow posts application/x-www-form-urlencoded,
+    # which never parses as JSON. The parsed body must mask the password and must
+    # not contain the plaintext anywhere before it is persisted to the audit DB.
+    request = _request_with_content_type("application/x-www-form-urlencoded")
+    body = b"grant_type=password&username=viewer%40example.com&password=hunter2"
+
+    parsed = _parse_request_body(request, body)
+
+    assert parsed == {
+        "grant_type": "password",
+        "username": "viewer@example.com",
+        "password": "***",
+    }
+    assert "hunter2" not in json.dumps(parsed)
+
+
+def test_parse_request_body_drops_unparseable_body() -> None:
+    # A non-JSON, non-form body must not be persisted verbatim (it could carry
+    # secrets we cannot key-mask); it degrades to a safe placeholder.
+    request = _request_with_content_type("text/plain")
+    body = b"password=hunter2 leaked as raw text"
+
+    parsed = _parse_request_body(request, body)
+
+    assert parsed == {
+        "_captured": False,
+        "_reason": "unparsed_body",
+        "_content_type": "text/plain",
+        "_bytes": len(body),
+    }
+    assert "hunter2" not in json.dumps(parsed)
+
+
+def test_parse_request_body_still_masks_json_bodies() -> None:
+    request = _request_with_content_type("application/json")
+    body = json.dumps({"email": "a@example.com", "password": "hunter2"}).encode()
+
+    parsed = _parse_request_body(request, body)
+
+    assert parsed == {"email": "a@example.com", "password": "***"}
 
 
 def test_derive_db_update_for_patch_request() -> None:

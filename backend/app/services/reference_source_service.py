@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import gzip
 import io
 import logging
 import re
@@ -22,6 +21,7 @@ from ..schemas import (
     ReferenceImportSourceAssemblyOut,
     ReferenceImportSourceOrganismOut,
 )
+from .bounded_download import download_bounded_bytes, gunzip_bounded
 from .reference_metadata_service import _assembly_dataset_count, apply_reference_dataset_text
 
 UCSC_API_ROOT = "https://api.genome.ucsc.edu"
@@ -33,6 +33,11 @@ HUMAN_GRCH38_UCSC_GENOME = "hg38"
 HUMAN_GRCH38_ASSEMBLY_NAME = "GRCh38"
 HUMAN_GRCH38_FALLBACK_VERSION = "hg38"
 HUMAN_GRCH38_RELEASE_DATE = date(2013, 12, 1)
+# 0001-01-01 sentinel meaning "upstream release date unknown/unparseable". Keeps
+# assemblies.release_date (DATE NOT NULL) honest instead of stamping today(), and
+# matches the sort sentinel used in the catalog ordering below so an undated assembly
+# sorts oldest rather than masquerading as the newest.
+_UNKNOWN_RELEASE_DATE = date.min
 _CATALOG_TTL_SECONDS = 60 * 60
 _catalog_lock = asyncio.Lock()
 _catalog_cached_at = 0.0
@@ -96,18 +101,14 @@ async def _get_optional_text(client: httpx.AsyncClient, url: str) -> str | None:
 
 async def _get_optional_gzip_text(client: httpx.AsyncClient, url: str) -> str | None:
     try:
-        response = await client.get(url)
+        raw = await download_bounded_bytes(client, url, source=url, none_on_404=True)
     except httpx.HTTPError as exc:
         _raise_upstream_error(url, exc)
-    if response.status_code == 404:
+    if raw is None:
         return None
     try:
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        _raise_upstream_error(url, exc)
-    try:
-        return gzip.decompress(response.content).decode()
-    except OSError as exc:
+        return gunzip_bounded(raw, source=url).decode()
+    except ValueError as exc:
         raise HTTPException(status_code=502, detail=f"Unexpected compressed response from {url}") from exc
 
 
@@ -337,7 +338,7 @@ async def _load_catalog_entries() -> list[dict[str, Any]]:
             key=lambda entry: (
                 str(entry["scientific_name"]).lower(),
                 str(entry["assembly_name"]).lower(),
-                entry["release_date"] or date.min,
+                entry["release_date"] or _UNKNOWN_RELEASE_DATE,
             )
         )
         _catalog_entries = parsed_entries
@@ -424,7 +425,7 @@ async def list_reference_source_assemblies(*, tax_id: int) -> list[ReferenceImpo
 
     results.sort(
         key=lambda entry: (
-            entry.release_date or date.min,
+            entry.release_date or _UNKNOWN_RELEASE_DATE,
             entry.assembly_name.lower(),
             entry.assembly_version.lower(),
         ),
@@ -433,11 +434,25 @@ async def list_reference_source_assemblies(*, tax_id: int) -> list[ReferenceImpo
     return results
 
 
+# UCSC genome/db identifiers are short alphanumerics (hg38, mm39, GCF_000001405.40).
+# The value can originate from an admin-supplied assembly name, so constrain it before
+# interpolating into a download URL: no path- or URL-significant character can enter the
+# request path, closing a partial-SSRF (request-forgery) vector on the fixed UCSC host.
+_UCSC_GENOME_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _safe_ucsc_genome(ucsc_genome: str) -> str:
+    if not _UCSC_GENOME_RE.fullmatch(ucsc_genome):
+        raise HTTPException(status_code=400, detail=f"Invalid UCSC genome identifier: {ucsc_genome!r}")
+    return ucsc_genome
+
+
 async def _download_cytobands(
     client: httpx.AsyncClient,
     *,
     ucsc_genome: str,
 ) -> tuple[str, str]:
+    ucsc_genome = _safe_ucsc_genome(ucsc_genome)
     for table_name in ("cytoBandIdeo", "cytoBand"):
         source_url = f"{UCSC_DOWNLOAD_ROOT}/{ucsc_genome}/database/{table_name}.txt.gz"
         text_value = await _get_optional_gzip_text(client, source_url)
@@ -463,6 +478,7 @@ async def _download_genes(
     *,
     ucsc_genome: str,
 ) -> tuple[str, str, str]:
+    ucsc_genome = _safe_ucsc_genome(ucsc_genome)
     for track in ("ncbiRefSeqCurated", "ncbiRefSeq", "refGene", "ensGene"):
         base_url = f"{UCSC_DOWNLOAD_ROOT}/{ucsc_genome}/database/{track}"
         sql_text = await _get_optional_text(client, f"{base_url}.sql")
@@ -569,7 +585,7 @@ async def _get_or_create_assembly(
             "species_id": species_id,
             "assembly_name": assembly_name,
             "version": assembly_version,
-            "release_date": release_date or date.today(),
+            "release_date": release_date or _UNKNOWN_RELEASE_DATE,
         },
     )
     created_row = created.mappings().one()

@@ -26,6 +26,7 @@ _MAX_EVENTS_PER_BATCH = UI_EVENT_BATCH_MAX_EVENTS
 _MAX_LABEL_LEN = 200
 _MAX_SHORT_LEN = 128
 _MAX_PATH_LEN = 512
+_MAX_USER_AGENT_LEN = 256
 
 _SENSITIVE_PREFIXES = (
     "password",
@@ -97,8 +98,11 @@ def _sanitize_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
         elif isinstance(value, (int, float, bool)) or value is None:
             sanitized[key_text] = value
         else:
-            # Drop nested structures; the detail blob is for small scalar context.
-            sanitized[key_text] = str(value)[:_MAX_SHORT_LEN]
+            # The detail blob is for small scalar context. Nested structures aren't
+            # scalar and can hide secrets at depth that top-level key masking misses
+            # (e.g. {"headers": {"authorization": "Bearer ..."}}); str()-ing them
+            # persisted that token verbatim. Record only the shape, never the contents.
+            sanitized[key_text] = f"[{type(value).__name__}]"
     return sanitized
 
 
@@ -125,7 +129,7 @@ def _payload_from_event(
         occurred_at=event.occurred_at,
         detail=_sanitize_detail(event.detail),
         remote_ip=remote_ip,
-        user_agent=user_agent,
+        user_agent=_clean_short(user_agent, _MAX_USER_AGENT_LEN),
         user_id=str(user.id) if getattr(user, "id", None) else None,
         user_email=getattr(user, "email", None),
         user_role=getattr(user, "role", None),

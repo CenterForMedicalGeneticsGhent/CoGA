@@ -1,9 +1,10 @@
 """Optional C — end-to-end haplotype / lineage stage (real stack).
 
-The golden trio deliberately omits haplotypes (a `haplotypes` family-VCF imported
-via the small-variant loader with overwrite=True would clobber its clair3 SNVs).
-This exercises that stage on its OWN family: import a phased GLIMPSE2 trio, which
-the loader ingests as small variants AND derives haplotype blocks from, then:
+The golden trio keeps this stage on its own family for isolation. (Before #329 a
+`haplotypes` family-VCF imported via the small-variant loader with overwrite=True
+would also have clobbered its clair3 SNVs; imports are now scoped by callset
+`source`, so the two coexist.) This imports a phased GLIMPSE2 trio, which the
+loader ingests as small variants AND derives haplotype blocks from, then:
 
 * assert haplotype interval-track rows are produced;
 * run the genome-wide lineage precompute (the genome-overview cache) end-to-end;

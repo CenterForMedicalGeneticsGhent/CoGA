@@ -340,13 +340,18 @@ async def create_user_account(
     first_name: str,
     last_name: str,
     affiliation: str,
-) -> UserRead:
+) -> UserRead | None:
     existing = await session.execute(
         text("SELECT id FROM users WHERE email = :email"),
         {"email": email},
     )
     if existing.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        # Return None rather than raising a distinct "already registered" error:
+        # the signup handler deliberately renders an identical response for new
+        # and existing emails so the endpoint cannot enumerate accounts. Skipping
+        # the insert + admin notification is the only difference, and it is not
+        # observable by the client.
+        return None
 
     created = await session.execute(
         text(

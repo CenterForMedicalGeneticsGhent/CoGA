@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import re
-from typing import Dict, Iterable, Iterator, Literal, Optional
+from typing import Any, Dict, Iterable, Iterator, Literal, Optional
 
 from .data_scope import normalize_chromosome
 
@@ -101,6 +102,31 @@ def parse_svlen(value: str | None) -> int | None:
             return None
 
 
+def _coerce_int(value: Any) -> int | None:
+    """Parse a required integer coordinate; None when unparseable/missing so a
+    malformed record can be skipped rather than aborting the whole ingest."""
+    if value is None or str(value).strip() in {"", "."}:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        try:
+            return int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            return None
+
+
+def _coerce_qual(value: Any) -> float | None:
+    """Parse the optional QUAL column; None (not an error) when missing/non-finite."""
+    if value is None or str(value).strip() in {"", "."}:
+        return None
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
@@ -109,6 +135,11 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
         if len(parts) < 8:
             continue
         variant_id, chrom, start_s, end_s, ref, alt, svtype, gt = parts[:8]
+        start = _coerce_int(start_s)
+        end = _coerce_int(end_s)
+        if start is None or end is None:
+            # Unpositionable record — skip rather than raise mid-ingest.
+            continue
         remote_chr: str | None = None
         remote_start: int | None = None
         remote_end: int | None = None
@@ -119,8 +150,8 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
         yield ParsedStructuralVariant(
             variant_id=variant_id,
             chrom=normalize_chromosome(chrom),
-            start=int(start_s),
-            end=int(end_s),
+            start=start,
+            end=end,
             ref=ref,
             alt=alt,
             svtype=svtype,
@@ -148,6 +179,11 @@ def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVar
         remote_start: int | None = None
         remote_end: int | None = None
 
+        start = _coerce_int(pos)
+        end = _coerce_int(info.get("END", pos))
+        if start is None or end is None:
+            continue
+
         if svtype == "BND":
             remote_chr, remote_start = parse_bnd_alt(alt)
             if remote_start is not None:
@@ -156,14 +192,14 @@ def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVar
         yield ParsedStructuralVariant(
             variant_id=variant_id,
             chrom=normalize_chromosome(chrom),
-            start=int(pos),
-            end=int(info.get("END", pos)),
+            start=start,
+            end=end,
             ref=ref,
             alt=alt,
             svtype=svtype,
             gt=fmt_vals.get("GT", "./."),
             info=info,
-            qual=float(qual) if qual not in {"", "."} else None,
+            qual=_coerce_qual(qual),
             filter=filt or None,
             svlen=parse_svlen(info.get("SVLEN")),
             remote_chr=remote_chr,
@@ -184,19 +220,24 @@ def _iter_spectre_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVari
         chrom_raw, pos, variant_id, ref, alt, qual, filt, info_f, fmt, sample_f = parts[:10]
         info = parse_info(info_f)
         fmt_vals = parse_format(fmt, sample_f)
-        chrom, start = split_chrom_pos(chrom_raw, pos)
+        try:
+            chrom, start = split_chrom_pos(chrom_raw, pos)
+            end = parse_end(info.get("END", pos))
+        except (TypeError, ValueError):
+            # Unpositionable record — skip rather than raise mid-ingest.
+            continue
 
         yield ParsedStructuralVariant(
             variant_id=variant_id,
             chrom=normalize_chromosome(chrom),
             start=start,
-            end=parse_end(info.get("END", pos)),
+            end=end,
             ref=ref,
             alt=alt,
             svtype=info.get("SVTYPE", alt.strip("<>")),
             gt=fmt_vals.get("GT", "./."),
             info=info,
-            qual=float(qual) if qual not in {"", "."} else None,
+            qual=_coerce_qual(qual),
             filter=filt or None,
             svlen=parse_svlen(info.get("SVLEN")),
             phase_set=parse_phase_set(fmt_vals.get("PS")),

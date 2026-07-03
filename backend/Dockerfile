@@ -1,4 +1,6 @@
-FROM python:3.10-slim AS base
+# Pin the base image by digest (tag kept for readability) so builds are reproducible
+# — an IVDR requirement — and don't drift if the upstream tag is repushed.
+FROM python:3.10-slim@sha256:5f9928ea39771e8ddf4fb9a96ab24f65f087793635614405a1dc9384f040852e AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -26,8 +28,24 @@ ENV APP_VERSION=${APP_VERSION} \
 
 EXPOSE 8000
 
+# `--proxy-headers` makes uvicorn honour X-Forwarded-For/Proto from a trusted
+# front end so `request.client.host` is the real client IP (needed for the signup
+# rate-limit bucket and audit logging — behind Cloud Run / a GCP HTTPS LB the raw
+# peer is a Google-internal IP). uvicorn only trusts forwarded headers from peers
+# in FORWARDED_ALLOW_IPS (default 127.0.0.1); set that env to the trusted proxy
+# range in the runtime (see terraform/cloudrun.tf FORWARDED_ALLOW_IPS).
 FROM base AS dev
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--reload"]
 
 FROM base AS production
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Drop root: create an unprivileged user and give it the app tree + the /data mount
+# point. In Cloud Run /data/ref-data is a read-only gcsfuse mount (world-readable, so
+# a non-root UID can read it) and PHI family data goes to GCS via the API — not this
+# path. Local docker-compose bind-mounts a host-owned ./data and overrides
+# `user: root` to keep that writable; the hardening targets the deployed image default.
+RUN groupadd --system --gid 10001 appuser \
+    && useradd --system --uid 10001 --gid appuser --home-dir /app --shell /usr/sbin/nologin appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /app /data
+USER appuser
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
