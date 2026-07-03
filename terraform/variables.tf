@@ -183,6 +183,12 @@ variable "run_db_schema_migrations_on_startup" {
   default     = true
 }
 
+variable "forwarded_allow_ips" {
+  description = "Peers uvicorn trusts X-Forwarded-For from (FORWARDED_ALLOW_IPS). Cloud Run terminates the connection at Google's managed front end, so the immediate peer is a Google-internal IP that varies and the container gets no direct external ingress — '*' is the safe, standard value there and is required for the real client IP to reach the signup rate-limiter and audit log. Narrow to a specific CIDR only if you front the service with your own reverse proxy."
+  type        = string
+  default     = "*"
+}
+
 # ---------------------------------------------------------------------------
 # Object storage backend
 # ---------------------------------------------------------------------------

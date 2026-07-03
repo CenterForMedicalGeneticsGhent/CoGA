@@ -86,6 +86,16 @@ class Token(BaseModel):
     role: str
 
 
+class SignupAck(BaseModel):
+    """Generic signup acknowledgement.
+
+    Returned for every signup request regardless of whether the submitted email
+    is already registered, so the endpoint cannot be used to enumerate accounts.
+    """
+
+    detail: str
+
+
 class FamilyMemberOut(BaseModel):
     """Schema for a family member with a human-friendly sample ID."""
 

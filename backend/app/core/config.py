@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
@@ -214,7 +215,7 @@ class Settings(BaseSettings):
         alias="CORS_ORIGINS",
     )
     cors_origin_regex: str = Field(
-        default=r"https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
+        default=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
         alias="CORS_ORIGIN_REGEX",
     )
     reference_fasta_path: str | None = None
@@ -356,6 +357,29 @@ class Settings(BaseSettings):
         env_file=str(_env_path) if _env_path.exists() else ".env",
         extra="ignore",
     )
+
+    @field_validator("cors_origin_regex")
+    @classmethod
+    def validate_cors_origin_regex(cls, value: str) -> str:
+        # `allow_credentials=True` combined with a broad origin regex is a CORS
+        # bypass (a hostile origin could be matched and receive credentialed
+        # responses). Reject anything that does not compile or is not fully
+        # anchored so an operator can't accidentally widen it to a substring match.
+        if not value:
+            # Empty pattern matches nothing under Starlette's fullmatch — safe.
+            return value
+        try:
+            re.compile(value)
+        except re.error as exc:
+            raise ValueError(
+                f"CORS_ORIGIN_REGEX is not a valid regular expression: {exc}"
+            ) from exc
+        if not (value.startswith("^") and value.endswith("$")):
+            raise ValueError(
+                "CORS_ORIGIN_REGEX must be fully anchored (start with '^' and end "
+                "with '$') so it cannot match a hostile origin as a substring"
+            )
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

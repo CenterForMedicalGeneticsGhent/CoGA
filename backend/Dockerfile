@@ -28,8 +28,14 @@ ENV APP_VERSION=${APP_VERSION} \
 
 EXPOSE 8000
 
+# `--proxy-headers` makes uvicorn honour X-Forwarded-For/Proto from a trusted
+# front end so `request.client.host` is the real client IP (needed for the signup
+# rate-limit bucket and audit logging — behind Cloud Run / a GCP HTTPS LB the raw
+# peer is a Google-internal IP). uvicorn only trusts forwarded headers from peers
+# in FORWARDED_ALLOW_IPS (default 127.0.0.1); set that env to the trusted proxy
+# range in the runtime (see terraform/cloudrun.tf FORWARDED_ALLOW_IPS).
 FROM base AS dev
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--reload"]
 
 FROM base AS production
 # Drop root: create an unprivileged user and give it the app tree + the /data mount
@@ -42,4 +48,4 @@ RUN groupadd --system --gid 10001 appuser \
     && mkdir -p /data \
     && chown -R appuser:appuser /app /data
 USER appuser
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
