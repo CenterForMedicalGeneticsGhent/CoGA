@@ -138,11 +138,12 @@ cd frontend && E2E_PYTHON=/path/to/python npx playwright test
 | --- | --- |
 | [backend/tests/test_access_control.py](../backend/tests/test_access_control.py) | Project-scoped RBAC: viewer/admin access, cross-project visibility. |
 | [backend/tests/test_auth_rate_limit_pg.py](../backend/tests/test_auth_rate_limit_pg.py) | Failed-login throttling and reset; per-IP signup throttling (independent bucket). |
-| [backend/tests/test_signup_throttle.py](../backend/tests/test_signup_throttle.py) | /auth/signup is rate-limited per IP: 429 (with Retry-After) when throttled before any hash/create; records the attempt and creates when allowed. |
+| [backend/tests/test_signup_throttle.py](../backend/tests/test_signup_throttle.py) | /auth/signup is rate-limited per IP (429 + Retry-After before any hash/create) and returns an identical generic 202 for new vs. already-registered emails (no account enumeration). |
+| [backend/tests/test_auth_login_timing.py](../backend/tests/test_auth_login_timing.py) | Login runs a dummy bcrypt verify on the no-such-account path so response time doesn't leak account existence; the equalizer hash is a valid bcrypt hash. |
 | [backend/tests/test_auth_swagger_token.py](../backend/tests/test_auth_swagger_token.py) | Swagger/bearer token authentication. |
 | [backend/tests/test_reference_status_auth.py](../backend/tests/test_reference_status_auth.py) | `/assemblies/reference-status` requires auth (no unauthenticated provenance/operator-email leak). |
 | [backend/tests/test_admin_route_gating.py](../backend/tests/test_admin_route_gating.py) | Panel/tag-definition mutations enforce admin at the route (403 for a viewer); the dead `/admin/samples/{id}/projects` route is removed (404). |
-| [backend/tests/test_config_security.py](../backend/tests/test_config_security.py) | Refuse-to-start on insecure default secrets outside dev. |
+| [backend/tests/test_config_security.py](../backend/tests/test_config_security.py) | Refuse-to-start on insecure default secrets outside dev; CORS origin regex must compile and be fully anchored. |
 | [backend/tests/test_coga_logging.py](../backend/tests/test_coga_logging.py) | `scrub_log` control-character neutralization (CWE-117 log forging): CR/LF/tab/DEL replaced, clean values pass through, oversized truncated. |
 | [backend/tests/test_request_logging.py](../backend/tests/test_request_logging.py) | Request-logging sanitization, path/secret masking, db-update derivation (incl. stripping the `/api` mount prefix so the audit entity is the real collection). |
 | [backend/tests/test_http_resilience.py](../backend/tests/test_http_resilience.py) | P2-9 outbound resilience: idempotent requests retry transient failures (transport errors + 429/5xx) with capped backoff; non-idempotent + 4xx never retry; bounded worst case; own-client body still readable; S3 Config has bounded timeouts + adaptive retries. |
