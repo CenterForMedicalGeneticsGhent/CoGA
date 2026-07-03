@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,6 +12,8 @@ from .core.azure import verify_azure_token
 from .core.config import settings
 from .core.postgres import get_postgres_session
 from .services.metadata_service import CurrentUser, get_current_user_by_email
+
+logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
@@ -79,6 +82,17 @@ async def get_current_user(
         raise credentials_exception
     if local_override and user.role not in ADMIN_ROLES:
         raise credentials_exception
+    if local_override:
+        # The Azure-SSO break-glass path accepted a locally-issued HS256 token for
+        # an admin. This is gated (AZURE_ADMIN_OVERRIDE, default off) and admin-only,
+        # but every use must leave an audit trail so it can be caught if enabled in
+        # production by mistake.
+        logger.warning(
+            "azure_admin_override: accepted a locally-issued HS256 token for admin "
+            "user %s (role=%s); AZURE_ADMIN_OVERRIDE should be disabled in production",
+            user.email,
+            user.role,
+        )
     request.state.current_user = user
     return user
 

@@ -18,6 +18,7 @@ from ..dependencies import (
     get_current_admin_user,
 )
 from ..schemas import (
+    SignupAck,
     SmallVariantFilterPresetOut,
     Token,
     UserCreate,
@@ -45,6 +46,12 @@ from ..services.small_variant_review_pg import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# A constant bcrypt hash used to equalize the cost of the login path when the
+# submitted email does not exist. Without it, only real accounts pay the bcrypt
+# verify cost, leaking account existence through a response-time side-channel.
+# Computed once at import so it matches the configured bcrypt work factor.
+_DUMMY_LOGIN_PASSWORD_HASH = get_password_hash("coga-login-timing-equalizer")
 
 
 def _request_remote_ip(request: Request) -> str | None:
@@ -91,6 +98,10 @@ async def _authenticate_and_issue_token(
 
     user = await get_auth_user_mapping_by_email(session, email)
     if user is None:
+        # Run a throwaway verify so the no-such-account path costs roughly the
+        # same as a wrong-password path; otherwise the response time reveals
+        # which emails are registered (account enumeration).
+        verify_password(password, _DUMMY_LOGIN_PASSWORD_HASH)
         await record_failed_login(
             session,
             email=email,
@@ -124,7 +135,11 @@ async def _authenticate_and_issue_token(
     return Token(access_token=access_token, token_type="bearer", role=user["role"])
 
 
-@router.post("/signup", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/signup",
+    response_model=SignupAck,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def signup(
     user_in: UserCreate,
     background_tasks: BackgroundTasks,
@@ -146,6 +161,10 @@ async def signup(
     await record_signup_attempt(session, remote_ip=remote_ip)
     await session.commit()
 
+    # Always hash the password and return an identical acknowledgement whether or
+    # not the email already exists, so the endpoint cannot be used to enumerate
+    # accounts. `create_user_account` returns None (instead of raising) for a
+    # duplicate email; we simply skip the insert + admin notification in that case.
     created = await create_user_account(
         session,
         email=user_in.email,
@@ -154,8 +173,14 @@ async def signup(
         last_name=user_in.last_name,
         affiliation=user_in.affiliation,
     )
-    background_tasks.add_task(notify_admin, created.email)
-    return created
+    if created is not None:
+        background_tasks.add_task(notify_admin, created.email)
+    return SignupAck(
+        detail=(
+            "Registration received. An administrator will review the request and "
+            "activate the account if approved."
+        )
+    )
 
 
 @router.post("/login", response_model=Token)

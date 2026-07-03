@@ -68,7 +68,7 @@ def test_signup_returns_429_when_ip_throttled(signup_client) -> None:
 
 def test_signup_records_attempt_and_creates_when_not_throttled(signup_client) -> None:
     client, monkeypatch = signup_client
-    recorded = {"ip": "unset"}
+    recorded = {"ip": "unset", "notified": None}
 
     async def allowed(session, *, remote_ip, now=None):
         return None
@@ -94,12 +94,52 @@ def test_signup_records_attempt_and_creates_when_not_throttled(signup_client) ->
     monkeypatch.setattr(auth_router, "get_signup_throttle_state", allowed)
     monkeypatch.setattr(auth_router, "record_signup_attempt", record)
     monkeypatch.setattr(auth_router, "create_user_account", fake_create)
-    monkeypatch.setattr(auth_router, "notify_admin", lambda email: None)
+    monkeypatch.setattr(
+        auth_router, "notify_admin", lambda email: recorded.__setitem__("notified", email)
+    )
 
     response = client.post("/api/auth/signup", json=_payload())
 
-    assert response.status_code == 201
-    assert response.json()["email"] == "new@example.com"
-    assert response.json()["is_active"] is False
+    # Generic acknowledgement (202) rather than the created user record: a fresh
+    # signup must be indistinguishable from a duplicate so accounts can't be
+    # enumerated. The email/is_active fields are no longer returned.
+    assert response.status_code == 202
+    body = response.json()
+    assert "email" not in body
+    assert body["detail"]
+    # A genuinely new account still triggers the admin notification.
+    assert recorded["notified"] == "new@example.com"
     # The attempt is recorded against the client IP (counts toward the IP rate).
     assert recorded["ip"] is not None
+
+
+def test_signup_duplicate_email_is_indistinguishable(signup_client) -> None:
+    client, monkeypatch = signup_client
+    recorded = {"notified": None}
+
+    async def allowed(session, *, remote_ip, now=None):
+        return None
+
+    async def record(session, *, remote_ip, now=None):
+        return None
+
+    async def fake_create_existing(session, **kwargs):
+        # create_user_account returns None when the email is already registered.
+        return None
+
+    monkeypatch.setattr(auth_router, "get_signup_throttle_state", allowed)
+    monkeypatch.setattr(auth_router, "record_signup_attempt", record)
+    monkeypatch.setattr(auth_router, "create_user_account", fake_create_existing)
+    monkeypatch.setattr(
+        auth_router, "notify_admin", lambda email: recorded.__setitem__("notified", email)
+    )
+
+    response = client.post("/api/auth/signup", json=_payload())
+
+    # Same 202 + generic body as a fresh signup, and no admin notification fires —
+    # nothing in the response reveals that the account already existed.
+    assert response.status_code == 202
+    body = response.json()
+    assert "email" not in body
+    assert body["detail"]
+    assert recorded["notified"] is None
