@@ -12,7 +12,6 @@ import type {
   ApiFamilyMemberBatchUpdateResponse,
   ApiFamilyMemberDeleteResponse,
   ApiFamilyMemberDetail,
-  ApiFamilyRegionOfInterest,
   ApiFamilyStatusDefinition,
   ApiHpoAnnotation,
   ApiHpoTerm,
@@ -33,225 +32,44 @@ import {
 } from '../../lib/reference';
 import {
   getTagDefinitionMap,
-  sortTagDefinitions,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import { getReviewTagStyle } from './smallVariantResultUtils';
 
-interface PedRow {
-  fid: string;
-  iid: string;
-  pid: string;
-  mid: string;
-  sex: string;
-  phen: string;
-}
-
-type ClinicalStatus = 'unknown' | 'unaffected' | 'affected';
-type CarrierStatus = 'unknown' | 'not_carrier' | 'carrier';
-type CarrierType = 'obligate' | 'proven' | 'reported' | 'inferred';
-type HpoAnnotationStatus = 'present' | 'absent' | 'unknown';
-
-interface StructureMemberDraft {
-  sample_id: string;
-  sex: 'male' | 'female' | 'und';
-  role: 'proband' | 'father' | 'mother' | 'sibling' | 'embryo' | 'relative';
-  clinical_status: ClinicalStatus;
-  carrier_status: CarrierStatus;
-  carrier_type: CarrierType | '';
-  isNew?: boolean;
-  removed?: boolean;
-}
-
-interface ParentChildDraft {
-  id: string;
-  parent: string;
-  child: string;
-  parent_role: 'father' | 'mother' | 'parent';
-}
-
-interface CoupleDraft {
-  id: string;
-  partnerA: string;
-  partnerB: string;
-  context: string;
-}
-
-interface MemberDetailDraft {
-  sample_id: string;
-  sex: StructureMemberDraft['sex'];
-  role: StructureMemberDraft['role'];
-  clinical_status: ClinicalStatus;
-  carrier_status: CarrierStatus;
-  carrier_type: CarrierType | '';
-  father_id: string;
-  mother_id: string;
-}
-
-const ROLE_OPTIONS: StructureMemberDraft['role'][] = [
-  'proband',
-  'father',
-  'mother',
-  'sibling',
-  'embryo',
-  'relative',
-];
-const SEX_OPTIONS: StructureMemberDraft['sex'][] = ['male', 'female', 'und'];
-const CLINICAL_STATUS_OPTIONS: ClinicalStatus[] = ['unknown', 'unaffected', 'affected'];
-const CARRIER_STATUS_OPTIONS: CarrierStatus[] = ['unknown', 'not_carrier', 'carrier'];
-const CARRIER_TYPE_OPTIONS: CarrierType[] = ['proven', 'obligate', 'reported', 'inferred'];
-const HPO_STATUS_OPTIONS: HpoAnnotationStatus[] = ['present', 'absent', 'unknown'];
-
-const defaultNewMember: StructureMemberDraft = {
-  sample_id: '',
-  sex: 'und',
-  role: 'relative',
-  clinical_status: 'unknown',
-  carrier_status: 'unknown',
-  carrier_type: '',
-  isNew: true,
-};
-
-const parsePedigree = (pedigree?: string | null): PedRow[] => {
-  if (!pedigree) return [];
-  return pedigree
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => {
-      const [fid, iid, pid, mid, sex, phen] = line.trim().split(/\s+/);
-      return { fid, iid, pid, mid, sex, phen };
-    });
-};
-
-const sampleKey = (sampleId: string): string => sampleId.trim().toLowerCase();
-
-const formatHpoTermOption = (term: ApiHpoTerm): string => `${term.hpo_id} ${term.label}`;
-
-const clinicalStatusForMember = (member: {
-  clinical_status?: string | null;
-  affected?: boolean;
-}): ClinicalStatus => {
-  if (member.clinical_status === 'affected' || member.clinical_status === 'unaffected') {
-    return member.clinical_status;
-  }
-  if (member.affected) return 'affected';
-  return 'unknown';
-};
-
-const carrierStatusForMember = (member: {
-  carrier_status?: string | boolean | null;
-}): CarrierStatus => {
-  if (member.carrier_status === 'carrier') return 'carrier';
-  if (member.carrier_status === 'not_carrier') return 'not_carrier';
-  if (member.carrier_status === true) return 'carrier';
-  return 'unknown';
-};
-
-const hpoTooltip = (annotation: ApiHpoAnnotation): string => {
-  return [
-    `${annotation.hpo_id}: ${annotation.definition || annotation.label}`,
-    annotation.note ? `Note: ${annotation.note}` : '',
-    annotation.evidence ? `Evidence: ${annotation.evidence}` : '',
-  ]
-    .filter(Boolean)
-    .join(' | ');
-};
-
-const memberDraftFromFamilyMember = (member: ApiFamilyRecord['members'][number]): StructureMemberDraft => ({
-  sample_id: member.sample_id,
-  sex: member.sex === 'male' || member.sex === 'female' ? member.sex : 'und',
-  role: ROLE_OPTIONS.includes(member.role as StructureMemberDraft['role'])
-    ? (member.role as StructureMemberDraft['role'])
-    : 'relative',
-  clinical_status: clinicalStatusForMember(member),
-  carrier_status: carrierStatusForMember(member),
-  carrier_type: member.carrier_type ?? '',
-  isNew: false,
-  removed: member.active === false,
-});
-
-const parentChildDraftsFromRelationships = (family: ApiFamilyRecord | undefined): ParentChildDraft[] => {
-  const relationships = family?.relationships?.filter(
-    (relationship) => relationship.relationship_type === 'parent_child',
-  );
-  return (relationships || []).map((relationship, index) => ({
-    id: relationship.id || `parent-child-${index}`,
-    parent: relationship.sample_id_a,
-    child: relationship.sample_id_b,
-    parent_role:
-      relationship.role_a === 'father' || relationship.role_a === 'mother'
-        ? relationship.role_a
-        : 'parent',
-  }));
-};
-
-const parentsForSample = (
-  family: ApiFamilyRecord | undefined,
-  sampleId: string,
-): { father_id: string; mother_id: string } => {
-  const childKey = sampleKey(sampleId);
-  return (family?.relationships || []).reduce(
-    (parents, relationship) => {
-      if (
-        relationship.relationship_type !== 'parent_child' ||
-        sampleKey(relationship.sample_id_b) !== childKey
-      ) {
-        return parents;
-      }
-      if (relationship.role_a === 'father') {
-        parents.father_id = relationship.sample_id_a;
-      } else if (relationship.role_a === 'mother') {
-        parents.mother_id = relationship.sample_id_a;
-      }
-      return parents;
-    },
-    { father_id: '', mother_id: '' },
-  );
-};
-
-const coupleDraftsFromRelationships = (family: ApiFamilyRecord | undefined): CoupleDraft[] =>
-  (family?.relationships || [])
-    .filter((relationship) => relationship.relationship_type === 'couple')
-    .map((relationship, index) => ({
-      id: relationship.id || `couple-${index}`,
-      partnerA: relationship.sample_id_a,
-      partnerB: relationship.sample_id_b,
-      context: typeof relationship.metadata?.context === 'string' ? relationship.metadata.context : '',
-    }));
-
-const formatRegion = (roi: ApiFamilyRegionOfInterest): string => {
-  const chrom = roi.chr.startsWith('chr') ? roi.chr : `chr${roi.chr}`;
-  return `${chrom}:${roi.start.toLocaleString()}-${roi.end.toLocaleString()}`;
-};
-
-const getReviewSummaryTags = (
-  tagCounts: Record<string, number> | undefined,
-  tagDefinitions: SmallVariantTagDefinition[],
-) => {
-  const counts = tagCounts || {};
-  const activeKeys = new Set<string>();
-  const knownTags = sortTagDefinitions(tagDefinitions)
-    .map((tag) => {
-      const count = counts[tag.key] ?? 0;
-      if (count <= 0) return null;
-      activeKeys.add(tag.key);
-      return {
-        key: tag.key,
-        label: tag.label,
-        count,
-      };
-    })
-    .filter((entry): entry is { key: string; label: string; count: number } => entry !== null);
-  const unknownTags = Object.entries(counts)
-    .filter(([key, count]) => count > 0 && !activeKeys.has(key))
-    .sort(([left], [right]) => left.localeCompare(right, undefined, { sensitivity: 'base' }))
-    .map(([key, count]) => ({
-      key,
-      label: key,
-      count,
-    }));
-  return [...knownTags, ...unknownTags];
-};
+import type {
+  CarrierStatus,
+  CarrierType,
+  ClinicalStatus,
+  CoupleDraft,
+  HpoAnnotationStatus,
+  MemberDetailDraft,
+  ParentChildDraft,
+  StructureMemberDraft,
+} from './familyDetailTypes';
+import {
+  CARRIER_STATUS_OPTIONS,
+  CARRIER_TYPE_OPTIONS,
+  CLINICAL_STATUS_OPTIONS,
+  defaultNewMember,
+  HPO_STATUS_OPTIONS,
+  ROLE_OPTIONS,
+  SEX_OPTIONS,
+} from './familyDetailConstants';
+import {
+  carrierStatusForMember,
+  clinicalStatusForMember,
+  coupleDraftsFromRelationships,
+  formatHpoTermOption,
+  formatRegion,
+  getReviewSummaryTags,
+  hpoTooltip,
+  memberDraftFromFamilyMember,
+  parentChildDraftsFromRelationships,
+  parentsForSample,
+  parsePedigree,
+  sampleKey,
+} from './familyDetailHelpers';
+import VariantWorkspaceLink from './VariantWorkspaceLink';
 
 interface FamilyDetailPageProps {
   editable?: boolean;
@@ -263,23 +81,6 @@ interface FamilyDetailPageProps {
   /** Drop the standalone page-shell chrome so the workspace nests inside a card. */
   embedded?: boolean;
 }
-
-/**
- * A variant-workspace navigation control. Renders a link only when its data type
- * is available; when there is no underlying data the control is omitted entirely
- * so the family page surfaces only the workspaces this family actually has.
- */
-const VariantWorkspaceLink: React.FC<{
-  active: boolean;
-  to: string;
-  className: string;
-  children: React.ReactNode;
-}> = ({ active, to, className, children }) =>
-  active ? (
-    <Link to={to} className={`${className} hover:no-underline`}>
-      {children}
-    </Link>
-  ) : null;
 
 const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   editable = false,
