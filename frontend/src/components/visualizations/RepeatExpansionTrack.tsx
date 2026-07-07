@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
@@ -30,7 +31,7 @@ const RepeatExpansionTrack: React.FC<Props> = ({
   chromosomeSize,
 }) => {
   const overviewMode = Number.isFinite(chromosomeSize) && (chromosomeSize ?? 0) > 0;
-  const { data, isLoading } = useQuery<ApiRepeatExpansionTrackResponse>({
+  const { data: rawData, isLoading } = useQuery<ApiRepeatExpansionTrackResponse>({
     queryKey: [
       'repeat-expansions',
       familyId,
@@ -62,7 +63,10 @@ const RepeatExpansionTrack: React.FC<Props> = ({
       return response.data as ApiRepeatExpansionTrackResponse;
     },
     enabled: overviewMode || regionEnd > regionStart,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
+  const data = useSameSpanFallbackData(rawData, (regionEnd ?? 0) - (regionStart ?? 0));
 
   const regionLength = Math.max(regionEnd - regionStart, 1);
   const visibleItems = useMemo(
