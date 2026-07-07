@@ -4599,11 +4599,6 @@ def _split_delimited_line(line: str) -> list[str]:
     return stripped.split()
 
 
-def _looks_like_header(parts: list[str], required: set[str]) -> bool:
-    normalized = {_normalize_header_key(part) for part in parts}
-    return required.issubset(normalized)
-
-
 def _looks_like_interval_header(parts: list[str]) -> bool:
     normalized = {_normalize_header_key(part) for part in parts}
     has_chrom = bool(normalized & {"chr", "chrom", "chromosome"})

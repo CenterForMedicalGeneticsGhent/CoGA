@@ -2903,26 +2903,6 @@ def _text_contains_any(expr: str, *, prefix: str, values: Sequence[str], params:
     return f"({' OR '.join(clauses)})" if clauses else None
 
 
-def _array_text_contains_any(
-    expr: str,
-    *,
-    prefix: str,
-    values: Sequence[str],
-    params: dict[str, Any],
-) -> str | None:
-    clauses: list[str] = []
-    for index, value in enumerate(values):
-        text_value = str(value or "").strip()
-        if not text_value:
-            continue
-        param = f"{prefix}_{index}"
-        params[param] = text_value
-        clauses.append(
-            f"arrayExists(value -> positionCaseInsensitive(value, %({param})s) > 0, {expr})"
-        )
-    return f"({' OR '.join(clauses)})" if clauses else None
-
-
 def _small_gene_filter_condition(
     gene_values: Sequence[str],
     *,
@@ -4357,20 +4337,6 @@ def _can_use_structural_native_page(
             filters.has_notes,
         )
     )
-
-
-def _bounded_page_total(
-    *,
-    page: int,
-    page_size: int,
-    fetched_count: int,
-) -> tuple[int, bool]:
-    page_count = min(fetched_count, page_size)
-    has_more = fetched_count > page_size
-    total = _page_offset(page, page_size) + page_count
-    if has_more:
-        total += 1
-    return total, has_more
 
 
 def _small_pair_inheritance_candidate_limit(filters: SmallVariantQueryFilters) -> int | None:
