@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<!--
+  Query-level memory guards for the `default` profile (the profile the app's
+  CLICKHOUSE_USER inherits).
+
+  Why: the Chromosome View fires a burst of concurrent queries — coverage +
+  segments for every family member plus the structural-variant query — against
+  the multi-million-row `*/INTERVAL/entries` and `*/SV/*` tables. Collectively
+  they could exceed the server-wide memory cap (~90% of the container's RAM) and
+  fail with `Code: 241 MEMORY_LIMIT_EXCEEDED`; the coverage endpoint then returns
+  an empty result, surfacing as "No BED data for selected samples" / no SVs.
+
+  These settings make heavy GROUP BY / ORDER BY spill to disk instead of holding
+  everything in RAM, and cap any single query, so the concurrent burst fits under
+  the server ceiling and degrades gracefully instead of returning empty.
+
+  external thresholds are kept at half of max_memory_usage (ClickHouse's
+  recommendation, since the two-phase merge can transiently use ~2x).
+-->
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- Cap a single query at 4 GiB (prevents one runaway query from
+                 exhausting the server for everyone). -->
+            <max_memory_usage>4000000000</max_memory_usage>
+            <!-- Spill GROUP BY aggregation state to disk past 2 GiB. -->
+            <max_bytes_before_external_group_by>2000000000</max_bytes_before_external_group_by>
+            <!-- Spill ORDER BY (e.g. the coverage `ORDER BY chrom, start`) to
+                 disk past 2 GiB. -->
+            <max_bytes_before_external_sort>2000000000</max_bytes_before_external_sort>
+        </default>
+    </profiles>
+</clickhouse>

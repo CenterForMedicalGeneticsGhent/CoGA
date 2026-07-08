@@ -40,6 +40,10 @@ services:
       retries: 30
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      # Query-level memory guards (spill heavy GROUP BY/ORDER BY to disk + per-query
+      # cap) so the Chromosome View's concurrent coverage/segment/SV query burst
+      # degrades gracefully instead of hitting the server memory cap.
+      - ./clickhouse/users.d/memory-guards.xml:/etc/clickhouse-server/users.d/memory-guards.xml:ro
     ports:
       - "8123:8123"
       - "9000:9000"
