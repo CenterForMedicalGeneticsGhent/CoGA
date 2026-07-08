@@ -32,8 +32,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-dist/
-build/
 
 # Playwright (browser e2e) — per-run reports/artifacts, not committed
 frontend/playwright-report/
@@ -74,7 +72,6 @@ frontend/playwright/.cache/
 # coverage (P2-7)
 frontend/coverage/
 coverage.json
-.coverage
 
 # Terraform / OpenTofu working files
 **/.terraform/*

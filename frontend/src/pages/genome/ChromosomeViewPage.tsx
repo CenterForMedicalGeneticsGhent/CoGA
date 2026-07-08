@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type {
   ApiChromosomeTrackAvailability,
@@ -291,6 +291,7 @@ const ChromosomeViewPage: React.FC = () => {
       return response.data as ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>;
     },
     enabled: !!familyId && !!data && region.end > region.start,
+    placeholderData: keepPreviousData,
   });
 
   const availability = useMemo(
@@ -386,6 +387,17 @@ const ChromosomeViewPage: React.FC = () => {
     const targetSpan = Math.max(Math.round(span * factor), 1);
     const center = region.start + span / 2;
     setClampedRegion(center - targetSpan / 2, center + targetSpan / 2);
+  };
+
+  // Zoom keeping the genomic position under the cursor fixed. focus is a 0..1
+  // fraction of the visible window (0 = left edge, 1 = right edge).
+  const handleZoomAt = (factor: number, focus: number) => {
+    if (!chromInfo?.size || region.end <= region.start) return;
+    const span = Math.max(region.end - region.start, 1);
+    const targetSpan = Math.max(Math.round(span * factor), 1);
+    const focusBp = region.start + focus * span;
+    const nextStart = focusBp - focus * targetSpan;
+    setClampedRegion(nextStart, nextStart + targetSpan);
   };
 
   const visibleRoi = useMemo(() => {
@@ -548,6 +560,7 @@ const ChromosomeViewPage: React.FC = () => {
         }}
         onPan={handlePan}
         onZoom={handleZoom}
+        onZoomAt={handleZoomAt}
         onRegionSelect={(start, end) => {
           const nextRegion = { start, end };
           setRegion(nextRegion);

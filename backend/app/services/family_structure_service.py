@@ -649,13 +649,6 @@ def _nonzero_counts(counts: dict[str, int]) -> dict[str, int]:
     }
 
 
-def _format_data_counts(counts: dict[str, int]) -> str:
-    return ", ".join(
-        f"{data_type}={count}"
-        for data_type, count in sorted(_nonzero_counts(counts).items())
-    )
-
-
 async def _insert_new_member(
     session: AsyncSession,
     *,

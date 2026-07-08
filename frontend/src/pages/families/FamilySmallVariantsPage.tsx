@@ -4,7 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import Pedigree from '../../components/visualizations/Pedigree';
-import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
+import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import LoadingBar from '../../components/LoadingBar';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
@@ -65,17 +65,12 @@ const FamilySmallVariantsPage: React.FC = () => {
     assemblyName,
     assemblyVersion,
     projectId,
-    isLoading: referenceLoading,
   } = useFamilyReference(
     family?.projects as string[] | undefined,
     preferredProjectId,
   );
   const variantQueryReady = Boolean(
     familyId && family && (!(family.projects?.length) || projectId),
-  );
-  const referenceLabel = formatResolvedReferenceLabel(
-    { speciesName, assemblyName, assemblyVersion },
-    family?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Reference not linked',
   );
 
   const { data: panels = [], isLoading: panelsLoading } = useQuery<GenePanel[]>({

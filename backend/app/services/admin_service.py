@@ -65,10 +65,6 @@ def _empty_track_counts(track_types: tuple[str, ...]) -> dict[str, int]:
     return {track_type: 0 for track_type in track_types}
 
 
-def _track_presence(track_counts: dict[str, int]) -> dict[str, bool]:
-    return {track_type: count > 0 for track_type, count in track_counts.items()}
-
-
 def _search_pattern(search: str | None) -> str | None:
     term = str(search or "").strip()
     if not term:

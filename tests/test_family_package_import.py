@@ -569,8 +569,14 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     async def fake_import_copy_number_track(*args, **kwargs) -> dict[str, int]:
         return {"processed": 1, "inserted": 1, "skipped": 1}
 
-    monkeypatch.setattr(package_import, "_interval_track_count", fake_interval_track_count)
-    monkeypatch.setattr(package_import, "_import_copy_number_track", fake_import_copy_number_track)
+    # _import_qdnaseq_dataset now lives in family_package_datasets; patch the helpers
+    # it calls where that module resolves them.
+    monkeypatch.setattr(
+        "backend.app.services.family_package_datasets._interval_track_count", fake_interval_track_count
+    )
+    monkeypatch.setattr(
+        "backend.app.services.family_package_datasets._import_copy_number_track", fake_import_copy_number_track
+    )
 
     result = await package_import._import_qdnaseq_dataset(
         session=object(),

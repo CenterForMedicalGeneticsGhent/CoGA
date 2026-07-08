@@ -46,9 +46,17 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
         calls["interval"] += 1
         assert family_uuid == "uuid-1"
 
-    monkeypatch.setattr(fpi, "delete_family_small_variants", fake_small)
-    monkeypatch.setattr(fpi, "delete_family_structural_variants", fake_structural)
-    monkeypatch.setattr(fpi, "delete_interval_tracks", fake_interval)
+    # _delete_family_shell now lives in family_package_registration; patch the
+    # deletion helpers where that function resolves them.
+    monkeypatch.setattr(
+        "app.services.family_package_registration.delete_family_small_variants", fake_small
+    )
+    monkeypatch.setattr(
+        "app.services.family_package_registration.delete_family_structural_variants", fake_structural
+    )
+    monkeypatch.setattr(
+        "app.services.family_package_registration.delete_interval_tracks", fake_interval
+    )
 
     session = _FakeSession()
     await fpi._delete_family_shell(session, _ctx())

@@ -19,9 +19,14 @@ ASSEMBLY = "GRCh38"
 SPECIES = "Homo sapiens"
 OUTPUT_ROOT = Path(__file__).resolve().parents[1] / "demo" / "quartet_family"
 
-COVERAGE_BIN_SIZE = 15_000
-APCAD_TARGET_POINTS = 50_000
-SMALL_VARIANT_TARGET = 5_184
+# Demo-volume knobs. These are deliberately sparse: the demo only needs enough
+# rows to exercise every track/filter (tests assert row counts > 0, never exact
+# totals), and committing dense genome-wide fixtures bloated the repo. Raise these
+# back up if a denser walkthrough is ever needed — the generator is deterministic
+# (fixed SEED), so regenerating is reproducible.
+COVERAGE_BIN_SIZE = 500_000  # ~5.7k genome-wide bins/sample (was 15k → 190k rows)
+APCAD_TARGET_POINTS = 1_000  # per sample (was 50k)
+SMALL_VARIANT_TARGET = 1_000  # family small-variant sites (was 5,184)
 
 CHROM_LENGTHS: Dict[str, int] = {
     "1": 248_956_422,
@@ -87,20 +92,23 @@ NO_DATA_INTERVALS: Dict[str, List[Tuple[int, int]]] = {
 }
 
 
+# Structural-variant volume per inheritance category (downsampled ~20x from the
+# original dense set — every category and per-sample lane still has variants so
+# the inheritance-pattern demo stays intact).
 STRUCTURAL_CATEGORY_COUNTS: Tuple[Tuple[str, Tuple[str, ...], int], ...] = (
-    ("all_shared", ("father", "mother", "son", "daughter"), 2_820),
-    ("father_son", ("father", "son"), 430),
-    ("mother_son", ("mother", "son"), 445),
-    ("father_daughter", ("father", "daughter"), 410),
-    ("mother_daughter", ("mother", "daughter"), 435),
-    ("father_son_daughter", ("father", "son", "daughter"), 125),
-    ("mother_son_daughter", ("mother", "son", "daughter"), 118),
-    ("parents_only", ("father", "mother"), 320),
-    ("children_only", ("son", "daughter"), 325),
-    ("father_private", ("father",), 905),
-    ("mother_private", ("mother",), 930),
-    ("son_private", ("son",), 780),
-    ("daughter_private", ("daughter",), 795),
+    ("all_shared", ("father", "mother", "son", "daughter"), 140),
+    ("father_son", ("father", "son"), 22),
+    ("mother_son", ("mother", "son"), 22),
+    ("father_daughter", ("father", "daughter"), 20),
+    ("mother_daughter", ("mother", "daughter"), 22),
+    ("father_son_daughter", ("father", "son", "daughter"), 6),
+    ("mother_son_daughter", ("mother", "son", "daughter"), 6),
+    ("parents_only", ("father", "mother"), 16),
+    ("children_only", ("son", "daughter"), 16),
+    ("father_private", ("father",), 45),
+    ("mother_private", ("mother",), 46),
+    ("son_private", ("son",), 39),
+    ("daughter_private", ("daughter",), 40),
 )
 
 
