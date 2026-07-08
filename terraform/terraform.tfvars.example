@@ -11,9 +11,10 @@ app_domain = "coga.cmgg.be"
 backend_image  = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-backend:main"
 frontend_image = "europe-west1-docker.pkg.dev/my-registry-project/coga/coga-frontend:main"
 
-# CMEK: fully-qualified crypto key id, same region as resources. Set enable_cmek
-# = false to fall back to Google-managed keys (not recommended for PHI).
-enable_cmek        = true
+# CMEK: fully-qualified crypto key id, same region as the resources it protects.
+# Encryption is mandatory (organization policy) — there is no on/off toggle; this is
+# required. The key + its service-agent grants are provisioned in the central infra
+# repo (see terraform/main-repo-reference/).
 cmek_key_self_link = "projects/my-kms-project/locations/europe-west1/keyRings/coga/cryptoKeys/coga"
 
 # Sizing (scale up for production).

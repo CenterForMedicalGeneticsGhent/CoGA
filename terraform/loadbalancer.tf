@@ -37,9 +37,12 @@ resource "google_compute_backend_service" "backend" {
   backend {
     group = google_compute_region_network_endpoint_group.backend.id
   }
+  # Sample 10% of requests — enough for traffic/latency visibility without the cost
+  # and volume of logging every request in production. (The clinical audit trail is
+  # separate: it lives in the app/DB, not in these LB access logs.)
   log_config {
     enable      = true
-    sample_rate = 1.0
+    sample_rate = 0.1
   }
 }
 
@@ -53,7 +56,7 @@ resource "google_compute_backend_service" "frontend" {
   }
   log_config {
     enable      = true
-    sample_rate = 1.0
+    sample_rate = 0.1
   }
 }
 

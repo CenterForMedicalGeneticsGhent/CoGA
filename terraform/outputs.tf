@@ -39,6 +39,6 @@ output "refdata_bucket" {
 }
 
 output "backend_service_account" {
-  description = "Backend runtime service account email."
-  value       = google_service_account.backend.email
+  description = "Backend runtime service account email (created in the central infra repo; referenced here)."
+  value       = local.backend_sa_email
 }

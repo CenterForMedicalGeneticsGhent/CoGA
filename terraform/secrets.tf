@@ -28,8 +28,6 @@ resource "google_secret_manager_secret" "app" {
       }
     }
   }
-
-  depends_on = [google_project_service.services]
 }
 
 # The Cloud SQL user password is read from Secret Manager so there is a single
@@ -40,18 +38,22 @@ data "google_secret_manager_secret_version" "postgres_password" {
 }
 
 # --- Access grants ----------------------------------------------------------
+#
+# RESOURCE-level grants on the secrets this config creates, so they stay here (they
+# cannot escalate to project-level roles). The SAs are created in the central infra
+# repo; we grant them by email.
 
 # Backend reads every app secret it injects via secret_key_ref.
 resource "google_secret_manager_secret_iam_member" "backend" {
   for_each  = local.secret_ids
   secret_id = google_secret_manager_secret.app[each.key].id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.backend.email}"
+  member    = "serviceAccount:${local.backend_sa_email}"
 }
 
 # The ClickHouse VM reads only its own password at boot.
 resource "google_secret_manager_secret_iam_member" "clickhouse_vm" {
   secret_id = google_secret_manager_secret.app["clickhouse_password"].id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.clickhouse_vm.email}"
+  member    = "serviceAccount:${local.clickhouse_vm_sa_email}"
 }

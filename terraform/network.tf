@@ -10,7 +10,6 @@
 resource "google_compute_network" "vpc_network" {
   name                    = "${local.name_prefix}-vpc"
   auto_create_subnetworks = false
-  depends_on              = [google_project_service.services]
 }
 
 resource "google_compute_subnetwork" "subnet" {
@@ -56,7 +55,6 @@ resource "google_vpc_access_connector" "connector" {
   region        = var.region
   ip_cidr_range = "10.8.0.0/28"
   network       = google_compute_network.vpc_network.name
-  depends_on    = [google_project_service.services]
 }
 
 # ---- Cloud NAT (egress for the private ClickHouse VM: Docker Hub pull, OS pkgs) ----
@@ -99,18 +97,9 @@ resource "google_compute_firewall" "allow_clickhouse" {
   target_tags   = ["clickhouse"]
 }
 
-# Admin SSH to the ClickHouse VM via Identity-Aware Proxy only (no public IP).
-resource "google_compute_firewall" "allow_iap_ssh" {
-  name      = "${local.name_prefix}-allow-iap-ssh"
-  network   = google_compute_network.vpc_network.name
-  direction = "INGRESS"
-
-  allow {
-    protocol = "tcp"
-    ports    = ["22"]
-  }
-
-  # Google's IAP TCP-forwarding source range.
-  source_ranges = ["35.235.240.0/20"]
-  target_tags   = ["clickhouse"]
-}
+# NOTE: there is intentionally NO SSH ingress to the ClickHouse VM. The VM has no
+# public IP and is a Container-Optimized OS box managed entirely through metadata
+# startup/shutdown scripts + Secret Manager, so no interactive shell is needed for
+# normal operation. If break-glass debugging is ever required, add a temporary
+# IAP-scoped rule (source 35.235.240.0/20, tcp/22) and remove it afterwards, or use
+# the serial console.
