@@ -10,8 +10,9 @@ Available helpers:
   - loads the bundled demo family into Postgres and ClickHouse using the current backend services
 - [gtf_to_ccds_gene_bed.py](gtf_to_ccds_gene_bed.py)
   - prepares transcript/gene reference files for the assembly reference upload flow
-- [plot_coverage_with_segments.py](plot_coverage_with_segments.py)
-  - local analysis/visualization helper
+- [import_dgv.py](import_dgv.py)
+  - server-side streaming bulk-loader for the large DGV (Database of Genomic Variants) reference file (~360 MB / ~2M rows) into the `dgv_variants` table, inserting in bounded batches so memory stays flat regardless of file size. Prefer this over the `POST /assemblies/{id}/reference-upload/dgv` endpoint for the full DGV file (that endpoint reads the whole upload into memory). Run inside the backend container, e.g.:
+    - `PYTHONPATH=/app python /app/scripts/import_dgv.py --assembly GRCh38 --file /data/ref-data/<dgv-file>.txt`
 
 For normal application data loading, use the API flows documented in [docs/data-import.md](../docs/data-import.md).
 
