@@ -135,8 +135,7 @@ its inputs.
 
 ## Files
 
-- Schema: `db/schema/postgres/035_family_variant_ranking_cache.sql`,
-  `036_ranking_cache_superset.sql`
+- Schema: `db/schema/postgres/03_assay.sql`
 - Cache service: `app/services/variant_ranking_cache.py` (`compute_ranking_hashes`,
   `get_cached_ranking`, `store_ranking`, `find_superset_candidates`,
   `clear_family_ranking_cache`)

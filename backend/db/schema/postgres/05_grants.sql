@@ -59,5 +59,5 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- NOTE: any FUTURE append-only table MUST repeat this REVOKE — the default privileges
 -- above otherwise grant the new table UPDATE/DELETE to coga_app.
 REVOKE UPDATE, DELETE, TRUNCATE ON
-    audit_log_events, clinical_audit_events, report_signouts
+    audit_log_events, clinical_audit_events, report_signouts, integrity_anchors
     FROM coga_app;

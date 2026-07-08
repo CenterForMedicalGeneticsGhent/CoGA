@@ -74,7 +74,7 @@ no cross-tenant boundary to protect.
   client IP) via an async queue worker. Failed logins are tracked separately.
 - ✅ **PII minimisation.** Query strings are reduced to keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`); secret-like body fields are masked.
-- ✅ **Append-only (new).** `029_audit_log_immutable.sql` adds a trigger that
+- ✅ **Append-only (new).** `04_traceability.sql` adds a trigger that
   blocks `DELETE` and `UPDATE` on `audit_log_events`, with a single carve-out for
   the `ON DELETE SET NULL` user-unlink cascade (column-agnostic jsonb diff), so
   account removal still works while the denormalised `user_email`/`user_role`

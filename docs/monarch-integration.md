@@ -45,12 +45,12 @@ directly onto identifiers CoGA already stores.
 
 | Monarch entity/edge | Maps onto existing CoGA structure |
 | --- | --- |
-| Gene node (`HGNC:`) | `gene_info.hgnc_id`, `gene_info.ensembl_gene_id` ([001_metadata.sql](../backend/db/schema/postgres/001_metadata.sql)) |
-| Phenotype node (`HP:`) | `hpo_term.hpo_id` ([015_hpo.sql](../backend/db/schema/postgres/015_hpo.sql)) |
+| Gene node (`HGNC:`) | `gene_info.hgnc_id`, `gene_info.ensembl_gene_id` ([02_reference.sql](../backend/db/schema/postgres/02_reference.sql)) |
+| Phenotype node (`HP:`) | `hpo_term.hpo_id` ([02_reference.sql](../backend/db/schema/postgres/02_reference.sql)) |
 | Disease node (`MONDO:`/`OMIM:`) | `gene_info.omim_gene_id`, `gene_info.extra` JSONB |
 | Gene→Disease edge | New table + `gene_info.extra.monarch_associations` |
 | Disease→Phenotype edge | New table |
-| Per-patient observed HPO | `individual_hpo` ([015_hpo.sql](../backend/db/schema/postgres/015_hpo.sql)) |
+| Per-patient observed HPO | `individual_hpo` ([03_assay.sql](../backend/db/schema/postgres/03_assay.sql)) |
 
 The existing gene-reference sync (job queue + admin trigger + JSONB enrichment) and
 the existing HPO ontology tables give us most of the plumbing already.
@@ -130,7 +130,7 @@ Reference associations are low-cardinality, join-heavy data — Postgres, alongs
 existing `hpo_*` tables, not ClickHouse.
 
 **As shipped** — Phase 1's `monarch_gene_disease` (see
-[026_monarch_associations.sql](../backend/db/schema/postgres/026_monarch_associations.sql))
+[02_reference.sql](../backend/db/schema/postgres/02_reference.sql))
 collapses to one row per `(gene, disease)`, aggregating the sources and predicates
 that a pair is asserted under. The original per-predicate, per-source proposal was
 dropped after finding 232 duplicate `(gene, predicate, disease)` rows in the causal
@@ -161,7 +161,7 @@ staleness. `omim_id`/`orphanet_id` xref columns were also dropped from Phase 1 �
 disease key is MONDO and OMIM mapping is a follow-up.
 
 Phase 2's `monarch_disease_phenotype` (**as shipped** — see
-[027_monarch_disease_phenotype.sql](../backend/db/schema/postgres/027_monarch_disease_phenotype.sql)).
+[02_reference.sql](../backend/db/schema/postgres/02_reference.sql)).
 The proposed `frequency`/`onset` columns were dropped: the denormalized
 `disease_phenotype.all.tsv.gz` does not carry them (its `qualifiers` column is empty).
 A `negated` flag was added for explicitly excluded phenotypes:
@@ -207,7 +207,7 @@ should be idempotent and record `release_version` so the UI can show data proven
 
 Shipped in this change. The pieces:
 
-- **Migration** [026_monarch_associations.sql](../backend/db/schema/postgres/026_monarch_associations.sql)
+- **Migration** [02_reference.sql](../backend/db/schema/postgres/02_reference.sql)
   — `monarch_gene_disease`, one row per `(hgnc_id, mondo_id)` with aggregated
   `predicates`/`sources`, a representative `predicate`, a `causal` flag, and
   `release_version`. Indexed on `upper(gene_symbol)` and `mondo_id`.
@@ -241,7 +241,7 @@ thereafter) — until then the profile shows the empty state.
 
 Shipped in this change. Builds directly on Phase 1's gene→disease MONDO key.
 
-- **Migration** [027_monarch_disease_phenotype.sql](../backend/db/schema/postgres/027_monarch_disease_phenotype.sql)
+- **Migration** [02_reference.sql](../backend/db/schema/postgres/02_reference.sql)
   — `monarch_disease_phenotype`, one row per `(mondo_id, hpo_id)` with aggregated
   `sources` and a `negated` flag (an explicitly *excluded* phenotype; a present
   assertion from any source wins over an exclusion). Indexed on `hpo_id`.

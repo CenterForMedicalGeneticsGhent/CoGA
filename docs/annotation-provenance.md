@@ -45,7 +45,7 @@ import.
 ## 3. The data model
 
 Provenance is stored once per family in **`family_annotation_manifest`**
-([030_family_annotation_manifest.sql](../backend/db/schema/postgres/030_family_annotation_manifest.sql)):
+([04_traceability.sql](../backend/db/schema/postgres/04_traceability.sql)):
 
 | Column | Meaning |
 | --- | --- |

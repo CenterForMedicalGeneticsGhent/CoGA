@@ -47,12 +47,12 @@ grounded in the current code (file references inline).
 
 | Capability | Status | Where |
 | --- | --- | --- |
-| Append-only HTTP audit log | ✅ | `audit_log_events` (`004_audit_logs.sql`); immutability trigger (`029_audit_log_immutable.sql`); writer `services/audit_log_pg.py`; middleware `middleware/request_logging.py`; admin UI `AdminAuditLogsPage.tsx` |
+| Append-only HTTP audit log | ✅ | `audit_log_events` (`04_traceability.sql`); immutability trigger (`04_traceability.sql`); writer `services/audit_log_pg.py`; middleware `middleware/request_logging.py`; admin UI `AdminAuditLogsPage.tsx` |
 | Per-variant annotation version + set hash | ✅ (label only) | ClickHouse `annotation_version` (default `"current"`) + `annotationSetHash` — `clickhouse_variant_storage.py` |
 | Per-family annotation/tool provenance from VCF headers | ✅ | `family_annotation_manifest` (`source='vcf_header'`); parser `vcf_header_provenance.py`; captured at import for SNV/SV/TRGT, refreshed on re-import, frozen at sign-out; shown on the filter page + report — see [annotation-provenance.md](annotation-provenance.md) |
 | Reference import bookkeeping | ◑ partial | `reference_dataset_imports` (dataset, `performed_at/by`, `source`); `assemblies` (`version`, `release_date`); `monarch_gene_disease.release_version` (the **only** explicit source version); `raw_import_files` (input file name/path/sha256/source/metadata); `gene_info_refresh_jobs` (sync history, no source version) |
 | Review state | ✅ (decision only) | `small_variant_reviews` / `structural_variant_reviews`: `acmg` JSONB {criteria, point_total, classification, vus_tier}, `acmg_class`, `tags`, `tag_metadata` {per-tag who/when}, `note`, `updated_by/at`, `created_at`. Score recomputed server-side (`acmg_points.py`, `small_variant_review_pg.py`) |
-| Family workflow status | ✅ (mutable) | `family_statuses` + `families.status_id/assigned_to_id/reviewed_by_id` (`024_family_metadata.sql`) |
+| Family workflow status | ✅ (mutable) | `family_statuses` + `families.status_id/assigned_to_id/reviewed_by_id` (`03_assay.sql`) |
 | Versioned snapshot pattern | ✅ (reusable) | `family_structure_versions` (id, family_id, **version**, **structure_hash**, **snapshot JSONB**, metadata, created_by, created_at, UNIQUE(family_id, version)) — `ped_service.py`. **This is the exact pattern to reuse for report snapshots.** |
 | Report generation | ✅ (live) | `FamilyReportPage.tsx` / `FamilyNiptReportPage.tsx` fetch variants tagged `report`, build prose via `reportNarrative.ts`, browser-print. **No frozen snapshot, no footer, no sign-out.** |
 
@@ -262,7 +262,7 @@ Emit from the classify / tag / note / structure / sign-out service paths. Add a 
 ### Phase 0 — Version manifest & report footer  *(foundation)* — ✅ #220
 
 - `family_annotation_manifest` table + `source_version`/`source_release_date`/`source_url` on
-  `reference_dataset_imports` (`030_family_annotation_manifest.sql`). Capture is free: the import
+  `reference_dataset_imports` (`04_traceability.sql`). Capture is free: the import
   already flows `manifest.metadata` into `family.metadata`, so a pipeline-declared
   `annotation_manifest` is read as a fallback; `PUT /families/{id}/annotation-manifest` records
   or overrides it.
