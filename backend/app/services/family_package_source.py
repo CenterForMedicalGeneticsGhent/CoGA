@@ -1,0 +1,239 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager, contextmanager
+import json
+import logging
+from pathlib import Path
+import shutil
+import tempfile
+from typing import Any
+
+from fastapi import HTTPException
+import yaml
+
+from ..core.config import settings
+from ..core.object_storage import (
+    download_prefix,
+    is_remote_uri,
+    list_remote_package_candidates,
+)
+
+from .family_package_common import PackageManifest  # noqa: F401
+
+
+logger = logging.getLogger(__name__)
+
+
+def _staging_root() -> Path:
+    """Local scratch dir under which s3:// packages are staged for an import."""
+    root = Path(tempfile.gettempdir()) / "coga-family-imports"
+    root.mkdir(parents=True, exist_ok=True)
+    return root.resolve()
+
+
+def _authorized_local_roots() -> list[Path]:
+    return [
+        Path(root).expanduser().resolve()
+        for root in settings.family_import_roots
+        if not is_remote_uri(root)
+    ]
+
+
+def _authorized_s3_roots() -> list[str]:
+    return [root.strip() for root in settings.family_import_roots if is_remote_uri(root)]
+
+
+def _load_manifest_dict(manifest_path: Path) -> dict[str, Any]:
+    """Loosely load a manifest (YAML/JSON) to a dict, or {} on any error."""
+    try:
+        text_value = manifest_path.read_text()
+        if manifest_path.suffix in (".yaml", ".yml"):
+            data = yaml.safe_load(text_value)
+        else:
+            data = json.loads(text_value)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _scan_manifest_info(manifest_path: Path) -> dict[str, Any]:
+    """Loosely read a manifest's family_id / analysis_type for the package list."""
+    data = _load_manifest_dict(manifest_path)
+    return {"family_id": data.get("family_id"), "analysis_type": data.get("analysis_type")}
+
+
+def _existing_manifest_dict(root: Path) -> dict[str, Any]:
+    manifest_path = _find_manifest(root)
+    return _load_manifest_dict(manifest_path) if manifest_path is not None else {}
+
+
+def scan_family_import_packages() -> list[dict[str, Any]]:
+    """List candidate family packages directly under each local import root.
+
+    A candidate is an immediate subdirectory containing a manifest
+    (manifest.yaml/.yml/.json) or a ``*.ped`` file. The folder path can then be
+    selected in the import UI instead of typed by hand.
+    """
+    packages: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for root in _authorized_local_roots():
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir(), key=lambda path: path.name.lower()):
+            if not child.is_dir():
+                continue
+            manifest_path = _find_manifest(child)
+            ped_paths = sorted(child.glob("*.ped"))
+            if manifest_path is None and not ped_paths:
+                continue
+            resolved = str(child.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            info = _scan_manifest_info(manifest_path) if manifest_path is not None else {}
+            family_id = info.get("family_id") or child.name
+            packages.append(
+                {
+                    "folder_path": resolved,
+                    "name": child.name,
+                    "family_id": str(family_id),
+                    "has_manifest": manifest_path is not None,
+                    "has_ped": bool(ped_paths),
+                    "analysis_type": info.get("analysis_type"),
+                }
+            )
+    for root_uri in _authorized_s3_roots():
+        # S3 listing is best-effort: a misconfigured or unreachable bucket must
+        # not break the local scan.
+        try:
+            candidates = list_remote_package_candidates(root_uri)
+        except Exception:
+            continue
+        for candidate in candidates:
+            uri = str(candidate["uri"])
+            if uri in seen:
+                continue
+            seen.add(uri)
+            name = str(candidate["name"])
+            packages.append(
+                {
+                    "folder_path": uri,
+                    "name": name,
+                    "family_id": name,
+                    "has_manifest": bool(candidate["has_manifest"]),
+                    "has_ped": bool(candidate["has_ped"]),
+                    "analysis_type": None,
+                }
+            )
+    return packages
+
+
+def _ensure_authorized_package_path(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    staging_root = _staging_root()
+    # A package staged from S3 lives under the staging root and is pre-authorized
+    # (its s3:// source was checked before download).
+    if resolved == staging_root or staging_root in resolved.parents:
+        return resolved
+    allowed_roots = _authorized_local_roots()
+    if any(resolved == root or root in resolved.parents for root in allowed_roots):
+        return resolved
+    # Fail open ONLY when nothing is configured at all — the explicit "unrestricted" dev
+    # default (family_import_roots=[]). When roots ARE configured, a local path outside
+    # them is unauthorized: previously the guard fell open whenever no *local* root
+    # matched, so an S3-only (remote-only) FAMILY_IMPORT_ROOTS silently allowed any
+    # admin-supplied local path — an out-of-allowlist file read/write primitive.
+    if not settings.family_import_roots:
+        return resolved
+    roots = ", ".join(str(root) for root in allowed_roots) or "(remote-only FAMILY_IMPORT_ROOTS)"
+    raise HTTPException(
+        status_code=403,
+        detail=f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {roots}",
+    )
+
+
+def _ensure_authorized_s3_source(uri: str) -> str:
+    normalized = str(uri).strip()
+    allowed = _authorized_s3_roots()
+    if not allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="S3 family import sources require an s3:// entry in FAMILY_IMPORT_ROOTS",
+        )
+    for root in allowed:
+        prefix = root.rstrip("/")
+        if normalized == prefix or normalized.startswith(prefix + "/"):
+            return normalized
+    raise HTTPException(
+        status_code=403,
+        detail=f"S3 source is outside configured FAMILY_IMPORT_ROOTS: {', '.join(allowed)}",
+    )
+
+
+def _stage_s3_package(uri: str) -> Path:
+    """Download an s3:// package prefix into a fresh temp dir under the staging root."""
+    _ensure_authorized_s3_source(uri)
+    dest = Path(tempfile.mkdtemp(prefix="pkg-", dir=_staging_root()))
+    try:
+        downloaded = download_prefix(uri, dest)
+    except Exception:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
+    if downloaded == 0:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise HTTPException(status_code=404, detail=f"No objects found at S3 family package source: {uri}")
+    return dest
+
+
+@contextmanager
+def staged_package_source(folder_path: str | Path):
+    """Yield ``(local_root, source_uri)``. For an s3:// source the package is
+    downloaded to a temp dir (cleaned up on exit) and ``source_uri`` is the s3 URI;
+    for a local path it is yielded unchanged with ``source_uri = None``."""
+    if is_remote_uri(folder_path):
+        uri = str(folder_path).strip()
+        dest = _stage_s3_package(uri)
+        try:
+            yield str(dest), uri
+        finally:
+            shutil.rmtree(dest, ignore_errors=True)
+    else:
+        yield str(folder_path), None
+
+
+@asynccontextmanager
+async def staged_package_source_async(folder_path: str | Path):
+    """Async variant: the S3 download (and cleanup) run in a worker thread so the
+    event loop is not blocked during a large package transfer."""
+    if is_remote_uri(folder_path):
+        uri = str(folder_path).strip()
+        dest = await asyncio.to_thread(_stage_s3_package, uri)
+        try:
+            yield str(dest), uri
+        finally:
+            await asyncio.to_thread(shutil.rmtree, dest, True)
+    else:
+        yield str(folder_path), None
+
+
+def _manifest_candidates(root: Path) -> list[Path]:
+    return [root / "manifest.yaml", root / "manifest.yml", root / "manifest.json"]
+
+
+def _find_manifest(root: Path) -> Path | None:
+    return next((candidate for candidate in _manifest_candidates(root) if candidate.is_file()), None)
+
+
+def _parse_manifest(path: Path) -> tuple[dict[str, Any], PackageManifest]:
+    """Return both the raw parsed payload and the validated model so callers can
+    inspect the original keys (e.g. schema_version presence) without re-reading
+    and re-parsing the file from disk."""
+    raw_text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".json":
+        payload = json.loads(raw_text)
+    else:
+        payload = yaml.safe_load(raw_text)
+    if not isinstance(payload, dict):
+        raise ValueError("Manifest must contain a mapping/object at the top level")
+    return payload, PackageManifest.model_validate(payload)

@@ -1,10 +1,9 @@
 # CoGA — Improvement Workplan (Performance · Traceability · Security · Regulatory)
 
 _Generated 2026-06-26 from a forward-looking whole-codebase review. This is the
-companion to — not a replacement for — [`docs/archive/CODEBASE_REVIEW.md`](archive/CODEBASE_REVIEW.md)
-(the 2026-06-14 dead-code/bug/perf cleanup, most of whose items are now **FIXED**) and
-[`docs/ROADMAP.md`](ROADMAP.md) (product direction). Where this plan and those documents
-overlap, this one supersedes._
+companion to the 2026-06-14 dead-code/bug/perf cleanup review (archived in git
+history; most of its items are now **FIXED**) and [`docs/ROADMAP.md`](ROADMAP.md)
+(product direction). Where this plan and those documents overlap, this one supersedes._
 
 > **Status: DRAFT for internal review.** This is an engineering + regulatory action
 > plan, not an approved QMS artefact. Owners, dates and effort estimates are proposals

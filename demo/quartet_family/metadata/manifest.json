@@ -34,13 +34,13 @@
     }
   ],
   "counts": {
-    "coverage_bin_size": 15000,
-    "apcad_target_points_per_sample": 50000,
+    "coverage_bin_size": 500000,
+    "apcad_target_points_per_sample": 1000,
     "coverage_bins_per_sample": {
-      "father": 190402,
-      "mother": 190402,
-      "son": 190402,
-      "daughter": 190402
+      "father": 5730,
+      "mother": 5730,
+      "son": 5730,
+      "daughter": 5730
     },
     "segments_per_sample": {
       "father": 49,
@@ -49,34 +49,34 @@
       "daughter": 54
     },
     "apcad_upload_rows_per_sample": {
-      "father": 50000,
-      "mother": 50000,
-      "son": 50000,
-      "daughter": 50000
+      "father": 1000,
+      "mother": 1000,
+      "son": 1000,
+      "daughter": 1000
     },
     "apcad_import_rows_per_sample": {
-      "father": 50000,
-      "mother": 50000,
-      "son": 50000,
-      "daughter": 50000
+      "father": 1000,
+      "mother": 1000,
+      "son": 1000,
+      "daughter": 1000
     },
     "manual_structural_rows_per_sample": {
-      "father": 5010,
-      "mother": 5068,
-      "son": 5043,
-      "daughter": 5028
+      "father": 249,
+      "mother": 252,
+      "son": 251,
+      "daughter": 250
     },
     "sniffles_records_per_sample": {
-      "father": 5010,
-      "mother": 5068,
-      "son": 5043,
-      "daughter": 5028
+      "father": 249,
+      "mother": 252,
+      "son": 251,
+      "daughter": 250
     },
     "spectre_records_per_sample": {
-      "father": 5010,
-      "mother": 5068,
-      "son": 5043,
-      "daughter": 5028
+      "father": 249,
+      "mother": 252,
+      "son": 251,
+      "daughter": 250
     },
     "trgt_records_per_sample": {
       "father": 21,
@@ -84,8 +84,8 @@
       "son": 21,
       "daughter": 21
     },
-    "clair3_family_variants": 5184,
-    "glimpse_family_variants": 5184,
+    "clair3_family_variants": 1000,
+    "glimpse_family_variants": 1000,
     "recombination_blocks_per_child": {
       "son": 81,
       "daughter": 80

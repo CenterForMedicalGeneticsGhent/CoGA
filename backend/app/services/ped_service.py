@@ -43,10 +43,6 @@ def _sex_code_from_label(sex: str) -> str:
     return {"male": "1", "female": "2"}.get(sex, "0")
 
 
-def _phenotype_code_from_affected(affected: bool) -> str:
-    return "2" if affected else "1"
-
-
 def _phenotype_code_from_clinical_status(clinical_status: str) -> str:
     if clinical_status == "affected":
         return "2"
