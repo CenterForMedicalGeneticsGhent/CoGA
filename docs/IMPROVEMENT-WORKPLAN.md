@@ -153,7 +153,7 @@ These are active-harm or near-zero-cost items; do them first.
 
 | ID | Item | Area | Effort |
 | --- | --- | --- | --- |
-| **P0-1** | **Stop the destructive boot-time `UPDATE`** in `006_project_scoped_variant_tags.sql:24-28` — it resets every `scope='project'` tag to global on **every restart** (verified: `init_postgres_schema` re-runs all SQL, no ledger). Guard or delete the one-shot backfill. | Architecture | S |
+| **P0-1** | ✅ **Resolved / obsolete.** The destructive boot-time `UPDATE` that reset every `scope='project'` tag to global on **every restart** no longer exists — the one-shot backfill is gone and the project-scoped tag tables are now created in their final form in the consolidated `03_assay.sql` baseline. The `init_postgres_schema` loader still re-runs all SQL each boot (no ledger), but the idempotent `CREATE TABLE` baselines have no such side effect. | Architecture | S |
 | **P0-2** | **Deterministic phenotype-term cap** — `monarch_phenotype_score.py:247` slices a `set` after `sorted(key=ic)`; IC ties break on `PYTHONHASHSEED`, changing ranking across workers. Add `(-ic, term)` tiebreaker. | Traceability | S |
 | **P0-3** | **Stable sign-out content hash** — order the drift list by `variant_id` before hashing (`classification_drift_service.py:90` → snapshot `report_signout_service.py:96`); list order isn't canonicalized, so identical content can hash differently. | Traceability | S |
 | **P0-4** | **Explicit ranking tiebreaker** — add `str(v.id)` as final sort key in `clickhouse_family_variants.py:4732` (small) & `:5547` (SV); determinism is currently incidental and load-bearing for the 5000-row truncation. | Traceability | S |

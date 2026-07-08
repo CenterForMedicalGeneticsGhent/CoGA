@@ -221,7 +221,7 @@ The modal header carries quick links for the variant:
 
 ## Persistence (developer notes)
 
-- Postgres migration `backend/db/schema/postgres/025_acmg_classification.sql` adds
+- Postgres schema `backend/db/schema/postgres/03_assay.sql` adds
   `acmg` (JSONB), `acmg_point_total` (INTEGER) and `acmg_class` (TEXT) to
   `small_variant_reviews`. **Apply it before the save path works end-to-end.**
 - The save reuses `PUT /families/{family_id}/small-variants/{variant_id}/review`.

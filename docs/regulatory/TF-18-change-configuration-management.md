@@ -20,7 +20,7 @@
 ## 1. Configuration items (what is under control)
 - **Source code** — Git repository; releases are tagged; every clinical build maps to a commit hash.
 - **Dependencies** — `backend/requirements.txt` (pin all — see TF-08 open item), `frontend/package-lock.json`, container base-image digests.
-- **Database schema & migrations** — versioned SQL migrations applied on startup.
+- **Database schema** — idempotent, domain-grouped SQL baselines (`backend/db/schema/postgres/01_access.sql`–`05_grants.sql`), applied in name order on every startup (no migration ledger — the loader re-runs all files each boot).
 - **Reference data & content** — assembly, ClinVar/gnomAD/dbNSFP/VEP/etc. releases (versioned via the manifest), gene panels and their source version, NIPT artifact lists, ACMG criterion-positioning rules.
 - **Configuration/secrets** — environment settings (secrets in a manager, not in VCS).
 - **Documentation** — this technical file and the per-feature design docs.
@@ -81,3 +81,11 @@ checks** on `main` so no change merges without passing them (also flagged in TF-
 Change requests, impact/significance assessments, review and CI evidence, re-validation
 results, release records, and configuration baselines are retained per the CMGG QMS and
 available to FAMHP on request (Art. 5(5)(e),(h)).
+
+## 8. Change record log
+Pre-release configuration changes to the device schema definition are logged here; each row
+maps to the §4 significance assessment.
+
+| # | Date | Change | Significance (§4) | Rationale | Evidence |
+| --- | --- | --- | --- | --- | --- |
+| CR-001 | 2026-07-08 | **Consolidated the 43 incremental Postgres schema files** (`postgres/001_*.sql`–`042_*.sql`, incl. the duplicate `026_*` prefix) into **5 idempotent, domain-grouped baselines** (`01_access.sql`, `02_reference.sql`, `03_assay.sql`, `04_traceability.sql`, `05_grants.sql`). Each table is now created once in its final form (later `ALTER … ADD COLUMN` steps folded into the `CREATE TABLE`). The startup loader (`init_postgres_schema`) is unchanged — it still applies every file in sorted name order on each boot (no migration ledger). | **Patch `x.y.Z`** — refactor with **no functional/clinical impact**; the device schema is content-identical. | Readability, maintainability and traceability of the device schema definition before release: one final-form definition per table instead of a 43-file incremental history. | **Schema-identical proven** via a pg_dump/catalogue fingerprint before vs. after: 589 columns, 185 constraints, 167 indexes, 4 triggers, 4 functions, 220 grants — all identical, plus identical seed data. System-test/CI smoke (real Postgres startup + admin seed, [TF-09 §](TF-09-verification-validation.md)) green. No follow-up validation report required (patch level). |

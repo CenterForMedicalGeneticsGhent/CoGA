@@ -19,19 +19,13 @@ Primary responsibilities:
 
 Schema source:
 
-- [001_metadata.sql](../backend/db/schema/postgres/001_metadata.sql)
-- [002_repeat_expansions.sql](../backend/db/schema/postgres/002_repeat_expansions.sql)
-- [003_interval_tracks.sql](../backend/db/schema/postgres/003_interval_tracks.sql)
-- [004_audit_logs.sql](../backend/db/schema/postgres/004_audit_logs.sql)
-- [005_gene_panel_description.sql](../backend/db/schema/postgres/005_gene_panel_description.sql)
-- [006_project_scoped_variant_tags.sql](../backend/db/schema/postgres/006_project_scoped_variant_tags.sql)
-- [007_family_import_jobs.sql](../backend/db/schema/postgres/007_family_import_jobs.sql)
-- [008_paraphase_results.sql](../backend/db/schema/postgres/008_paraphase_results.sql)
-- [009_structural_variant_reviews.sql](../backend/db/schema/postgres/009_structural_variant_reviews.sql)
-- [010_auth_login_attempts.sql](../backend/db/schema/postgres/010_auth_login_attempts.sql)
-- [011_pgt_family_roles.sql](../backend/db/schema/postgres/011_pgt_family_roles.sql)
-- [012_segmental_duplications.sql](../backend/db/schema/postgres/012_segmental_duplications.sql)
-- [013_gene_panel_sources.sql](../backend/db/schema/postgres/013_gene_panel_sources.sql)
+The schema is defined by five domain-grouped, idempotent baseline files. Each table is created once in its final shape (later `ALTER ... ADD COLUMN` steps folded into the `CREATE TABLE`). The loader (`init_postgres_schema`) applies every file in sorted name order on each boot; there is no migration ledger.
+
+- [01_access.sql](../backend/db/schema/postgres/01_access.sql) — pgcrypto extension, genome foundation (species, assemblies, chromosomes), and identity/authorization (users, projects, project_users, auth_login_attempts).
+- [02_reference.sql](../backend/db/schema/postgres/02_reference.sql) — reference/annotation data: genes and gene info (+refresh jobs), blacklist, clinical CNVs (+KB jobs), DGV variants, segmental duplications, gene panels (+genes/regions/versions), HPO (term/synonym/edge/closure), Monarch gene-disease and disease-phenotype, repeat loci, reference dataset imports.
+- [03_assay.sql](../backend/db/schema/postgres/03_assay.sql) — families/samples plus per-sample assay data and review/curation: family statuses (+seed), families, samples, family members/projects/relationships, structure versions, import jobs, individual HPO, repeat expansions, Paraphase results, NIPT artifact variants, interval-track sources, small-variant reviews/presets/tag definitions (+project links), structural-variant reviews (+presets), family SV gene index (+status), ranking cache.
+- [04_traceability.sql](../backend/db/schema/postgres/04_traceability.sql) — import provenance plus the append-only, hash-chained clinical audit and integrity surface: audit_log_events, ui_events, raw_import_files, family_annotation_manifest, clinical_audit_events, report_signouts, integrity_anchors, and the immutability trigger functions/triggers.
+- [05_grants.sql](../backend/db/schema/postgres/05_grants.sql) — the restricted runtime role `coga_app` and its grants/revokes.
 
 ## ClickHouse
 

@@ -4,6 +4,8 @@ The live schema is split across `Postgres` and `ClickHouse`.
 
 ## Postgres Tables
 
+The Postgres schema lives in five domain-grouped, idempotent baseline files under `backend/db/schema/postgres/`. Each table is created once in its final form (later `ALTER ... ADD COLUMN` steps are folded into the `CREATE TABLE`). The domains are: `01_access` (pgcrypto + genome foundation + identity/authorization), `02_reference` (reference/annotation data), `03_assay` (families/samples + per-sample assay data + review/curation), `04_traceability` (import provenance + append-only hash-chained clinical audit + integrity), and `05_grants` (the restricted `coga_app` runtime role + grants/revokes).
+
 Metadata and access:
 
 - `users`
@@ -52,19 +54,11 @@ Import jobs:
 
 Canonical schema files:
 
-- [001_metadata.sql](../backend/db/schema/postgres/001_metadata.sql)
-- [002_repeat_expansions.sql](../backend/db/schema/postgres/002_repeat_expansions.sql)
-- [003_interval_tracks.sql](../backend/db/schema/postgres/003_interval_tracks.sql)
-- [004_audit_logs.sql](../backend/db/schema/postgres/004_audit_logs.sql)
-- [005_gene_panel_description.sql](../backend/db/schema/postgres/005_gene_panel_description.sql)
-- [006_project_scoped_variant_tags.sql](../backend/db/schema/postgres/006_project_scoped_variant_tags.sql)
-- [007_family_import_jobs.sql](../backend/db/schema/postgres/007_family_import_jobs.sql)
-- [008_paraphase_results.sql](../backend/db/schema/postgres/008_paraphase_results.sql)
-- [009_structural_variant_reviews.sql](../backend/db/schema/postgres/009_structural_variant_reviews.sql)
-- [010_auth_login_attempts.sql](../backend/db/schema/postgres/010_auth_login_attempts.sql)
-- [011_pgt_family_roles.sql](../backend/db/schema/postgres/011_pgt_family_roles.sql)
-- [012_segmental_duplications.sql](../backend/db/schema/postgres/012_segmental_duplications.sql)
-- [013_gene_panel_sources.sql](../backend/db/schema/postgres/013_gene_panel_sources.sql)
+- [01_access.sql](../backend/db/schema/postgres/01_access.sql) — pgcrypto extension + genome foundation (`species`, `assemblies`, `chromosomes`) + identity/authorization (`users`, `projects`, `project_users`, `auth_login_attempts`)
+- [02_reference.sql](../backend/db/schema/postgres/02_reference.sql) — reference/annotation data (`genes`, `gene_info`, `blacklist`, `clinical_cnvs`, `dgv_variants`, `segmental_duplications`, `gene_panels` and children, `hpo_*`, `monarch_*`, `repeat_loci`, `reference_dataset_imports`)
+- [03_assay.sql](../backend/db/schema/postgres/03_assay.sql) — families/samples + per-sample assay data + review/curation (`families`, `samples`, `family_members`, `family_projects`, `sample_projects`, `individual_hpo`, `repeat_expansions`, `sample_paraphase_results`, `sample_interval_track_sources`, `small_variant_reviews`, `structural_variant_reviews`, tag/preset tables, `family_sv_gene_index`, `family_variant_ranking_cache`, `family_import_jobs`)
+- [04_traceability.sql](../backend/db/schema/postgres/04_traceability.sql) — import provenance + append-only hash-chained clinical audit + integrity (`audit_log_events`, `ui_events`, `raw_import_files`, `family_annotation_manifest`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`) plus the immutability trigger functions/triggers
+- [05_grants.sql](../backend/db/schema/postgres/05_grants.sql) — the restricted `coga_app` runtime role + grants/revokes
 
 ## ClickHouse Tables
 
@@ -107,7 +101,7 @@ The important logical entities are:
 Application startup:
 
 1. waits for Postgres
-2. applies the Postgres schema
+2. applies the Postgres schema — the loader re-applies all five baseline files in sorted name order on every boot (idempotent; there is no migration ledger)
 3. ensures the admin user exists
 4. seeds the built-in repeat catalog
 5. ensures Homo sapiens GRCh38 exists and imports missing GRCh38 cytobands/genes from UCSC when available

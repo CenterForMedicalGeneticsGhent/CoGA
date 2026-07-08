@@ -1,6 +1,6 @@
 # Runbook — flip the application to the restricted DB role (`coga_app`)
 
-Migration `040_app_runtime_role_privileges.sql` creates a **restricted runtime role
+Schema `05_grants.sql` creates a **restricted runtime role
 `coga_app`** and revokes `UPDATE`/`DELETE`/`TRUNCATE` on the append-only tables
 (`audit_log_events`, `clinical_audit_events`, `report_signouts`). It ships in
 **fallback mode**: the role exists (`NOLOGIN`) but the application still connects as the

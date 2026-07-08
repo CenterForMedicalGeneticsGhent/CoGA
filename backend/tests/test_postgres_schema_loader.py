@@ -42,34 +42,45 @@ def test_split_plain_statements_unchanged() -> None:
     assert stmts == ["CREATE TABLE a (id int)", "CREATE TABLE b (id int)"]
 
 
-def test_audit_immutable_schema_file_parses_into_three_statements() -> None:
-    # The real append-only audit migration is the file that exposed the bug.
+def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None:
+    # The append-only audit immutability (block-mutation function + trigger) lives in the
+    # consolidated 04_traceability.sql. Its dollar-quoted PL/pgSQL body has internal
+    # semicolons (RAISE EXCEPTION) that must not split the statement — the bug this guards.
     path = (
         Path(__file__).resolve().parents[1]
-        / "db" / "schema" / "postgres" / "029_audit_log_immutable.sql"
+        / "db" / "schema" / "postgres" / "04_traceability.sql"
     )
     stmts = _split_sql_script(path.read_text())
-    kinds = [s.split()[0].upper() for s in stmts]
-    assert kinds == ["CREATE", "DROP", "CREATE"]
-    assert any("LANGUAGE plpgsql" in s for s in stmts)
+    fn = next(
+        s
+        for s in stmts
+        if s.startswith("CREATE OR REPLACE FUNCTION audit_log_events_block_mutation")
+    )
+    assert "append-only" in fn  # internal ; inside the RAISE EXCEPTION body is kept
+    assert fn.rstrip().endswith("LANGUAGE plpgsql")
+    assert any(
+        s.startswith("DROP TRIGGER IF EXISTS audit_log_events_immutable") for s in stmts
+    )
+    assert any(s.startswith("CREATE TRIGGER audit_log_events_immutable") for s in stmts)
 
 
-def test_project_scoped_tag_migration_has_no_destructive_backfill_update() -> None:
-    # P0-1: init_postgres_schema() replays every statement on every restart (no
-    # migration ledger), so a one-shot UPDATE normalizing rows back to
+def test_tag_scope_consolidation_has_no_destructive_backfill_update() -> None:
+    # P0-1 regression guard: init_postgres_schema() replays every statement on every
+    # restart (no migration ledger), so a one-shot UPDATE normalizing rows back to
     # scope='global'/project_id=NULL would silently clobber every legitimately created
-    # project-scoped tag on each boot. The migration must contain no such UPDATE; the
-    # additive ALTERs + column DEFAULT 'global' already cover fresh DBs.
+    # project-scoped tag on each boot. The project-scoped-tag definition — now folded into
+    # the consolidated 03_assay.sql — must contain no such UPDATE; the inline column
+    # DEFAULT 'global' + CHECK constraints already cover fresh DBs.
     path = (
         Path(__file__).resolve().parents[1]
-        / "db" / "schema" / "postgres" / "006_project_scoped_variant_tags.sql"
+        / "db" / "schema" / "postgres" / "03_assay.sql"
     )
     stmts = _split_sql_script(path.read_text())
     kinds = [s.split()[0].upper() for s in stmts]
     assert "UPDATE" not in kinds
     joined = "\n".join(stmts)
-    # The additive/idempotent pieces must survive the fix.
-    assert "ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'global'" in joined
+    # The folded scope column + constraints + project-links table must be present.
+    assert "scope text DEFAULT 'global'::text NOT NULL" in joined
     assert "small_variant_tag_definitions_scope_check" in joined
     assert "small_variant_tag_definitions_scope_project_check" in joined
     assert (
